@@ -4,6 +4,7 @@
 //! Rust code to track ownership and borrowing operations at runtime.
 
 mod examples;
+mod parser;
 
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
