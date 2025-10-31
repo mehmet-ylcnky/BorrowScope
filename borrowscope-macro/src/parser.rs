@@ -3,6 +3,8 @@
 //! This module provides utilities for parsing and extracting information
 //! from function items.
 
+#![allow(dead_code)]
+
 use syn::{FnArg, ItemFn, ReturnType};
 
 /// Information extracted from a function
