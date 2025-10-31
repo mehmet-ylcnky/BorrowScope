@@ -101,3 +101,116 @@ fn transform_function(func: &mut ItemFn) {
 
     Transformer.visit_item_fn_mut(func);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use syn::parse_quote;
+
+    #[test]
+    fn test_transform_simple_variable() {
+        let mut func: ItemFn = parse_quote! {
+            fn example() {
+                let x = 5;
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        assert!(output.contains("track_new"));
+        assert!(output.contains("stringify"));
+    }
+
+    #[test]
+    fn test_transform_borrow() {
+        let mut func: ItemFn = parse_quote! {
+            fn example() {
+                let x = 5;
+                let y = &x;
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        assert!(output.contains("track_borrow"));
+    }
+
+    #[test]
+    fn test_transform_mut_borrow() {
+        let mut func: ItemFn = parse_quote! {
+            fn example() {
+                let mut x = 5;
+                let y = &mut x;
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        assert!(output.contains("track_borrow_mut"));
+    }
+
+    #[test]
+    fn test_preserves_function_signature() {
+        let mut func: ItemFn = parse_quote! {
+            fn example(a: i32) -> i32 {
+                let x = a;
+                x
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        assert!(output.contains("fn example"));
+        assert!(output.contains("a : i32"));
+        assert!(output.contains("-> i32"));
+    }
+
+    #[test]
+    fn test_preserves_generics() {
+        let mut func: ItemFn = parse_quote! {
+            fn example<T>(value: T) -> T {
+                value
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        assert!(output.contains("fn example"));
+        assert!(output.contains("< T >"));
+    }
+
+    #[test]
+    fn test_no_transform_without_init() {
+        let mut func: ItemFn = parse_quote! {
+            fn example() {
+                let x;
+                x = 5;
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        // Should not add tracking for uninitialized variables
+        assert!(!output.contains("track_new"));
+    }
+
+    #[test]
+    fn test_preserves_visibility() {
+        let mut func: ItemFn = parse_quote! {
+            pub fn example() {
+                let x = 5;
+            }
+        };
+
+        transform_function(&mut func);
+        let output = quote! { #func }.to_string();
+
+        assert!(output.contains("pub fn example"));
+    }
+}
