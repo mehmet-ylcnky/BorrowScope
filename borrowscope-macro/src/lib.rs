@@ -3,6 +3,7 @@
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
 //! Rust code to track ownership and borrowing operations at runtime.
 
+mod borrow_detection;
 mod examples;
 mod parser;
 mod pattern;
