@@ -64,16 +64,15 @@ pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<()> {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use std::sync::Mutex;
 
     lazy_static::lazy_static! {
         /// Global test lock to ensure tests run serially when accessing shared tracker
-        static ref TEST_LOCK: Mutex<()> = Mutex::new(());
+        static ref TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
     }
 
     #[test]
     fn test_simple_tracking() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
 
         reset();
 
@@ -87,7 +86,7 @@ mod integration_tests {
 
     #[test]
     fn test_borrow_tracking() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
 
         reset();
 
@@ -104,7 +103,7 @@ mod integration_tests {
 
     #[test]
     fn test_multiple_variables() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
 
         reset();
 
@@ -123,7 +122,7 @@ mod integration_tests {
 
     #[test]
     fn test_mutable_borrow() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
 
         reset();
 
@@ -139,7 +138,7 @@ mod integration_tests {
 
     #[test]
     fn test_graph_building() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
 
         reset();
 
@@ -160,7 +159,7 @@ mod integration_tests {
 
     #[test]
     fn test_export_json() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
 
         reset();
 

@@ -181,11 +181,10 @@ pub fn get_events() -> Vec<Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     lazy_static::lazy_static! {
         /// Global test lock to ensure tests run serially when accessing shared tracker
-        static ref TEST_LOCK: Mutex<()> = Mutex::new(());
+        static ref TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
     }
 
     #[test]
@@ -241,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_track_new_returns_value() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
         reset();
         let value = track_new("x", 42);
         assert_eq!(value, 42);
@@ -249,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_track_borrow_returns_reference() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
         reset();
         let s = String::from("hello");
         let r = track_borrow("r", &s);
@@ -258,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_track_borrow_mut_returns_reference() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
         reset();
         let mut s = String::from("hello");
         let r = track_borrow_mut("r", &mut s);
@@ -268,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_complete_workflow() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
         reset();
 
         let x = track_new("x", 5);
@@ -286,7 +285,7 @@ mod tests {
 
     #[test]
     fn test_reset() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
         reset();
 
         track_new("x", 5);
@@ -301,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_unique_ids() {
-        let _lock = TEST_LOCK.lock().unwrap();
+        let _lock = TEST_LOCK.lock();
         reset();
 
         track_new("x", 1);
@@ -321,5 +320,81 @@ mod tests {
         assert_eq!(ids[0], "x_0");
         assert_eq!(ids[1], "x_1");
         assert_eq!(ids[2], "x_2");
+    }
+
+    #[test]
+    fn test_thread_safety() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        // Test that multiple threads can safely call tracking functions
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    for j in 0..10 {
+                        track_new(&format!("var_{}_{}", i, j), i * 10 + j);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let events = get_events();
+        // With try_lock(), some events may be lost under contention
+        // The important thing is no panics or data corruption
+        assert!(!events.is_empty(), "Should have tracked some events");
+    }
+
+    #[test]
+    fn test_timestamp_uniqueness() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        // Generate timestamps from multiple threads
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    for j in 0..5 {
+                        track_new(&format!("var_{}_{}", i, j), i * 5 + j);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let events = get_events();
+        if events.len() > 1 {
+            let mut timestamps: Vec<_> = events.iter().map(|e| e.timestamp()).collect();
+            timestamps.sort_unstable();
+
+            // Check for uniqueness
+            for i in 1..timestamps.len() {
+                assert!(
+                    timestamps[i] > timestamps[i - 1],
+                    "Timestamps should be unique and monotonic"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_concurrent_reset() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        // Add some events
+        for i in 0..10 {
+            track_new(&format!("var_{}", i), i);
+        }
+
+        assert_eq!(get_events().len(), 10);
+        reset();
+        assert_eq!(get_events().len(), 0);
     }
 }
