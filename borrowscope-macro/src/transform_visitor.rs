@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use syn::{
     visit_mut::{self, VisitMut},
-    Block, Expr, ExprReference, ItemFn, Local, Pat, Stmt,
+    Block, Expr, ExprReference, Ident, Index, ItemFn, Local, Pat, Stmt,
 };
 
 /// Visitor that transforms AST to inject tracking calls
@@ -19,6 +19,10 @@ pub struct OwnershipVisitor {
     next_id: usize,
     /// Stack of scopes, each containing variable names created in that scope
     scope_stack: Vec<Vec<String>>,
+    /// Current statement index for inserting statements
+    current_stmt_index: usize,
+    /// Statements to insert after current statement
+    pending_inserts: Vec<(usize, Stmt)>,
 }
 
 impl OwnershipVisitor {
@@ -29,6 +33,8 @@ impl OwnershipVisitor {
             var_ids: HashMap::new(),
             next_id: 1,
             scope_stack: vec![Vec::new()], // Start with root scope
+            current_stmt_index: 0,
+            pending_inserts: Vec::new(),
         }
     }
 
@@ -65,6 +71,161 @@ impl OwnershipVisitor {
         matches!(expr, Expr::Path(_))
     }
 
+    /// Check if pattern is complex (tuple, struct, etc.)
+    fn is_complex_pattern(pat: &Pat) -> bool {
+        matches!(
+            pat,
+            Pat::Tuple(_) | Pat::Struct(_) | Pat::TupleStruct(_) | Pat::Slice(_)
+        )
+    }
+
+    /// Get simple identifier from pattern if possible
+    fn get_simple_ident(pat: &Pat) -> Option<String> {
+        match pat {
+            Pat::Ident(pat_ident) => Some(pat_ident.ident.to_string()),
+            Pat::Type(pat_type) => Self::get_simple_ident(&pat_type.pat),
+            _ => None,
+        }
+    }
+
+    /// Build field/tuple access expression
+    fn build_access_expr(source: &Ident, indices: &[usize], fields: &[Ident]) -> Expr {
+        let mut expr: Expr = syn::parse_quote! { #source };
+
+        for &idx in indices {
+            let index = Index::from(idx);
+            expr = syn::parse_quote! { #expr.#index };
+        }
+
+        for field in fields {
+            expr = syn::parse_quote! { #expr.#field };
+        }
+
+        expr
+    }
+
+    /// Generate destructuring statements for a pattern
+    fn generate_destructure_stmts(
+        &mut self,
+        pat: &Pat,
+        source: &Ident,
+        indices: &[usize],
+        fields: &[Ident],
+    ) -> Vec<Stmt> {
+        match pat {
+            Pat::Tuple(pat_tuple) => {
+                let mut stmts = Vec::new();
+
+                for (idx, elem_pat) in pat_tuple.elems.iter().enumerate() {
+                    let mut new_indices = indices.to_vec();
+                    new_indices.push(idx);
+
+                    if let Some(var_name) = Self::get_simple_ident(elem_pat) {
+                        // Simple binding - generate track_new
+                        let access_expr = Self::build_access_expr(source, &new_indices, fields);
+
+                        self.var_ids.insert(var_name.clone(), self.next_id);
+                        if let Some(current_scope) = self.scope_stack.last_mut() {
+                            current_scope.push(var_name.clone());
+                        }
+
+                        let stmt: Stmt = syn::parse_quote! {
+                            let #elem_pat = borrowscope_runtime::track_new(#var_name, #access_expr);
+                        };
+
+                        stmts.push(stmt);
+                        self.next_id += 1;
+                    } else {
+                        // Nested pattern - recurse
+                        let nested_stmts =
+                            self.generate_destructure_stmts(elem_pat, source, &new_indices, fields);
+                        stmts.extend(nested_stmts);
+                    }
+                }
+
+                stmts
+            }
+            Pat::Struct(pat_struct) => {
+                let mut stmts = Vec::new();
+
+                for field in &pat_struct.fields {
+                    let field_name = match &field.member {
+                        syn::Member::Named(ident) => ident.clone(),
+                        syn::Member::Unnamed(index) => {
+                            syn::parse_str(&format!("_{}", index.index)).unwrap()
+                        }
+                    };
+
+                    let mut new_fields = fields.to_vec();
+                    new_fields.push(field_name);
+
+                    if let Some(var_name) = Self::get_simple_ident(&field.pat) {
+                        let access_expr = Self::build_access_expr(source, indices, &new_fields);
+
+                        self.var_ids.insert(var_name.clone(), self.next_id);
+                        if let Some(current_scope) = self.scope_stack.last_mut() {
+                            current_scope.push(var_name.clone());
+                        }
+
+                        let pat = &field.pat;
+                        let stmt: Stmt = syn::parse_quote! {
+                            let #pat = borrowscope_runtime::track_new(#var_name, #access_expr);
+                        };
+
+                        stmts.push(stmt);
+                        self.next_id += 1;
+                    } else {
+                        let nested_stmts = self.generate_destructure_stmts(
+                            &field.pat,
+                            source,
+                            indices,
+                            &new_fields,
+                        );
+                        stmts.extend(nested_stmts);
+                    }
+                }
+
+                stmts
+            }
+            _ => vec![],
+        }
+    }
+
+    /// Transform complex pattern into temp + destructuring
+    fn transform_complex_pattern(&mut self, local: &mut Local) {
+        if let Some(init) = &mut local.init {
+            let temp_name = format!("__pattern_temp_{}", self.next_id);
+            let temp_ident: Ident = syn::parse_str(&temp_name).unwrap();
+
+            let original_expr = init.expr.clone();
+            let original_pat = local.pat.clone();
+
+            // Replace with temporary variable
+            let temp_expr: Expr = syn::parse_quote! {
+                borrowscope_runtime::track_new(#temp_name, #original_expr)
+            };
+
+            local.pat = syn::parse_quote! { #temp_ident };
+            *init.expr = temp_expr;
+
+            self.var_ids.insert(temp_name.clone(), self.next_id);
+            if let Some(current_scope) = self.scope_stack.last_mut() {
+                current_scope.push(temp_name);
+            }
+            self.next_id += 1;
+
+            // Generate destructuring statements
+            let destructure_stmts =
+                self.generate_destructure_stmts(&original_pat, &temp_ident, &[], &[]);
+
+            // Insert after current statement - all at the same index since they'll be inserted in reverse
+            for stmt in destructure_stmts {
+                self.pending_inserts
+                    .push((self.current_stmt_index + 1, stmt));
+            }
+        }
+    }
+
     /// Check if expression is a potential move (simple variable path)
     fn is_potential_move(expr: &Expr) -> bool {
         matches!(expr, Expr::Path(_))
@@ -74,6 +235,12 @@ impl OwnershipVisitor {
     fn transform_local(&mut self, local: &mut Local) {
         // Only transform if there's an initializer
         if let Some(init) = &mut local.init {
+            // Check if this is a complex pattern
+            if Self::is_complex_pattern(&local.pat) {
+                self.transform_complex_pattern(local);
+                return;
+            }
+
             let var_name = Self::extract_pattern_name(&local.pat);
             let var_id = self.gen_id();
 
@@ -165,9 +332,18 @@ impl VisitMut for OwnershipVisitor {
         // Push new scope
         self.scope_stack.push(Vec::new());
 
+        // Clear pending inserts for this block
+        self.pending_inserts.clear();
+
         // Visit all statements in the block
-        for stmt in &mut block.stmts {
+        for (idx, stmt) in block.stmts.iter_mut().enumerate() {
+            self.current_stmt_index = idx;
             self.visit_stmt_mut(stmt);
+        }
+
+        // Insert pending statements in reverse order to maintain indices
+        for (idx, stmt) in self.pending_inserts.drain(..).rev() {
+            block.stmts.insert(idx, stmt);
         }
 
         // Pop scope and insert drops in LIFO order
@@ -209,7 +385,7 @@ impl VisitMut for OwnershipVisitor {
     fn visit_stmt_mut(&mut self, stmt: &mut Stmt) {
         match stmt {
             Stmt::Local(local) => {
-                // Transform let statements
+                // Transform the local statement
                 self.transform_local(local);
             }
             Stmt::Expr(expr, _) => {
