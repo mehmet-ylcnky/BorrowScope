@@ -17,6 +17,8 @@ pub struct OwnershipVisitor {
     var_ids: HashMap<String, usize>,
     /// Counter for generating unique IDs
     next_id: usize,
+    /// Stack of scopes, each containing variable names created in that scope
+    scope_stack: Vec<Vec<String>>,
 }
 
 impl OwnershipVisitor {
@@ -26,6 +28,7 @@ impl OwnershipVisitor {
             scope_depth: 0,
             var_ids: HashMap::new(),
             next_id: 1,
+            scope_stack: vec![Vec::new()], // Start with root scope
         }
     }
 
@@ -76,6 +79,11 @@ impl OwnershipVisitor {
 
             // Store variable ID for later reference
             self.var_ids.insert(var_name.clone(), var_id);
+
+            // Add to current scope for drop tracking
+            if let Some(current_scope) = self.scope_stack.last_mut() {
+                current_scope.push(var_name.clone());
+            }
 
             let original_expr = &init.expr;
 
@@ -154,9 +162,45 @@ impl VisitMut for OwnershipVisitor {
     fn visit_block_mut(&mut self, block: &mut Block) {
         self.scope_depth += 1;
 
+        // Push new scope
+        self.scope_stack.push(Vec::new());
+
         // Visit all statements in the block
         for stmt in &mut block.stmts {
             self.visit_stmt_mut(stmt);
+        }
+
+        // Pop scope and insert drops in LIFO order
+        if let Some(scope_vars) = self.scope_stack.pop() {
+            // Check if the last statement is an expression without semicolon (implicit return)
+            let has_trailing_expr = block
+                .stmts
+                .last()
+                .map(|stmt| matches!(stmt, Stmt::Expr(_, None)))
+                .unwrap_or(false);
+
+            if has_trailing_expr && !scope_vars.is_empty() {
+                // Insert drops before the last expression
+                let last_stmt = block.stmts.pop();
+                for var_name in scope_vars.into_iter().rev() {
+                    let drop_stmt: Stmt = syn::parse_quote! {
+                        borrowscope_runtime::track_drop(#var_name);
+                    };
+                    block.stmts.push(drop_stmt);
+                }
+                // Re-add the last expression
+                if let Some(stmt) = last_stmt {
+                    block.stmts.push(stmt);
+                }
+            } else {
+                // No trailing expression, just append drops
+                for var_name in scope_vars.into_iter().rev() {
+                    let drop_stmt: Stmt = syn::parse_quote! {
+                        borrowscope_runtime::track_drop(#var_name);
+                    };
+                    block.stmts.push(drop_stmt);
+                }
+            }
         }
 
         self.scope_depth -= 1;

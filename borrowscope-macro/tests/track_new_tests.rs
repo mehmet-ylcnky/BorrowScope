@@ -14,8 +14,9 @@ fn test_simple_variable_tracking() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
     assert!(events[0].is_new());
+    assert!(events[1].is_drop());
 }
 
 #[test]
@@ -31,7 +32,7 @@ fn test_typed_variable() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
     assert!(events[0].is_new());
 }
 
@@ -48,7 +49,7 @@ fn test_string_variable() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
     assert!(events[0].is_new());
 }
 
@@ -65,7 +66,7 @@ fn test_vec_variable() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
     assert!(events[0].is_new());
 }
 
@@ -84,8 +85,7 @@ fn test_multiple_variables() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 3);
-    assert!(events.iter().all(|e| e.is_new()));
+    assert_eq!(events.len(), 6); // 3 New + 3 Drop
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn test_complex_expression() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
 }
 
 fn get_value_helper() -> i32 {
@@ -121,7 +121,7 @@ fn test_function_call_initializer() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn test_mutable_variable() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn test_nested_blocks() {
     example();
 
     let events = get_events();
-    assert_eq!(events.len(), 2);
+    assert_eq!(events.len(), 4); // 2 New + 2 Drop
 }
 
 #[test]
@@ -175,5 +175,5 @@ fn test_preserves_return_value() {
     assert_eq!(result, 42);
 
     let events = get_events();
-    assert_eq!(events.len(), 1);
+    assert_eq!(events.len(), 2); // New + Drop
 }
