@@ -153,9 +153,9 @@ mod tests {
     #[test]
     fn test_analyze_function_with_expressions() {
         let func: ItemFn = parse_quote! {
-            fn example() {
+            fn example() -> i32 {
                 let x = 5;
-                println!("{}", x);
+                x + 1
             }
         };
         let stats = analyze_function(&func);
