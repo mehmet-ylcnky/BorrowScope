@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_array_borrows() {
-        let expr: Expr = parse_quote! { vec![&x, &y] };
+        let expr: Expr = parse_quote! { [&x, &y] };
         let borrows = find_borrows_in_expr(&expr);
         assert_eq!(borrows.len(), 2);
     }

@@ -8,7 +8,7 @@ fn test_function_arg_borrow() {
     assert_eq!(len, 3);
 }
 
-fn get_len(v: &Vec<i32>) -> usize {
+fn get_len(v: &[i32]) -> usize {
     v.len()
 }
 
@@ -56,7 +56,7 @@ fn test_mut_borrow_arg_works() {
 #[trace_borrow]
 fn test_method_borrow() {
     let data = vec![1, 2, 3];
-    let first = data.get(0);
+    let first = data.first();
     assert!(first.is_some());
 }
 
