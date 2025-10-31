@@ -477,7 +477,14 @@ mod tests {
 
         let events = get_events();
         // try_lock() may drop events under extreme contention - verify we captured most
-        assert!(events.len() >= 600, "Expected at least 600/800 events, got {}", events.len());
-        assert!(events.iter().all(|e| e.is_new()), "All events should be New events");
+        assert!(
+            events.len() >= 600,
+            "Expected at least 600/800 events, got {}",
+            events.len()
+        );
+        assert!(
+            events.iter().all(|e| e.is_new()),
+            "All events should be New events"
+        );
     }
 }
