@@ -24,6 +24,7 @@ lazy_static.workspace = true
 [dev-dependencies]
 criterion = "0.5"
 lazy_static = "1.4"
+borrowscope-macro = { path = "../borrowscope-macro" }
 
 [[bench]]
 name = "performance"

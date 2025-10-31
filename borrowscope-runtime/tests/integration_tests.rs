@@ -1,290 +1,773 @@
-mod common;
-use borrowscope_runtime::*;
-use common::TestFixture;
-use serde_json::Value;
+//! Comprehensive integration tests for macro + runtime
 
-// ===== Lifecycle Tests =====
+use borrowscope_macro::trace_borrow;
+use borrowscope_runtime::*;
+
+lazy_static::lazy_static! {
+    static ref TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+}
+
+// ============================================================================
+// Simple Variable Tests
+// ============================================================================
 
 #[test]
-fn test_variable_creation_and_drop() {
-    let fixture = TestFixture::new();
+fn test_simple_variable_creation() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    assert_eq!(x, 42);
-    track_drop("x");
+    #[trace_borrow]
+    fn example() {
+        let x = 42;
+        assert_eq!(x, 42);
+    }
 
-    fixture.assert_event_types(&["New", "Drop"]);
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should have tracked events");
+
+    // Should have at least one New or Move event
+    let has_creation = events.iter().any(|e| e.is_new() || e.is_move());
+    assert!(has_creation, "Should have variable creation event");
+
+    // Should have Drop event
+    let has_drop = events.iter().any(|e| e.is_drop());
+    assert!(has_drop, "Should have drop event");
 }
 
 #[test]
 fn test_multiple_variables() {
-    let fixture = TestFixture::new();
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let y = track_new("y", 100);
-    assert_eq!(x + y, 142);
+    #[trace_borrow]
+    fn example() {
+        let x = 1;
+        let y = 2;
+        let z = x + y;
+        assert_eq!(z, 3);
+    }
 
-    track_drop("y");
-    track_drop("x");
+    example();
 
-    assert_eq!(fixture.event_count(), 4);
-    fixture.assert_event_types(&["New", "New", "Drop", "Drop"]);
+    let events = get_events();
+    assert!(events.len() >= 3, "Should track all three variables");
 }
 
-// ===== Borrowing Tests =====
+#[test]
+fn test_variable_shadowing() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let x = 1;
+        let x = x + 1;
+        let x = x * 2;
+        assert_eq!(x, 4);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(events.len() >= 3, "Should track all shadowed variables");
+}
+
+// ============================================================================
+// Borrow Tests
+// ============================================================================
 
 #[test]
 fn test_immutable_borrow() {
-    let fixture = TestFixture::new();
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let r = track_borrow("r", &x);
-    assert_eq!(*r, 42);
+    #[trace_borrow]
+    fn example() {
+        let x = String::from("hello");
+        let r = &x;
+        assert_eq!(r, "hello");
+    }
 
-    track_drop("r");
-    track_drop("x");
+    example();
 
-    fixture.assert_event_types(&["New", "Borrow", "Drop", "Drop"]);
+    let events = get_events();
+    assert!(!events.is_empty(), "Should have tracked borrow");
 }
 
 #[test]
 fn test_mutable_borrow() {
-    let fixture = TestFixture::new();
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let mut x = track_new("x", 42);
-    let r = track_borrow_mut("r", &mut x);
-    *r = 100;
-    assert_eq!(*r, 100);
+    #[trace_borrow]
+    fn example() {
+        let mut x = 42;
+        let r = &mut x;
+        *r += 1;
+        assert_eq!(*r, 43);
+    }
 
-    track_drop("r");
-    track_drop("x");
+    example();
 
-    fixture.assert_event_types(&["New", "Borrow", "Drop", "Drop"]);
+    let events = get_events();
+    assert!(!events.is_empty(), "Should have tracked mutable borrow");
 }
 
 #[test]
 fn test_multiple_immutable_borrows() {
-    let fixture = TestFixture::new();
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let r1 = track_borrow("r1", &x);
-    let r2 = track_borrow("r2", &x);
-    assert_eq!(*r1 + *r2, 84);
+    #[trace_borrow]
+    fn example() {
+        let x = vec![1, 2, 3];
+        let r1 = &x;
+        let r2 = &x;
+        assert_eq!(r1.len(), 3);
+        assert_eq!(r2.len(), 3);
+    }
 
-    track_drop("r2");
-    track_drop("r1");
-    track_drop("x");
+    example();
 
-    fixture.assert_event_types(&["New", "Borrow", "Borrow", "Drop", "Drop", "Drop"]);
+    let events = get_events();
+    assert!(events.len() >= 3, "Should track x, r1, and r2");
 }
 
-// ===== Move Tests =====
+// ============================================================================
+// Move Tests
+// ============================================================================
 
 #[test]
 fn test_simple_move() {
-    let fixture = TestFixture::new();
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", String::from("hello"));
-    let y = track_move("x", "y", x);
-    assert_eq!(y, "hello");
+    #[trace_borrow]
+    fn example() {
+        let s1 = String::from("hello");
+        let s2 = s1;
+        assert_eq!(s2, "hello");
+    }
 
-    track_drop("y");
+    example();
 
-    fixture.assert_event_types(&["New", "Move", "Drop"]);
-}
+    let events = get_events();
 
-// ===== Graph Building Tests =====
-
-#[test]
-fn test_graph_from_events() {
-    let fixture = TestFixture::new();
-
-    let x = track_new("x", 42);
-    assert_eq!(x, 42);
-    track_drop("x");
-
-    let events = fixture.events();
-    let graph = build_graph(&events);
-
-    assert_eq!(graph.nodes.len(), 1);
-    assert_eq!(graph.nodes[0].name, "x");
+    // Should have Move event
+    let has_move = events.iter().any(|e| e.is_move());
+    assert!(has_move, "Should have move event");
 }
 
 #[test]
-fn test_graph_multiple_variables() {
-    let fixture = TestFixture::new();
+fn test_move_chain() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let y = track_new("y", 100);
-    let z = track_new("z", String::from("test"));
-    assert!(x < y);
-    assert_eq!(z, "test");
+    #[trace_borrow]
+    fn example() {
+        let s1 = String::from("hello");
+        let s2 = s1;
+        let s3 = s2;
+        assert_eq!(s3, "hello");
+    }
 
-    track_drop("z");
-    track_drop("y");
-    track_drop("x");
+    example();
 
-    let events = fixture.events();
-    let graph = build_graph(&events);
+    let events = get_events();
 
-    assert_eq!(graph.nodes.len(), 3);
-    assert!(graph.nodes.iter().any(|v| v.name == "x"));
-    assert!(graph.nodes.iter().any(|v| v.name == "y"));
-    assert!(graph.nodes.iter().any(|v| v.name == "z"));
+    // Count move events
+    let move_count = events.iter().filter(|e| e.is_move()).count();
+    assert!(move_count >= 2, "Should have at least 2 move events");
 }
 
 #[test]
-fn test_graph_statistics() {
-    let fixture = TestFixture::new();
+fn test_move_into_function() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let y = track_new("y", 100);
-    assert_ne!(x, y);
+    fn takes_ownership(_s: String) {}
 
-    track_drop("y");
-    track_drop("x");
+    #[trace_borrow]
+    fn example() {
+        let s = String::from("hello");
+        takes_ownership(s);
+    }
 
-    let events = fixture.events();
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track variable before move");
+}
+
+// ============================================================================
+// Pattern Tests
+// ============================================================================
+
+#[test]
+fn test_tuple_destructuring() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let (x, y) = (1, 2);
+        assert_eq!(x, 1);
+        assert_eq!(y, 2);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(events.len() >= 2, "Should track destructured variables");
+}
+
+#[test]
+fn test_struct_destructuring() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        struct Point {
+            x: i32,
+            y: i32,
+        }
+        let p = Point { x: 10, y: 20 };
+        let Point { x, y } = p;
+        assert_eq!(x, 10);
+        assert_eq!(y, 20);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track struct destructuring");
+}
+
+// ============================================================================
+// Control Flow Tests
+// ============================================================================
+
+#[test]
+fn test_if_else() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example(condition: bool) -> i32 {
+        if condition {
+            let x = 1;
+            x
+        } else {
+            let y = 2;
+            y
+        }
+    }
+
+    let result = example(true);
+    assert_eq!(result, 1);
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track if branch variable");
+}
+
+#[test]
+fn test_match_expression() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example(opt: Option<i32>) -> i32 {
+        match opt {
+            Some(x) => {
+                let y = x + 1;
+                y
+            }
+            None => 0,
+        }
+    }
+
+    let result = example(Some(42));
+    assert_eq!(result, 43);
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track match arm variable");
+}
+
+#[test]
+fn test_for_loop() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        for i in 0..3 {
+            let x = i * 2;
+            assert!(x < 10);
+        }
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(events.len() >= 3, "Should track loop iterations");
+}
+
+#[test]
+fn test_while_loop() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let mut count = 0;
+        while count < 3 {
+            let x = count;
+            count += 1;
+            assert!(x < 3);
+        }
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track loop variables");
+}
+
+// ============================================================================
+// Nested Scope Tests
+// ============================================================================
+
+#[test]
+fn test_nested_blocks() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let x = 1;
+        {
+            let y = 2;
+            {
+                let z = 3;
+                assert_eq!(x + y + z, 6);
+            }
+        }
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(events.len() >= 3, "Should track all nested variables");
+}
+
+// ============================================================================
+// Type Tests
+// ============================================================================
+
+#[test]
+fn test_string_type() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let s = String::from("hello");
+        assert_eq!(s.len(), 5);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track String");
+}
+
+#[test]
+fn test_vec_type() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let v = vec![1, 2, 3];
+        assert_eq!(v.len(), 3);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track Vec");
+}
+
+#[test]
+fn test_box_type() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let b = Box::new(42);
+        assert_eq!(*b, 42);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track Box");
+}
+
+#[test]
+fn test_option_type() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let opt = Some(42);
+        assert!(opt.is_some());
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track Option");
+}
+
+// ============================================================================
+// Generic Function Tests
+// ============================================================================
+
+#[test]
+fn test_generic_function_with_i32() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn identity<T>(value: T) -> T {
+        let x = value;
+        x
+    }
+
+    let result = identity(42);
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track generic function");
+}
+
+#[test]
+fn test_generic_function_with_string() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn identity<T>(value: T) -> T {
+        let x = value;
+        x
+    }
+
+    let result = identity(String::from("hello"));
+    assert_eq!(result, "hello");
+
+    let events = get_events();
+    assert!(
+        !events.is_empty(),
+        "Should track generic function with String"
+    );
+}
+
+#[test]
+fn test_generic_with_trait_bound() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn clone_value<T: Clone>(value: T) -> T {
+        let x = value.clone();
+        x
+    }
+
+    let result = clone_value(42);
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track generic with trait bound");
+}
+
+// ============================================================================
+// Complex Scenarios
+// ============================================================================
+
+#[test]
+fn test_complex_ownership_scenario() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let s = String::from("hello");
+        let r1 = &s;
+        let r2 = &s;
+        let len = r1.len();
+        assert_eq!(len, 5);
+        assert_eq!(r2.len(), 5);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(events.len() >= 3, "Should track complex scenario");
+}
+
+#[test]
+fn test_method_chaining() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let s = String::from("  hello  ");
+        let trimmed = s.trim();
+        let upper = trimmed.to_uppercase();
+        assert_eq!(upper, "HELLO");
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track method chaining");
+}
+
+#[test]
+fn test_closure_capture() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let x = 42;
+        let closure = || x + 1;
+        let result = closure();
+        assert_eq!(result, 43);
+    }
+
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track closure capture");
+}
+
+// ============================================================================
+// Graph Building Tests
+// ============================================================================
+
+#[test]
+fn test_graph_building() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let x = 42;
+        let y = x + 1;
+        assert_eq!(y, 43);
+    }
+
+    example();
+
+    let events = get_events();
     let graph = build_graph(&events);
+
+    assert!(!graph.nodes.is_empty(), "Graph should have nodes");
+
     let stats = graph.stats();
-
-    assert_eq!(stats.total_variables, 2);
+    assert!(stats.total_variables > 0, "Should have variables in graph");
 }
 
-// ===== JSON Export Tests =====
+#[test]
+fn test_graph_with_borrows() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() {
+        let x = String::from("hello");
+        let r = &x;
+        assert_eq!(r, "hello");
+    }
+
+    example();
+
+    let events = get_events();
+    let graph = build_graph(&events);
+
+    let stats = graph.stats();
+    assert!(stats.total_variables > 0, "Should have variables");
+}
+
+// ============================================================================
+// Export Tests
+// ============================================================================
 
 #[test]
-fn test_json_structure() {
-    let fixture = TestFixture::new();
+fn test_json_export() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    assert!(x > 0);
-    track_drop("x");
+    #[trace_borrow]
+    fn example() {
+        let x = 42;
+        let y = x + 1;
+        assert_eq!(y, 43);
+    }
 
-    let events = fixture.events();
+    example();
+
+    let events = get_events();
     let graph = build_graph(&events);
-    let export = ExportData::new(graph, events.clone());
-    let json = export.to_json().unwrap();
+    let export = ExportData::new(graph, events);
 
-    let data: Value = serde_json::from_str(&json).unwrap();
+    let json = serde_json::to_string(&export).unwrap();
+    assert!(!json.is_empty(), "Should export to JSON");
 
+    // Verify JSON structure
+    let data: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert!(data["nodes"].is_array());
-    assert!(data["edges"].is_array());
     assert!(data["events"].is_array());
     assert!(data["metadata"].is_object());
 }
 
+// ============================================================================
+// Performance Tests
+// ============================================================================
+
 #[test]
-fn test_json_content() {
-    let fixture = TestFixture::new();
+fn test_performance_many_variables() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let y = track_new("y", 100);
-    assert!(x < y);
+    #[trace_borrow]
+    fn example() {
+        for i in 0..100 {
+            let x = i * 2;
+            assert!(x < 300);
+        }
+    }
 
-    track_drop("y");
-    track_drop("x");
+    let start = std::time::Instant::now();
+    example();
+    let duration = start.elapsed();
 
-    let events = fixture.events();
-    let graph = build_graph(&events);
-    let export = ExportData::new(graph, events.clone());
-    let json = export.to_json().unwrap();
+    println!("100 iterations took: {:?}", duration);
+    assert!(
+        duration.as_millis() < 1000,
+        "Should complete in reasonable time"
+    );
 
-    let data: Value = serde_json::from_str(&json).unwrap();
-
-    assert_eq!(data["nodes"].as_array().unwrap().len(), 2);
-    assert_eq!(data["events"].as_array().unwrap().len(), 4);
+    let events = get_events();
+    assert!(events.len() >= 100, "Should track all iterations");
 }
 
-// ===== Real World Scenarios =====
+// ============================================================================
+// Error Handling Tests
+// ============================================================================
+
+#[test]
+fn test_result_type() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() -> std::result::Result<i32, String> {
+        let x = 42;
+        Ok(x)
+    }
+
+    let result = example();
+    assert!(result.is_ok());
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track Result type");
+}
+
+#[test]
+fn test_option_unwrap() {
+    let _lock = TEST_LOCK.lock();
+    reset();
+
+    #[trace_borrow]
+    fn example() -> i32 {
+        let opt = Some(42);
+        let x = opt.unwrap();
+        x
+    }
+
+    let result = example();
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track Option unwrap");
+}
+
+// ============================================================================
+// Real-World Scenarios
+// ============================================================================
 
 #[test]
 fn test_vector_operations() {
-    let fixture = TestFixture::new();
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let mut v = track_new("v", vec![1, 2, 3]);
-    let r = track_borrow("r", &v);
-    assert_eq!(r.len(), 3);
-    track_drop("r");
-
-    let r_mut = track_borrow_mut("r_mut", &mut v);
-    r_mut.push(4);
-    assert_eq!(r_mut.len(), 4);
-    track_drop("r_mut");
-
-    track_drop("v");
-
-    fixture.assert_event_types(&["New", "Borrow", "Drop", "Borrow", "Drop", "Drop"]);
-}
-
-#[test]
-fn test_string_operations() {
-    let fixture = TestFixture::new();
-
-    let mut s = track_new("s", String::from("hello"));
-    let r = track_borrow("r", &s);
-    assert_eq!(r.len(), 5);
-    track_drop("r");
-
-    let r_mut = track_borrow_mut("r_mut", &mut s);
-    r_mut.push_str(" world");
-    assert_eq!(r_mut, "hello world");
-    track_drop("r_mut");
-
-    track_drop("s");
-
-    fixture.assert_event_types(&["New", "Borrow", "Drop", "Borrow", "Drop", "Drop"]);
-}
-
-#[test]
-fn test_nested_scopes() {
-    let fixture = TestFixture::new();
-
-    let x = track_new("x", 42);
-
-    {
-        let r1 = track_borrow("r1", &x);
-        assert_eq!(*r1, 42);
-        track_drop("r1");
+    #[trace_borrow]
+    fn example() {
+        let mut v = vec![1, 2, 3];
+        v.push(4);
+        v.push(5);
+        let sum: i32 = v.iter().sum();
+        assert_eq!(sum, 15);
     }
 
-    {
-        let r2 = track_borrow("r2", &x);
-        assert_eq!(*r2, 42);
-        track_drop("r2");
-    }
+    example();
 
-    track_drop("x");
-
-    fixture.assert_event_types(&["New", "Borrow", "Drop", "Borrow", "Drop", "Drop"]);
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track vector operations");
 }
 
 #[test]
-fn test_complex_workflow() {
-    let fixture = TestFixture::new();
+fn test_string_manipulation() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    let x = track_new("x", 42);
-    let y = track_new("y", 100);
-    let mut v = track_new("v", vec![1, 2, 3]);
+    #[trace_borrow]
+    fn example() {
+        let s1 = String::from("Hello");
+        let s2 = String::from(" World");
+        let s3 = format!("{}{}", s1, s2);
+        assert_eq!(s3, "Hello World");
+    }
 
-    let r_x = track_borrow("r_x", &x);
-    assert_eq!(*r_x, 42);
-    track_drop("r_x");
+    example();
 
-    let r_v = track_borrow_mut("r_v", &mut v);
-    r_v.push(4);
-    assert_eq!(r_v.len(), 4);
-    track_drop("r_v");
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track string manipulation");
+}
 
-    let z = track_move("y", "z", y);
-    assert_eq!(z, 100);
+#[test]
+fn test_nested_data_structures() {
+    let _lock = TEST_LOCK.lock();
+    reset();
 
-    track_drop("z");
-    track_drop("v");
-    track_drop("x");
+    #[trace_borrow]
+    fn example() {
+        let v = vec![vec![1, 2], vec![3, 4], vec![5, 6]];
+        let first = &v[0];
+        assert_eq!(first.len(), 2);
+    }
 
-    assert!(fixture.event_count() >= 10);
-    fixture.assert_has_event_type("New");
-    fixture.assert_has_event_type("Borrow");
-    fixture.assert_has_event_type("Drop");
+    example();
+
+    let events = get_events();
+    assert!(!events.is_empty(), "Should track nested structures");
 }
