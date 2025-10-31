@@ -124,9 +124,8 @@ impl Default for Tracker {
 pub fn track_new<T>(name: &str, value: T) -> T {
     let type_name = std::any::type_name::<T>();
 
-    if let Some(mut tracker) = TRACKER.try_lock() {
-        tracker.record_new(name, type_name);
-    }
+    let mut tracker = TRACKER.lock();
+    tracker.record_new(name, type_name);
 
     value
 }
@@ -134,9 +133,8 @@ pub fn track_new<T>(name: &str, value: T) -> T {
 /// Track an immutable borrow
 #[inline(always)]
 pub fn track_borrow<'a, T>(name: &str, value: &'a T) -> &'a T {
-    if let Some(mut tracker) = TRACKER.try_lock() {
-        tracker.record_borrow(name, "unknown", false);
-    }
+    let mut tracker = TRACKER.lock();
+    tracker.record_borrow(name, "unknown", false);
 
     value
 }
@@ -144,9 +142,8 @@ pub fn track_borrow<'a, T>(name: &str, value: &'a T) -> &'a T {
 /// Track a mutable borrow
 #[inline(always)]
 pub fn track_borrow_mut<'a, T>(name: &str, value: &'a mut T) -> &'a mut T {
-    if let Some(mut tracker) = TRACKER.try_lock() {
-        tracker.record_borrow(name, "unknown", true);
-    }
+    let mut tracker = TRACKER.lock();
+    tracker.record_borrow(name, "unknown", true);
 
     value
 }
@@ -161,9 +158,8 @@ pub fn track_move<T>(_from: &str, _to: &str, value: T) -> T {
 /// Track a drop
 #[inline(always)]
 pub fn track_drop(name: &str) {
-    if let Some(mut tracker) = TRACKER.try_lock() {
-        tracker.record_drop(name);
-    }
+    let mut tracker = TRACKER.lock();
+    tracker.record_drop(name);
 }
 
 /// Reset tracking state
@@ -242,27 +238,58 @@ mod tests {
     fn test_track_new_returns_value() {
         let _lock = TEST_LOCK.lock();
         reset();
-        let value = track_new("x", 42);
-        assert_eq!(value, 42);
+
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    let value = track_new(&format!("x_{}", i), 42 + i);
+                    assert_eq!(value, 42 + i);
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
     }
 
     #[test]
     fn test_track_borrow_returns_reference() {
         let _lock = TEST_LOCK.lock();
         reset();
-        let s = String::from("hello");
-        let r = track_borrow("r", &s);
-        assert_eq!(r, "hello");
+
+        // Each thread creates its own string and borrows it
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    let s = String::from("hello");
+                    let r = track_borrow(&format!("r_{}", i), &s);
+                    assert_eq!(r, "hello");
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let events = get_events();
+        assert_eq!(events.iter().filter(|e| e.is_borrow()).count(), 4);
     }
 
     #[test]
     fn test_track_borrow_mut_returns_reference() {
         let _lock = TEST_LOCK.lock();
         reset();
+
+        // Mutable borrows can't be shared, so test sequentially but verify tracking works
         let mut s = String::from("hello");
-        let r = track_borrow_mut("r", &mut s);
-        r.push_str(" world");
-        assert_eq!(r, "hello world");
+        track_borrow_mut("r", &mut s);
+        s.push_str(" world");
+        assert_eq!(s, "hello world");
+
+        let events = get_events();
+        assert_eq!(events.iter().filter(|e| e.is_borrow()).count(), 1);
     }
 
     #[test]
@@ -270,17 +297,26 @@ mod tests {
         let _lock = TEST_LOCK.lock();
         reset();
 
-        let x = track_new("x", 5);
-        let _r = track_borrow("r", &x);
-        track_drop("r");
-        track_drop("x");
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    let x = track_new(&format!("x_{}", i), 5);
+                    let _r = track_borrow(&format!("r_{}", i), &x);
+                    track_drop(&format!("r_{}", i));
+                    track_drop(&format!("x_{}", i));
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
         let events = get_events();
-        assert_eq!(events.len(), 4);
-        assert!(events[0].is_new());
-        assert!(events[1].is_borrow());
-        assert!(events[2].is_drop());
-        assert!(events[3].is_drop());
+        assert_eq!(events.len(), 16); // 4 threads * (1 new + 1 borrow + 2 drops)
+        assert_eq!(events.iter().filter(|e| e.is_new()).count(), 4);
+        assert_eq!(events.iter().filter(|e| e.is_borrow()).count(), 4);
+        assert_eq!(events.iter().filter(|e| e.is_drop()).count(), 8);
     }
 
     #[test]
@@ -288,10 +324,20 @@ mod tests {
         let _lock = TEST_LOCK.lock();
         reset();
 
-        track_new("x", 5);
-        track_new("y", 10);
+        let handles: Vec<_> = (0..4)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    track_new(&format!("x_{}", i), 5);
+                    track_new(&format!("y_{}", i), 10);
+                })
+            })
+            .collect();
 
-        assert_eq!(get_events().len(), 2);
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(get_events().len(), 8); // 4 threads * 2 events
 
         reset();
 
@@ -303,9 +349,19 @@ mod tests {
         let _lock = TEST_LOCK.lock();
         reset();
 
-        track_new("x", 1);
-        track_new("x", 2);
-        track_new("x", 3);
+        let handles: Vec<_> = (0..4)
+            .map(|_| {
+                std::thread::spawn(|| {
+                    track_new("x", 1);
+                    track_new("x", 2);
+                    track_new("x", 3);
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
 
         let events = get_events();
         let ids: Vec<_> = events
@@ -316,18 +372,20 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(ids.len(), 3);
-        assert_eq!(ids[0], "x_0");
-        assert_eq!(ids[1], "x_1");
-        assert_eq!(ids[2], "x_2");
+        assert_eq!(ids.len(), 12); // 4 threads * 3 events
+
+        // All IDs should be unique
+        let mut unique_ids = ids.clone();
+        unique_ids.sort_unstable();
+        unique_ids.dedup();
+        assert_eq!(unique_ids.len(), 12, "All IDs should be unique");
     }
 
     #[test]
-    fn test_thread_safety() {
+    fn test_concurrent_tracking() {
         let _lock = TEST_LOCK.lock();
         reset();
 
-        // Test that multiple threads can safely call tracking functions
         let handles: Vec<_> = (0..4)
             .map(|i| {
                 std::thread::spawn(move || {
@@ -343,22 +401,19 @@ mod tests {
         }
 
         let events = get_events();
-        // With try_lock(), some events may be lost under contention
-        // The important thing is no panics or data corruption
-        assert!(!events.is_empty(), "Should have tracked some events");
+        assert_eq!(events.len(), 40); // 4 threads * 10 events
     }
 
     #[test]
-    fn test_timestamp_uniqueness() {
+    fn test_timestamp_monotonicity_concurrent() {
         let _lock = TEST_LOCK.lock();
         reset();
 
-        // Generate timestamps from multiple threads
         let handles: Vec<_> = (0..4)
             .map(|i| {
                 std::thread::spawn(move || {
-                    for j in 0..5 {
-                        track_new(&format!("var_{}_{}", i, j), i * 5 + j);
+                    for j in 0..10 {
+                        track_new(&format!("var_{}_{}", i, j), i * 10 + j);
                     }
                 })
             })
@@ -369,17 +424,15 @@ mod tests {
         }
 
         let events = get_events();
-        if events.len() > 1 {
-            let mut timestamps: Vec<_> = events.iter().map(|e| e.timestamp()).collect();
-            timestamps.sort_unstable();
+        let mut timestamps: Vec<_> = events.iter().map(|e| e.timestamp()).collect();
+        timestamps.sort_unstable();
 
-            // Check for uniqueness
-            for i in 1..timestamps.len() {
-                assert!(
-                    timestamps[i] > timestamps[i - 1],
-                    "Timestamps should be unique and monotonic"
-                );
-            }
+        // All timestamps should be unique and monotonic
+        for i in 1..timestamps.len() {
+            assert!(
+                timestamps[i] > timestamps[i - 1],
+                "Timestamps should be unique and monotonic"
+            );
         }
     }
 
@@ -396,5 +449,31 @@ mod tests {
         assert_eq!(get_events().len(), 10);
         reset();
         assert_eq!(get_events().len(), 0);
+    }
+
+    #[test]
+    fn test_high_contention() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        let handles: Vec<_> = (0..8)
+            .map(|i| {
+                std::thread::spawn(move || {
+                    for j in 0..100 {
+                        track_new(&format!("var_{}_{}", i, j), i * 100 + j);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let events = get_events();
+        assert_eq!(events.len(), 800); // 8 threads * 100 events
+
+        // Verify all events are valid
+        assert_eq!(events.iter().filter(|e| e.is_new()).count(), 800);
     }
 }
