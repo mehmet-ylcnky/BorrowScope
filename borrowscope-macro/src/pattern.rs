@@ -82,8 +82,8 @@ mod tests {
         let pat: Pat = parse_quote! { Point { x, y } };
         let info = PatternInfo::analyze(&pat);
         assert_eq!(info.variables.len(), 2);
-        assert!(info.variables.iter().any(|v| v.to_string() == "x"));
-        assert!(info.variables.iter().any(|v| v.to_string() == "y"));
+        assert!(info.variables.iter().any(|v| *v == "x"));
+        assert!(info.variables.iter().any(|v| *v == "y"));
     }
 
     #[test]
