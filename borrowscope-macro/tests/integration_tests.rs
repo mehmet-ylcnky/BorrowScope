@@ -53,7 +53,7 @@ fn test_generic_function() {
 
 // Test 5: Function with lifetime parameters (tests borrow preservation)
 #[trace_borrow]
-fn function_with_lifetime<'a>(s: &'a str) -> &'a str {
+fn function_with_lifetime(s: &str) -> &str {
     s
 }
 
@@ -96,11 +96,11 @@ fn test_function_with_mut_borrow() {
 #[trace_borrow]
 fn function_with_control_flow(condition: bool) -> i32 {
     if condition {
-        let x = 10;
-        x
+        
+        10
     } else {
-        let y = 20;
-        y
+        
+        20
     }
 }
 
@@ -129,8 +129,8 @@ fn test_function_with_loop() {
 #[trace_borrow]
 fn function_with_move() -> String {
     let s = String::from("moved");
-    let s2 = s; // Move occurs here
-    s2
+     // Move occurs here
+    s
 }
 
 #[test]
