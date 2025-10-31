@@ -36,10 +36,12 @@
 //! ```
 
 mod event;
+mod export;
 mod graph;
 mod tracker;
 
 pub use event::Event;
+pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
 pub use tracker::{
     get_events, reset, track_borrow, track_borrow_mut, track_drop, track_move, track_new,
@@ -49,6 +51,14 @@ pub use tracker::{
 pub fn get_graph() -> OwnershipGraph {
     let events = get_events();
     build_graph(&events)
+}
+
+/// Export current tracking data to JSON file
+pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<()> {
+    let events = get_events();
+    let graph = build_graph(&events);
+    let export = ExportData::new(graph, events);
+    export.to_file(path)
 }
 
 #[cfg(test)]
@@ -146,5 +156,31 @@ mod integration_tests {
 
         let stats = graph.stats();
         assert_eq!(stats.total_variables, 1);
+    }
+
+    #[test]
+    fn test_export_json() {
+        let _lock = TEST_LOCK.lock().unwrap();
+
+        reset();
+
+        let x = track_new("x", 5);
+        let _r = track_borrow("r", &x);
+        track_drop("x");
+
+        // Export to temporary file
+        let temp_path = std::env::temp_dir().join("borrowscope_test.json");
+        export_json(&temp_path).unwrap();
+
+        // Verify file exists and is valid JSON
+        let contents = std::fs::read_to_string(&temp_path).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&contents).unwrap();
+
+        assert!(parsed["nodes"].is_array());
+        assert!(parsed["events"].is_array());
+        assert!(parsed["metadata"].is_object());
+
+        // Cleanup
+        std::fs::remove_file(&temp_path).ok();
     }
 }
