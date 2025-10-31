@@ -49,7 +49,7 @@ pub fn generate_hello_function() -> proc_macro2::TokenStream {
 pub fn generate_function_with_param(name: &str, param_name: &str) -> proc_macro2::TokenStream {
     let fn_name = syn::Ident::new(name, proc_macro2::Span::call_site());
     let param = syn::Ident::new(param_name, proc_macro2::Span::call_site());
-    
+
     quote! {
         fn #fn_name(#param: i32) -> i32 {
             #param * 2

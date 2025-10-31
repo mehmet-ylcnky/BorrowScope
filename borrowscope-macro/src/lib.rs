@@ -3,6 +3,8 @@
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
 //! Rust code to track ownership and borrowing operations at runtime.
 
+mod examples;
+
 use proc_macro::TokenStream;
 use proc_macro_error::{abort, proc_macro_error};
 use quote::quote;
