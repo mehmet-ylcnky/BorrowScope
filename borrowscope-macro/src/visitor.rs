@@ -156,14 +156,12 @@ mod tests {
             fn example() {
                 let x = 5;
                 println!("{}", x);
-                x + 1;
             }
         };
         let stats = analyze_function(&func);
-        assert_eq!(stats.total_statements, 3);
+        assert_eq!(stats.total_statements, 2);
         assert_eq!(stats.let_bindings, 1);
-        // Expression statements are counted
-        assert!(stats.expressions >= 2);
+        assert_eq!(stats.expressions, 1);
     }
 
     #[test]
