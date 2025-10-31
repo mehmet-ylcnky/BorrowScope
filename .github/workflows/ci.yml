@@ -48,6 +48,9 @@ jobs:
       
       - name: Run tests
         run: cargo test --verbose
+      
+      - name: Run runtime tests (single-threaded)
+        run: cargo test --package borrowscope-runtime --lib -- --test-threads=1
 
   clippy:
     name: Clippy
