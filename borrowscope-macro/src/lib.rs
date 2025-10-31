@@ -23,6 +23,38 @@ use quote::quote;
 use syn::{parse_macro_input, visit_mut::VisitMut, ItemFn};
 use transform_visitor::OwnershipVisitor;
 
+/// Validate function before transformation
+fn validate_function(func: &ItemFn) {
+    // Check for const functions
+    if func.sig.constness.is_some() {
+        abort!(
+            func.sig.constness,
+            "const functions cannot be tracked";
+            help = "remove the `const` keyword to enable tracking";
+            note = "tracking requires runtime operations, but const functions are evaluated at compile time"
+        );
+    }
+
+    // Check for extern functions
+    if let Some(abi) = &func.sig.abi {
+        abort!(
+            abi,
+            "extern functions cannot be tracked";
+            help = "only Rust ABI functions can be tracked"
+        );
+    }
+
+    // Warn about async functions (they work but with limitations)
+    if func.sig.asyncness.is_some() {
+        // Note: We allow async but could add a warning in the future
+    }
+
+    // Warn about unsafe functions (they work but can't verify safety)
+    if func.sig.unsafety.is_some() {
+        // Note: We allow unsafe but tracking may be incomplete
+    }
+}
+
 /// Attribute macro to trace ownership and borrowing in a function
 ///
 /// # Example
@@ -39,13 +71,8 @@ pub fn trace_borrow(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // Parse the input as a function
     let mut input_fn = parse_macro_input!(item as ItemFn);
 
-    // Validate it's a function
-    if input_fn.sig.ident.to_string().is_empty() {
-        abort!(
-            input_fn.sig.ident,
-            "trace_borrow can only be applied to functions"
-        );
-    }
+    // Validate the function
+    validate_function(&input_fn);
 
     // Transform the function body using OwnershipVisitor
     let mut visitor = OwnershipVisitor::new();

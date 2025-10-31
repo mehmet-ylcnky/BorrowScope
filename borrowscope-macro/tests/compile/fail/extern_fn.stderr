@@ -1,0 +1,8 @@
+error: extern functions cannot be tracked
+
+         = help: only Rust ABI functions can be tracked
+
+ --> tests/compile/fail/extern_fn.rs:4:1
+  |
+4 | extern "C" fn example() {
+  | ^^^^^^^^^^

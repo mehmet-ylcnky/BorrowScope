@@ -1,0 +1,9 @@
+error: const functions cannot be tracked
+
+         = help: remove the `const` keyword to enable tracking
+         = note: tracking requires runtime operations, but const functions are evaluated at compile time
+
+ --> tests/compile/fail/const_fn.rs:4:1
+  |
+4 | const fn example() -> i32 {
+  | ^^^^^
