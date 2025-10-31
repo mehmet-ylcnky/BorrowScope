@@ -2,8 +2,7 @@
 /target/
 Cargo.lock
 
-# IDE files
-.vscode/
+# IDE files (but keep .vscode/ for shared config)
 .idea/
 *.swp
 *.swo
