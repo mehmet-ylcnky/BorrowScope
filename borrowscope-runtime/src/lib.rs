@@ -36,12 +36,20 @@
 //! ```
 
 mod event;
+mod graph;
 mod tracker;
 
 pub use event::Event;
+pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
 pub use tracker::{
     get_events, reset, track_borrow, track_borrow_mut, track_drop, track_move, track_new,
 };
+
+/// Get the ownership graph built from current events
+pub fn get_graph() -> OwnershipGraph {
+    let events = get_events();
+    build_graph(&events)
+}
 
 #[cfg(test)]
 mod integration_tests {
@@ -103,5 +111,24 @@ mod integration_tests {
 
         let events = get_events();
         assert_eq!(events.len(), 2);
+    }
+
+    #[test]
+    fn test_graph_building() {
+        reset();
+
+        let x = track_new("x", 5);
+        let _r = track_borrow("r", &x);
+        // Note: borrowers don't get track_drop calls in current implementation
+        track_drop("x");
+
+        let graph = get_graph();
+        // Only x is tracked as a variable
+        assert_eq!(graph.nodes.len(), 1);
+        // No edges because borrow wasn't ended with a drop
+        assert_eq!(graph.edges.len(), 0);
+
+        let stats = graph.stats();
+        assert_eq!(stats.total_variables, 1);
     }
 }
