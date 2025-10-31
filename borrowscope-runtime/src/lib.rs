@@ -35,11 +35,13 @@
 //! track_drop("x");
 //! ```
 
+mod error;
 mod event;
 mod export;
 mod graph;
 mod tracker;
 
+pub use error::{Error, Result};
 pub use event::Event;
 pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
@@ -54,7 +56,7 @@ pub fn get_graph() -> OwnershipGraph {
 }
 
 /// Export current tracking data to JSON file
-pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<()> {
+pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> Result<()> {
     let events = get_events();
     let graph = build_graph(&events);
     let export = ExportData::new(graph, events);

@@ -95,13 +95,13 @@ impl ExportData {
     }
 
     /// Serialize to JSON string
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
+    pub fn to_json(&self) -> crate::error::Result<String> {
+        Ok(serde_json::to_string_pretty(self)?)
     }
 
     /// Export to JSON file
-    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-        let json = self.to_json().map_err(std::io::Error::other)?;
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> crate::error::Result<()> {
+        let json = self.to_json()?;
         let mut file = File::create(path)?;
         file.write_all(json.as_bytes())?;
         Ok(())
