@@ -56,10 +56,10 @@ jobs:
         run: cargo test --package borrowscope-macro --test '*' --verbose -- --test-threads=1
       
       - name: Run runtime unit tests (single-threaded)
-        run: cargo test --package borrowscope-runtime --lib --verbose -- --test-threads=1
+        run: cargo test --package borrowscope-runtime --lib --features track --verbose -- --test-threads=1
       
       - name: Run runtime integration tests (single-threaded)
-        run: cargo test --package borrowscope-runtime --test '*' --verbose -- --test-threads=1
+        run: cargo test --package borrowscope-runtime --test '*' --features track --verbose -- --test-threads=1
 
   clippy:
     name: Clippy
