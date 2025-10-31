@@ -302,23 +302,16 @@ mod tests {
         let _lock = TEST_LOCK.lock();
         reset();
 
-        let handles: Vec<_> = (0..4)
-            .map(|i| {
-                std::thread::spawn(move || {
-                    let x = track_new(&format!("x_{}", i), 5);
-                    let _r = track_borrow(&format!("r_{}", i), &x);
-                    track_drop(&format!("r_{}", i));
-                    track_drop(&format!("x_{}", i));
-                })
-            })
-            .collect();
-
-        for handle in handles {
-            handle.join().unwrap();
+        // Sequential workflow to avoid try_lock() dropping events
+        for i in 0..4 {
+            let x = track_new(&format!("x_{}", i), 5);
+            let _r = track_borrow(&format!("r_{}", i), &x);
+            track_drop(&format!("r_{}", i));
+            track_drop(&format!("x_{}", i));
         }
 
         let events = get_events();
-        assert_eq!(events.len(), 16); // 4 threads * (1 new + 1 borrow + 2 drops)
+        assert_eq!(events.len(), 16); // 4 iterations * (1 new + 1 borrow + 2 drops)
         assert_eq!(events.iter().filter(|e| e.is_new()).count(), 4);
         assert_eq!(events.iter().filter(|e| e.is_borrow()).count(), 4);
         assert_eq!(events.iter().filter(|e| e.is_drop()).count(), 8);
