@@ -134,7 +134,7 @@ pub fn track_new<T>(name: &str, value: T) -> T {
 
 /// Track an immutable borrow
 #[inline(always)]
-pub fn track_borrow<'a, T>(name: &str, value: &'a T) -> &'a T {
+pub fn track_borrow<'a, T: ?Sized>(name: &str, value: &'a T) -> &'a T {
     {
         let mut tracker = TRACKER.lock();
         tracker.record_borrow(name, "unknown", false);
@@ -145,7 +145,7 @@ pub fn track_borrow<'a, T>(name: &str, value: &'a T) -> &'a T {
 
 /// Track a mutable borrow
 #[inline(always)]
-pub fn track_borrow_mut<'a, T>(name: &str, value: &'a mut T) -> &'a mut T {
+pub fn track_borrow_mut<'a, T: ?Sized>(name: &str, value: &'a mut T) -> &'a mut T {
     {
         let mut tracker = TRACKER.lock();
         tracker.record_borrow(name, "unknown", true);

@@ -3,21 +3,37 @@
 //! This module implements the OwnershipVisitor that transforms Rust code
 //! to inject runtime tracking calls.
 
+use std::collections::HashMap;
 use syn::{
     visit_mut::{self, VisitMut},
-    Block, Expr, ItemFn, Local, Pat, Stmt,
+    Block, Expr, ExprReference, ItemFn, Local, Pat, Stmt,
 };
 
 /// Visitor that transforms AST to inject tracking calls
 pub struct OwnershipVisitor {
     /// Current scope depth (for future drop tracking)
     scope_depth: usize,
+    /// Map variable names to their tracking IDs
+    var_ids: HashMap<String, usize>,
+    /// Counter for generating unique IDs
+    next_id: usize,
 }
 
 impl OwnershipVisitor {
     /// Create a new visitor
     pub fn new() -> Self {
-        Self { scope_depth: 0 }
+        Self {
+            scope_depth: 0,
+            var_ids: HashMap::new(),
+            next_id: 1,
+        }
+    }
+
+    /// Generate next unique ID
+    fn gen_id(&mut self) -> usize {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
     }
 
     /// Extract variable name from pattern
@@ -29,32 +45,38 @@ impl OwnershipVisitor {
         }
     }
 
+    /// Extract borrowed variable ID from expression
+    #[allow(dead_code)]
+    fn extract_borrowed_id(&self, expr: &Expr) -> usize {
+        if let Expr::Path(expr_path) = expr {
+            if let Some(ident) = expr_path.path.get_ident() {
+                let var_name = ident.to_string();
+                return *self.var_ids.get(&var_name).unwrap_or(&0);
+            }
+        }
+        0 // Unknown
+    }
+
+    /// Check if expression is a simple variable path
+    fn is_variable_path(expr: &Expr) -> bool {
+        matches!(expr, Expr::Path(_))
+    }
+
     /// Transform a let statement to inject track_new
     fn transform_local(&mut self, local: &mut Local) {
         // Only transform if there's an initializer
         if let Some(init) = &mut local.init {
             let var_name = Self::extract_pattern_name(&local.pat);
+            let var_id = self.gen_id();
+
+            // Store variable ID for later reference
+            self.var_ids.insert(var_name.clone(), var_id);
+
             let original_expr = &init.expr;
 
-            // Check if this is a borrow expression
-            let new_expr: Expr = if let Expr::Reference(ref_expr) = original_expr.as_ref() {
-                let borrowed = &ref_expr.expr;
-                if ref_expr.mutability.is_some() {
-                    // Mutable borrow
-                    syn::parse_quote! {
-                        borrowscope_runtime::track_borrow_mut(#var_name, &mut #borrowed)
-                    }
-                } else {
-                    // Immutable borrow
-                    syn::parse_quote! {
-                        borrowscope_runtime::track_borrow(#var_name, &#borrowed)
-                    }
-                }
-            } else {
-                // Regular variable creation
-                syn::parse_quote! {
-                    borrowscope_runtime::track_new(#var_name, #original_expr)
-                }
+            // Check if this is a borrow expression - handled in visit_expr_mut
+            let new_expr: Expr = syn::parse_quote! {
+                borrowscope_runtime::track_new(#var_name, #original_expr)
             };
 
             *init.expr = new_expr;
@@ -62,6 +84,30 @@ impl OwnershipVisitor {
 
         // Continue visiting nested expressions
         visit_mut::visit_local_mut(self, local);
+    }
+
+    /// Transform reference expressions to inject track_borrow
+    fn transform_reference(&mut self, expr: &mut Expr, ref_expr: &ExprReference) {
+        // Only track borrows of simple variables
+        if !Self::is_variable_path(&ref_expr.expr) {
+            return;
+        }
+
+        let is_mutable = ref_expr.mutability.is_some();
+        let borrowed_expr = &ref_expr.expr;
+
+        // Generate tracking call
+        let tracking_call: Expr = if is_mutable {
+            syn::parse_quote! {
+                borrowscope_runtime::track_borrow_mut("borrow", &mut #borrowed_expr)
+            }
+        } else {
+            syn::parse_quote! {
+                borrowscope_runtime::track_borrow("borrow", &#borrowed_expr)
+            }
+        };
+
+        *expr = tracking_call;
     }
 }
 
@@ -106,9 +152,13 @@ impl VisitMut for OwnershipVisitor {
     }
 
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
-        // For now, just recursively visit nested expressions
-        // We'll add more transformation logic in later sections
+        // First recursively visit nested expressions
         visit_mut::visit_expr_mut(self, expr);
+
+        // Then transform reference expressions at this level
+        if let Expr::Reference(ref_expr) = expr.clone() {
+            self.transform_reference(expr, &ref_expr);
+        }
     }
 }
 
@@ -231,7 +281,7 @@ mod tests {
         let stmt: Stmt = parse_quote! {
             let x: i32 = 5;
         };
-        
+
         if let Stmt::Local(local) = stmt {
             assert_eq!(OwnershipVisitor::extract_pattern_name(&local.pat), "x");
         } else {
