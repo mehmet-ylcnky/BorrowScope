@@ -26,3 +26,8 @@ pub fn track_move<T>(_name: &str, value: T) -> T {
     // Placeholder - will be implemented in Chapter 3
     value
 }
+
+/// Track a variable drop
+pub fn track_drop(_name: &str) {
+    // Placeholder - will be implemented in Chapter 3
+}

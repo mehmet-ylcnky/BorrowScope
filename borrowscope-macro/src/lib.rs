@@ -4,9 +4,13 @@
 //! Rust code to track ownership and borrowing operations at runtime.
 
 mod borrow_detection;
+mod codegen;
 mod examples;
+mod formatting;
+mod optimized_transform;
 mod parser;
 mod pattern;
+mod span_utils;
 mod visitor;
 
 use proc_macro::TokenStream;

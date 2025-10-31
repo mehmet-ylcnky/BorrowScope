@@ -24,6 +24,11 @@ impl PatternInfo {
             is_simple,
         }
     }
+
+    /// Check if this pattern can be tracked
+    pub fn is_trackable(&self) -> bool {
+        !self.variables.is_empty()
+    }
 }
 
 /// Extract all variable names from a pattern recursively
