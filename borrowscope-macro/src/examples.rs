@@ -25,10 +25,12 @@ pub fn is_let_binding(stmt: &Stmt) -> bool {
 
 /// Extract variable name from a let binding
 pub fn extract_variable_name(stmt: &Stmt) -> Option<String> {
-    if let Stmt::Local(Local { pat, .. }) = stmt {
-        if let Pat::Ident(pat_ident) = pat {
-            return Some(pat_ident.ident.to_string());
-        }
+    if let Stmt::Local(Local {
+        pat: Pat::Ident(pat_ident),
+        ..
+    }) = stmt
+    {
+        return Some(pat_ident.ident.to_string());
     }
     None
 }
