@@ -3,6 +3,8 @@
 //! This module contains helper functions that show how to use syn for parsing
 //! and quote for code generation.
 
+#![allow(dead_code)]
+
 use quote::quote;
 use syn::{Expr, ItemFn, Local, Pat, Stmt};
 
