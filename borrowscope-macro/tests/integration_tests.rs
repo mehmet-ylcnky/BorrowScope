@@ -96,10 +96,8 @@ fn test_function_with_mut_borrow() {
 #[trace_borrow]
 fn function_with_control_flow(condition: bool) -> i32 {
     if condition {
-        
         10
     } else {
-        
         20
     }
 }
@@ -126,10 +124,12 @@ fn test_function_with_loop() {
 }
 
 // Test 10: Function with move semantics
+// Note: Explicit variable binding intentional to test move tracking
+#[allow(clippy::let_and_return)]
 #[trace_borrow]
 fn function_with_move() -> String {
     let s = String::from("moved");
-     // Move occurs here
+    // Move occurs here
     s
 }
 
