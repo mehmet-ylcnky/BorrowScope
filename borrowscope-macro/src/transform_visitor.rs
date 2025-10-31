@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use syn::{
     visit_mut::{self, VisitMut},
-    Block, Expr, ExprMethodCall, ExprReference, Ident, Index, ItemFn, Local, Pat, Stmt,
+    Block, Expr, ExprClosure, ExprMethodCall, ExprReference, Ident, Index, ItemFn, Local, Pat,
+    Stmt,
 };
 
 /// Type of self borrow in method call
@@ -353,6 +354,109 @@ impl OwnershipVisitor {
         }
     }
 
+    /// Check if closure has move keyword
+    #[allow(dead_code)]
+    fn is_move_closure(closure: &ExprClosure) -> bool {
+        closure.capture.is_some()
+    }
+
+    /// Extract variables used in closure body
+    fn extract_captured_vars(&self, expr: &Expr, vars: &mut Vec<String>) {
+        match expr {
+            Expr::Path(path) => {
+                if let Some(ident) = path.path.get_ident() {
+                    let var_name = ident.to_string();
+                    // Check if it's a known variable (not a parameter or function)
+                    if self.var_ids.contains_key(&var_name) && !vars.contains(&var_name) {
+                        vars.push(var_name);
+                    }
+                }
+            }
+            Expr::Binary(binary) => {
+                self.extract_captured_vars(&binary.left, vars);
+                self.extract_captured_vars(&binary.right, vars);
+            }
+            Expr::Unary(unary) => {
+                self.extract_captured_vars(&unary.expr, vars);
+            }
+            Expr::Call(call) => {
+                self.extract_captured_vars(&call.func, vars);
+                for arg in &call.args {
+                    self.extract_captured_vars(arg, vars);
+                }
+            }
+            Expr::MethodCall(method) => {
+                self.extract_captured_vars(&method.receiver, vars);
+                for arg in &method.args {
+                    self.extract_captured_vars(arg, vars);
+                }
+            }
+            Expr::Block(block) => {
+                for stmt in &block.block.stmts {
+                    match stmt {
+                        Stmt::Local(local) => {
+                            if let Some(init) = &local.init {
+                                self.extract_captured_vars(&init.expr, vars);
+                            }
+                        }
+                        Stmt::Expr(expr, _) => {
+                            self.extract_captured_vars(expr, vars);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Expr::If(if_expr) => {
+                self.extract_captured_vars(&if_expr.cond, vars);
+                for stmt in &if_expr.then_branch.stmts {
+                    if let Stmt::Expr(expr, _) = stmt {
+                        self.extract_captured_vars(expr, vars);
+                    }
+                }
+                if let Some((_, else_branch)) = &if_expr.else_branch {
+                    self.extract_captured_vars(else_branch, vars);
+                }
+            }
+            Expr::Match(match_expr) => {
+                self.extract_captured_vars(&match_expr.expr, vars);
+                for arm in &match_expr.arms {
+                    self.extract_captured_vars(&arm.body, vars);
+                }
+            }
+            Expr::Field(field) => {
+                self.extract_captured_vars(&field.base, vars);
+            }
+            Expr::Index(index) => {
+                self.extract_captured_vars(&index.expr, vars);
+                self.extract_captured_vars(&index.index, vars);
+            }
+            Expr::Return(ret) => {
+                if let Some(expr) = &ret.expr {
+                    self.extract_captured_vars(expr, vars);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Transform closure expression
+    fn transform_closure(&mut self, closure: &mut ExprClosure) {
+        // Extract captured variables
+        let mut captured_vars = Vec::new();
+        self.extract_captured_vars(&closure.body, &mut captured_vars);
+
+        // For move closures, the variables are moved into the closure
+        // This is tracked at the assignment level (let closure = move |x| ...)
+        // For non-move closures, variables are borrowed
+        // We don't transform the closure body itself to avoid complexity
+
+        // Just visit the closure body normally to handle any nested structures
+        self.visit_expr_mut(&mut closure.body);
+
+        // Note: We could add metadata tracking here for captured variables
+        // but for v1, we keep it simple and let the outer scope tracking handle it
+    }
+
     /// Check if expression is a potential move (simple variable path)
     fn is_potential_move(expr: &Expr) -> bool {
         matches!(expr, Expr::Path(_))
@@ -527,6 +631,12 @@ impl VisitMut for OwnershipVisitor {
     }
 
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        // Handle closures before default traversal
+        if let Expr::Closure(closure) = expr {
+            self.transform_closure(closure);
+            return;
+        }
+
         // Handle method calls before default traversal
         if let Expr::MethodCall(method_call) = expr {
             self.transform_method_call(method_call);
