@@ -1,0 +1,19 @@
+[package]
+name = "borrowscope-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Runtime tracking system for BorrowScope"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+petgraph.workspace = true
+
+[dev-dependencies]
