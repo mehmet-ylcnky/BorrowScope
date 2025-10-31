@@ -3,14 +3,17 @@
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
 //! Rust code to track ownership and borrowing operations at runtime.
 
+mod best_practices;
 mod borrow_detection;
 mod codegen;
 mod examples;
 mod formatting;
+mod hygiene;
 mod optimized_transform;
 mod parser;
 mod pattern;
 mod span_utils;
+mod validation;
 mod visitor;
 
 use proc_macro::TokenStream;
