@@ -50,7 +50,7 @@ pub fn trace_borrow(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Transform a function to add tracking calls
 fn transform_function(func: &mut ItemFn) {
     use syn::visit_mut::{self, VisitMut};
-    use syn::{Expr, Local, Stmt};
+    use syn::{Expr, Local};
 
     struct Transformer;
 
