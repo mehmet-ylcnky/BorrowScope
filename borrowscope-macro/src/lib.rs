@@ -5,6 +5,7 @@
 
 mod examples;
 mod parser;
+mod pattern;
 mod visitor;
 
 use proc_macro::TokenStream;
