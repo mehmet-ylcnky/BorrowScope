@@ -6,8 +6,16 @@
 use std::collections::HashMap;
 use syn::{
     visit_mut::{self, VisitMut},
-    Block, Expr, ExprReference, Ident, Index, ItemFn, Local, Pat, Stmt,
+    Block, Expr, ExprMethodCall, ExprReference, Ident, Index, ItemFn, Local, Pat, Stmt,
 };
+
+/// Type of self borrow in method call
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SelfBorrowType {
+    Immutable,
+    Mutable,
+    Consuming,
+}
 
 /// Visitor that transforms AST to inject tracking calls
 pub struct OwnershipVisitor {
@@ -226,6 +234,125 @@ impl OwnershipVisitor {
         }
     }
 
+    /// Infer self borrow type from method name using heuristics
+    fn infer_self_borrow_type(method_name: &str) -> SelfBorrowType {
+        // Immutable borrows (common patterns)
+        if method_name.starts_with("as_")
+            || method_name.starts_with("to_")
+            || method_name.starts_with("is_")
+            || method_name.starts_with("get")
+            || matches!(
+                method_name,
+                "len"
+                    | "capacity"
+                    | "iter"
+                    | "chars"
+                    | "bytes"
+                    | "lines"
+                    | "split"
+                    | "trim"
+                    | "contains"
+                    | "starts_with"
+                    | "ends_with"
+                    | "find"
+                    | "clone"
+                    | "first"
+                    | "last"
+            )
+        {
+            return SelfBorrowType::Immutable;
+        }
+
+        // Mutable borrows (common patterns)
+        if method_name.starts_with("push")
+            || method_name.starts_with("pop")
+            || method_name.starts_with("insert")
+            || method_name.starts_with("remove")
+            || method_name.starts_with("append")
+            || matches!(
+                method_name,
+                "clear" | "truncate" | "extend" | "drain" | "sort" | "reverse" | "dedup" | "retain"
+            )
+        {
+            return SelfBorrowType::Mutable;
+        }
+
+        // Consuming methods (common patterns)
+        if method_name.starts_with("into_") || matches!(method_name, "unwrap" | "expect") {
+            return SelfBorrowType::Consuming;
+        }
+
+        // Default: immutable borrow
+        SelfBorrowType::Immutable
+    }
+
+    /// Check if expression is a simple variable (not a temporary or field access)
+    fn is_simple_variable(expr: &Expr) -> bool {
+        matches!(expr, Expr::Path(_))
+    }
+
+    /// Extract receiver variable name from expression
+    fn extract_receiver_name(receiver: &Expr) -> Option<String> {
+        if let Expr::Path(path) = receiver {
+            if let Some(ident) = path.path.get_ident() {
+                return Some(ident.to_string());
+            }
+        }
+        None
+    }
+
+    /// Transform method call to track self borrows
+    fn transform_method_call(&mut self, method_call: &mut ExprMethodCall) {
+        // Only track method calls on simple variables
+        if !Self::is_simple_variable(&method_call.receiver) {
+            // Visit receiver and arguments normally
+            self.visit_expr_mut(&mut method_call.receiver);
+            for arg in &mut method_call.args {
+                self.visit_expr_mut(arg);
+            }
+            return;
+        }
+
+        let method_name = method_call.method.to_string();
+        let borrow_type = Self::infer_self_borrow_type(&method_name);
+
+        // For consuming methods, just visit normally (move tracking happens at assignment level)
+        if borrow_type == SelfBorrowType::Consuming {
+            self.visit_expr_mut(&mut method_call.receiver);
+            for arg in &mut method_call.args {
+                self.visit_expr_mut(arg);
+            }
+            return;
+        }
+
+        // Extract receiver name for tracking
+        if Self::extract_receiver_name(&method_call.receiver).is_some() {
+            let receiver_expr = method_call.receiver.clone();
+
+            // Wrap receiver with appropriate borrow tracking
+            let wrapped_receiver: Expr = match borrow_type {
+                SelfBorrowType::Immutable => {
+                    syn::parse_quote! {
+                        borrowscope_runtime::track_borrow("method_borrow", &#receiver_expr)
+                    }
+                }
+                SelfBorrowType::Mutable => {
+                    syn::parse_quote! {
+                        borrowscope_runtime::track_borrow_mut("method_borrow", &mut #receiver_expr)
+                    }
+                }
+                SelfBorrowType::Consuming => unreachable!(),
+            };
+
+            method_call.receiver = Box::new(wrapped_receiver);
+        }
+
+        // Visit arguments
+        for arg in &mut method_call.args {
+            self.visit_expr_mut(arg);
+        }
+    }
+
     /// Check if expression is a potential move (simple variable path)
     fn is_potential_move(expr: &Expr) -> bool {
         matches!(expr, Expr::Path(_))
@@ -400,6 +527,12 @@ impl VisitMut for OwnershipVisitor {
     }
 
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
+        // Handle method calls before default traversal
+        if let Expr::MethodCall(method_call) = expr {
+            self.transform_method_call(method_call);
+            return;
+        }
+
         // First recursively visit nested expressions
         visit_mut::visit_expr_mut(self, expr);
 
