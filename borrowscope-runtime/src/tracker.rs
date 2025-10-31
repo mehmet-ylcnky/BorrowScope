@@ -181,6 +181,12 @@ pub fn get_events() -> Vec<Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    lazy_static::lazy_static! {
+        /// Global test lock to ensure tests run serially when accessing shared tracker
+        static ref TEST_LOCK: Mutex<()> = Mutex::new(());
+    }
 
     #[test]
     fn test_tracker_new() {
@@ -235,6 +241,7 @@ mod tests {
 
     #[test]
     fn test_track_new_returns_value() {
+        let _lock = TEST_LOCK.lock().unwrap();
         reset();
         let value = track_new("x", 42);
         assert_eq!(value, 42);
@@ -242,6 +249,7 @@ mod tests {
 
     #[test]
     fn test_track_borrow_returns_reference() {
+        let _lock = TEST_LOCK.lock().unwrap();
         reset();
         let s = String::from("hello");
         let r = track_borrow("r", &s);
@@ -250,6 +258,7 @@ mod tests {
 
     #[test]
     fn test_track_borrow_mut_returns_reference() {
+        let _lock = TEST_LOCK.lock().unwrap();
         reset();
         let mut s = String::from("hello");
         let r = track_borrow_mut("r", &mut s);
@@ -259,6 +268,7 @@ mod tests {
 
     #[test]
     fn test_complete_workflow() {
+        let _lock = TEST_LOCK.lock().unwrap();
         reset();
 
         let x = track_new("x", 5);
@@ -276,6 +286,7 @@ mod tests {
 
     #[test]
     fn test_reset() {
+        let _lock = TEST_LOCK.lock().unwrap();
         reset();
 
         track_new("x", 5);
@@ -290,6 +301,7 @@ mod tests {
 
     #[test]
     fn test_unique_ids() {
+        let _lock = TEST_LOCK.lock().unwrap();
         reset();
 
         track_new("x", 1);

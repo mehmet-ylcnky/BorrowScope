@@ -54,9 +54,17 @@ pub fn get_graph() -> OwnershipGraph {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    use std::sync::Mutex;
+
+    lazy_static::lazy_static! {
+        /// Global test lock to ensure tests run serially when accessing shared tracker
+        static ref TEST_LOCK: Mutex<()> = Mutex::new(());
+    }
 
     #[test]
     fn test_simple_tracking() {
+        let _lock = TEST_LOCK.lock().unwrap();
+
         reset();
 
         let x = track_new("x", 5);
@@ -69,6 +77,8 @@ mod integration_tests {
 
     #[test]
     fn test_borrow_tracking() {
+        let _lock = TEST_LOCK.lock().unwrap();
+
         reset();
 
         let s = track_new("s", String::from("hello"));
@@ -84,6 +94,8 @@ mod integration_tests {
 
     #[test]
     fn test_multiple_variables() {
+        let _lock = TEST_LOCK.lock().unwrap();
+
         reset();
 
         let x = track_new("x", 5);
@@ -101,6 +113,8 @@ mod integration_tests {
 
     #[test]
     fn test_mutable_borrow() {
+        let _lock = TEST_LOCK.lock().unwrap();
+
         reset();
 
         let mut x = track_new("x", vec![1, 2, 3]);
@@ -115,6 +129,8 @@ mod integration_tests {
 
     #[test]
     fn test_graph_building() {
+        let _lock = TEST_LOCK.lock().unwrap();
+
         reset();
 
         let x = track_new("x", 5);
