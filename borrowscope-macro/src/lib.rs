@@ -8,6 +8,7 @@ mod borrow_detection;
 mod codegen;
 mod examples;
 mod formatting;
+mod generic_handler;
 mod hygiene;
 mod optimized_transform;
 mod parser;
