@@ -104,17 +104,17 @@ fn test_complex_expression() {
     assert_eq!(events.len(), 1);
 }
 
+fn get_value_helper() -> i32 {
+    42
+}
+
 #[test]
 fn test_function_call_initializer() {
-    fn get_value() -> i32 {
-        42
-    }
-
     reset();
 
     #[trace_borrow]
     fn example() {
-        let x = get_value();
+        let x = get_value_helper();
         assert_eq!(x, 42);
     }
 

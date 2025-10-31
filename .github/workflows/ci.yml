@@ -46,8 +46,14 @@ jobs:
       - name: Build
         run: cargo build --verbose
       
-      - name: Run tests (excluding runtime)
-        run: cargo test --verbose --workspace --exclude borrowscope-runtime
+      - name: Run CLI tests
+        run: cargo test --package borrowscope-cli --verbose
+      
+      - name: Run macro unit tests
+        run: cargo test --package borrowscope-macro --lib --verbose
+      
+      - name: Run macro integration tests (single-threaded)
+        run: cargo test --package borrowscope-macro --test '*' --verbose -- --test-threads=1
       
       - name: Run runtime unit tests (single-threaded)
         run: cargo test --package borrowscope-runtime --lib --verbose -- --test-threads=1
