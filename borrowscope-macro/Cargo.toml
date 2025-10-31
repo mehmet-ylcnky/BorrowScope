@@ -20,5 +20,7 @@ proc-macro2.workspace = true
 proc-macro-error = "1.0"
 
 [dev-dependencies]
-borrowscope-runtime = { path = "../borrowscope-runtime" }
+borrowscope-runtime = { path = "../borrowscope-runtime", features = ["track"] }
 trybuild = "1.0"
+lazy_static = "1.4"
+parking_lot = "0.12"

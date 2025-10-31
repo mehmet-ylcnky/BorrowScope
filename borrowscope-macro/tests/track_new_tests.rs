@@ -1,8 +1,13 @@
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
 
+lazy_static::lazy_static! {
+    static ref TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+}
+
 #[test]
 fn test_simple_variable_tracking() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -21,6 +26,7 @@ fn test_simple_variable_tracking() {
 
 #[test]
 fn test_typed_variable() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -38,6 +44,7 @@ fn test_typed_variable() {
 
 #[test]
 fn test_string_variable() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -55,6 +62,7 @@ fn test_string_variable() {
 
 #[test]
 fn test_vec_variable() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -72,6 +80,7 @@ fn test_vec_variable() {
 
 #[test]
 fn test_multiple_variables() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -90,6 +99,7 @@ fn test_multiple_variables() {
 
 #[test]
 fn test_complex_expression() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -110,6 +120,7 @@ fn get_value_helper() -> i32 {
 
 #[test]
 fn test_function_call_initializer() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -126,6 +137,7 @@ fn test_function_call_initializer() {
 
 #[test]
 fn test_mutable_variable() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -143,6 +155,7 @@ fn test_mutable_variable() {
 
 #[test]
 fn test_nested_blocks() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
@@ -163,6 +176,7 @@ fn test_nested_blocks() {
 
 #[test]
 fn test_preserves_return_value() {
+    let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
