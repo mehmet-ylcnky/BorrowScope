@@ -62,6 +62,11 @@ impl OwnershipVisitor {
         matches!(expr, Expr::Path(_))
     }
 
+    /// Check if expression is a potential move (simple variable path)
+    fn is_potential_move(expr: &Expr) -> bool {
+        matches!(expr, Expr::Path(_))
+    }
+
     /// Transform a let statement to inject track_new
     fn transform_local(&mut self, local: &mut Local) {
         // Only transform if there's an initializer
@@ -74,9 +79,32 @@ impl OwnershipVisitor {
 
             let original_expr = &init.expr;
 
-            // Check if this is a borrow expression - handled in visit_expr_mut
-            let new_expr: Expr = syn::parse_quote! {
-                borrowscope_runtime::track_new(#var_name, #original_expr)
+            // Check if this is a potential move (assignment from another variable)
+            let new_expr: Expr = if Self::is_potential_move(original_expr) {
+                // Extract source variable name
+                if let Expr::Path(path_expr) = original_expr.as_ref() {
+                    if let Some(source_ident) = path_expr.path.get_ident() {
+                        let source_name = source_ident.to_string();
+                        // Wrap with track_move
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_move(#source_name, #var_name, #original_expr)
+                        }
+                    } else {
+                        // Not a simple identifier, just track_new
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_new(#var_name, #original_expr)
+                        }
+                    }
+                } else {
+                    syn::parse_quote! {
+                        borrowscope_runtime::track_new(#var_name, #original_expr)
+                    }
+                }
+            } else {
+                // Regular variable creation
+                syn::parse_quote! {
+                    borrowscope_runtime::track_new(#var_name, #original_expr)
+                }
             };
 
             *init.expr = new_expr;

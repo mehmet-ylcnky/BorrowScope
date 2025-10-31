@@ -156,8 +156,12 @@ pub fn track_borrow_mut<'a, T: ?Sized>(name: &str, value: &'a mut T) -> &'a mut 
 
 /// Track a move
 #[inline(always)]
-pub fn track_move<T>(_from: &str, _to: &str, value: T) -> T {
-    // Move tracking will be improved in later sections
+pub fn track_move<T>(from_name: &str, to_name: &str, value: T) -> T {
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_move(from_name, to_name);
+    } // Lock released immediately
+
     value
 }
 

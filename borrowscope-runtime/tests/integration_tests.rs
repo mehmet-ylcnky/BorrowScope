@@ -90,7 +90,7 @@ fn test_simple_move() {
 
     track_drop("y");
 
-    fixture.assert_event_types(&["New", "Drop"]);
+    fixture.assert_event_types(&["New", "Move", "Drop"]);
 }
 
 // ===== Graph Building Tests =====
