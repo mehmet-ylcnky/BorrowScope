@@ -49,8 +49,11 @@ jobs:
       - name: Run tests (excluding runtime)
         run: cargo test --verbose --workspace --exclude borrowscope-runtime
       
-      - name: Run runtime tests (single-threaded)
+      - name: Run runtime unit tests (single-threaded)
         run: cargo test --package borrowscope-runtime --lib --verbose -- --test-threads=1
+      
+      - name: Run runtime integration tests (single-threaded)
+        run: cargo test --package borrowscope-runtime --test '*' --verbose -- --test-threads=1
 
   clippy:
     name: Clippy
