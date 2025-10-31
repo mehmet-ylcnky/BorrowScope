@@ -34,6 +34,7 @@ petgraph = "0.6"
 
 # Concurrency
 parking_lot = "0.12"
+lazy_static = "1.4"
 
 # Error handling
 anyhow = "1.0"
