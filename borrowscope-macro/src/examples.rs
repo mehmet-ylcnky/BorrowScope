@@ -122,7 +122,7 @@ mod tests {
         let generated = generate_hello_function();
         let generated_str = generated.to_string();
         assert!(generated_str.contains("fn hello"));
-        assert!(generated_str.contains("println!"));
+        assert!(generated_str.contains("Hello from generated code"));
     }
 
     #[test]
