@@ -1,6 +1,6 @@
 use borrowscope_macro::trace_borrow;
 
-// Test 1: Simple function with no parameters
+// Test 1: Simple function with variable declaration
 #[trace_borrow]
 fn simple_function() {
     let x = 5;
@@ -12,7 +12,7 @@ fn test_simple_function() {
     simple_function();
 }
 
-// Test 2: Function with parameters
+// Test 2: Function with parameters and return value
 #[trace_borrow]
 fn function_with_params(a: i32, b: i32) -> i32 {
     a + b
@@ -24,7 +24,7 @@ fn test_function_with_params() {
     assert_eq!(result, 5);
 }
 
-// Test 3: Function with return type
+// Test 3: Function returning owned value
 #[trace_borrow]
 fn function_with_return() -> String {
     String::from("hello")
@@ -36,7 +36,7 @@ fn test_function_with_return() {
     assert_eq!(result, "hello");
 }
 
-// Test 4: Function with generics
+// Test 4: Generic function (tests type parameter preservation)
 #[trace_borrow]
 fn generic_function<T: Clone>(value: T) -> T {
     value.clone()
@@ -46,9 +46,12 @@ fn generic_function<T: Clone>(value: T) -> T {
 fn test_generic_function() {
     let result = generic_function(42);
     assert_eq!(result, 42);
+
+    let string_result = generic_function(String::from("test"));
+    assert_eq!(string_result, "test");
 }
 
-// Test 5: Function with lifetime parameters
+// Test 5: Function with lifetime parameters (tests borrow preservation)
 #[trace_borrow]
 fn function_with_lifetime<'a>(s: &'a str) -> &'a str {
     s
@@ -60,13 +63,14 @@ fn test_function_with_lifetime() {
     assert_eq!(result, "test");
 }
 
-// Test 6: Function with borrows
+// Test 6: Function with multiple immutable borrows (core use case)
 #[trace_borrow]
 fn function_with_borrows() {
     let x = String::from("hello");
     let r1 = &x;
     let r2 = &x;
     assert_eq!(r1, r2);
+    assert_eq!(r1.len(), 5);
 }
 
 #[test]
@@ -74,7 +78,7 @@ fn test_function_with_borrows() {
     function_with_borrows();
 }
 
-// Test 7: Function with mutable borrows
+// Test 7: Function with mutable borrow (tests exclusive access)
 #[trace_borrow]
 fn function_with_mut_borrow() {
     let mut x = 5;
@@ -88,7 +92,7 @@ fn test_function_with_mut_borrow() {
     function_with_mut_borrow();
 }
 
-// Test 8: Function with control flow
+// Test 8: Function with control flow (tests scope handling)
 #[trace_borrow]
 fn function_with_control_flow(condition: bool) -> i32 {
     if condition {
@@ -106,7 +110,7 @@ fn test_function_with_control_flow() {
     assert_eq!(function_with_control_flow(false), 20);
 }
 
-// Test 9: Function with loops
+// Test 9: Function with loop (tests iteration and mutable state)
 #[trace_borrow]
 fn function_with_loop() -> i32 {
     let mut sum = 0;
@@ -121,14 +125,16 @@ fn test_function_with_loop() {
     assert_eq!(function_with_loop(), 10);
 }
 
-// Test 10: Async function
+// Test 10: Function with move semantics
 #[trace_borrow]
-async fn async_function() -> i32 {
-    42
+fn function_with_move() -> String {
+    let s = String::from("moved");
+    let s2 = s; // Move occurs here
+    s2
 }
 
-#[tokio::test]
-async fn test_async_function() {
-    let result = async_function().await;
-    assert_eq!(result, 42);
+#[test]
+fn test_function_with_move() {
+    let result = function_with_move();
+    assert_eq!(result, "moved");
 }

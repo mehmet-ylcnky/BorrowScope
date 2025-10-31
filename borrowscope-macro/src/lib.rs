@@ -26,7 +26,10 @@ pub fn trace_borrow(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     // Validate it's a function
     if input_fn.sig.ident.to_string().is_empty() {
-        abort!(input_fn.sig.ident, "trace_borrow can only be applied to functions");
+        abort!(
+            input_fn.sig.ident,
+            "trace_borrow can only be applied to functions"
+        );
     }
 
     // For now, just return the function unchanged
