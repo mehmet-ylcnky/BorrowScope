@@ -44,6 +44,7 @@ impl Tracker {
     }
 
     /// Record a New event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
     pub fn record_new(&mut self, var_name: &str, type_name: &str) -> String {
         let timestamp = Self::next_timestamp();
         let var_id = self.next_var_id(var_name);
@@ -59,6 +60,7 @@ impl Tracker {
     }
 
     /// Record a Borrow event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
     pub fn record_borrow(&mut self, borrower_name: &str, owner_id: &str, mutable: bool) -> String {
         let timestamp = Self::next_timestamp();
         let borrower_id = self.next_var_id(borrower_name);
@@ -91,6 +93,7 @@ impl Tracker {
     }
 
     /// Record a Drop event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
     pub fn record_drop(&mut self, var_id: &str) {
         let timestamp = Self::next_timestamp();
 
@@ -121,55 +124,84 @@ impl Default for Tracker {
 
 /// Track a new variable
 #[inline(always)]
-pub fn track_new<T>(name: &str, value: T) -> T {
-    let type_name = std::any::type_name::<T>();
-
+pub fn track_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
     {
+        let type_name = std::any::type_name::<T>();
         let mut tracker = TRACKER.lock();
         tracker.record_new(name, type_name);
-    } // Lock released immediately
-
+    }
     value
 }
 
 /// Track an immutable borrow
 #[inline(always)]
-pub fn track_borrow<'a, T: ?Sized>(name: &str, value: &'a T) -> &'a T {
+pub fn track_borrow<'a, T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: &'a T,
+) -> &'a T {
+    #[cfg(feature = "track")]
     {
         let mut tracker = TRACKER.lock();
         tracker.record_borrow(name, "unknown", false);
-    } // Lock released immediately
-
+    }
     value
 }
 
 /// Track a mutable borrow
 #[inline(always)]
-pub fn track_borrow_mut<'a, T: ?Sized>(name: &str, value: &'a mut T) -> &'a mut T {
+pub fn track_borrow_mut<'a, T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: &'a mut T,
+) -> &'a mut T {
+    #[cfg(feature = "track")]
     {
         let mut tracker = TRACKER.lock();
         tracker.record_borrow(name, "unknown", true);
-    } // Lock released immediately
-
+    }
     value
 }
 
 /// Track a move
 #[inline(always)]
-pub fn track_move<T>(from_name: &str, to_name: &str, value: T) -> T {
+pub fn track_move<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] from_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] to_name: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
     {
         let mut tracker = TRACKER.lock();
         tracker.record_move(from_name, to_name);
-    } // Lock released immediately
-
+    }
     value
 }
 
 /// Track a drop
 #[inline(always)]
-pub fn track_drop(name: &str) {
-    let mut tracker = TRACKER.lock();
-    tracker.record_drop(name);
+pub fn track_drop(#[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_drop(name);
+    }
+}
+
+/// Track multiple drops in batch (optimized)
+#[inline(always)]
+pub fn track_drop_batch(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] names: &[&str],
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        for &name in names {
+            tracker.record_drop(name);
+        }
+    }
 }
 
 /// Reset tracking state
