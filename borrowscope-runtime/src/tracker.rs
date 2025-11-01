@@ -678,7 +678,7 @@ pub fn track_drop_with_id(
 
 /// Track Rc::new with explicit ID and location (advanced API)
 #[inline(always)]
-pub fn track_rc_new_with_id<T>(
+pub fn track_rc_new_with_id<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] type_name: &str,
@@ -697,7 +697,7 @@ pub fn track_rc_new_with_id<T>(
 
 /// Track Rc::clone with explicit IDs and location (advanced API)
 #[inline(always)]
-pub fn track_rc_clone_with_id<T>(
+pub fn track_rc_clone_with_id<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] new_id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -723,7 +723,7 @@ pub fn track_rc_clone_with_id<T>(
 
 /// Track Arc::new with explicit ID and location (advanced API)
 #[inline(always)]
-pub fn track_arc_new_with_id<T>(
+pub fn track_arc_new_with_id<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] type_name: &str,
@@ -742,7 +742,7 @@ pub fn track_arc_new_with_id<T>(
 
 /// Track Arc::clone with explicit IDs and location (advanced API)
 #[inline(always)]
-pub fn track_arc_clone_with_id<T>(
+pub fn track_arc_clone_with_id<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] new_id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -768,7 +768,7 @@ pub fn track_arc_clone_with_id<T>(
 
 /// Track Rc::new allocation
 #[inline(always)]
-pub fn track_rc_new<T>(
+pub fn track_rc_new<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
     value: std::rc::Rc<T>,
 ) -> std::rc::Rc<T> {
@@ -784,7 +784,7 @@ pub fn track_rc_new<T>(
 
 /// Track Rc::clone operation
 #[inline(always)]
-pub fn track_rc_clone<T>(
+pub fn track_rc_clone<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
     value: std::rc::Rc<T>,
@@ -801,7 +801,7 @@ pub fn track_rc_clone<T>(
 
 /// Track Arc::new allocation
 #[inline(always)]
-pub fn track_arc_new<T>(
+pub fn track_arc_new<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
     value: std::sync::Arc<T>,
 ) -> std::sync::Arc<T> {
@@ -817,7 +817,7 @@ pub fn track_arc_new<T>(
 
 /// Track Arc::clone operation
 #[inline(always)]
-pub fn track_arc_clone<T>(
+pub fn track_arc_clone<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
     value: std::sync::Arc<T>,
