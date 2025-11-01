@@ -53,9 +53,10 @@ pub use lifetime::{ElisionRule, LifetimeRelation, Timeline};
 pub use tracker::{
     __track_new_with_id_helper, get_events, reset, track_arc_clone, track_arc_clone_with_id,
     track_arc_new, track_arc_new_with_id, track_borrow, track_borrow_mut, track_borrow_mut_with_id,
-    track_borrow_with_id, track_drop, track_drop_batch, track_drop_with_id, track_move,
-    track_move_with_id, track_new, track_new_with_id, track_rc_clone, track_rc_clone_with_id,
-    track_rc_new, track_rc_new_with_id,
+    track_borrow_with_id, track_cell_get, track_cell_new, track_cell_set, track_drop,
+    track_drop_batch, track_drop_with_id, track_move, track_move_with_id, track_new,
+    track_new_with_id, track_rc_clone, track_rc_clone_with_id, track_rc_new, track_rc_new_with_id,
+    track_refcell_borrow, track_refcell_borrow_mut, track_refcell_drop, track_refcell_new,
 };
 
 /// Get the ownership graph built from current events

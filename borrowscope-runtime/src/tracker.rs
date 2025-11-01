@@ -382,6 +382,88 @@ impl Tracker {
         var_id
     }
 
+    /// Record RefCell::new
+    pub fn record_refcell_new(&mut self, var_name: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = format!("refcell_{}", var_name);
+
+        self.events.push(Event::RefCellNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            type_name: "RefCell<T>".to_string(),
+        });
+
+        var_id
+    }
+
+    /// Record RefCell::borrow or borrow_mut
+    pub fn record_refcell_borrow(
+        &mut self,
+        borrow_id: &str,
+        refcell_id: &str,
+        is_mutable: bool,
+        location: &str,
+    ) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::RefCellBorrow {
+            timestamp,
+            borrow_id: borrow_id.to_string(),
+            refcell_id: refcell_id.to_string(),
+            is_mutable,
+            location: location.to_string(),
+        });
+    }
+
+    /// Record RefCell borrow drop
+    pub fn record_refcell_drop(&mut self, borrow_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::RefCellDrop {
+            timestamp,
+            borrow_id: borrow_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record Cell::new
+    pub fn record_cell_new(&mut self, var_name: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = format!("cell_{}", var_name);
+
+        self.events.push(Event::CellNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            type_name: "Cell<T>".to_string(),
+        });
+
+        var_id
+    }
+
+    /// Record Cell::get
+    pub fn record_cell_get(&mut self, cell_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::CellGet {
+            timestamp,
+            cell_id: cell_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record Cell::set
+    pub fn record_cell_set(&mut self, cell_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::CellSet {
+            timestamp,
+            cell_id: cell_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -748,6 +830,107 @@ pub fn track_arc_clone<T>(
         tracker.record_arc_clone(name, source_name, strong_count, weak_count);
     }
     value
+}
+
+/// Track RefCell::new allocation
+#[inline(always)]
+pub fn track_refcell_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: std::cell::RefCell<T>,
+) -> std::cell::RefCell<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_refcell_new(name);
+    }
+    value
+}
+
+/// Track RefCell::borrow operation
+#[inline(always)]
+pub fn track_refcell_borrow<'a, T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] borrow_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] refcell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::cell::Ref<'a, T>,
+) -> std::cell::Ref<'a, T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_refcell_borrow(borrow_id, refcell_id, false, location);
+    }
+    value
+}
+
+/// Track RefCell::borrow_mut operation
+#[inline(always)]
+pub fn track_refcell_borrow_mut<'a, T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] borrow_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] refcell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::cell::RefMut<'a, T>,
+) -> std::cell::RefMut<'a, T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_refcell_borrow(borrow_id, refcell_id, true, location);
+    }
+    value
+}
+
+/// Track RefCell borrow drop (when Ref/RefMut is dropped)
+#[inline(always)]
+pub fn track_refcell_drop(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] borrow_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_refcell_drop(borrow_id, location);
+    }
+}
+
+/// Track Cell::new allocation
+#[inline(always)]
+pub fn track_cell_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: std::cell::Cell<T>,
+) -> std::cell::Cell<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_cell_new(name);
+    }
+    value
+}
+
+/// Track Cell::get operation
+#[inline(always)]
+pub fn track_cell_get<T: Copy>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_cell_get(cell_id, location);
+    }
+    value
+}
+
+/// Track Cell::set operation
+#[inline(always)]
+pub fn track_cell_set(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_cell_set(cell_id, location);
+    }
 }
 
 #[cfg(test)]

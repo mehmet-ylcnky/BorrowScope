@@ -73,6 +73,52 @@ pub enum Event {
         strong_count: usize,
         weak_count: usize,
     },
+
+    /// RefCell::new allocation
+    RefCellNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        type_name: String,
+    },
+
+    /// RefCell::borrow or borrow_mut operation
+    RefCellBorrow {
+        timestamp: u64,
+        borrow_id: String,
+        refcell_id: String,
+        is_mutable: bool,
+        location: String,
+    },
+
+    /// RefCell borrow dropped (Ref/RefMut dropped)
+    RefCellDrop {
+        timestamp: u64,
+        borrow_id: String,
+        location: String,
+    },
+
+    /// Cell::new allocation
+    CellNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        type_name: String,
+    },
+
+    /// Cell::get operation
+    CellGet {
+        timestamp: u64,
+        cell_id: String,
+        location: String,
+    },
+
+    /// Cell::set operation
+    CellSet {
+        timestamp: u64,
+        cell_id: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -86,7 +132,13 @@ impl Event {
             | Event::RcNew { timestamp, .. }
             | Event::RcClone { timestamp, .. }
             | Event::ArcNew { timestamp, .. }
-            | Event::ArcClone { timestamp, .. } => *timestamp,
+            | Event::ArcClone { timestamp, .. }
+            | Event::RefCellNew { timestamp, .. }
+            | Event::RefCellBorrow { timestamp, .. }
+            | Event::RefCellDrop { timestamp, .. }
+            | Event::CellNew { timestamp, .. }
+            | Event::CellGet { timestamp, .. }
+            | Event::CellSet { timestamp, .. } => *timestamp,
         }
     }
 
@@ -97,10 +149,16 @@ impl Event {
             | Event::RcNew { var_name, .. }
             | Event::RcClone { var_name, .. }
             | Event::ArcNew { var_name, .. }
-            | Event::ArcClone { var_name, .. } => Some(var_name),
+            | Event::ArcClone { var_name, .. }
+            | Event::RefCellNew { var_name, .. }
+            | Event::CellNew { var_name, .. } => Some(var_name),
             Event::Borrow { borrower_name, .. } => Some(borrower_name),
             Event::Move { to_name, .. } => Some(to_name),
             Event::Drop { var_id, .. } => Some(var_id),
+            Event::RefCellBorrow { .. }
+            | Event::RefCellDrop { .. }
+            | Event::CellGet { .. }
+            | Event::CellSet { .. } => None,
         }
     }
 
@@ -137,6 +195,27 @@ impl Event {
     /// Check if this is a reference-counted event
     pub fn is_refcounted(&self) -> bool {
         self.is_rc() || self.is_arc()
+    }
+
+    /// Check if this is a RefCell event
+    pub fn is_refcell(&self) -> bool {
+        matches!(
+            self,
+            Event::RefCellNew { .. } | Event::RefCellBorrow { .. } | Event::RefCellDrop { .. }
+        )
+    }
+
+    /// Check if this is a Cell event
+    pub fn is_cell(&self) -> bool {
+        matches!(
+            self,
+            Event::CellNew { .. } | Event::CellGet { .. } | Event::CellSet { .. }
+        )
+    }
+
+    /// Check if this is an interior mutability event
+    pub fn is_interior_mutability(&self) -> bool {
+        self.is_refcell() || self.is_cell()
     }
 
     /// Get strong count if this is a reference-counted event
