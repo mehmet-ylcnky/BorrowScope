@@ -2,16 +2,16 @@
 //!
 //! These tests verify that the #[trace_borrow] macro correctly transforms
 //! Rc::new, Rc::clone, Arc::new, and Arc::clone operations.
-//!
-//! Note: Due to global tracker state, these tests may be flaky when run in parallel.
-//! Run with: cargo test --test rc_arc_macro_transformation_tests -- --test-threads=1
 
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
+use serial_test::serial;
 use std::rc::Rc;
 use std::sync::Arc;
 
 #[test]
+#[serial]
+#[serial]
 fn test_rc_new_transformation() {
     reset();
 
@@ -31,6 +31,7 @@ fn test_rc_new_transformation() {
 }
 
 #[test]
+#[serial]
 fn test_rc_clone_transformation() {
     reset();
 
@@ -52,6 +53,7 @@ fn test_rc_clone_transformation() {
 }
 
 #[test]
+#[serial]
 fn test_rc_multiple_clones_transformation() {
     reset();
 
@@ -74,6 +76,7 @@ fn test_rc_multiple_clones_transformation() {
 }
 
 #[test]
+#[serial]
 fn test_arc_new_transformation() {
     reset();
 
@@ -90,6 +93,7 @@ fn test_arc_new_transformation() {
 }
 
 #[test]
+#[serial]
 fn test_arc_clone_transformation() {
     reset();
 
@@ -111,6 +115,7 @@ fn test_arc_clone_transformation() {
 }
 
 #[test]
+#[serial]
 fn test_rc_value_correctness() {
     reset();
 
@@ -125,6 +130,7 @@ fn test_rc_value_correctness() {
 }
 
 #[test]
+#[serial]
 fn test_arc_value_correctness() {
     reset();
 
@@ -139,6 +145,7 @@ fn test_arc_value_correctness() {
 }
 
 #[test]
+#[serial]
 fn test_rc_clone_value_correctness() {
     reset();
 
@@ -155,6 +162,7 @@ fn test_rc_clone_value_correctness() {
 }
 
 #[test]
+#[serial]
 fn test_rc_with_string() {
     reset();
 
@@ -173,6 +181,7 @@ fn test_rc_with_string() {
 }
 
 #[test]
+#[serial]
 fn test_arc_with_string() {
     reset();
 
@@ -191,6 +200,7 @@ fn test_arc_with_string() {
 }
 
 #[test]
+#[serial]
 fn test_rc_in_nested_scope() {
     reset();
 
@@ -210,6 +220,7 @@ fn test_rc_in_nested_scope() {
 }
 
 #[test]
+#[serial]
 fn test_mixed_rc_arc() {
     reset();
 
@@ -230,6 +241,7 @@ fn test_mixed_rc_arc() {
 }
 
 #[test]
+#[serial]
 fn test_rc_with_struct() {
     reset();
 
@@ -254,6 +266,7 @@ fn test_rc_with_struct() {
 }
 
 #[test]
+#[serial]
 fn test_arc_with_vec() {
     reset();
 
@@ -272,6 +285,7 @@ fn test_arc_with_vec() {
 }
 
 #[test]
+#[serial]
 fn test_rc_clone_chain() {
     reset();
 
@@ -294,6 +308,7 @@ fn test_rc_clone_chain() {
 }
 
 #[test]
+#[serial]
 fn test_arc_thread_send() {
     use std::sync::mpsc;
     use std::thread;
@@ -329,6 +344,7 @@ fn test_arc_thread_send() {
 }
 
 #[test]
+#[serial]
 fn test_rc_strong_count_tracking() {
     reset();
 
@@ -351,6 +367,7 @@ fn test_rc_strong_count_tracking() {
 }
 
 #[test]
+#[serial]
 fn test_arc_strong_count_tracking() {
     reset();
 
@@ -371,6 +388,7 @@ fn test_arc_strong_count_tracking() {
 }
 
 #[test]
+#[serial]
 fn test_rc_with_option() {
     reset();
 
@@ -385,6 +403,7 @@ fn test_rc_with_option() {
 }
 
 #[test]
+#[serial]
 fn test_rc_with_result() {
     reset();
 
@@ -399,6 +418,7 @@ fn test_rc_with_result() {
 }
 
 #[test]
+#[serial]
 fn test_rc_full_path() {
     reset();
 
@@ -415,6 +435,7 @@ fn test_rc_full_path() {
 }
 
 #[test]
+#[serial]
 fn test_arc_full_path() {
     reset();
 

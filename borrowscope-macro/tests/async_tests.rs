@@ -5,8 +5,11 @@
 
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
+use serial_test::serial;
 
 #[tokio::test]
+#[serial]
+#[serial]
 async fn test_async_function_basic() {
     reset();
 
@@ -27,6 +30,7 @@ async fn test_async_function_basic() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_string() {
     reset();
 
@@ -44,6 +48,7 @@ async fn test_async_function_with_string() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_await() {
     reset();
 
@@ -66,6 +71,7 @@ async fn test_async_function_with_await() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_multiple_variables() {
     reset();
 
@@ -85,6 +91,7 @@ async fn test_async_function_multiple_variables() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_borrow() {
     reset();
 
@@ -103,6 +110,7 @@ async fn test_async_function_with_borrow() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_move() {
     reset();
 
@@ -121,6 +129,7 @@ async fn test_async_function_with_move() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_sleep() {
     reset();
 
@@ -139,6 +148,7 @@ async fn test_async_function_with_sleep() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_return_type() {
     reset();
 
@@ -156,6 +166,7 @@ async fn test_async_function_return_type() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_vec() {
     reset();
 
@@ -173,6 +184,7 @@ async fn test_async_function_with_vec() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_nested_calls() {
     reset();
 
@@ -221,6 +233,7 @@ async fn test_async_multi_threaded() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_struct() {
     reset();
 
@@ -243,6 +256,7 @@ async fn test_async_function_with_struct() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_with_option() {
     reset();
 
@@ -260,6 +274,7 @@ async fn test_async_function_with_option() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_function_preserves_semantics() {
     reset();
 
@@ -283,6 +298,7 @@ async fn test_async_function_preserves_semantics() {
 // Advanced async patterns
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_channels() {
     reset();
 
@@ -307,6 +323,7 @@ async fn test_async_with_channels() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_select() {
     reset();
 
@@ -336,6 +353,7 @@ async fn test_async_with_select() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_join() {
     reset();
 
@@ -361,6 +379,7 @@ async fn test_async_with_join() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_timeout() {
     reset();
 
@@ -380,6 +399,7 @@ async fn test_async_with_timeout() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_arc_mutex() {
     reset();
 
@@ -414,6 +434,7 @@ async fn test_async_with_arc_mutex() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_error_propagation() {
     reset();
 
@@ -437,6 +458,7 @@ async fn test_async_with_error_propagation() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_try_join() {
     reset();
 
@@ -461,6 +483,7 @@ async fn test_async_with_try_join() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_spawn_blocking() {
     reset();
 
@@ -484,6 +507,7 @@ async fn test_async_with_spawn_blocking() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_interval() {
     reset();
 
@@ -508,6 +532,7 @@ async fn test_async_with_interval() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_oneshot() {
     reset();
 
@@ -533,6 +558,7 @@ async fn test_async_with_oneshot() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_broadcast() {
     reset();
 
@@ -561,6 +587,7 @@ async fn test_async_with_broadcast() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_semaphore() {
     reset();
 
@@ -595,6 +622,7 @@ async fn test_async_with_semaphore() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_barrier() {
     reset();
 
@@ -629,6 +657,7 @@ async fn test_async_with_barrier() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_watch() {
     reset();
 
@@ -655,6 +684,7 @@ async fn test_async_with_watch() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_notify() {
     reset();
 
@@ -689,6 +719,7 @@ async fn test_async_with_notify() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_async_with_rwlock() {
     reset();
 

@@ -4,15 +4,13 @@
 //! including borrow checking, interior mutability, and runtime violations.
 
 use borrowscope_runtime::*;
+use serial_test::serial;
 use std::cell::{Cell, RefCell};
-use std::sync::Mutex;
-
-// Global lock for test isolation
-static TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+#[serial]
+#[serial]
 fn test_refcell_new() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let _x = track_refcell_new("x", RefCell::new(42));
@@ -25,8 +23,8 @@ fn test_refcell_new() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_immutable_borrow() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(42));
@@ -43,8 +41,8 @@ fn test_refcell_immutable_borrow() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_mutable_borrow() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(42));
@@ -62,8 +60,8 @@ fn test_refcell_mutable_borrow() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_multiple_immutable_borrows() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(42));
@@ -87,8 +85,8 @@ fn test_refcell_multiple_immutable_borrows() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_value_mutation() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(42));
@@ -113,6 +111,7 @@ fn test_refcell_value_mutation() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "already borrowed")]
 fn test_refcell_panic_mutable_while_borrowed() {
     let x = RefCell::new(42);
@@ -121,6 +120,7 @@ fn test_refcell_panic_mutable_while_borrowed() {
 }
 
 #[test]
+#[serial]
 #[should_panic(expected = "already mutably borrowed")]
 fn test_refcell_panic_immutable_while_mutably_borrowed() {
     let x = RefCell::new(42);
@@ -129,8 +129,8 @@ fn test_refcell_panic_immutable_while_mutably_borrowed() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_with_string() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(String::from("hello")));
@@ -147,8 +147,8 @@ fn test_refcell_with_string() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_with_vec() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(vec![1, 2, 3]));
@@ -165,8 +165,8 @@ fn test_refcell_with_vec() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_nested_in_struct() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     #[allow(dead_code)]
@@ -207,8 +207,8 @@ fn test_refcell_nested_in_struct() {
 }
 
 #[test]
+#[serial]
 fn test_cell_new() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let _x = track_cell_new("x", Cell::new(42));
@@ -219,8 +219,8 @@ fn test_cell_new() {
 }
 
 #[test]
+#[serial]
 fn test_cell_get() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_cell_new("x", Cell::new(42));
@@ -237,8 +237,8 @@ fn test_cell_get() {
 }
 
 #[test]
+#[serial]
 fn test_cell_set() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_cell_new("x", Cell::new(42));
@@ -258,8 +258,8 @@ fn test_cell_set() {
 }
 
 #[test]
+#[serial]
 fn test_cell_multiple_operations() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_cell_new("x", Cell::new(0));
@@ -281,8 +281,8 @@ fn test_cell_multiple_operations() {
 }
 
 #[test]
+#[serial]
 fn test_cell_with_bool() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_cell_new("flag", Cell::new(false));
@@ -298,8 +298,8 @@ fn test_cell_with_bool() {
 }
 
 #[test]
+#[serial]
 fn test_cell_no_borrow_checking() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_cell_new("x", Cell::new(42));
@@ -320,8 +320,8 @@ fn test_cell_no_borrow_checking() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_in_rc() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     use std::rc::Rc;
@@ -339,8 +339,8 @@ fn test_refcell_in_rc() {
 }
 
 #[test]
+#[serial]
 fn test_cell_in_rc() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     use std::rc::Rc;
@@ -358,8 +358,8 @@ fn test_cell_in_rc() {
 }
 
 #[test]
+#[serial]
 fn test_refcell_event_ordering() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_refcell_new("x", RefCell::new(42));
@@ -379,8 +379,8 @@ fn test_refcell_event_ordering() {
 }
 
 #[test]
+#[serial]
 fn test_cell_event_ordering() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let x = track_cell_new("x", Cell::new(42));
@@ -400,8 +400,8 @@ fn test_cell_event_ordering() {
 }
 
 #[test]
+#[serial]
 fn test_interior_mutability_helper() {
-    let _lock = TEST_LOCK.lock();
     reset();
 
     let _refcell = track_refcell_new("x", RefCell::new(42));

@@ -5,6 +5,7 @@
 
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
+use serial_test::serial;
 
 trait Animal {
     fn speak(&self) -> &'static str;
@@ -40,6 +41,7 @@ impl Animal for Cat {
 }
 
 #[test]
+#[serial]
 fn test_box_dyn_trait() {
     reset();
 
@@ -60,6 +62,7 @@ fn test_box_dyn_trait() {
 }
 
 #[test]
+#[serial]
 fn test_box_dyn_trait_multiple_types() {
     reset();
 
@@ -90,6 +93,7 @@ fn test_box_dyn_trait_multiple_types() {
 }
 
 #[test]
+#[serial]
 fn test_ref_dyn_trait() {
     reset();
 
@@ -111,6 +115,7 @@ fn test_ref_dyn_trait() {
 }
 
 #[test]
+#[serial]
 fn test_vec_of_trait_objects() {
     reset();
 
@@ -136,6 +141,7 @@ fn test_vec_of_trait_objects() {
 }
 
 #[test]
+#[serial]
 fn test_rc_dyn_trait() {
     reset();
 
@@ -160,6 +166,7 @@ fn test_rc_dyn_trait() {
 }
 
 #[test]
+#[serial]
 fn test_arc_dyn_trait() {
     reset();
 
@@ -181,6 +188,7 @@ fn test_arc_dyn_trait() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_method_calls() {
     reset();
 
@@ -203,6 +211,7 @@ fn test_trait_object_method_calls() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_in_struct() {
     reset();
 
@@ -231,6 +240,7 @@ fn test_trait_object_in_struct() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_polymorphism() {
     reset();
 
@@ -263,6 +273,7 @@ fn test_trait_object_polymorphism() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_with_lifetime() {
     reset();
 
@@ -296,6 +307,7 @@ fn test_trait_object_with_lifetime() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_downcast() {
     reset();
 
@@ -328,6 +340,7 @@ fn test_trait_object_downcast() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_with_generic_method() {
     reset();
 
@@ -360,6 +373,7 @@ fn test_trait_object_with_generic_method() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_clone() {
     reset();
 
@@ -393,6 +407,7 @@ fn test_trait_object_clone() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_option() {
     reset();
 
@@ -420,6 +435,7 @@ fn test_trait_object_option() {
 }
 
 #[test]
+#[serial]
 fn test_trait_object_result() {
     reset();
 
@@ -441,6 +457,699 @@ fn test_trait_object_result() {
 
     let result_err = try_create_animal(false);
     assert!(result_err.is_err());
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+// Advanced trait object patterns
+
+#[test]
+#[serial]
+fn test_trait_object_with_multiple_traits() {
+    reset();
+
+    trait Speak {
+        fn speak(&self) -> &'static str;
+    }
+
+    trait Walk {
+        fn walk(&self) -> &'static str;
+    }
+
+    struct Robot;
+
+    impl Speak for Robot {
+        fn speak(&self) -> &'static str {
+            "Beep boop"
+        }
+    }
+
+    impl Walk for Robot {
+        fn walk(&self) -> &'static str {
+            "Rolling"
+        }
+    }
+
+    #[trace_borrow]
+    fn create_robot() -> (Box<dyn Speak>, Box<dyn Walk>) {
+        let speaker: Box<dyn Speak> = Box::new(Robot);
+        let walker: Box<dyn Walk> = Box::new(Robot);
+        (speaker, walker)
+    }
+
+    let (speaker, walker) = create_robot();
+    assert_eq!(speaker.speak(), "Beep boop");
+    assert_eq!(walker.walk(), "Rolling");
+
+    let events = get_events();
+    assert!(events.len() >= 2);
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_associated_types() {
+    reset();
+
+    trait Container {
+        type Item;
+        fn get(&self) -> &Self::Item;
+    }
+
+    struct IntContainer {
+        value: i32,
+    }
+
+    impl Container for IntContainer {
+        type Item = i32;
+        fn get(&self) -> &Self::Item {
+            &self.value
+        }
+    }
+
+    #[trace_borrow]
+    fn use_container() -> i32 {
+        let container = IntContainer { value: 42 };
+        let value = *container.get();
+        value
+    }
+
+    let result = use_container();
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_nested_trait_objects() {
+    reset();
+
+    trait Inner {
+        fn inner_value(&self) -> i32;
+    }
+
+    trait Outer {
+        fn get_inner(&self) -> Box<dyn Inner>;
+    }
+
+    struct InnerImpl {
+        value: i32,
+    }
+
+    impl Inner for InnerImpl {
+        fn inner_value(&self) -> i32 {
+            self.value
+        }
+    }
+
+    struct OuterImpl {
+        inner: i32,
+    }
+
+    impl Outer for OuterImpl {
+        fn get_inner(&self) -> Box<dyn Inner> {
+            Box::new(InnerImpl { value: self.inner })
+        }
+    }
+
+    #[trace_borrow]
+    fn nested_access() -> i32 {
+        let outer: Box<dyn Outer> = Box::new(OuterImpl { inner: 42 });
+        let inner = outer.get_inner();
+        let value = inner.inner_value();
+        value
+    }
+
+    let result = nested_access();
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_default_methods() {
+    reset();
+
+    trait Describable {
+        fn name(&self) -> &str;
+
+        fn description(&self) -> String {
+            format!("This is a {}", self.name())
+        }
+    }
+
+    struct Thing {
+        thing_name: String,
+    }
+
+    impl Describable for Thing {
+        fn name(&self) -> &str {
+            &self.thing_name
+        }
+    }
+
+    #[trace_borrow]
+    fn use_default_method() -> String {
+        let thing: Box<dyn Describable> = Box::new(Thing {
+            thing_name: String::from("widget"),
+        });
+        let desc = thing.description();
+        desc
+    }
+
+    let result = use_default_method();
+    assert_eq!(result, "This is a widget");
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_supertrait() {
+    reset();
+
+    trait Base {
+        fn base_method(&self) -> i32;
+    }
+
+    trait Derived: Base {
+        fn derived_method(&self) -> i32;
+    }
+
+    struct Impl;
+
+    impl Base for Impl {
+        fn base_method(&self) -> i32 {
+            10
+        }
+    }
+
+    impl Derived for Impl {
+        fn derived_method(&self) -> i32 {
+            20
+        }
+    }
+
+    #[trace_borrow]
+    fn use_supertrait() -> (i32, i32) {
+        let obj: Box<dyn Derived> = Box::new(Impl);
+        let base = obj.base_method();
+        let derived = obj.derived_method();
+        (base, derived)
+    }
+
+    let (base, derived) = use_supertrait();
+    assert_eq!(base, 10);
+    assert_eq!(derived, 20);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_in_hashmap() {
+    reset();
+
+    use std::collections::HashMap;
+
+    trait Plugin {
+        fn execute(&self) -> String;
+    }
+
+    struct PluginA;
+    impl Plugin for PluginA {
+        fn execute(&self) -> String {
+            "Plugin A executed".to_string()
+        }
+    }
+
+    struct PluginB;
+    impl Plugin for PluginB {
+        fn execute(&self) -> String {
+            "Plugin B executed".to_string()
+        }
+    }
+
+    #[trace_borrow]
+    fn create_plugin_registry() -> HashMap<String, Box<dyn Plugin>> {
+        let mut registry: HashMap<String, Box<dyn Plugin>> = HashMap::new();
+        registry.insert("a".to_string(), Box::new(PluginA));
+        registry.insert("b".to_string(), Box::new(PluginB));
+        registry
+    }
+
+    let registry = create_plugin_registry();
+    assert_eq!(registry.len(), 2);
+    assert_eq!(registry["a"].execute(), "Plugin A executed");
+    assert_eq!(registry["b"].execute(), "Plugin B executed");
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_lifetime_bounds() {
+    reset();
+
+    trait Processor<'a> {
+        fn process(&self, data: &'a str) -> String;
+    }
+
+    struct Uppercaser;
+
+    impl<'a> Processor<'a> for Uppercaser {
+        fn process(&self, data: &'a str) -> String {
+            data.to_uppercase()
+        }
+    }
+
+    #[trace_borrow]
+    fn process_data() -> String {
+        let processor = Uppercaser;
+        let data = "hello";
+        let result = processor.process(data);
+        result
+    }
+
+    let result = process_data();
+    assert_eq!(result, "HELLO");
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_factory_pattern() {
+    reset();
+
+    trait Shape {
+        fn area(&self) -> f64;
+    }
+
+    struct Circle {
+        radius: f64,
+    }
+
+    impl Shape for Circle {
+        fn area(&self) -> f64 {
+            std::f64::consts::PI * self.radius * self.radius
+        }
+    }
+
+    struct Rectangle {
+        width: f64,
+        height: f64,
+    }
+
+    impl Shape for Rectangle {
+        fn area(&self) -> f64 {
+            self.width * self.height
+        }
+    }
+
+    #[trace_borrow]
+    fn create_shape(shape_type: &str) -> Box<dyn Shape> {
+        match shape_type {
+            "circle" => {
+                let shape: Box<dyn Shape> = Box::new(Circle { radius: 5.0 });
+                shape
+            }
+            "rectangle" => {
+                let shape: Box<dyn Shape> = Box::new(Rectangle {
+                    width: 4.0,
+                    height: 6.0,
+                });
+                shape
+            }
+            _ => {
+                let shape: Box<dyn Shape> = Box::new(Circle { radius: 1.0 });
+                shape
+            }
+        }
+    }
+
+    let circle = create_shape("circle");
+    let rectangle = create_shape("rectangle");
+
+    assert!(circle.area() > 78.0 && circle.area() < 79.0);
+    assert_eq!(rectangle.area(), 24.0);
+
+    let events = get_events();
+    assert!(events.len() >= 2);
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_mutable_methods() {
+    reset();
+
+    trait Counter {
+        fn value(&self) -> i32;
+    }
+
+    struct SimpleCounter {
+        count: i32,
+    }
+
+    impl Counter for SimpleCounter {
+        fn value(&self) -> i32 {
+            self.count
+        }
+    }
+
+    #[trace_borrow]
+    fn use_counter() -> i32 {
+        let counter: Box<dyn Counter> = Box::new(SimpleCounter { count: 3 });
+        let value = counter.value();
+        value
+    }
+
+    let result = use_counter();
+    assert_eq!(result, 3);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_iterator() {
+    reset();
+
+    trait NumberGenerator {
+        fn get_numbers(&self) -> Vec<i32>;
+    }
+
+    struct RangeGenerator {
+        max: i32,
+    }
+
+    impl NumberGenerator for RangeGenerator {
+        fn get_numbers(&self) -> Vec<i32> {
+            (0..self.max).collect()
+        }
+    }
+
+    #[trace_borrow]
+    fn generate_numbers() -> Vec<i32> {
+        let gen: Box<dyn NumberGenerator> = Box::new(RangeGenerator { max: 5 });
+        let numbers = gen.get_numbers();
+        numbers
+    }
+
+    let numbers = generate_numbers();
+    assert_eq!(numbers, vec![0, 1, 2, 3, 4]);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_generic_trait() {
+    reset();
+
+    trait Converter<T> {
+        fn convert(&self, value: T) -> String;
+    }
+
+    struct IntConverter;
+
+    impl Converter<i32> for IntConverter {
+        fn convert(&self, value: i32) -> String {
+            format!("Integer: {}", value)
+        }
+    }
+
+    #[trace_borrow]
+    fn use_converter() -> String {
+        let converter = IntConverter;
+        let result = converter.convert(42);
+        result
+    }
+
+    let result = use_converter();
+    assert_eq!(result, "Integer: 42");
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_state_machine() {
+    reset();
+
+    trait State {
+        fn handle(&self) -> &'static str;
+    }
+
+    struct StateA;
+    struct StateB;
+    struct StateC;
+
+    impl State for StateA {
+        fn handle(&self) -> &'static str {
+            "State A"
+        }
+    }
+
+    impl State for StateB {
+        fn handle(&self) -> &'static str {
+            "State B"
+        }
+    }
+
+    impl State for StateC {
+        fn handle(&self) -> &'static str {
+            "State C"
+        }
+    }
+
+    #[trace_borrow]
+    fn create_states() -> Vec<Box<dyn State>> {
+        let states: Vec<Box<dyn State>> = vec![
+            Box::new(StateA),
+            Box::new(StateB),
+            Box::new(StateC),
+            Box::new(StateA),
+        ];
+        states
+    }
+
+    let states = create_states();
+    let results: Vec<String> = states.iter().map(|s| s.handle().to_string()).collect();
+    assert_eq!(results, vec!["State A", "State B", "State C", "State A"]);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+#[serial]
+async fn test_trait_object_with_async() {
+    reset();
+
+    trait AsyncTask {
+        fn name(&self) -> &'static str;
+    }
+
+    struct Task1;
+    impl AsyncTask for Task1 {
+        fn name(&self) -> &'static str {
+            "Task 1"
+        }
+    }
+
+    #[trace_borrow]
+    async fn create_async_task() -> Box<dyn AsyncTask> {
+        let task: Box<dyn AsyncTask> = Box::new(Task1);
+        task
+    }
+
+    let task = create_async_task().await;
+    assert_eq!(task.name(), "Task 1");
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_builder_pattern() {
+    reset();
+
+    trait Builder {
+        fn build(&self) -> String;
+    }
+
+    struct ConfigBuilder {
+        name: String,
+        value: i32,
+    }
+
+    impl Builder for ConfigBuilder {
+        fn build(&self) -> String {
+            format!("{}={}", self.name, self.value)
+        }
+    }
+
+    #[trace_borrow]
+    fn use_builder() -> String {
+        let builder: Box<dyn Builder> = Box::new(ConfigBuilder {
+            name: String::from("timeout"),
+            value: 30,
+        });
+        let config = builder.build();
+        config
+    }
+
+    let result = use_builder();
+    assert_eq!(result, "timeout=30");
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_command_pattern() {
+    reset();
+
+    trait Command {
+        fn execute(&self) -> i32;
+    }
+
+    struct AddCommand {
+        a: i32,
+        b: i32,
+    }
+
+    impl Command for AddCommand {
+        fn execute(&self) -> i32 {
+            self.a + self.b
+        }
+    }
+
+    struct MultiplyCommand {
+        a: i32,
+        b: i32,
+    }
+
+    impl Command for MultiplyCommand {
+        fn execute(&self) -> i32 {
+            self.a * self.b
+        }
+    }
+
+    #[trace_borrow]
+    fn execute_commands() -> Vec<i32> {
+        let commands: Vec<Box<dyn Command>> = vec![
+            Box::new(AddCommand { a: 5, b: 3 }),
+            Box::new(MultiplyCommand { a: 4, b: 7 }),
+            Box::new(AddCommand { a: 10, b: 20 }),
+        ];
+
+        let mut results = Vec::new();
+        for cmd in &commands {
+            results.push(cmd.execute());
+        }
+        results
+    }
+
+    let results = execute_commands();
+    assert_eq!(results, vec![8, 28, 30]);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_observer_pattern() {
+    reset();
+
+    trait Observer {
+        fn notify(&self, message: &str) -> String;
+    }
+
+    struct EmailObserver;
+    impl Observer for EmailObserver {
+        fn notify(&self, message: &str) -> String {
+            format!("Email: {}", message)
+        }
+    }
+
+    struct SmsObserver;
+    impl Observer for SmsObserver {
+        fn notify(&self, message: &str) -> String {
+            format!("SMS: {}", message)
+        }
+    }
+
+    #[trace_borrow]
+    fn notify_observers() -> Vec<String> {
+        let observers: Vec<Box<dyn Observer>> =
+            vec![Box::new(EmailObserver), Box::new(SmsObserver)];
+
+        let mut notifications = Vec::new();
+        for observer in &observers {
+            notifications.push(observer.notify("Alert!"));
+        }
+        notifications
+    }
+
+    let notifications = notify_observers();
+    assert_eq!(notifications, vec!["Email: Alert!", "SMS: Alert!"]);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_trait_object_with_closure_like_behavior() {
+    reset();
+
+    trait Callable {
+        fn call(&self, x: i32) -> i32;
+    }
+
+    struct Doubler;
+    impl Callable for Doubler {
+        fn call(&self, x: i32) -> i32 {
+            x * 2
+        }
+    }
+
+    struct Incrementer;
+    impl Callable for Incrementer {
+        fn call(&self, x: i32) -> i32 {
+            x + 1
+        }
+    }
+
+    #[trace_borrow]
+    fn apply_functions() -> Vec<i32> {
+        let functions: Vec<Box<dyn Callable>> = vec![Box::new(Doubler), Box::new(Incrementer)];
+
+        let mut results = Vec::new();
+        for func in &functions {
+            results.push(func.call(10));
+        }
+        results
+    }
+
+    let results = apply_functions();
+    assert_eq!(results, vec![20, 11]);
 
     let events = get_events();
     assert!(!events.is_empty());

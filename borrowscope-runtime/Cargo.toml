@@ -25,6 +25,7 @@ lazy_static.workspace = true
 criterion = "0.5"
 lazy_static = "1.4"
 borrowscope-macro = { path = "../borrowscope-macro" }
+serial_test = "3.0"
 
 [[bench]]
 name = "performance"
