@@ -270,6 +270,7 @@ fn test_box_clone_creates_new_box() {
 
 #[test]
 fn test_box_in_function_call() {
+    #[allow(clippy::boxed_local)]
     fn consume_box(_b: Box<i32>) {}
 
     let _lock = TEST_LOCK.lock();

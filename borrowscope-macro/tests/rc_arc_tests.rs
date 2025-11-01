@@ -71,6 +71,7 @@ fn test_rc_with_vec() {
 #[test]
 fn test_rc_with_struct() {
     #[derive(Debug)]
+    #[allow(dead_code)]
     struct Point {
         x: i32,
         y: i32,
@@ -189,6 +190,7 @@ fn test_arc_with_string() {
 #[test]
 fn test_arc_with_struct() {
     #[derive(Debug)]
+    #[allow(dead_code)]
     struct Data {
         value: i32,
     }

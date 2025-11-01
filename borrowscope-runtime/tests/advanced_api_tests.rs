@@ -258,7 +258,7 @@ fn test_weak_reference_tracking_concept() {
     reset();
 
     // Concept: Track weak references (future enhancement)
-    let x = track_rc_new("x", Rc::new(42));
+    let _x = track_rc_new("x", Rc::new(42));
 
     let events = get_events();
     assert_eq!(events.len(), 1);

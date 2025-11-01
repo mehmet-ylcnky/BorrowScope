@@ -268,7 +268,7 @@ fn test_arc_with_vec() {
 
     let events = get_events();
     let arc_events: Vec<_> = events.iter().filter(|e| e.is_arc()).collect();
-    assert!(arc_events.len() >= 1, "Should have at least one Arc event");
+    assert!(!arc_events.is_empty(), "Should have at least one Arc event");
 }
 
 #[test]

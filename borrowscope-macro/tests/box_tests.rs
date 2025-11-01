@@ -76,6 +76,7 @@ fn test_box_in_vec() {
 #[test]
 fn test_box_with_struct() {
     #[derive(Debug)]
+    #[allow(dead_code)]
     struct Point {
         x: i32,
         y: i32,
@@ -116,6 +117,7 @@ fn test_box_multiple_operations() {
 
 #[test]
 fn test_box_in_function_call() {
+    #[allow(clippy::boxed_local)]
     fn consume_box(_b: Box<i32>) {}
 
     #[trace_borrow]
