@@ -33,6 +33,46 @@ pub enum Event {
 
     /// Variable dropped
     Drop { timestamp: u64, var_id: String },
+
+    /// Rc::new allocation with reference counting
+    RcNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        type_name: String,
+        strong_count: usize,
+        weak_count: usize,
+    },
+
+    /// Rc::clone operation (shared ownership)
+    RcClone {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        source_id: String,
+        strong_count: usize,
+        weak_count: usize,
+    },
+
+    /// Arc::new allocation with atomic reference counting
+    ArcNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        type_name: String,
+        strong_count: usize,
+        weak_count: usize,
+    },
+
+    /// Arc::clone operation (thread-safe shared ownership)
+    ArcClone {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        source_id: String,
+        strong_count: usize,
+        weak_count: usize,
+    },
 }
 
 impl Event {
@@ -42,14 +82,22 @@ impl Event {
             Event::New { timestamp, .. }
             | Event::Borrow { timestamp, .. }
             | Event::Move { timestamp, .. }
-            | Event::Drop { timestamp, .. } => *timestamp,
+            | Event::Drop { timestamp, .. }
+            | Event::RcNew { timestamp, .. }
+            | Event::RcClone { timestamp, .. }
+            | Event::ArcNew { timestamp, .. }
+            | Event::ArcClone { timestamp, .. } => *timestamp,
         }
     }
 
     /// Get the variable name (if applicable)
     pub fn var_name(&self) -> Option<&str> {
         match self {
-            Event::New { var_name, .. } => Some(var_name),
+            Event::New { var_name, .. }
+            | Event::RcNew { var_name, .. }
+            | Event::RcClone { var_name, .. }
+            | Event::ArcNew { var_name, .. }
+            | Event::ArcClone { var_name, .. } => Some(var_name),
             Event::Borrow { borrower_name, .. } => Some(borrower_name),
             Event::Move { to_name, .. } => Some(to_name),
             Event::Drop { var_id, .. } => Some(var_id),
@@ -74,6 +122,43 @@ impl Event {
     /// Check if this is a Drop event
     pub fn is_drop(&self) -> bool {
         matches!(self, Event::Drop { .. })
+    }
+
+    /// Check if this is an Rc event (new or clone)
+    pub fn is_rc(&self) -> bool {
+        matches!(self, Event::RcNew { .. } | Event::RcClone { .. })
+    }
+
+    /// Check if this is an Arc event (new or clone)
+    pub fn is_arc(&self) -> bool {
+        matches!(self, Event::ArcNew { .. } | Event::ArcClone { .. })
+    }
+
+    /// Check if this is a reference-counted event
+    pub fn is_refcounted(&self) -> bool {
+        self.is_rc() || self.is_arc()
+    }
+
+    /// Get strong count if this is a reference-counted event
+    pub fn strong_count(&self) -> Option<usize> {
+        match self {
+            Event::RcNew { strong_count, .. }
+            | Event::RcClone { strong_count, .. }
+            | Event::ArcNew { strong_count, .. }
+            | Event::ArcClone { strong_count, .. } => Some(*strong_count),
+            _ => None,
+        }
+    }
+
+    /// Get weak count if this is a reference-counted event
+    pub fn weak_count(&self) -> Option<usize> {
+        match self {
+            Event::RcNew { weak_count, .. }
+            | Event::RcClone { weak_count, .. }
+            | Event::ArcNew { weak_count, .. }
+            | Event::ArcClone { weak_count, .. } => Some(*weak_count),
+            _ => None,
+        }
     }
 }
 

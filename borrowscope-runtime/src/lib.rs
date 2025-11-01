@@ -51,8 +51,8 @@ pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
 pub use lifetime::{ElisionRule, LifetimeRelation, Timeline};
 pub use tracker::{
-    get_events, reset, track_borrow, track_borrow_mut, track_drop, track_drop_batch, track_move,
-    track_new,
+    get_events, reset, track_arc_clone, track_arc_new, track_borrow, track_borrow_mut, track_drop,
+    track_drop_batch, track_move, track_new, track_rc_clone, track_rc_new,
 };
 
 /// Get the ownership graph built from current events

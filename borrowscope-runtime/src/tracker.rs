@@ -103,6 +103,100 @@ impl Tracker {
         });
     }
 
+    /// Record an Rc::new event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
+    pub fn record_rc_new(
+        &mut self,
+        var_name: &str,
+        strong_count: usize,
+        weak_count: usize,
+    ) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+
+        self.events.push(Event::RcNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            type_name: "Rc<T>".to_string(),
+            strong_count,
+            weak_count,
+        });
+
+        var_id
+    }
+
+    /// Record an Rc::clone event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
+    pub fn record_rc_clone(
+        &mut self,
+        var_name: &str,
+        source_name: &str,
+        strong_count: usize,
+        weak_count: usize,
+    ) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+
+        self.events.push(Event::RcClone {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            source_id: source_name.to_string(),
+            strong_count,
+            weak_count,
+        });
+
+        var_id
+    }
+
+    /// Record an Arc::new event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
+    pub fn record_arc_new(
+        &mut self,
+        var_name: &str,
+        strong_count: usize,
+        weak_count: usize,
+    ) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+
+        self.events.push(Event::ArcNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            type_name: "Arc<T>".to_string(),
+            strong_count,
+            weak_count,
+        });
+
+        var_id
+    }
+
+    /// Record an Arc::clone event
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
+    pub fn record_arc_clone(
+        &mut self,
+        var_name: &str,
+        source_name: &str,
+        strong_count: usize,
+        weak_count: usize,
+    ) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+
+        self.events.push(Event::ArcClone {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            source_id: source_name.to_string(),
+            strong_count,
+            weak_count,
+        });
+
+        var_id
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -213,6 +307,72 @@ pub fn reset() {
 /// Get all events
 pub fn get_events() -> Vec<Event> {
     TRACKER.lock().events().to_vec()
+}
+
+/// Track Rc::new allocation
+#[inline(always)]
+pub fn track_rc_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: std::rc::Rc<T>,
+) -> std::rc::Rc<T> {
+    #[cfg(feature = "track")]
+    {
+        let strong_count = std::rc::Rc::strong_count(&value);
+        let weak_count = std::rc::Rc::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_rc_new(name, strong_count, weak_count);
+    }
+    value
+}
+
+/// Track Rc::clone operation
+#[inline(always)]
+pub fn track_rc_clone<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
+    value: std::rc::Rc<T>,
+) -> std::rc::Rc<T> {
+    #[cfg(feature = "track")]
+    {
+        let strong_count = std::rc::Rc::strong_count(&value);
+        let weak_count = std::rc::Rc::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_rc_clone(name, source_name, strong_count, weak_count);
+    }
+    value
+}
+
+/// Track Arc::new allocation
+#[inline(always)]
+pub fn track_arc_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    value: std::sync::Arc<T>,
+) -> std::sync::Arc<T> {
+    #[cfg(feature = "track")]
+    {
+        let strong_count = std::sync::Arc::strong_count(&value);
+        let weak_count = std::sync::Arc::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_arc_new(name, strong_count, weak_count);
+    }
+    value
+}
+
+/// Track Arc::clone operation
+#[inline(always)]
+pub fn track_arc_clone<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
+    value: std::sync::Arc<T>,
+) -> std::sync::Arc<T> {
+    #[cfg(feature = "track")]
+    {
+        let strong_count = std::sync::Arc::strong_count(&value);
+        let weak_count = std::sync::Arc::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_arc_clone(name, source_name, strong_count, weak_count);
+    }
+    value
 }
 
 #[cfg(test)]
