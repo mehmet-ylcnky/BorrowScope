@@ -464,6 +464,63 @@ impl Tracker {
         });
     }
 
+    /// Record static variable initialization
+    pub fn record_static_init(
+        &mut self,
+        var_name: &str,
+        var_id: usize,
+        type_name: &str,
+        is_mutable: bool,
+    ) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::StaticInit {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.to_string(),
+            type_name: type_name.to_string(),
+            is_mutable,
+        });
+    }
+
+    /// Record static variable access
+    pub fn record_static_access(
+        &mut self,
+        var_id: usize,
+        var_name: &str,
+        is_write: bool,
+        location: &str,
+    ) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::StaticAccess {
+            timestamp,
+            var_id: var_id.to_string(),
+            var_name: var_name.to_string(),
+            is_write,
+            location: location.to_string(),
+        });
+    }
+
+    /// Record const evaluation
+    pub fn record_const_eval(
+        &mut self,
+        const_name: &str,
+        const_id: usize,
+        type_name: &str,
+        location: &str,
+    ) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::ConstEval {
+            timestamp,
+            const_name: const_name.to_string(),
+            const_id: const_id.to_string(),
+            type_name: type_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -931,6 +988,55 @@ pub fn track_cell_set(
         let mut tracker = TRACKER.lock();
         tracker.record_cell_set(cell_id, location);
     }
+}
+
+/// Track static variable initialization
+#[inline(always)]
+pub fn track_static_init<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] type_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] is_mutable: bool,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_static_init(var_name, var_id, type_name, is_mutable);
+    }
+    value
+}
+
+/// Track static variable access (read or write)
+#[inline(always)]
+pub fn track_static_access(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] is_write: bool,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_static_access(var_id, var_name, is_write, location);
+    }
+}
+
+/// Track const evaluation
+#[inline(always)]
+pub fn track_const_eval<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] const_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] const_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] type_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_const_eval(const_name, const_id, type_name, location);
+    }
+    value
 }
 
 #[cfg(test)]

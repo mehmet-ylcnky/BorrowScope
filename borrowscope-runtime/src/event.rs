@@ -119,6 +119,33 @@ pub enum Event {
         cell_id: String,
         location: String,
     },
+
+    /// Static variable initialization
+    StaticInit {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        type_name: String,
+        is_mutable: bool,
+    },
+
+    /// Static variable access (read or write)
+    StaticAccess {
+        timestamp: u64,
+        var_id: String,
+        var_name: String,
+        is_write: bool,
+        location: String,
+    },
+
+    /// Const evaluation (compile-time constant)
+    ConstEval {
+        timestamp: u64,
+        const_name: String,
+        const_id: String,
+        type_name: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -138,7 +165,10 @@ impl Event {
             | Event::RefCellDrop { timestamp, .. }
             | Event::CellNew { timestamp, .. }
             | Event::CellGet { timestamp, .. }
-            | Event::CellSet { timestamp, .. } => *timestamp,
+            | Event::CellSet { timestamp, .. }
+            | Event::StaticInit { timestamp, .. }
+            | Event::StaticAccess { timestamp, .. }
+            | Event::ConstEval { timestamp, .. } => *timestamp,
         }
     }
 
@@ -151,7 +181,13 @@ impl Event {
             | Event::ArcNew { var_name, .. }
             | Event::ArcClone { var_name, .. }
             | Event::RefCellNew { var_name, .. }
-            | Event::CellNew { var_name, .. } => Some(var_name),
+            | Event::CellNew { var_name, .. }
+            | Event::StaticInit { var_name, .. }
+            | Event::StaticAccess { var_name, .. }
+            | Event::ConstEval {
+                const_name: var_name,
+                ..
+            } => Some(var_name),
             Event::Borrow { borrower_name, .. } => Some(borrower_name),
             Event::Move { to_name, .. } => Some(to_name),
             Event::Drop { var_id, .. } => Some(var_id),
@@ -216,6 +252,21 @@ impl Event {
     /// Check if this is an interior mutability event
     pub fn is_interior_mutability(&self) -> bool {
         self.is_refcell() || self.is_cell()
+    }
+
+    /// Check if this is a static event
+    pub fn is_static(&self) -> bool {
+        matches!(self, Event::StaticInit { .. } | Event::StaticAccess { .. })
+    }
+
+    /// Check if this is a const event
+    pub fn is_const(&self) -> bool {
+        matches!(self, Event::ConstEval { .. })
+    }
+
+    /// Check if this is a global variable event (static or const)
+    pub fn is_global(&self) -> bool {
+        self.is_static() || self.is_const()
     }
 
     /// Get strong count if this is a reference-counted event
