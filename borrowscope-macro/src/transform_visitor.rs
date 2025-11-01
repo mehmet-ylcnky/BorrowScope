@@ -3,8 +3,10 @@
 //! This module implements the OwnershipVisitor that transforms Rust code
 //! to inject runtime tracking calls.
 
+use crate::smart_pointer::{detect_rc_clone, detect_smart_pointer_new, SmartPointerType};
 use std::collections::HashMap;
 use syn::{
+    spanned::Spanned,
     visit_mut::{self, VisitMut},
     Block, Expr, ExprClosure, ExprMethodCall, ExprReference, Ident, Index, ItemFn, Local, Pat,
     Stmt,
@@ -470,7 +472,7 @@ impl OwnershipVisitor {
         matches!(expr, Expr::Path(_))
     }
 
-    /// Transform a let statement to inject track_new
+    /// Transform a let statement to inject track_new_with_id
     fn transform_local(&mut self, local: &mut Local) {
         // Only transform if there's an initializer
         if let Some(init) = &mut local.init {
@@ -482,6 +484,7 @@ impl OwnershipVisitor {
 
             let var_name = Self::extract_pattern_name(&local.pat);
             let var_id = self.gen_id();
+            let location = Self::extract_location(local.pat.span());
 
             // Store variable ID for later reference
             self.var_ids.insert(var_name.clone(), var_id);
@@ -493,42 +496,109 @@ impl OwnershipVisitor {
 
             let original_expr = &init.expr;
 
-            // Check if this is a potential move (assignment from another variable)
-            let new_expr: Expr = if Self::is_potential_move(original_expr) {
-                // Extract source variable name
+            // Check for smart pointer operations first
+            if let Some(sp_type) = detect_smart_pointer_new(original_expr) {
+                let new_expr = match sp_type {
+                    SmartPointerType::Rc => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
+                        }
+                    }
+                    SmartPointerType::Arc => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
+                        }
+                    }
+                    _ => {
+                        // Box and others use regular tracking
+                        syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        }
+                    }
+                };
+                *init.expr = new_expr;
+            } else if let Some(sp_type) = detect_rc_clone(original_expr) {
+                // Extract source ID from Rc::clone(&x) or Arc::clone(&x)
+                let source_id = self.extract_clone_source_id(original_expr);
+                let new_expr = match sp_type {
+                    SmartPointerType::Rc => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                        }
+                    }
+                    SmartPointerType::Arc => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                        }
+                    }
+                    _ => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        }
+                    }
+                };
+                *init.expr = new_expr;
+            } else if Self::is_potential_move(original_expr) {
+                // Check if this is a potential move (assignment from another variable)
+                // Extract source variable name and ID
                 if let Expr::Path(path_expr) = original_expr.as_ref() {
                     if let Some(source_ident) = path_expr.path.get_ident() {
                         let source_name = source_ident.to_string();
-                        // Wrap with track_move
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_move(#source_name, #var_name, #original_expr)
+                        if let Some(&source_id) = self.var_ids.get(&source_name) {
+                            // Use advanced move API with IDs
+                            let new_expr: Expr = syn::parse_quote! {
+                                borrowscope_runtime::track_move_with_id(#source_id, #var_id, #var_name, #location, #original_expr)
+                            };
+                            *init.expr = new_expr;
+                        } else {
+                            // Fallback to simple API if source ID not found
+                            let new_expr: Expr = syn::parse_quote! {
+                                borrowscope_runtime::track_move(#source_name, #var_name, #original_expr)
+                            };
+                            *init.expr = new_expr;
                         }
                     } else {
-                        // Not a simple identifier, just track_new
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_new(#var_name, #original_expr)
-                        }
+                        // Not a simple identifier - use helper function that extracts type
+                        let new_expr: Expr = syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        };
+                        *init.expr = new_expr;
                     }
                 } else {
-                    syn::parse_quote! {
-                        borrowscope_runtime::track_new(#var_name, #original_expr)
-                    }
+                    let new_expr: Expr = syn::parse_quote! {
+                        borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                    };
+                    *init.expr = new_expr;
                 }
             } else {
-                // Regular variable creation
-                syn::parse_quote! {
-                    borrowscope_runtime::track_new(#var_name, #original_expr)
-                }
-            };
-
-            *init.expr = new_expr;
+                // Regular variable creation - use helper function
+                let new_expr: Expr = syn::parse_quote! {
+                    borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                };
+                *init.expr = new_expr;
+            }
         }
 
         // Continue visiting nested expressions
         visit_mut::visit_local_mut(self, local);
     }
 
-    /// Transform reference expressions to inject track_borrow
+    /// Extract source variable ID from Rc::clone(&x) or Arc::clone(&x)
+    fn extract_clone_source_id(&self, expr: &Expr) -> usize {
+        if let Expr::Call(call) = expr {
+            if let Some(Expr::Reference(ref_expr)) = call.args.first() {
+                if let Expr::Path(path) = ref_expr.expr.as_ref() {
+                    if let Some(ident) = path.path.get_ident() {
+                        let var_name = ident.to_string();
+                        return *self.var_ids.get(&var_name).unwrap_or(&0);
+                    }
+                }
+            }
+        }
+        0
+    }
+
+    /// Transform reference expressions to inject track_borrow_with_id
     fn transform_reference(&mut self, expr: &mut Expr, ref_expr: &ExprReference) {
         // Only track borrows of simple variables
         if !Self::is_variable_path(&ref_expr.expr) {
@@ -537,15 +607,42 @@ impl OwnershipVisitor {
 
         let is_mutable = ref_expr.mutability.is_some();
         let borrowed_expr = &ref_expr.expr;
+        let location = Self::extract_location(ref_expr.span());
 
-        // Generate tracking call
-        let tracking_call: Expr = if is_mutable {
-            syn::parse_quote! {
-                borrowscope_runtime::track_borrow_mut("borrow", &mut #borrowed_expr)
+        // Try to get owner ID
+        let owner_id = if let Expr::Path(path) = borrowed_expr.as_ref() {
+            if let Some(ident) = path.path.get_ident() {
+                self.var_ids.get(&ident.to_string()).copied()
+            } else {
+                None
             }
         } else {
-            syn::parse_quote! {
-                borrowscope_runtime::track_borrow("borrow", &#borrowed_expr)
+            None
+        };
+
+        // Generate tracking call
+        let tracking_call: Expr = if let Some(owner_id) = owner_id {
+            let borrower_id = self.gen_id();
+            // Use advanced API with IDs
+            if is_mutable {
+                syn::parse_quote! {
+                    borrowscope_runtime::track_borrow_mut_with_id(#borrower_id, #owner_id, "borrow", #location, &mut #borrowed_expr)
+                }
+            } else {
+                syn::parse_quote! {
+                    borrowscope_runtime::track_borrow_with_id(#borrower_id, #owner_id, "borrow", #location, false, &#borrowed_expr)
+                }
+            }
+        } else {
+            // Fallback to simple API if owner ID not found
+            if is_mutable {
+                syn::parse_quote! {
+                    borrowscope_runtime::track_borrow_mut("borrow", &mut #borrowed_expr)
+                }
+            } else {
+                syn::parse_quote! {
+                    borrowscope_runtime::track_borrow("borrow", &#borrowed_expr)
+                }
             }
         };
 

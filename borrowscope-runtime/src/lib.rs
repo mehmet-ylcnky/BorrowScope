@@ -51,8 +51,8 @@ pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
 pub use lifetime::{ElisionRule, LifetimeRelation, Timeline};
 pub use tracker::{
-    get_events, reset, track_arc_clone, track_arc_clone_with_id, track_arc_new,
-    track_arc_new_with_id, track_borrow, track_borrow_mut, track_borrow_mut_with_id,
+    __track_new_with_id_helper, get_events, reset, track_arc_clone, track_arc_clone_with_id,
+    track_arc_new, track_arc_new_with_id, track_borrow, track_borrow_mut, track_borrow_mut_with_id,
     track_borrow_with_id, track_drop, track_drop_batch, track_drop_with_id, track_move,
     track_move_with_id, track_new, track_new_with_id, track_rc_clone, track_rc_clone_with_id,
     track_rc_new, track_rc_new_with_id,

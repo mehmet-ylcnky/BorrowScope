@@ -494,6 +494,24 @@ pub fn get_events() -> Vec<Event> {
     TRACKER.lock().events().to_vec()
 }
 
+/// Helper function for track_new_with_id that extracts type at runtime
+#[inline(always)]
+#[doc(hidden)]
+pub fn __track_new_with_id_helper<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let type_name = std::any::type_name::<T>();
+        let mut tracker = TRACKER.lock();
+        tracker.record_new_with_id(id, name, type_name, location);
+    }
+    value
+}
+
 /// Track a new variable with explicit ID and location (advanced API)
 #[inline(always)]
 pub fn track_new_with_id<T>(
