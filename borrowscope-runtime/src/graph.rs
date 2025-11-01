@@ -1,6 +1,7 @@
 //! Ownership graph data structures
 
 use crate::event::Event;
+use crate::lifetime::{LifetimeRelation, Timeline};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -99,6 +100,28 @@ impl OwnershipGraph {
             immutable_borrows: immut_borrows,
             mutable_borrows: mut_borrows,
         }
+    }
+
+    /// Get lifetime relations from the graph
+    pub fn lifetime_relations(&self, events: &[Event]) -> Vec<LifetimeRelation> {
+        Timeline::from_events(events).relations
+    }
+
+    /// Create a timeline visualization from events
+    pub fn create_timeline(&self, events: &[Event]) -> Timeline {
+        Timeline::from_events(events)
+    }
+
+    /// Get all active borrows at a specific timestamp
+    pub fn active_borrows_at(&self, events: &[Event], timestamp: u64) -> Vec<LifetimeRelation> {
+        let timeline = Timeline::from_events(events);
+        timeline.active_at(timestamp).into_iter().cloned().collect()
+    }
+
+    /// Check if two variables have overlapping lifetimes
+    pub fn lifetimes_overlap(&self, events: &[Event], var1: &str, var2: &str) -> bool {
+        let timeline = Timeline::from_events(events);
+        timeline.lifetimes_overlap(var1, var2)
     }
 }
 
