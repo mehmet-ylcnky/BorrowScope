@@ -282,7 +282,22 @@ impl OwnershipVisitor {
             || method_name.starts_with("append")
             || matches!(
                 method_name,
-                "clear" | "truncate" | "extend" | "drain" | "sort" | "reverse" | "dedup" | "retain"
+                "clear"
+                    | "truncate"
+                    | "extend"
+                    | "drain"
+                    | "sort"
+                    | "reverse"
+                    | "dedup"
+                    | "retain"
+                    | "tick"
+                    | "recv"
+                    | "send"
+                    | "changed"
+                    | "wait"
+                    | "acquire"
+                    | "lock"
+                    | "write"
             )
         {
             return SelfBorrowType::Mutable;

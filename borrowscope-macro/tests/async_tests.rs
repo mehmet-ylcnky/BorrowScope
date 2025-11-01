@@ -279,3 +279,442 @@ async fn test_async_function_preserves_semantics() {
     let events = get_events();
     assert!(events.len() >= 3);
 }
+
+// Advanced async patterns
+
+#[tokio::test]
+async fn test_async_with_channels() {
+    reset();
+
+    use tokio::sync::mpsc;
+
+    #[trace_borrow]
+    async fn create_value() -> i32 {
+        let value = 42;
+        value
+    }
+
+    let (tx, mut rx) = mpsc::channel(1);
+
+    let value = create_value().await;
+    tx.send(value).await.unwrap();
+
+    let received = rx.recv().await.unwrap();
+    assert_eq!(received, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_select() {
+    reset();
+
+    #[trace_borrow]
+    async fn task1() -> i32 {
+        let x = 1;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        x
+    }
+
+    #[trace_borrow]
+    async fn task2() -> i32 {
+        let y = 2;
+        tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+        y
+    }
+
+    let result = tokio::select! {
+        v1 = task1() => v1,
+        v2 = task2() => v2,
+    };
+
+    assert!(result == 1 || result == 2);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_join() {
+    reset();
+
+    #[trace_borrow]
+    async fn task1() -> i32 {
+        let x = 10;
+        x
+    }
+
+    #[trace_borrow]
+    async fn task2() -> i32 {
+        let y = 20;
+        y
+    }
+
+    let (r1, r2) = tokio::join!(task1(), task2());
+
+    assert_eq!(r1, 10);
+    assert_eq!(r2, 20);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_timeout() {
+    reset();
+
+    #[trace_borrow]
+    async fn slow_task() -> i32 {
+        let x = 42;
+        tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        x
+    }
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_millis(10), slow_task()).await;
+
+    assert!(result.is_err()); // Should timeout
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_arc_mutex() {
+    reset();
+
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[trace_borrow]
+    async fn increment(mut counter: Arc<Mutex<i32>>) {
+        let mut guard = counter.lock().await;
+        let value = *guard;
+        *guard = value + 1;
+    }
+
+    let counter = Arc::new(Mutex::new(0));
+
+    let handles: Vec<_> = (0..10)
+        .map(|_| {
+            let counter_clone = Arc::clone(&counter);
+            tokio::spawn(increment(counter_clone))
+        })
+        .collect();
+
+    for handle in handles {
+        handle.await.unwrap();
+    }
+
+    let final_value = *counter.lock().await;
+    assert_eq!(final_value, 10);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_error_propagation() {
+    reset();
+
+    #[trace_borrow]
+    async fn may_fail(should_fail: bool) -> std::result::Result<i32, String> {
+        let x = 42;
+        if should_fail {
+            return Err("failed".to_string());
+        }
+        Ok(x)
+    }
+
+    let result_ok = may_fail(false).await;
+    assert_eq!(result_ok, Ok(42));
+
+    let result_err = may_fail(true).await;
+    assert!(result_err.is_err());
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_try_join() {
+    reset();
+
+    #[trace_borrow]
+    async fn task1() -> std::result::Result<i32, String> {
+        let x = 10;
+        Ok(x)
+    }
+
+    #[trace_borrow]
+    async fn task2() -> std::result::Result<i32, String> {
+        let y = 20;
+        Ok(y)
+    }
+
+    let result = tokio::try_join!(task1(), task2());
+
+    assert_eq!(result, Ok((10, 20)));
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_spawn_blocking() {
+    reset();
+
+    #[trace_borrow]
+    async fn async_wrapper() -> i32 {
+        let x = 42;
+        let result = tokio::task::spawn_blocking(move || {
+            // CPU-intensive work
+            x * 2
+        })
+        .await
+        .unwrap();
+        result
+    }
+
+    let result = async_wrapper().await;
+    assert_eq!(result, 84);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_interval() {
+    reset();
+
+    #[trace_borrow]
+    async fn tick_task() -> i32 {
+        let mut count = 0;
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1));
+
+        for _ in 0..3 {
+            interval.tick().await;
+            count += 1;
+        }
+
+        count
+    }
+
+    let result = tick_task().await;
+    assert_eq!(result, 3);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_oneshot() {
+    reset();
+
+    use tokio::sync::oneshot;
+
+    #[trace_borrow]
+    async fn create_value() -> i32 {
+        let value = 42;
+        value
+    }
+
+    let (tx, rx) = oneshot::channel();
+
+    let value = create_value().await;
+    tx.send(value).unwrap();
+
+    let result = rx.await.unwrap();
+
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_broadcast() {
+    reset();
+
+    use tokio::sync::broadcast;
+
+    #[trace_borrow]
+    async fn create_value() -> i32 {
+        let value = 42;
+        value
+    }
+
+    let (tx, mut rx1) = broadcast::channel(16);
+    let mut rx2 = tx.subscribe();
+
+    let value = create_value().await;
+    tx.send(value).unwrap();
+
+    let result1 = rx1.recv().await.unwrap();
+    let result2 = rx2.recv().await.unwrap();
+
+    assert_eq!(result1, 42);
+    assert_eq!(result2, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_semaphore() {
+    reset();
+
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    #[trace_borrow]
+    async fn limited_task(mut sem: Arc<Semaphore>, id: i32) -> i32 {
+        let _permit = sem.acquire().await.unwrap();
+        let result = id * 2;
+        result
+    }
+
+    let sem = Arc::new(Semaphore::new(2));
+
+    let handles: Vec<_> = (0..5)
+        .map(|i| {
+            let sem_clone = Arc::clone(&sem);
+            tokio::spawn(limited_task(sem_clone, i))
+        })
+        .collect();
+
+    let mut results = Vec::new();
+    for handle in handles {
+        results.push(handle.await.unwrap());
+    }
+
+    assert_eq!(results.len(), 5);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_barrier() {
+    reset();
+
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    #[trace_borrow]
+    async fn barrier_task(mut barrier: Arc<Barrier>, id: i32) -> i32 {
+        let value = id;
+        barrier.wait().await;
+        value
+    }
+
+    let barrier = Arc::new(Barrier::new(3));
+
+    let handles: Vec<_> = (0..3)
+        .map(|i| {
+            let barrier_clone = Arc::clone(&barrier);
+            tokio::spawn(barrier_task(barrier_clone, i))
+        })
+        .collect();
+
+    let mut results = Vec::new();
+    for handle in handles {
+        results.push(handle.await.unwrap());
+    }
+
+    assert_eq!(results.len(), 3);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_watch() {
+    reset();
+
+    use tokio::sync::watch;
+
+    #[trace_borrow]
+    async fn create_value() -> i32 {
+        let value = 42;
+        value
+    }
+
+    let (tx, mut rx) = watch::channel(0);
+
+    let value = create_value().await;
+    tx.send(value).unwrap();
+
+    rx.changed().await.unwrap();
+    let result = *rx.borrow();
+
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_notify() {
+    reset();
+
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+
+    #[trace_borrow]
+    async fn waiter_task(notify: Arc<Notify>) -> i32 {
+        notify.notified().await;
+        let value = 42;
+        value
+    }
+
+    #[trace_borrow]
+    async fn notifier_task(notify: Arc<Notify>) {
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        notify.notify_one();
+    }
+
+    let notify = Arc::new(Notify::new());
+
+    let waiter = tokio::spawn(waiter_task(Arc::clone(&notify)));
+    let notifier = tokio::spawn(notifier_task(notify));
+
+    notifier.await.unwrap();
+    let result = waiter.await.unwrap();
+
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn test_async_with_rwlock() {
+    reset();
+
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[trace_borrow]
+    async fn reader_task(data: Arc<RwLock<i32>>) -> i32 {
+        let guard = data.read().await;
+        let value = *guard;
+        value
+    }
+
+    #[trace_borrow]
+    async fn writer_task(mut data: Arc<RwLock<i32>>) {
+        let mut guard = data.write().await;
+        *guard = 42;
+    }
+
+    let data = Arc::new(RwLock::new(0));
+
+    writer_task(Arc::clone(&data)).await;
+    let result = reader_task(data).await;
+
+    assert_eq!(result, 42);
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
