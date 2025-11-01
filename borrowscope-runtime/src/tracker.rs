@@ -218,11 +218,7 @@ pub fn get_events() -> Vec<Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    lazy_static::lazy_static! {
-        /// Global test lock to ensure tests run serially when accessing shared tracker
-        static ref TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-    }
+    use crate::test_utils::TEST_LOCK;
 
     #[test]
     fn test_tracker_new() {

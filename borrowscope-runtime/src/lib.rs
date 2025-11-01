@@ -39,12 +39,17 @@ mod error;
 mod event;
 mod export;
 mod graph;
+mod lifetime;
 mod tracker;
+
+#[cfg(test)]
+mod test_utils;
 
 pub use error::{Error, Result};
 pub use event::Event;
 pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
+pub use lifetime::{ElisionRule, LifetimeRelation, Timeline};
 pub use tracker::{
     get_events, reset, track_borrow, track_borrow_mut, track_drop, track_drop_batch, track_move,
     track_new,
@@ -67,11 +72,7 @@ pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> Result<()> {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-
-    lazy_static::lazy_static! {
-        /// Global test lock to ensure tests run serially when accessing shared tracker
-        static ref TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
-    }
+    use crate::test_utils::TEST_LOCK;
 
     #[test]
     fn test_simple_tracking() {
