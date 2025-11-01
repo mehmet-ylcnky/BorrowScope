@@ -54,6 +54,14 @@ impl OwnershipVisitor {
         id
     }
 
+    /// Extract source location from span (simplified for proc_macro2)
+    fn extract_location(_span: proc_macro2::Span) -> String {
+        // proc_macro2::Span doesn't have start()/end() methods
+        // In a real proc macro, we'd use proc_macro::Span
+        // For now, return a placeholder
+        "unknown".to_string()
+    }
+
     /// Extract variable name from pattern
     fn extract_pattern_name(pat: &Pat) -> String {
         match pat {
