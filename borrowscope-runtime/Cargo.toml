@@ -34,3 +34,7 @@ harness = false
 [[bench]]
 name = "optimization"
 harness = false
+
+[[bench]]
+name = "overhead_analysis"
+harness = false

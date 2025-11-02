@@ -3,10 +3,13 @@
 mod common;
 use borrowscope_runtime::*;
 use common::TestFixture;
+use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
 
 #[test]
+#[serial]
+#[serial]
 fn test_export_json_success() {
     let fixture = TestFixture::new();
 
@@ -27,6 +30,7 @@ fn test_export_json_success() {
 }
 
 #[test]
+#[serial]
 fn test_export_to_file_success() {
     let fixture = TestFixture::new();
 
@@ -54,6 +58,7 @@ fn test_export_to_file_success() {
 }
 
 #[test]
+#[serial]
 fn test_export_to_invalid_path() {
     let fixture = TestFixture::new();
 
@@ -77,6 +82,7 @@ fn test_export_to_invalid_path() {
 }
 
 #[test]
+#[serial]
 fn test_export_empty_data() {
     let fixture = TestFixture::new();
 
@@ -94,6 +100,7 @@ fn test_export_empty_data() {
 }
 
 #[test]
+#[serial]
 fn test_export_large_dataset() {
     let fixture = TestFixture::new();
 
@@ -116,6 +123,7 @@ fn test_export_large_dataset() {
 }
 
 #[test]
+#[serial]
 fn test_error_display() {
     let err = Error::LockError;
     assert_eq!(err.to_string(), "Failed to acquire lock");
@@ -128,6 +136,7 @@ fn test_error_display() {
 }
 
 #[test]
+#[serial]
 fn test_error_from_serde() {
     let json_err = serde_json::from_str::<i32>("not a number").unwrap_err();
     let err: Error = json_err.into();
@@ -136,6 +145,7 @@ fn test_error_from_serde() {
 }
 
 #[test]
+#[serial]
 fn test_result_propagation() {
     fn export_and_read(path: &std::path::Path) -> Result<String> {
         let events = get_events();
@@ -158,6 +168,7 @@ fn test_result_propagation() {
 }
 
 #[test]
+#[serial]
 fn test_graceful_degradation() {
     let fixture = TestFixture::new();
 
