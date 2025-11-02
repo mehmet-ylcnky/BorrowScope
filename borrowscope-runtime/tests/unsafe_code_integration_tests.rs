@@ -1225,8 +1225,10 @@ fn test_fat_ptr_slice() {
     let events = get_events();
     assert_eq!(events.len(), 1);
 
-    // Verify the slice length through pointer metadata
-    let len = unsafe { (*ptr).len() };
+    // Verify the slice length through explicit reference
+    // Allow needless_borrow to avoid dangerous_implicit_autorefs
+    #[allow(clippy::needless_borrow)]
+    let len = unsafe { (&*ptr).len() };
     assert_eq!(len, 5);
 }
 

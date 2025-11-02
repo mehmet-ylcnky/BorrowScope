@@ -61,7 +61,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 
 ## 🚀 Planned Features
 
-### Visualization (Chapter 6-8)
+### Visualization
 - [ ] **Interactive Graph View**
   - Node-based ownership visualization
   - Directed edges for borrow relationships
@@ -80,7 +80,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - Dark/light theme support
   - Export to images and videos
 
-### CLI & Integration (Chapter 7)
+### CLI & Integration
 - [ ] **Command-Line Interface**
   - File analysis and instrumentation
   - Live code watching
@@ -93,7 +93,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - Real-time error detection
   - Code navigation from visualizations
 
-### Advanced Analysis (Chapter 9-11)
+### Advanced Analysis
 - [ ] **Graph Algorithms**
   - Cycle detection in ownership graphs
   - Path finding between variables
@@ -106,7 +106,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - Export format plugins
   - Plugin discovery and loading
 
-### Performance & Scalability (Chapter 12)
+### Performance & Scalability
 - [ ] **Optimization**
   - Incremental analysis
   - Lazy evaluation strategies
@@ -119,7 +119,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - CI/CD integration
   - Performance monitoring
 
-### Distribution (Chapter 13-14)
+### Distribution
 - [ ] **Testing & QA**
   - Fuzzing integration
   - Mutation testing
@@ -307,7 +307,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 ## 📈 Project Status
 
-- **Chapter 5 Complete**: Advanced ownership patterns (15/15 sections) ✅
+- **Advanced Ownership Patterns**: Complete (15/15) ✅
 - **Current Focus**: Graph data structures and visualization
 - **Next Milestone**: Interactive desktop application
 
