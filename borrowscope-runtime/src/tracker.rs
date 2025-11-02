@@ -1147,7 +1147,7 @@ pub fn track_const_eval<T>(
 
 /// Track raw pointer creation
 #[inline(always)]
-pub fn track_raw_ptr<T>(
+pub fn track_raw_ptr<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] ptr_type: &str,
@@ -1157,14 +1157,20 @@ pub fn track_raw_ptr<T>(
     #[cfg(feature = "track")]
     {
         let mut tracker = TRACKER.lock();
-        tracker.record_raw_ptr_created(var_name, var_id, ptr_type, ptr as usize, location);
+        tracker.record_raw_ptr_created(
+            var_name,
+            var_id,
+            ptr_type,
+            ptr as *const () as usize,
+            location,
+        );
     }
     ptr
 }
 
 /// Track mutable raw pointer creation
 #[inline(always)]
-pub fn track_raw_ptr_mut<T>(
+pub fn track_raw_ptr_mut<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] ptr_type: &str,
@@ -1174,7 +1180,13 @@ pub fn track_raw_ptr_mut<T>(
     #[cfg(feature = "track")]
     {
         let mut tracker = TRACKER.lock();
-        tracker.record_raw_ptr_created(var_name, var_id, ptr_type, ptr as usize, location);
+        tracker.record_raw_ptr_created(
+            var_name,
+            var_id,
+            ptr_type,
+            ptr as *const () as usize,
+            location,
+        );
     }
     ptr
 }
