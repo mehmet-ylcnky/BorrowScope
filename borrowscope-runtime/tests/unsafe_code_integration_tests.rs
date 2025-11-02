@@ -1225,10 +1225,9 @@ fn test_fat_ptr_slice() {
     let events = get_events();
     assert_eq!(events.len(), 1);
 
-    unsafe {
-        let len = (*ptr).len();
-        assert_eq!(len, 5);
-    }
+    // Verify the slice length through pointer metadata
+    let len = unsafe { (*ptr).len() };
+    assert_eq!(len, 5);
 }
 
 #[test]
