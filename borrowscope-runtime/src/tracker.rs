@@ -521,6 +521,112 @@ impl Tracker {
         });
     }
 
+    /// Record raw pointer creation
+    pub fn record_raw_ptr_created(
+        &mut self,
+        var_name: &str,
+        var_id: usize,
+        ptr_type: &str,
+        address: usize,
+        location: &str,
+    ) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::RawPtrCreated {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.to_string(),
+            ptr_type: ptr_type.to_string(),
+            address,
+            location: location.to_string(),
+        });
+    }
+
+    /// Record raw pointer dereference
+    pub fn record_raw_ptr_deref(&mut self, ptr_id: usize, location: &str, is_write: bool) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::RawPtrDeref {
+            timestamp,
+            ptr_id: ptr_id.to_string(),
+            location: location.to_string(),
+            is_write,
+        });
+    }
+
+    /// Record unsafe block entry
+    pub fn record_unsafe_block_enter(&mut self, block_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::UnsafeBlockEnter {
+            timestamp,
+            block_id: block_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record unsafe block exit
+    pub fn record_unsafe_block_exit(&mut self, block_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::UnsafeBlockExit {
+            timestamp,
+            block_id: block_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record unsafe function call
+    pub fn record_unsafe_fn_call(&mut self, fn_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::UnsafeFnCall {
+            timestamp,
+            fn_name: fn_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record FFI call
+    pub fn record_ffi_call(&mut self, fn_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::FfiCall {
+            timestamp,
+            fn_name: fn_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record transmute operation
+    pub fn record_transmute(&mut self, from_type: &str, to_type: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::Transmute {
+            timestamp,
+            from_type: from_type.to_string(),
+            to_type: to_type.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record union field access
+    pub fn record_union_field_access(
+        &mut self,
+        union_name: &str,
+        field_name: &str,
+        location: &str,
+    ) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::UnionFieldAccess {
+            timestamp,
+            union_name: union_name.to_string(),
+            field_name: field_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -1037,6 +1143,134 @@ pub fn track_const_eval<T>(
         tracker.record_const_eval(const_name, const_id, type_name, location);
     }
     value
+}
+
+/// Track raw pointer creation
+#[inline(always)]
+pub fn track_raw_ptr<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] ptr_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    ptr: *const T,
+) -> *const T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_raw_ptr_created(var_name, var_id, ptr_type, ptr as usize, location);
+    }
+    ptr
+}
+
+/// Track mutable raw pointer creation
+#[inline(always)]
+pub fn track_raw_ptr_mut<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] ptr_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    ptr: *mut T,
+) -> *mut T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_raw_ptr_created(var_name, var_id, ptr_type, ptr as usize, location);
+    }
+    ptr
+}
+
+/// Track raw pointer dereference
+#[inline(always)]
+pub fn track_raw_ptr_deref(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] ptr_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] is_write: bool,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_raw_ptr_deref(ptr_id, location, is_write);
+    }
+}
+
+/// Track unsafe block entry
+#[inline(always)]
+pub fn track_unsafe_block_enter(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_unsafe_block_enter(block_id, location);
+    }
+}
+
+/// Track unsafe block exit
+#[inline(always)]
+pub fn track_unsafe_block_exit(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_unsafe_block_exit(block_id, location);
+    }
+}
+
+/// Track unsafe function call
+#[inline(always)]
+pub fn track_unsafe_fn_call(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_unsafe_fn_call(fn_name, location);
+    }
+}
+
+/// Track FFI call
+#[inline(always)]
+pub fn track_ffi_call(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_ffi_call(fn_name, location);
+    }
+}
+
+/// Track transmute operation
+#[inline(always)]
+pub fn track_transmute(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] from_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] to_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_transmute(from_type, to_type, location);
+    }
+}
+
+/// Track union field access
+#[inline(always)]
+pub fn track_union_field_access(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] union_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] field_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_union_field_access(union_name, field_name, location);
+    }
 }
 
 #[cfg(test)]

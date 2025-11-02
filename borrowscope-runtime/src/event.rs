@@ -146,6 +146,68 @@ pub enum Event {
         type_name: String,
         location: String,
     },
+
+    /// Raw pointer created
+    RawPtrCreated {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        ptr_type: String,
+        address: usize,
+        location: String,
+    },
+
+    /// Raw pointer dereferenced
+    RawPtrDeref {
+        timestamp: u64,
+        ptr_id: String,
+        location: String,
+        is_write: bool,
+    },
+
+    /// Unsafe block entered
+    UnsafeBlockEnter {
+        timestamp: u64,
+        block_id: String,
+        location: String,
+    },
+
+    /// Unsafe block exited
+    UnsafeBlockExit {
+        timestamp: u64,
+        block_id: String,
+        location: String,
+    },
+
+    /// Unsafe function called
+    UnsafeFnCall {
+        timestamp: u64,
+        fn_name: String,
+        location: String,
+    },
+
+    /// FFI (Foreign Function Interface) call
+    FfiCall {
+        timestamp: u64,
+        fn_name: String,
+        location: String,
+    },
+
+    /// Transmute operation
+    Transmute {
+        timestamp: u64,
+        from_type: String,
+        to_type: String,
+        location: String,
+    },
+
+    /// Union field access
+    UnionFieldAccess {
+        timestamp: u64,
+        union_name: String,
+        field_name: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -168,7 +230,15 @@ impl Event {
             | Event::CellSet { timestamp, .. }
             | Event::StaticInit { timestamp, .. }
             | Event::StaticAccess { timestamp, .. }
-            | Event::ConstEval { timestamp, .. } => *timestamp,
+            | Event::ConstEval { timestamp, .. }
+            | Event::RawPtrCreated { timestamp, .. }
+            | Event::RawPtrDeref { timestamp, .. }
+            | Event::UnsafeBlockEnter { timestamp, .. }
+            | Event::UnsafeBlockExit { timestamp, .. }
+            | Event::UnsafeFnCall { timestamp, .. }
+            | Event::FfiCall { timestamp, .. }
+            | Event::Transmute { timestamp, .. }
+            | Event::UnionFieldAccess { timestamp, .. } => *timestamp,
         }
     }
 
@@ -184,6 +254,7 @@ impl Event {
             | Event::CellNew { var_name, .. }
             | Event::StaticInit { var_name, .. }
             | Event::StaticAccess { var_name, .. }
+            | Event::RawPtrCreated { var_name, .. }
             | Event::ConstEval {
                 const_name: var_name,
                 ..
@@ -194,7 +265,14 @@ impl Event {
             Event::RefCellBorrow { .. }
             | Event::RefCellDrop { .. }
             | Event::CellGet { .. }
-            | Event::CellSet { .. } => None,
+            | Event::CellSet { .. }
+            | Event::RawPtrDeref { .. }
+            | Event::UnsafeBlockEnter { .. }
+            | Event::UnsafeBlockExit { .. }
+            | Event::UnsafeFnCall { .. }
+            | Event::FfiCall { .. }
+            | Event::Transmute { .. }
+            | Event::UnionFieldAccess { .. } => None,
         }
     }
 
@@ -267,6 +345,34 @@ impl Event {
     /// Check if this is a global variable event (static or const)
     pub fn is_global(&self) -> bool {
         self.is_static() || self.is_const()
+    }
+
+    /// Check if this is an unsafe event
+    pub fn is_unsafe(&self) -> bool {
+        matches!(
+            self,
+            Event::RawPtrCreated { .. }
+                | Event::RawPtrDeref { .. }
+                | Event::UnsafeBlockEnter { .. }
+                | Event::UnsafeBlockExit { .. }
+                | Event::UnsafeFnCall { .. }
+                | Event::FfiCall { .. }
+                | Event::Transmute { .. }
+                | Event::UnionFieldAccess { .. }
+        )
+    }
+
+    /// Check if this is a raw pointer event
+    pub fn is_raw_ptr(&self) -> bool {
+        matches!(
+            self,
+            Event::RawPtrCreated { .. } | Event::RawPtrDeref { .. }
+        )
+    }
+
+    /// Check if this is an FFI event
+    pub fn is_ffi(&self) -> bool {
+        matches!(self, Event::FfiCall { .. })
     }
 
     /// Get strong count if this is a reference-counted event
