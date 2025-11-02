@@ -843,3 +843,502 @@ fn test_conditional_macro() {
     let events = get_events();
     assert!(!events.is_empty());
 }
+
+// ============================================================================
+// ADVANCED EDGE CASES - ITERATOR PATTERNS
+// ============================================================================
+
+#[test]
+#[serial]
+fn test_macro_with_lifetime_annotations() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let s = String::from("hello");
+        let v = vec![&s];
+        assert_eq!(v.len(), 1);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_type_inference() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3];
+        let sum: i32 = v.iter().sum();
+        assert_eq!(sum, 6);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_turbofish() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3];
+        let collected = v.iter().collect::<Vec<_>>();
+        assert_eq!(collected.len(), 3);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_nested_vec_macro() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let matrix = vec![vec![1, 2], vec![3, 4]];
+        assert_eq!(matrix.len(), 2);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_const_generics() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let arr = [1, 2, 3, 4, 5];
+        let v = Vec::from(arr);
+        assert_eq!(v.len(), 5);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_dyn_trait() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v: Vec<Box<dyn std::fmt::Debug>> = vec![Box::new(1), Box::new("hello")];
+        assert_eq!(v.len(), 2);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_impl_trait() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3];
+        let sum: i32 = v.iter().sum();
+        assert_eq!(sum, 6);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_in_if_let() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let opt = Some(vec![1, 2, 3]);
+        if let Some(v) = opt {
+            assert_eq!(v.len(), 3);
+        }
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_in_while_let() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let mut v = vec![1, 2, 3];
+        while v.pop().is_some() {
+            // Process items
+        }
+        assert_eq!(v.len(), 0);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_in_for_loop() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3];
+        let mut sum = 0;
+        for x in v {
+            sum += x;
+        }
+        assert_eq!(sum, 6);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_pattern_matching() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3];
+        match v.as_slice() {
+            [first, .., last] => assert_eq!(first + last, 4),
+            _ => panic!("unexpected pattern"),
+        }
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_destructuring() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![(1, 2), (3, 4)];
+        if let [(a, b), (c, d)] = v.as_slice() {
+            assert_eq!(a + b + c + d, 10);
+        }
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_range() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v: Vec<_> = (1..=5).collect();
+        assert_eq!(v, vec![1, 2, 3, 4, 5]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_iterator_chain() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v1 = vec![1, 2];
+        let v2 = vec![3, 4];
+        let combined: Vec<_> = v1.iter().chain(v2.iter()).collect();
+        assert_eq!(combined.len(), 4);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_filter_map() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![Some(1), None, Some(3)];
+        let filtered: Vec<_> = v.into_iter().flatten().collect();
+        assert_eq!(filtered, vec![1, 3]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_zip() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v1 = vec![1, 2, 3];
+        let v2 = vec!["a", "b", "c"];
+        let zipped: Vec<_> = v1.into_iter().zip(v2).collect();
+        assert_eq!(zipped.len(), 3);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_enumerate() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec!["a", "b", "c"];
+        let enumerated: Vec<_> = v.iter().enumerate().collect();
+        assert_eq!(enumerated.len(), 3);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_partition() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3, 4, 5];
+        let (even, odd): (Vec<_>, Vec<_>) = v.into_iter().partition(|x| x % 2 == 0);
+        assert_eq!(even.len() + odd.len(), 5);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_fold() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3, 4];
+        let product = v.iter().fold(1, |acc, x| acc * x);
+        assert_eq!(product, 24);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_windows() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3, 4];
+        let windows: Vec<_> = v.windows(2).collect();
+        assert_eq!(windows.len(), 3);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_chunks() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v = vec![1, 2, 3, 4, 5];
+        let chunks: Vec<_> = v.chunks(2).collect();
+        assert_eq!(chunks.len(), 3);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_sort() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let mut v = vec![3, 1, 4, 1, 5];
+        v.sort();
+        assert_eq!(v[0], 1);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_dedup() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let mut v = vec![1, 1, 2, 2, 3];
+        v.dedup();
+        assert_eq!(v, vec![1, 2, 3]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_retain() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let mut v = vec![1, 2, 3, 4, 5];
+        v.retain(|&x| x % 2 == 0);
+        assert_eq!(v, vec![2, 4]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_drain() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let mut v = vec![1, 2, 3, 4, 5];
+        let drained: Vec<_> = v.drain(1..3).collect();
+        assert_eq!(drained, vec![2, 3]);
+        assert_eq!(v, vec![1, 4, 5]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_extend() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let mut v1 = vec![1, 2];
+        let v2 = vec![3, 4];
+        v1.extend(v2);
+        assert_eq!(v1, vec![1, 2, 3, 4]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+#[serial]
+fn test_macro_with_repeat() {
+    reset();
+
+    #[trace_borrow]
+    fn test_fn() {
+        let v: Vec<_> = std::iter::repeat(1).take(5).collect();
+        assert_eq!(v, vec![1, 1, 1, 1, 1]);
+    }
+
+    test_fn();
+
+    let events = get_events();
+    assert!(!events.is_empty());
+}
