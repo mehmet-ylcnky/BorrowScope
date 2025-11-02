@@ -1226,7 +1226,8 @@ fn test_fat_ptr_slice() {
     assert_eq!(events.len(), 1);
 
     unsafe {
-        assert_eq!((*ptr).len(), 5);
+        let len = (*ptr).len();
+        assert_eq!(len, 5);
     }
 }
 

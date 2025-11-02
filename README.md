@@ -1,9 +1,16 @@
-# BorrowScope
+<div align="center">
+  <img src="logo.png" alt="BorrowScope Logo" width="400"/>
+  
+  # BorrowScope
 
-> Visualize Rust's ownership and borrowing at runtime
+  > Visualize Rust's ownership and borrowing at runtime
 
-[![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+  [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
+  [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+  [![Tests](https://img.shields.io/badge/tests-1028%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+</div>
+
+---
 
 BorrowScope is a developer tool that makes Rust's ownership and borrowing system visible through runtime tracking and interactive visualization.
 
