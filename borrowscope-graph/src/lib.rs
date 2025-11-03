@@ -1,7 +1,9 @@
 mod conflicts;
+mod query;
 mod serialization;
 
 pub use conflicts::{BorrowConflict, ConflictType};
+pub use query::{FilteredQuery, QueryBuilder};
 pub use serialization::{EnhancedGraphExport, GraphDelta, GraphMetadata};
 
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
