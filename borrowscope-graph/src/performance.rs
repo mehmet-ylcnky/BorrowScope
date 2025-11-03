@@ -1,6 +1,5 @@
 use crate::{OwnershipGraph, Relationship, Variable};
-use parking_lot::RwLock;
-use std::cell::RefCell;
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -18,21 +17,21 @@ pub struct GraphStats {
 
 pub struct CachedOwnershipGraph {
     graph: OwnershipGraph,
-    borrowers_cache: RefCell<HashMap<usize, Vec<usize>>>,
-    stats_cache: RefCell<Option<GraphStats>>,
+    borrowers_cache: Mutex<HashMap<usize, Vec<usize>>>,
+    stats_cache: Mutex<Option<GraphStats>>,
 }
 
 impl CachedOwnershipGraph {
     pub fn new(graph: OwnershipGraph) -> Self {
         Self {
             graph,
-            borrowers_cache: RefCell::new(HashMap::new()),
-            stats_cache: RefCell::new(None),
+            borrowers_cache: Mutex::new(HashMap::new()),
+            stats_cache: Mutex::new(None),
         }
     }
 
     pub fn borrowers_of(&self, id: usize) -> Vec<usize> {
-        if let Some(cached) = self.borrowers_cache.borrow().get(&id) {
+        if let Some(cached) = self.borrowers_cache.lock().get(&id) {
             return cached.clone();
         }
 
@@ -43,14 +42,12 @@ impl CachedOwnershipGraph {
             .map(|v| v.id)
             .collect();
 
-        self.borrowers_cache
-            .borrow_mut()
-            .insert(id, borrowers.clone());
+        self.borrowers_cache.lock().insert(id, borrowers.clone());
         borrowers
     }
 
     pub fn stats(&self) -> GraphStats {
-        if let Some(cached) = self.stats_cache.borrow().as_ref() {
+        if let Some(cached) = self.stats_cache.lock().as_ref() {
             return cached.clone();
         }
 
@@ -81,13 +78,13 @@ impl CachedOwnershipGraph {
             max_depth,
         };
 
-        *self.stats_cache.borrow_mut() = Some(stats.clone());
+        *self.stats_cache.lock() = Some(stats.clone());
         stats
     }
 
     pub fn invalidate(&self) {
-        self.borrowers_cache.borrow_mut().clear();
-        *self.stats_cache.borrow_mut() = None;
+        self.borrowers_cache.lock().clear();
+        *self.stats_cache.lock() = None;
     }
 
     pub fn graph(&self) -> &OwnershipGraph {
@@ -283,29 +280,29 @@ impl OwnershipGraph {
 
 pub struct LazyGraph {
     graph: OwnershipGraph,
-    json_cache: RefCell<Option<String>>,
+    json_cache: Mutex<Option<String>>,
 }
 
 impl LazyGraph {
     pub fn new(graph: OwnershipGraph) -> Self {
         Self {
             graph,
-            json_cache: RefCell::new(None),
+            json_cache: Mutex::new(None),
         }
     }
 
     pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        if let Some(cached) = self.json_cache.borrow().as_ref() {
+        if let Some(cached) = self.json_cache.lock().as_ref() {
             return Ok(cached.clone());
         }
 
         let json = self.graph.to_json()?;
-        *self.json_cache.borrow_mut() = Some(json.clone());
+        *self.json_cache.lock() = Some(json.clone());
         Ok(json)
     }
 
     pub fn invalidate_cache(&self) {
-        *self.json_cache.borrow_mut() = None;
+        *self.json_cache.lock() = None;
     }
 
     pub fn graph(&self) -> &OwnershipGraph {

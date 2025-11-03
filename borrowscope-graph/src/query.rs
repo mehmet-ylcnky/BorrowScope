@@ -7,7 +7,7 @@ pub struct QueryBuilder<'a> {
 }
 
 impl OwnershipGraph {
-    pub fn query(&self) -> QueryBuilder {
+    pub fn query(&self) -> QueryBuilder<'_> {
         QueryBuilder { graph: self }
     }
 
