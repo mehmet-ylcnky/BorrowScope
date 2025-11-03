@@ -1,4 +1,5 @@
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
+use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{Directed, Direction};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -194,6 +195,84 @@ impl OwnershipGraph {
     pub fn clear(&mut self) {
         self.graph.clear();
         self.id_to_node.clear();
+    }
+
+    // ========================================================================
+    // Advanced Query Methods
+    // ========================================================================
+
+    pub fn active_borrows_at(&self, id: usize, at: u64) -> Vec<(&Variable, &Relationship)> {
+        self.id_to_node
+            .get(&id)
+            .into_iter()
+            .flat_map(|&node| {
+                self.graph
+                    .edges_directed(node, Direction::Incoming)
+                    .filter_map(|edge| {
+                        let rel = edge.weight();
+                        let borrower = self.graph.node_weight(edge.source())?;
+
+                        let borrow_time = match rel {
+                            Relationship::BorrowsImmut { at: t } => *t,
+                            Relationship::BorrowsMut { at: t } => *t,
+                            Relationship::RefCellBorrow { at: t, .. } => *t,
+                            _ => return None,
+                        };
+
+                        if borrow_time <= at && borrower.dropped_at.map_or(true, |d| d > at) {
+                            Some((borrower, rel))
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect()
+    }
+}
+
+// ============================================================================
+// Serialization Support
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphExport {
+    pub nodes: Vec<Variable>,
+    pub edges: Vec<EdgeExport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdgeExport {
+    pub from_id: usize,
+    pub to_id: usize,
+    pub relationship: Relationship,
+}
+
+impl OwnershipGraph {
+    pub fn export(&self) -> GraphExport {
+        let nodes = self.graph.node_weights().cloned().collect();
+        let edges = self
+            .graph
+            .edge_references()
+            .filter_map(|edge| {
+                let from = self.graph.node_weight(edge.source())?;
+                let to = self.graph.node_weight(edge.target())?;
+                Some(EdgeExport {
+                    from_id: from.id,
+                    to_id: to.id,
+                    relationship: edge.weight().clone(),
+                })
+            })
+            .collect();
+
+        GraphExport { nodes, edges }
+    }
+
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(&self.export())
+    }
+
+    pub fn to_json_compact(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&self.export())
     }
 }
 
