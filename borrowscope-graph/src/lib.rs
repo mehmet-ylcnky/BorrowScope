@@ -1,6 +1,8 @@
 mod conflicts;
+mod serialization;
 
 pub use conflicts::{BorrowConflict, ConflictType};
+pub use serialization::{EnhancedGraphExport, GraphDelta, GraphMetadata};
 
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
