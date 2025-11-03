@@ -1,3 +1,7 @@
+mod conflicts;
+
+pub use conflicts::{BorrowConflict, ConflictType};
+
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 use petgraph::{Directed, Direction};
@@ -355,6 +359,238 @@ impl OwnershipGraph {
 
     pub fn has_cycles(&self) -> bool {
         petgraph::algo::is_cyclic_directed(&self.graph)
+    }
+
+    // ========================================================================
+    // Traversal Algorithms
+    // ========================================================================
+
+    pub fn dfs_from(&self, start_id: usize) -> Vec<usize> {
+        use petgraph::visit::Dfs;
+
+        let start_node = match self.id_to_node.get(&start_id) {
+            Some(&node) => node,
+            None => return vec![],
+        };
+
+        let mut dfs = Dfs::new(&self.graph, start_node);
+        let mut visited = Vec::new();
+
+        while let Some(node) = dfs.next(&self.graph) {
+            if let Some(var) = self.graph.node_weight(node) {
+                visited.push(var.id);
+            }
+        }
+
+        visited
+    }
+
+    pub fn bfs_from(&self, start_id: usize) -> Vec<usize> {
+        use petgraph::visit::Bfs;
+
+        let start_node = match self.id_to_node.get(&start_id) {
+            Some(&node) => node,
+            None => return vec![],
+        };
+
+        let mut bfs = Bfs::new(&self.graph, start_node);
+        let mut visited = Vec::new();
+
+        while let Some(node) = bfs.next(&self.graph) {
+            if let Some(var) = self.graph.node_weight(node) {
+                visited.push(var.id);
+            }
+        }
+
+        visited
+    }
+
+    pub fn shortest_path(&self, from_id: usize, to_id: usize) -> Option<Vec<usize>> {
+        use std::collections::{HashMap, VecDeque};
+
+        let from_node = *self.id_to_node.get(&from_id)?;
+        let to_node = *self.id_to_node.get(&to_id)?;
+
+        if from_node == to_node {
+            return Some(vec![from_id]);
+        }
+
+        let mut queue = VecDeque::new();
+        let mut parent: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+
+        queue.push_back(from_node);
+
+        while let Some(current) = queue.pop_front() {
+            if current == to_node {
+                let mut path = vec![to_id];
+                let mut node = to_node;
+
+                while let Some(&p) = parent.get(&node) {
+                    if let Some(var) = self.graph.node_weight(p) {
+                        path.push(var.id);
+                    }
+                    node = p;
+                }
+
+                path.reverse();
+                return Some(path);
+            }
+
+            for neighbor in self.graph.neighbors(current) {
+                if !parent.contains_key(&neighbor) && neighbor != from_node {
+                    parent.insert(neighbor, current);
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn topological_order(&self) -> Result<Vec<usize>, String> {
+        match petgraph::algo::toposort(&self.graph, None) {
+            Ok(order) => Ok(order
+                .into_iter()
+                .filter_map(|node| self.graph.node_weight(node))
+                .map(|var| var.id)
+                .collect()),
+            Err(_) => Err("Graph contains cycles".to_string()),
+        }
+    }
+
+    pub fn drop_order(&self) -> Vec<usize> {
+        self.topological_order().unwrap_or_else(|_| {
+            let mut vars: Vec<_> = self.graph.node_weights().collect();
+            vars.sort_by_key(|v| v.created_at);
+            vars.into_iter().map(|v| v.id).rev().collect()
+        })
+    }
+
+    pub fn connected_components(&self) -> Vec<Vec<usize>> {
+        use petgraph::visit::IntoNodeIdentifiers;
+        use std::collections::HashSet;
+
+        let mut visited = HashSet::new();
+        let mut components = Vec::new();
+
+        for node in self.graph.node_identifiers() {
+            if visited.contains(&node) {
+                continue;
+            }
+
+            let mut component = Vec::new();
+            let mut stack = vec![node];
+
+            while let Some(current) = stack.pop() {
+                if !visited.insert(current) {
+                    continue;
+                }
+
+                if let Some(var) = self.graph.node_weight(current) {
+                    component.push(var.id);
+                }
+
+                for neighbor in self.graph.neighbors(current) {
+                    if !visited.contains(&neighbor) {
+                        stack.push(neighbor);
+                    }
+                }
+
+                for neighbor in self
+                    .graph
+                    .neighbors_directed(current, petgraph::Direction::Incoming)
+                {
+                    if !visited.contains(&neighbor) {
+                        stack.push(neighbor);
+                    }
+                }
+            }
+
+            if !component.is_empty() {
+                components.push(component);
+            }
+        }
+
+        components
+    }
+
+    pub fn can_reach(&self, from_id: usize, to_id: usize) -> bool {
+        use petgraph::visit::Dfs;
+
+        let from_node = match self.id_to_node.get(&from_id) {
+            Some(&n) => n,
+            None => return false,
+        };
+
+        let to_node = match self.id_to_node.get(&to_id) {
+            Some(&n) => n,
+            None => return false,
+        };
+
+        let mut dfs = Dfs::new(&self.graph, from_node);
+
+        while let Some(node) = dfs.next(&self.graph) {
+            if node == to_node {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn find_all_borrowers(&self, id: usize) -> Vec<usize> {
+        use petgraph::visit::Dfs;
+        use petgraph::visit::Reversed;
+
+        let node = match self.id_to_node.get(&id) {
+            Some(&n) => n,
+            None => return vec![],
+        };
+
+        let mut dfs = Dfs::new(Reversed(&self.graph), node);
+        let mut borrowers = Vec::new();
+
+        while let Some(n) = dfs.next(Reversed(&self.graph)) {
+            if n != node {
+                if let Some(var) = self.graph.node_weight(n) {
+                    borrowers.push(var.id);
+                }
+            }
+        }
+
+        borrowers
+    }
+
+    pub fn borrow_depth(&self, id: usize) -> usize {
+        use petgraph::visit::{IntoNeighbors, Reversed};
+        use std::collections::HashSet;
+
+        let node = match self.id_to_node.get(&id) {
+            Some(&n) => n,
+            None => return 0,
+        };
+
+        let mut max_depth = 0;
+        let mut stack = vec![(node, 0)];
+        let mut visited = HashSet::new();
+
+        while let Some((current, depth)) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+
+            max_depth = max_depth.max(depth);
+
+            for neighbor in Reversed(&self.graph).neighbors(current) {
+                stack.push((neighbor, depth + 1));
+            }
+        }
+
+        max_depth
+    }
+
+    pub fn borrow_chain(&self, from_id: usize, to_id: usize) -> Option<Vec<usize>> {
+        self.shortest_path(from_id, to_id)
     }
 
     // ========================================================================
