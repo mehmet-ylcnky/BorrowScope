@@ -1,9 +1,14 @@
 mod conflicts;
+mod performance;
 mod query;
 mod serialization;
 mod visualization;
 
 pub use conflicts::{BorrowConflict, ConflictType};
+pub use performance::{
+    BatchGraph, CachedOwnershipGraph, ConcurrentGraph, GraphMetrics, GraphStats, LazyGraph,
+    MemoryStats,
+};
 pub use query::{FilteredQuery, QueryBuilder};
 pub use serialization::{EnhancedGraphExport, GraphDelta, GraphMetadata};
 pub use visualization::{
