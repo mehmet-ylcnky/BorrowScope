@@ -274,6 +274,143 @@ impl OwnershipGraph {
     pub fn to_json_compact(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(&self.export())
     }
+
+    // ========================================================================
+    // Batch Operations
+    // ========================================================================
+
+    pub fn add_variables(&mut self, vars: Vec<Variable>) -> Vec<NodeIndex> {
+        vars.into_iter().map(|var| self.add_variable(var)).collect()
+    }
+
+    pub fn mark_dropped_batch(&mut self, ids: &[usize], at: u64) -> usize {
+        ids.iter().filter(|&&id| self.mark_dropped(id, at)).count()
+    }
+
+    // ========================================================================
+    // Validation Methods
+    // ========================================================================
+
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        // Check for cycles (should never happen in valid Rust)
+        if petgraph::algo::is_cyclic_directed(&self.graph) {
+            errors.push("Graph contains cycles (invalid ownership)".to_string());
+        }
+
+        // Validate timestamps
+        for var in self.graph.node_weights() {
+            if let Some(dropped) = var.dropped_at {
+                if dropped < var.created_at {
+                    errors.push(format!(
+                        "Variable '{}' (id={}) dropped before creation",
+                        var.name, var.id
+                    ));
+                }
+            }
+        }
+
+        // Validate borrow lifetimes
+        for edge in self.graph.edge_references() {
+            let borrower = self.graph.node_weight(edge.source());
+            let owner = self.graph.node_weight(edge.target());
+
+            if let (Some(borrower), Some(owner)) = (borrower, owner) {
+                let borrow_time = match edge.weight() {
+                    Relationship::BorrowsImmut { at } => Some(*at),
+                    Relationship::BorrowsMut { at } => Some(*at),
+                    Relationship::RefCellBorrow { at, .. } => Some(*at),
+                    _ => None,
+                };
+
+                if let Some(at) = borrow_time {
+                    // Borrow should happen after owner creation
+                    if at < owner.created_at {
+                        errors.push(format!(
+                            "Borrow of '{}' happens before owner '{}' creation",
+                            borrower.name, owner.name
+                        ));
+                    }
+
+                    // Borrow should happen before owner drop
+                    if let Some(owner_dropped) = owner.dropped_at {
+                        if at >= owner_dropped {
+                            errors.push(format!(
+                                "Borrow of '{}' happens after owner '{}' dropped",
+                                borrower.name, owner.name
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    pub fn has_cycles(&self) -> bool {
+        petgraph::algo::is_cyclic_directed(&self.graph)
+    }
+
+    // ========================================================================
+    // Statistics
+    // ========================================================================
+
+    pub fn statistics(&self) -> GraphStatistics {
+        let mut immutable_borrows = 0;
+        let mut mutable_borrows = 0;
+        let mut moves = 0;
+        let mut rc_clones = 0;
+        let mut arc_clones = 0;
+        let mut refcell_borrows = 0;
+
+        for edge in self.graph.edge_references() {
+            match edge.weight() {
+                Relationship::BorrowsImmut { .. } => immutable_borrows += 1,
+                Relationship::BorrowsMut { .. } => mutable_borrows += 1,
+                Relationship::Moves { .. } => moves += 1,
+                Relationship::RcClone { .. } => rc_clones += 1,
+                Relationship::ArcClone { .. } => arc_clones += 1,
+                Relationship::RefCellBorrow { .. } => refcell_borrows += 1,
+            }
+        }
+
+        let alive_count = self
+            .graph
+            .node_weights()
+            .filter(|v| v.dropped_at.is_none())
+            .count();
+
+        GraphStatistics {
+            total_variables: self.node_count(),
+            alive_variables: alive_count,
+            total_edges: self.edge_count(),
+            immutable_borrows,
+            mutable_borrows,
+            moves,
+            rc_clones,
+            arc_clones,
+            refcell_borrows,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphStatistics {
+    pub total_variables: usize,
+    pub alive_variables: usize,
+    pub total_edges: usize,
+    pub immutable_borrows: usize,
+    pub mutable_borrows: usize,
+    pub moves: usize,
+    pub rc_clones: usize,
+    pub arc_clones: usize,
+    pub refcell_borrows: usize,
 }
 
 impl Default for OwnershipGraph {
