@@ -4,9 +4,9 @@
   > Visualize Rust's ownership and borrowing at runtime
 
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
+  [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Tests](https://img.shields.io/badge/tests-1594%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
-  [![Coverage](https://img.shields.io/badge/coverage-85%25-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
 </div>
 
 ---
@@ -56,8 +56,11 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **1594 comprehensive tests** covering all features
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
-- **>85% code coverage** across runtime and macro crates
+- **>90% code coverage** across core modules ([view report](https://mehmet-ylcnky.github.io/BorrowScope/coverage/))
+  - borrowscope-graph: 91.1% regions, 92.5% functions, 94.7% lines
+  - conflicts: 91.5% | lib: 91.5% | query: 92.3% | serialization: 91.7% | visualization: 89.3%
 - **Zero clippy warnings** with strict linting
+- **Continuous coverage tracking** via Codecov
 
 ## 🚀 Planned Features
 
@@ -259,6 +262,10 @@ cargo test --workspace --features track
 # Run specific test suites
 cargo test --test property_based_tests --features track
 cargo test --test performance_integration_tests --features track
+
+# Generate coverage report
+cargo install cargo-llvm-cov
+cargo llvm-cov --all-features --workspace --html --open
 
 # Run benchmarks
 cargo bench --workspace
