@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "borrowscope-macro",
     "borrowscope-runtime",
-    "borrowscope-cli",
+    "borrowscope-cli", "borrowscope-graph",
 ]
 
 [workspace.package]
