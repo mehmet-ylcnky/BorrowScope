@@ -1,10 +1,15 @@
 mod conflicts;
 mod query;
 mod serialization;
+mod visualization;
 
 pub use conflicts::{BorrowConflict, ConflictType};
 pub use query::{FilteredQuery, QueryBuilder};
 pub use serialization::{EnhancedGraphExport, GraphDelta, GraphMetadata};
+pub use visualization::{
+    D3Export, D3Link, D3Node, EdgeData, EdgeElement, Elements, HighlightConfig, LayoutConfig,
+    NodeData, NodeElement, Position, StyleRule, TimelineFrame, TooltipData, VisualizationExport,
+};
 
 use petgraph::stable_graph::{EdgeIndex, NodeIndex, StableGraph};
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
