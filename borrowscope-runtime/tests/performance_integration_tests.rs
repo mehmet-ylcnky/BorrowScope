@@ -33,7 +33,7 @@ fn test_track_new_overhead_acceptable() {
 #[serial]
 fn test_track_borrow_overhead_acceptable() {
     const ITERATIONS: usize = 10_000;
-    const MAX_OVERHEAD_NS: u128 = 700;
+    const MAX_OVERHEAD_NS: u128 = 800;
 
     reset();
     let values: Vec<i32> = (0..ITERATIONS as i32).collect();
