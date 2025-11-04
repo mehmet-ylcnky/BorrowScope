@@ -7,7 +7,7 @@
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
-  [![Tests](https://img.shields.io/badge/tests-353%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+  [![Tests](https://img.shields.io/badge/tests-693%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
 </div>
 
 ---
@@ -54,7 +54,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **Batch operations** for improved performance
 
 ### Testing & Quality (✅ Complete)
-- **353 comprehensive tests** covering all features (226 core + 127 CLI)
+- **693 comprehensive tests** covering all features (566 graph + 127 CLI)
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
 - **>90% code coverage** across core modules ([view report](https://mehmet-ylcnky.github.io/BorrowScope/coverage/))
@@ -228,7 +228,7 @@ BorrowScope/
 │   │   ├── graph.rs        # Graph data structures
 │   │   ├── export.rs       # JSON export
 │   │   └── error.rs        # Error handling
-│   └── tests/              # 226 comprehensive tests
+│   └── tests/              # 566 comprehensive tests
 │
 ├── borrowscope-macro/       # Procedural macros (✅ Complete)
 │   ├── src/
