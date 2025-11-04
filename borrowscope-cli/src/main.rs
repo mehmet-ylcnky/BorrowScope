@@ -8,6 +8,7 @@ mod config;
 mod error;
 mod instrumentation;
 mod output;
+mod utils;
 
 use clap::Parser;
 
