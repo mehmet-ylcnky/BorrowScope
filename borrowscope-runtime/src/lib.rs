@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! BorrowScope Runtime
 //!
 //! This crate provides the runtime tracking system that records ownership

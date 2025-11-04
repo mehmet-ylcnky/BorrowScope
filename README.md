@@ -55,7 +55,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **Batch operations** for improved performance
 
 ### Testing & Quality (✅ Complete)
-- **1594 comprehensive tests** covering all features
+- **226 comprehensive tests** covering all features
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
 - **>90% code coverage** across core modules ([view report](https://mehmet-ylcnky.github.io/BorrowScope/coverage/))
@@ -229,7 +229,7 @@ BorrowScope/
 │   │   ├── graph.rs        # Graph data structures
 │   │   ├── export.rs       # JSON export
 │   │   └── error.rs        # Error handling
-│   └── tests/              # 1594 comprehensive tests
+│   └── tests/              # 226 comprehensive tests
 │
 ├── borrowscope-macro/       # Procedural macros (✅ Complete)
 │   ├── src/

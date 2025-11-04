@@ -1,0 +1,35 @@
+# BorrowScope Configuration
+
+[run]
+# Default output file for tracking data
+output = "borrowscope.json"
+
+# Auto-open visualization after running
+visualize = false
+
+# Capture stdout/stderr from the program
+capture = true
+
+[visualize]
+# Default port for web server
+port = 3000
+
+# Auto-open browser
+browser = true
+
+# Host address to bind to
+host = "127.0.0.1"
+
+[export]
+# Default export format
+format = "dot"
+
+[tracking]
+# Track smart pointers (Box, Rc, Arc, etc.)
+smart_pointers = true
+
+# Track async code
+async_code = true
+
+# Track unsafe code blocks
+unsafe_code = false
