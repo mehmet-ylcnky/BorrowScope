@@ -6,6 +6,7 @@ mod cli;
 mod commands;
 mod config;
 mod error;
+mod instrumentation;
 mod output;
 
 use clap::Parser;

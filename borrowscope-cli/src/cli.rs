@@ -45,6 +45,12 @@ pub enum Commands {
 
     /// Validate and analyze tracking data
     Check(CheckArgs),
+
+    /// Watch files and auto-rerun on changes
+    Watch(WatchArgs),
+
+    /// Generate shell completion scripts
+    Completion(CompletionArgs),
 }
 
 #[derive(Args)]
@@ -76,6 +82,26 @@ pub struct RunArgs {
     /// Don't capture stdout/stderr
     #[arg(long)]
     pub no_capture: bool,
+
+    /// Run target type
+    #[arg(long, value_enum)]
+    pub target: Option<RunTarget>,
+
+    /// Example name (when target=example)
+    #[arg(long, requires = "target")]
+    pub example: Option<String>,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum RunTarget {
+    /// Run binary target
+    Bin,
+    /// Run tests
+    Test,
+    /// Run benchmarks
+    Bench,
+    /// Run example
+    Example,
 }
 
 #[derive(Args)]
@@ -130,9 +156,9 @@ pub struct CheckArgs {
     /// Tracking data file
     pub file: PathBuf,
 
-    /// Check for borrow conflicts
-    #[arg(long)]
-    pub conflicts: bool,
+    /// Check mode (if not specified, runs all checks)
+    #[arg(long, value_enum)]
+    pub mode: Option<CheckMode>,
 
     /// Show statistics
     #[arg(long)]
@@ -141,6 +167,53 @@ pub struct CheckArgs {
     /// Validate graph integrity
     #[arg(long)]
     pub validate: bool,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum CheckMode {
+    /// Check for borrow conflicts only
+    Conflicts,
+    /// Detect reference cycles only
+    Cycles,
+}
+
+#[derive(Args)]
+pub struct WatchArgs {
+    /// Path to watch
+    #[arg(default_value = ".")]
+    pub path: PathBuf,
+
+    /// Output file for tracking data
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+
+    /// Keep visualization open and auto-reload
+    #[arg(long)]
+    pub visualize: bool,
+
+    /// Debounce delay in milliseconds
+    #[arg(long, default_value = "300")]
+    pub debounce: u64,
+
+    /// Clear screen between runs
+    #[arg(long)]
+    pub clear: bool,
+}
+
+#[derive(Args)]
+pub struct CompletionArgs {
+    /// Shell type
+    #[arg(value_enum)]
+    pub shell: Shell,
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum Shell {
+    Bash,
+    Zsh,
+    Fish,
+    Powershell,
+    Elvish,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug)]
@@ -172,6 +245,8 @@ impl Cli {
             Commands::Export(args) => commands::export::execute(args),
             Commands::Init(args) => commands::init::execute(args),
             Commands::Check(args) => commands::check::execute(args),
+            Commands::Watch(args) => commands::watch::execute(args, config),
+            Commands::Completion(args) => commands::completion::execute(args),
         }
     }
 }

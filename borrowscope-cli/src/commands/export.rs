@@ -223,4 +223,153 @@ mod tests {
         assert!(contents.contains("<!DOCTYPE html>"));
         assert!(contents.contains("BorrowScope"));
     }
+
+    #[test]
+    fn test_export_svg_placeholder() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_file = temp_dir.path().join("input.json");
+        let output_file = temp_dir.path().join("output.svg");
+
+        let data = serde_json::json!({"test": "data"});
+        fs::write(&input_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = ExportArgs {
+            file: input_file,
+            output: output_file.clone(),
+            format: ExportFormat::Svg,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+        assert!(output_file.exists());
+
+        let contents = fs::read_to_string(&output_file).unwrap();
+        assert!(contents.contains("<?xml"));
+        assert!(contents.contains("<svg"));
+    }
+
+    #[test]
+    fn test_export_png_placeholder() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_file = temp_dir.path().join("input.json");
+        let output_file = temp_dir.path().join("output.png");
+
+        let data = serde_json::json!({"test": "data"});
+        fs::write(&input_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = ExportArgs {
+            file: input_file,
+            output: output_file.clone(),
+            format: ExportFormat::Png,
+        };
+
+        // PNG export is not implemented yet, should return error
+        let result = execute(args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_export_empty_graph() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_file = temp_dir.path().join("input.json");
+        let output_file = temp_dir.path().join("output.dot");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "graph": {
+                "nodes": [],
+                "edges": []
+            }
+        });
+
+        fs::write(&input_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = ExportArgs {
+            file: input_file,
+            output: output_file.clone(),
+            format: ExportFormat::Dot,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+        assert!(output_file.exists());
+    }
+
+    #[test]
+    fn test_export_complex_graph() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_file = temp_dir.path().join("input.json");
+        let output_file = temp_dir.path().join("output.dot");
+
+        let nodes: Vec<_> = (0..10)
+            .map(|i| serde_json::json!({"id": i, "name": format!("node{}", i)}))
+            .collect();
+
+        let edges: Vec<_> = (0..9)
+            .map(|i| serde_json::json!({"from": i, "to": i + 1, "relationship": "borrows"}))
+            .collect();
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "graph": {
+                "nodes": nodes,
+                "edges": edges
+            }
+        });
+
+        fs::write(&input_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = ExportArgs {
+            file: input_file,
+            output: output_file.clone(),
+            format: ExportFormat::Dot,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+
+        let contents = fs::read_to_string(&output_file).unwrap();
+        assert!(contents.contains("node0"));
+        assert!(contents.contains("node9"));
+    }
+
+    #[test]
+    fn test_export_invalid_json() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_file = temp_dir.path().join("input.json");
+        let output_file = temp_dir.path().join("output.dot");
+
+        fs::write(&input_file, "invalid json").unwrap();
+
+        let args = ExportArgs {
+            file: input_file,
+            output: output_file,
+            format: ExportFormat::Dot,
+        };
+
+        let result = execute(args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_export_overwrite_existing() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_file = temp_dir.path().join("input.json");
+        let output_file = temp_dir.path().join("output.dot");
+
+        let data = serde_json::json!({"test": "data"});
+        fs::write(&input_file, serde_json::to_string(&data).unwrap()).unwrap();
+        fs::write(&output_file, "old content").unwrap();
+
+        let args = ExportArgs {
+            file: input_file,
+            output: output_file.clone(),
+            format: ExportFormat::Dot,
+        };
+
+        execute(args).unwrap();
+
+        let contents = fs::read_to_string(&output_file).unwrap();
+        assert_ne!(contents, "old content");
+    }
 }

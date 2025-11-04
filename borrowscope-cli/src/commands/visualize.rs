@@ -76,18 +76,12 @@ fn open_browser(url: &str) -> Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        std::process::Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .ok();
+        std::process::Command::new("xdg-open").arg(url).spawn().ok();
     }
 
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .ok();
+        std::process::Command::new("open").arg(url).spawn().ok();
     }
 
     #[cfg(target_os = "windows")]
@@ -119,6 +113,7 @@ mod tests {
 
         let result = execute(args, config);
         assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), CliError::FileNotFound(_)));
     }
 
     #[test]
@@ -145,8 +140,148 @@ mod tests {
     }
 
     #[test]
+    fn test_load_empty_events() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let loaded = load_tracking_data(&test_file).unwrap();
+        assert_eq!(loaded.event_count(), 0);
+    }
+
+    #[test]
+    fn test_load_missing_events() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let loaded = load_tracking_data(&test_file).unwrap();
+        assert_eq!(loaded.event_count(), 0);
+    }
+
+    #[test]
     fn test_is_port_available() {
         // Port 0 should always be available (OS assigns)
         assert!(is_port_available("127.0.0.1", 0));
+    }
+
+    #[test]
+    fn test_custom_port() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = VisualizeArgs {
+            file: test_file,
+            port: Some(8080),
+            no_browser: true,
+            host: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_custom_host() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = VisualizeArgs {
+            file: test_file,
+            port: None,
+            no_browser: true,
+            host: Some("0.0.0.0".to_string()),
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_invalid_json() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+        fs::write(&test_file, "invalid json").unwrap();
+
+        let result = load_tracking_data(&test_file);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_large_event_count() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let events: Vec<_> = (0..1000)
+            .map(|i| serde_json::json!({"type": "New", "id": i}))
+            .collect();
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": events,
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let loaded = load_tracking_data(&test_file).unwrap();
+        assert_eq!(loaded.event_count(), 1000);
+    }
+
+    #[test]
+    fn test_no_browser_flag() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = VisualizeArgs {
+            file: test_file,
+            port: None,
+            no_browser: true,
+            host: None,
+        };
+        let config = Config::default();
+
+        // Should not attempt to open browser
+        let result = execute(args, config);
+        assert!(result.is_ok());
     }
 }

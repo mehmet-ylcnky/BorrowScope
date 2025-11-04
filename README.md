@@ -55,7 +55,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **Batch operations** for improved performance
 
 ### Testing & Quality (✅ Complete)
-- **226 comprehensive tests** covering all features
+- **326 comprehensive tests** covering all features (226 core + 100 CLI)
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
 - **>90% code coverage** across core modules ([view report](https://mehmet-ylcnky.github.io/BorrowScope/coverage/))
@@ -237,7 +237,12 @@ BorrowScope/
 │   └── tests/              # Macro compatibility tests
 │
 ├── borrowscope-cli/         # Command-line interface (🚧 In Progress)
-│   └── src/
+│   ├── src/
+│   │   ├── main.rs         # CLI entry point
+│   │   ├── commands/       # Command implementations
+│   │   ├── instrumentation.rs  # Code instrumentation engine
+│   │   └── ...
+│   └── tests/              # 100 CLI tests
 │       └── main.rs
 │
 └── borrowscope-ui/          # Desktop application (📋 Planned)

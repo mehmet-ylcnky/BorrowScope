@@ -214,4 +214,110 @@ mod tests {
         assert!(config.tracking.async_code);
         assert!(config.tracking.unsafe_code);
     }
+
+    #[test]
+    fn test_init_default_template() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let args = InitArgs {
+            path: temp_dir.path().to_path_buf(),
+            force: false,
+            template: ConfigTemplate::Default,
+        };
+
+        execute(args).unwrap();
+
+        let config_path = temp_dir.path().join(CONFIG_FILE_NAME);
+        let contents = fs::read_to_string(&config_path).unwrap();
+        let config: Config = toml::from_str(&contents).unwrap();
+
+        assert!(config.tracking.smart_pointers);
+        assert!(config.tracking.async_code);
+        assert!(!config.tracking.unsafe_code);
+    }
+
+    #[test]
+    fn test_init_creates_valid_toml() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let args = InitArgs {
+            path: temp_dir.path().to_path_buf(),
+            force: false,
+            template: ConfigTemplate::Default,
+        };
+
+        execute(args).unwrap();
+
+        let config_path = temp_dir.path().join(CONFIG_FILE_NAME);
+        let contents = fs::read_to_string(&config_path).unwrap();
+
+        // Should parse without error
+        let result = toml::from_str::<Config>(&contents);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_init_config_has_all_sections() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let args = InitArgs {
+            path: temp_dir.path().to_path_buf(),
+            force: false,
+            template: ConfigTemplate::Default,
+        };
+
+        execute(args).unwrap();
+
+        let config_path = temp_dir.path().join(CONFIG_FILE_NAME);
+        let contents = fs::read_to_string(&config_path).unwrap();
+
+        assert!(contents.contains("[run]"));
+        assert!(contents.contains("[visualize]"));
+        assert!(contents.contains("[export]"));
+        assert!(contents.contains("[tracking]"));
+    }
+
+    #[test]
+    fn test_init_preserves_directory_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        let subdir = temp_dir.path().join("subdir");
+        fs::create_dir(&subdir).unwrap();
+
+        let args = InitArgs {
+            path: temp_dir.path().to_path_buf(),
+            force: false,
+            template: ConfigTemplate::Default,
+        };
+
+        execute(args).unwrap();
+
+        // Subdirectory should still exist
+        assert!(subdir.exists());
+    }
+
+    #[test]
+    fn test_init_multiple_templates() {
+        let temp_dir = TempDir::new().unwrap();
+
+        for template in [
+            ConfigTemplate::Default,
+            ConfigTemplate::Minimal,
+            ConfigTemplate::Advanced,
+        ] {
+            let subdir = temp_dir.path().join(format!("{:?}", template));
+            fs::create_dir(&subdir).unwrap();
+
+            let args = InitArgs {
+                path: subdir.clone(),
+                force: false,
+                template,
+            };
+
+            let result = execute(args);
+            assert!(result.is_ok());
+
+            let config_path = subdir.join(CONFIG_FILE_NAME);
+            assert!(config_path.exists());
+        }
+    }
 }

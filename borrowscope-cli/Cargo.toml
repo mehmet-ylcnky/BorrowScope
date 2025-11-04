@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 # CLI framework
 clap.workspace = true
+clap_complete = "4.5"
 
 # Error handling
 anyhow.workspace = true
@@ -33,6 +34,8 @@ env_logger = "0.11"
 # File system operations
 walkdir = "2.4"
 tempfile = "3.8"
+notify = "6.1"
+ignore = "0.4"
 
 # Process execution
 which = "6.0"
@@ -43,6 +46,11 @@ dirs = "5.0"
 
 # Terminal colors and formatting
 colored = "2.1"
+
+# Code parsing and generation
+syn.workspace = true
+quote.workspace = true
+prettyplease = "0.2"
 
 # Internal dependencies
 borrowscope-graph = { path = "../borrowscope-graph" }
