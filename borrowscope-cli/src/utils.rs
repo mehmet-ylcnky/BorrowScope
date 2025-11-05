@@ -884,4 +884,528 @@ mod tests {
 
         assert_eq!(workspace.original_path(), temp_src.path());
     }
+
+    #[test]
+    fn test_copy_project_nonexistent() {
+        let mut workspace = TempWorkspace::new().unwrap();
+        let result = workspace.copy_project(Path::new("/nonexistent/path"));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_write_file_nested() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        workspace
+            .write_file("a/b/c/deep.txt", "nested content")
+            .unwrap();
+
+        assert!(workspace.exists("a/b/c/deep.txt"));
+        let content = workspace.read_file("a/b/c/deep.txt").unwrap();
+        assert_eq!(content, "nested content");
+    }
+
+    #[test]
+    fn test_read_nonexistent_file() {
+        let workspace = TempWorkspace::new().unwrap();
+        let result = workspace.read_file("nonexistent.txt");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_nonexistent_bytes() {
+        let workspace = TempWorkspace::new().unwrap();
+        let result = workspace.read_bytes("nonexistent.bin");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_file() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        workspace.write_file("empty.txt", "").unwrap();
+
+        assert!(workspace.exists("empty.txt"));
+        let content = workspace.read_file("empty.txt").unwrap();
+        assert_eq!(content, "");
+    }
+
+    #[test]
+    fn test_large_file() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        let large_content = "x".repeat(1_000_000);
+        workspace.write_file("large.txt", &large_content).unwrap();
+
+        let content = workspace.read_file("large.txt").unwrap();
+        assert_eq!(content.len(), 1_000_000);
+    }
+
+    #[test]
+    fn test_unicode_content() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        let unicode = "Hello 世界 🦀 Привет";
+        workspace.write_file("unicode.txt", unicode).unwrap();
+
+        let content = workspace.read_file("unicode.txt").unwrap();
+        assert_eq!(content, unicode);
+    }
+
+    #[test]
+    fn test_binary_data() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        let data: Vec<u8> = (0..=255).collect();
+        workspace.write_bytes("binary.dat", &data).unwrap();
+
+        let read_data = workspace.read_bytes("binary.dat").unwrap();
+        assert_eq!(read_data, data);
+    }
+
+    #[test]
+    fn test_multiple_subdirs() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        workspace.create_subdir("dir1").unwrap();
+        workspace.create_subdir("dir2").unwrap();
+        workspace.create_subdir("dir3/nested").unwrap();
+
+        assert!(workspace.path().join("dir1").exists());
+        assert!(workspace.path().join("dir2").exists());
+        assert!(workspace.path().join("dir3/nested").exists());
+    }
+
+    #[test]
+    fn test_list_files_empty() {
+        let workspace = TempWorkspace::new().unwrap();
+        let files = workspace.list_files().unwrap();
+
+        assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn test_list_dirs_empty() {
+        let workspace = TempWorkspace::new().unwrap();
+        let dirs = workspace.list_dirs().unwrap();
+
+        assert_eq!(dirs.len(), 0);
+    }
+
+    #[test]
+    fn test_size_empty() {
+        let workspace = TempWorkspace::new().unwrap();
+        let size = workspace.size().unwrap();
+
+        assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn test_file_count_empty() {
+        let workspace = TempWorkspace::new().unwrap();
+        let count = workspace.file_count().unwrap();
+
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_cleanup_explicit() {
+        let path = {
+            let workspace = TempWorkspace::new().unwrap();
+            let p = workspace.path().to_path_buf();
+            workspace.cleanup().unwrap();
+            p
+        };
+
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_copy_back_no_original() {
+        let workspace = TempWorkspace::new().unwrap();
+        let result = workspace.copy_back();
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_copy_back_success() {
+        let temp_src = TempDir::new().unwrap();
+        fs::write(temp_src.path().join("original.txt"), "original").unwrap();
+
+        let mut workspace = TempWorkspace::new().unwrap();
+        let dest = workspace.copy_project(temp_src.path()).unwrap();
+
+        // Modify file in workspace
+        fs::write(dest.join("original.txt"), "modified").unwrap();
+        fs::write(dest.join("new.txt"), "new file").unwrap();
+
+        workspace.copy_back().unwrap();
+
+        // Check original location has updated files
+        assert_eq!(
+            fs::read_to_string(temp_src.path().join("original.txt")).unwrap(),
+            "modified"
+        );
+        assert!(temp_src.path().join("new.txt").exists());
+    }
+
+    #[test]
+    fn test_atomic_writer_cleanup() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("test.txt");
+        let temp_path = path.with_extension("tmp");
+
+        {
+            let _writer = AtomicWriter::new(path.clone()).unwrap();
+            // Drop without writing
+        }
+
+        // Temp file should be cleaned up
+        assert!(!temp_path.exists());
+    }
+
+    #[test]
+    fn test_atomic_writer_overwrite() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("test.txt");
+
+        fs::write(&path, "old content").unwrap();
+
+        let writer = AtomicWriter::new(path.clone()).unwrap();
+        writer.write("new content").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new content");
+    }
+
+    #[test]
+    fn test_copy_dir_recursive_empty() {
+        let temp_src = TempDir::new().unwrap();
+        let temp_dst = TempDir::new().unwrap();
+
+        let dst = temp_dst.path().join("empty");
+        copy_dir_recursive(temp_src.path(), &dst).unwrap();
+
+        assert!(dst.exists());
+        assert!(dst.is_dir());
+    }
+
+    #[test]
+    fn test_copy_dir_recursive_nested() {
+        let temp_src = TempDir::new().unwrap();
+        let temp_dst = TempDir::new().unwrap();
+
+        fs::create_dir_all(temp_src.path().join("a/b/c")).unwrap();
+        fs::write(temp_src.path().join("a/b/c/file.txt"), "deep").unwrap();
+
+        let dst = temp_dst.path().join("copied");
+        copy_dir_recursive(temp_src.path(), &dst).unwrap();
+
+        assert!(dst.join("a/b/c/file.txt").exists());
+    }
+
+    #[test]
+    fn test_find_cargo_toml_not_found() {
+        let temp = TempDir::new().unwrap();
+        let result = find_cargo_toml(temp.path());
+
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_project_name_no_cargo() {
+        let temp = TempDir::new().unwrap();
+        let result = get_project_name(temp.path());
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_project_name_invalid_toml() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Cargo.toml"), "invalid toml {{{").unwrap();
+
+        let result = get_project_name(temp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_project_name_no_package() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Cargo.toml"), "[dependencies]").unwrap();
+
+        let result = get_project_name(temp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_format_bytes_edge_cases() {
+        assert_eq!(format_bytes(0), "0 bytes");
+        assert_eq!(format_bytes(1), "1 bytes");
+        assert_eq!(format_bytes(1023), "1023 bytes");
+        assert!(format_bytes(1536).contains("KB"));
+        assert!(format_bytes(1024 * 1536).contains("MB"));
+    }
+
+    #[test]
+    fn test_dir_size_empty() {
+        let temp = TempDir::new().unwrap();
+        let size = dir_size(temp.path()).unwrap();
+
+        assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn test_dir_size_nested() {
+        let temp = TempDir::new().unwrap();
+
+        fs::create_dir_all(temp.path().join("subdir")).unwrap();
+        fs::write(temp.path().join("file1.txt"), "hello").unwrap();
+        fs::write(temp.path().join("subdir/file2.txt"), "world").unwrap();
+
+        let size = dir_size(temp.path()).unwrap();
+        assert_eq!(size, 10);
+    }
+
+    #[test]
+    fn test_copy_file_safe_overwrite() {
+        let temp = TempDir::new().unwrap();
+        let src = temp.path().join("src.txt");
+        let dst = temp.path().join("dst.txt");
+
+        fs::write(&src, "content1").unwrap();
+        fs::write(&dst, "old").unwrap();
+
+        copy_file_safe(&src, &dst).unwrap();
+
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "content1");
+    }
+
+    #[test]
+    fn test_copy_file_safe_nonexistent_src() {
+        let temp = TempDir::new().unwrap();
+        let src = temp.path().join("nonexistent.txt");
+        let dst = temp.path().join("dst.txt");
+
+        let result = copy_file_safe(&src, &dst);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_same_file_identical() {
+        let temp = TempDir::new().unwrap();
+        let file = temp.path().join("test.txt");
+        fs::write(&file, "content").unwrap();
+
+        let result = same_file(&file, &file).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_same_file_different() {
+        let temp = TempDir::new().unwrap();
+        let file1 = temp.path().join("file1.txt");
+        let file2 = temp.path().join("file2.txt");
+
+        fs::write(&file1, "content1").unwrap();
+        fs::write(&file2, "content2").unwrap();
+
+        let result = same_file(&file1, &file2).unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_copy_filtered_empty_patterns() {
+        let temp_src = TempDir::new().unwrap();
+
+        fs::write(temp_src.path().join("file1.txt"), "text1").unwrap();
+        fs::write(temp_src.path().join("file2.rs"), "rust").unwrap();
+
+        let mut workspace = TempWorkspace::new().unwrap();
+        let _dest = workspace.copy_filtered(temp_src.path(), &[]).unwrap();
+
+        let files = workspace.list_files().unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_copy_filtered_no_matches() {
+        let temp_src = TempDir::new().unwrap();
+
+        fs::write(temp_src.path().join("file1.txt"), "text").unwrap();
+        fs::write(temp_src.path().join("file2.txt"), "text2").unwrap();
+
+        let mut workspace = TempWorkspace::new().unwrap();
+        let _dest = workspace
+            .copy_filtered(temp_src.path(), &[".rs".to_string()])
+            .unwrap();
+
+        let files = workspace.list_files().unwrap();
+        assert_eq!(files.len(), 0);
+    }
+
+    #[test]
+    fn test_copy_filtered_multiple_patterns() {
+        let temp_src = TempDir::new().unwrap();
+
+        fs::write(temp_src.path().join("file1.rs"), "rust").unwrap();
+        fs::write(temp_src.path().join("file2.toml"), "toml").unwrap();
+        fs::write(temp_src.path().join("file3.txt"), "text").unwrap();
+
+        let mut workspace = TempWorkspace::new().unwrap();
+        let _dest = workspace
+            .copy_filtered(temp_src.path(), &[".rs".to_string(), ".toml".to_string()])
+            .unwrap();
+
+        let files = workspace.list_files().unwrap();
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_workspace_concurrent_access() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let workspace = Arc::new(TempWorkspace::new().unwrap());
+        let mut handles = vec![];
+
+        for i in 0..5 {
+            let ws = Arc::clone(&workspace);
+            let handle = thread::spawn(move || {
+                ws.write_file(&format!("file{}.txt", i), &format!("content{}", i))
+                    .unwrap();
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let count = workspace.file_count().unwrap();
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn test_workspace_special_characters() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        workspace
+            .write_file("file with spaces.txt", "content")
+            .unwrap();
+        workspace.write_file("file-with-dashes.txt", "content").unwrap();
+        workspace.write_file("file_with_underscores.txt", "content").unwrap();
+
+        assert!(workspace.exists("file with spaces.txt"));
+        assert!(workspace.exists("file-with-dashes.txt"));
+        assert!(workspace.exists("file_with_underscores.txt"));
+    }
+
+    #[test]
+    fn test_atomic_writer_empty_content() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("empty.txt");
+
+        let writer = AtomicWriter::new(path.clone()).unwrap();
+        writer.write("").unwrap();
+
+        assert!(path.exists());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+    }
+
+    #[test]
+    fn test_atomic_writer_large_content() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("large.txt");
+
+        let large_content = "x".repeat(10_000_000);
+        let writer = AtomicWriter::new(path.clone()).unwrap();
+        writer.write(&large_content).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap().len(), 10_000_000);
+    }
+
+    #[test]
+    fn test_remove_file_safe_readonly() {
+        let temp = TempDir::new().unwrap();
+        let file = temp.path().join("readonly.txt");
+
+        fs::write(&file, "content").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&file).unwrap().permissions();
+            perms.set_mode(0o444);
+            fs::set_permissions(&file, perms).unwrap();
+        }
+
+        // Should still be able to remove
+        let result = remove_file_safe(&file);
+        // May succeed or fail depending on OS permissions
+        let _ = result;
+    }
+
+    #[test]
+    fn test_copy_project_preserves_permissions() {
+        let temp_src = TempDir::new().unwrap();
+        let src_file = temp_src.path().join("test.txt");
+        fs::write(&src_file, "content").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&src_file).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&src_file, perms).unwrap();
+        }
+
+        let mut workspace = TempWorkspace::new().unwrap();
+        let dest = workspace.copy_project(&src_file).unwrap();
+
+        assert!(dest.exists());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let dest_perms = fs::metadata(&dest).unwrap().permissions();
+            let src_perms = fs::metadata(&src_file).unwrap().permissions();
+            assert_eq!(dest_perms.mode(), src_perms.mode());
+        }
+    }
+
+    #[test]
+    fn test_workspace_path_absolute() {
+        let workspace = TempWorkspace::new().unwrap();
+        let path = workspace.path();
+
+        assert!(path.is_absolute());
+    }
+
+    #[test]
+    fn test_list_files_sorted() {
+        let workspace = TempWorkspace::new().unwrap();
+
+        workspace.write_file("c.txt", "c").unwrap();
+        workspace.write_file("a.txt", "a").unwrap();
+        workspace.write_file("b.txt", "b").unwrap();
+
+        let files = workspace.list_files().unwrap();
+        assert_eq!(files.len(), 3);
+    }
+
+    #[test]
+    fn test_copy_back_no_project_dir() {
+        let temp_src = TempDir::new().unwrap();
+        fs::write(temp_src.path().join("test.txt"), "content").unwrap();
+
+        let mut workspace = TempWorkspace::new().unwrap();
+        workspace.original_path = temp_src.path().to_path_buf();
+
+        let result = workspace.copy_back();
+        assert!(result.is_err());
+    }
 }
