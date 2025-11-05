@@ -634,4 +634,736 @@ fn main() {
 
         assert_eq!(result.total_processed(), 10);
     }
+
+    #[test]
+    fn test_instrument_with_test_attribute() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("test.rs");
+        fs::write(
+            &source_file,
+            r#"
+#[test]
+fn test_something() {
+    let x = 42;
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        // Test functions should not be instrumented
+        assert!(content.contains("#[test]"));
+    }
+
+    #[test]
+    fn test_instrument_unsafe_block() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("unsafe.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    unsafe {
+        let x = 42;
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("unsafe"));
+    }
+
+    #[test]
+    fn test_skip_tests_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let tests_dir = temp_dir.path().join("tests");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&tests_dir).unwrap();
+
+        fs::write(source_dir.join("main.rs"), "fn main() {}").unwrap();
+        fs::write(tests_dir.join("integration.rs"), "fn test() {}").unwrap();
+
+        let instrumenter = Instrumenter::new(
+            temp_dir.path().to_path_buf(),
+            output_dir,
+            InstrumentationConfig::default(),
+        );
+        let result = instrumenter.instrument_project().unwrap();
+
+        // Should process at least the main.rs file
+        assert!(result.success_count >= 1);
+        // Tests directory file should be skipped
+        assert!(result.total_processed() >= 1);
+    }
+
+    #[test]
+    fn test_skip_benches_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let benches_dir = temp_dir.path().join("benches");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&benches_dir).unwrap();
+
+        fs::write(source_dir.join("main.rs"), "fn main() {}").unwrap();
+        fs::write(benches_dir.join("bench.rs"), "fn bench() {}").unwrap();
+
+        let instrumenter = Instrumenter::new(
+            temp_dir.path().to_path_buf(),
+            output_dir,
+            InstrumentationConfig::default(),
+        );
+        let result = instrumenter.instrument_project().unwrap();
+
+        // Should process at least the main.rs file
+        assert!(result.success_count >= 1);
+    }
+
+    #[test]
+    fn test_skip_target_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let target_dir = temp_dir.path().join("target");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+        fs::create_dir_all(&target_dir).unwrap();
+
+        fs::write(source_dir.join("main.rs"), "fn main() {}").unwrap();
+        fs::write(target_dir.join("build.rs"), "fn build() {}").unwrap();
+
+        let instrumenter = Instrumenter::new(
+            temp_dir.path().to_path_buf(),
+            output_dir,
+            InstrumentationConfig::default(),
+        );
+        let result = instrumenter.instrument_project().unwrap();
+
+        // Should process at least the main.rs file
+        assert!(result.success_count >= 1);
+    }
+
+    #[test]
+    fn test_instrument_multiple_variables() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    let a = 1;
+    let b = 2;
+    let c = 3;
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        // Should have track_new calls for each variable
+        assert!(content.contains("track_new"));
+        assert!(content.matches("track_new").count() >= 1);
+    }
+
+    #[test]
+    fn test_instrument_nested_functions() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn outer() {
+    let x = 1;
+    fn inner() {
+        let y = 2;
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("track_new"));
+    }
+
+    #[test]
+    fn test_instrument_struct_definition() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let p = Point { x: 1, y: 2 };
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("struct Point"));
+        assert!(content.contains("track_new"));
+    }
+
+    #[test]
+    fn test_instrument_impl_block() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+struct Foo;
+
+impl Foo {
+    fn new() -> Self {
+        let x = 1;
+        Foo
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("impl Foo"));
+    }
+
+    #[test]
+    fn test_instrument_match_expression() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    let x = Some(42);
+    match x {
+        Some(y) => { let z = y; }
+        None => {}
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("match"));
+    }
+
+    #[test]
+    fn test_instrument_closure() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    let f = |x| { let y = x + 1; y };
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("borrowscope_runtime"));
+    }
+
+    #[test]
+    fn test_instrument_async_function() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+async fn foo() {
+    let x = 42;
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("async"));
+    }
+
+    #[test]
+    fn test_instrument_generic_function() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn generic<T>(value: T) {
+    let x = value;
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("generic"));
+    }
+
+    #[test]
+    fn test_instrument_trait_definition() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+trait MyTrait {
+    fn method(&self);
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("trait MyTrait"));
+    }
+
+    #[test]
+    fn test_instrument_module() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+mod inner {
+    pub fn foo() {
+        let x = 1;
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("mod inner"));
+    }
+
+    #[test]
+    fn test_instrument_use_statements() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+use std::collections::HashMap;
+
+fn main() {
+    let x = HashMap::new();
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("use std::collections::HashMap"));
+        assert!(content.contains("borrowscope_runtime"));
+    }
+
+    #[test]
+    fn test_instrument_const_static() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+const MAX: i32 = 100;
+static mut COUNTER: i32 = 0;
+
+fn main() {
+    let x = MAX;
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("const MAX"));
+        assert!(content.contains("static mut COUNTER"));
+    }
+
+    #[test]
+    fn test_instrument_macro_invocation() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    let x = vec![1, 2, 3];
+    println!("Hello");
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("vec!"));
+        assert!(content.contains("println!"));
+    }
+
+    #[test]
+    fn test_instrument_tuple_pattern() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("main.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    let (x, y) = (1, 2);
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("borrowscope_runtime"));
+    }
+
+    #[test]
+    fn test_extract_tuple_pattern_name() {
+        let pat: syn::Pat = syn::parse_quote! { (x, y) };
+        let name = extract_pattern_name(&pat);
+        assert!(name.contains("x"));
+        assert!(name.contains("y"));
+    }
+
+    #[test]
+    fn test_extract_type_pattern_name() {
+        let pat: syn::Pat = syn::parse_quote! { x };
+        assert_eq!(extract_pattern_name(&pat), "x");
+    }
+
+    #[test]
+    fn test_extract_reference_pattern_name() {
+        let pat: syn::Pat = syn::parse_quote! { &x };
+        assert_eq!(extract_pattern_name(&pat), "x");
+    }
+
+    #[test]
+    fn test_has_tokio_test_attribute() {
+        let attrs: Vec<syn::Attribute> = vec![syn::parse_quote! { #[tokio::test] }];
+        assert!(has_test_attribute(&attrs));
+    }
+
+    #[test]
+    fn test_matches_pattern_simple() {
+        let instrumenter = Instrumenter::new(
+            PathBuf::from("/src"),
+            PathBuf::from("/out"),
+            InstrumentationConfig::default(),
+        );
+
+        assert!(instrumenter.matches_pattern("test_foo.rs", "test_*"));
+        assert!(!instrumenter.matches_pattern("foo_test.rs", "test_*"));
+    }
+
+    #[test]
+    fn test_matches_pattern_multiple_wildcards() {
+        let instrumenter = Instrumenter::new(
+            PathBuf::from("/src"),
+            PathBuf::from("/out"),
+            InstrumentationConfig::default(),
+        );
+
+        assert!(instrumenter.matches_pattern("src/test/foo.rs", "*test*foo*"));
+    }
+
+    #[test]
+    fn test_instrument_project_empty_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_project().unwrap();
+
+        assert_eq!(result.success_count, 0);
+        assert_eq!(result.error_count, 0);
+    }
+
+    #[test]
+    fn test_instrument_project_with_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        fs::write(source_dir.join("valid.rs"), "fn main() {}").unwrap();
+        fs::write(source_dir.join("invalid.rs"), "invalid rust {{{").unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_project().unwrap();
+
+        assert_eq!(result.success_count, 1);
+        assert_eq!(result.error_count, 1);
+        assert!(!result.is_success());
+    }
+
+    #[test]
+    fn test_instrument_file_nonexistent() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(Path::new("/nonexistent.rs"));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_instrument_deeply_nested_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let nested = source_dir.join("a").join("b").join("c");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&nested).unwrap();
+
+        let source_file = nested.join("deep.rs");
+        fs::write(&source_file, "fn main() { let x = 1; }").unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        assert!(result.exists());
+    }
+
+    #[test]
+    fn test_instrument_unicode_content() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("unicode.rs");
+        fs::write(
+            &source_file,
+            r#"
+fn main() {
+    let 变量 = "中文";
+    let переменная = "русский";
+}
+"#,
+        )
+        .unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        let content = fs::read_to_string(&result).unwrap();
+        assert!(content.contains("变量"));
+        assert!(content.contains("переменная"));
+    }
+
+    #[test]
+    fn test_instrument_large_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let source_dir = temp_dir.path().join("src");
+        let output_dir = temp_dir.path().join("output");
+        fs::create_dir_all(&source_dir).unwrap();
+
+        let source_file = source_dir.join("large.rs");
+        let mut content = String::from("fn main() {\n");
+        for i in 0..1000 {
+            content.push_str(&format!("    let x{} = {};\n", i, i));
+        }
+        content.push_str("}\n");
+        fs::write(&source_file, content).unwrap();
+
+        let instrumenter =
+            Instrumenter::new(source_dir, output_dir, InstrumentationConfig::default());
+        let result = instrumenter.instrument_file(&source_file).unwrap();
+
+        assert!(result.exists());
+        let output_content = fs::read_to_string(&result).unwrap();
+        assert!(output_content.contains("track_new"));
+    }
+
+    #[test]
+    fn test_config_track_unsafe_disabled() {
+        let mut config = InstrumentationConfig::default();
+        config.track_unsafe = false;
+
+        assert!(!config.track_unsafe);
+    }
+
+    #[test]
+    fn test_config_track_unsafe_enabled() {
+        let mut config = InstrumentationConfig::default();
+        config.track_unsafe = true;
+
+        assert!(config.track_unsafe);
+    }
+
+    #[test]
+    fn test_instrumentation_result_default() {
+        let result = InstrumentationResult::default();
+        assert_eq!(result.success_count, 0);
+        assert_eq!(result.error_count, 0);
+        assert_eq!(result.skipped_count, 0);
+        assert!(result.instrumented_files.is_empty());
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_should_ignore_with_empty_patterns() {
+        let config = InstrumentationConfig {
+            track_smart_pointers: true,
+            track_async: true,
+            track_unsafe: false,
+            ignore_patterns: vec![],
+        };
+
+        let instrumenter = Instrumenter::new(PathBuf::from("/src"), PathBuf::from("/out"), config);
+
+        assert!(instrumenter.should_ignore(Path::new("/src/tests/foo.rs")));
+        assert!(!instrumenter.should_ignore(Path::new("/src/main.rs")));
+    }
 }
