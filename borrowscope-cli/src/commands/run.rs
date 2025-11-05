@@ -2,11 +2,14 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 use crate::cli::RunArgs;
 use crate::config::Config;
 use crate::error::{CliError, Result};
+use crate::progress::{build_progress, spinner};
+use crate::utils::TempWorkspace;
+use crate::instrumentation::Instrumenter;
+use crate::cargo::{CargoBuilder, CargoRunner};
 
 pub fn execute(args: RunArgs, config: Config) -> Result<()> {
     log::info!("Running BorrowScope on: {}", args.path.display());
@@ -86,85 +89,103 @@ fn run_project(args: &RunArgs, output_file: &PathBuf) -> Result<()> {
         )));
     }
 
-    // Build cargo command based on target
-    let mut cmd = Command::new("cargo");
+    // Step 1: Create temporary workspace
+    let sp = spinner("Creating temporary workspace");
+    let mut workspace = TempWorkspace::new().map_err(|e| CliError::Other(e.to_string()))?;
+    let project_copy = workspace.copy_project(&args.path).map_err(|e| CliError::Other(e.to_string()))?;
+    sp.finish_with_message("✓ Workspace created");
 
-    match args.target {
-        Some(crate::cli::RunTarget::Test) => {
-            cmd.arg("test");
-        }
-        Some(crate::cli::RunTarget::Bench) => {
-            cmd.arg("bench");
-        }
-        Some(crate::cli::RunTarget::Example) => {
-            cmd.arg("run");
-            cmd.arg("--example");
-            if let Some(ref example) = args.example {
-                cmd.arg(example);
-            } else {
-                return Err(CliError::Other(
-                    "Example name required when using --target example".to_string(),
-                ));
-            }
-        }
-        Some(crate::cli::RunTarget::Bin) | None => {
-            cmd.arg("run");
-        }
-    }
+    // Step 2: Instrument the project
+    let pb = build_progress("Instrumenting project");
+    let instrumented_dir = project_copy.join("instrumented");
+    fs::create_dir_all(&instrumented_dir)?;
+    
+    let config_inst = crate::instrumentation::InstrumentationConfig::default();
+    let instrumenter = Instrumenter::new(project_copy.clone(), instrumented_dir.clone(), config_inst);
+    instrumenter.instrument_project().map_err(|e| CliError::Other(e.to_string()))?;
+    pb.finish_with_message("✓ Instrumentation complete");
 
-    cmd.current_dir(&args.path);
-
-    if args.release {
-        cmd.arg("--release");
-    }
-
+    // Step 3: Build the instrumented project
+    let pb = build_progress("Building project");
+    let mut builder = CargoBuilder::new(instrumented_dir.clone())
+        .release(args.release);
+    
     if !args.features.is_empty() {
-        cmd.arg("--features");
-        cmd.arg(args.features.join(","));
+        builder = builder.features(args.features.clone());
     }
+    
+    let build_result = builder.build().map_err(|e| CliError::Other(e.to_string()))?;
+    if !build_result.success {
+        return Err(CliError::ExecutionFailed(
+            build_result.errors.join("\n")
+        ));
+    }
+    pb.finish_with_message("✓ Build complete");
 
+    // Step 4: Run the instrumented binary
+    let pb = build_progress("Running instrumented binary");
+    let mut runner = CargoRunner::new(instrumented_dir.clone())
+        .release(args.release)
+        .env("BORROWSCOPE_OUTPUT".to_string(), output_file.display().to_string());
+    
     if !args.args.is_empty() {
-        cmd.arg("--");
-        cmd.args(&args.args);
+        runner = runner.args(args.args.clone());
     }
-
-    // Execute
-    log::debug!("Executing: {:?}", cmd);
-    let output = cmd.output().map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            CliError::CommandNotFound("cargo".to_string())
-        } else {
-            CliError::Io(e)
+    
+    // Handle different targets
+    if let Some(ref target) = args.target {
+        match target {
+            crate::cli::RunTarget::Example => {
+                if let Some(ref example) = args.example {
+                    runner = runner.example(example.clone());
+                } else {
+                    return Err(CliError::Other(
+                        "Example name required when using --target example".to_string(),
+                    ));
+                }
+            }
+            _ => {}
         }
-    })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    }
+    
+    let run_output = runner.run().map_err(|e| CliError::Other(e.to_string()))?;
+    
+    if !run_output.status.success() {
+        let stderr = String::from_utf8_lossy(&run_output.stderr);
         return Err(CliError::ExecutionFailed(stderr.to_string()));
     }
-
+    
     // Capture output if requested
     if !args.no_capture {
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = String::from_utf8_lossy(&run_output.stdout);
         log::info!("Program output:\n{}", stdout);
     }
+    pb.finish_with_message("✓ Execution complete");
 
-    // For now, create a placeholder output
-    // TODO: Implement actual tracking data collection
-    let placeholder_data = serde_json::json!({
-        "version": "0.1.0",
-        "source": args.path.display().to_string(),
-        "events": [],
-        "graph": {
-            "nodes": [],
-            "edges": []
-        }
-    });
-
-    fs::write(
-        output_file,
-        serde_json::to_string_pretty(&placeholder_data)?,
-    )?;
+    // Step 5: Collect tracking data
+    let sp = spinner("Collecting tracking data");
+    // Check if runtime generated tracking data
+    if output_file.exists() {
+        sp.finish_with_message("✓ Tracking data collected");
+    } else {
+        // Fallback to placeholder if runtime didn't generate data
+        let placeholder_data = serde_json::json!({
+            "version": "0.1.0",
+            "source": args.path.display().to_string(),
+            "events": [],
+            "graph": {
+                "nodes": [],
+                "edges": []
+            },
+            "note": "Runtime tracking data not available"
+        });
+        
+        fs::write(
+            output_file,
+            serde_json::to_string_pretty(&placeholder_data)?,
+        )?;
+        sp.finish_with_message("⚠ Using placeholder data");
+    }
 
     Ok(())
 }
@@ -411,7 +432,308 @@ mod tests {
         let config = Config::default();
 
         execute(args, config).unwrap();
-        // Should use default from config
-        assert!(PathBuf::from("borrowscope.json").exists() || true); // May not exist in test env
+    }
+
+    #[test]
+    fn test_run_with_no_capture() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() { println!(\"test\"); }").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: true,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_multiple_features() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec!["feat1".to_string(), "feat2".to_string(), "feat3".to_string()],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_with_multiple_args() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec!["arg1".to_string(), "arg2".to_string(), "arg3".to_string()],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_release_with_features() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: true,
+            features: vec!["feature1".to_string()],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_all_options_combined() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let output_file = temp_dir.path().join("output.json");
+        let args = RunArgs {
+            path: test_file,
+            output: Some(output_file.clone()),
+            visualize: false,
+            args: vec!["--arg".to_string()],
+            release: true,
+            features: vec!["feat1".to_string()],
+            no_capture: true,
+            target: Some(crate::cli::RunTarget::Bin),
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+        assert!(output_file.exists());
+    }
+
+    #[test]
+    fn test_run_output_json_structure() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let output_file = temp_dir.path().join("output.json");
+        let args = RunArgs {
+            path: test_file,
+            output: Some(output_file.clone()),
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        execute(args, config).unwrap();
+
+        let contents = fs::read_to_string(&output_file).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
+        
+        assert!(json.get("version").is_some());
+        assert!(json.get("source").is_some());
+        assert!(json.get("events").is_some());
+        assert!(json.get("graph").is_some());
+    }
+
+    #[test]
+    fn test_run_target_bin_explicit() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: Some(crate::cli::RunTarget::Bin),
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_target_bench() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: Some(crate::cli::RunTarget::Bench),
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_output_overwrite() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let output_file = temp_dir.path().join("output.json");
+        
+        // First run
+        let args1 = RunArgs {
+            path: test_file.clone(),
+            output: Some(output_file.clone()),
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        execute(args1, Config::default()).unwrap();
+        
+        // Second run should overwrite
+        let args2 = RunArgs {
+            path: test_file,
+            output: Some(output_file.clone()),
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let result = execute(args2, Config::default());
+        assert!(result.is_ok());
+        assert!(output_file.exists());
+    }
+
+    #[test]
+    fn test_run_special_characters_in_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test file.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_unicode_in_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("测试.rs");
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_run_very_long_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let long_name = "a".repeat(100) + ".rs";
+        let test_file = temp_dir.path().join(long_name);
+        fs::write(&test_file, "fn main() {}").unwrap();
+
+        let args = RunArgs {
+            path: test_file,
+            output: None,
+            visualize: false,
+            args: vec![],
+            release: false,
+            features: vec![],
+            no_capture: false,
+            target: None,
+            example: None,
+        };
+        let config = Config::default();
+
+        let result = execute(args, config);
+        assert!(result.is_ok());
     }
 }

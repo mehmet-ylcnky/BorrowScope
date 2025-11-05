@@ -46,6 +46,15 @@ dirs = "5.0"
 
 # Terminal colors and formatting
 colored = "2.1"
+indicatif = "0.17"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Web server
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "trace"] }
 
 # Code parsing and generation
 syn.workspace = true
@@ -60,3 +69,4 @@ borrowscope-runtime = { path = "../borrowscope-runtime" }
 assert_cmd = "2.0"
 predicates = "3.0"
 assert_fs = "1.1"
+reqwest = { version = "0.11", features = ["json"] }

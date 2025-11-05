@@ -2,12 +2,17 @@
 //!
 //! Command-line interface for analyzing and visualizing Rust ownership and borrowing.
 
+mod async_utils;
+mod cargo;
 mod cli;
 mod commands;
 mod config;
 mod error;
+mod graphviz;
 mod instrumentation;
 mod output;
+mod progress;
+mod server;
 mod utils;
 
 use clap::Parser;

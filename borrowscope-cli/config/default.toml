@@ -33,3 +33,10 @@ async_code = true
 
 # Track unsafe code blocks
 unsafe_code = false
+
+[ignore]
+# File patterns to ignore during instrumentation
+patterns = ["*.test.rs", "*_test.rs"]
+
+# Directories to ignore during instrumentation
+directories = ["target", "tests"]

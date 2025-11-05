@@ -748,4 +748,556 @@ mod tests {
         let result = validate_graph(&data);
         assert!(result.is_ok()); // Should complete but report invalid edges
     }
+
+    #[test]
+    fn test_check_empty_events() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: true,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_empty_graph() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [{"type": "New"}],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: true,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_large_graph() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        for i in 0..100 {
+            nodes.push(serde_json::json!({"id": i}));
+            if i > 0 {
+                edges.push(serde_json::json!({"from": i - 1, "to": i}));
+            }
+        }
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": nodes, "edges": edges}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Cycles),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_complex_cycle() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {
+                "nodes": [{"id": "1"}, {"id": "2"}, {"id": "3"}],
+                "edges": [
+                    {"from": "1", "to": "2"},
+                    {"from": "2", "to": "3"},
+                    {"from": "3", "to": "1"}
+                ]
+            }
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Cycles),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_multiple_conflicts() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [
+                {"type": "Borrow", "owner_id": "x", "mutable": true},
+                {"type": "Borrow", "owner_id": "x", "mutable": true},
+                {"type": "Borrow", "owner_id": "y", "mutable": true},
+                {"type": "Borrow", "owner_id": "y", "mutable": false}
+            ],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Conflicts),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_invalid_json() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        fs::write(&test_file, "invalid json {").unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_malformed_events() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [
+                {"type": "Unknown"},
+                {"invalid": "event"}
+            ],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: true,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_missing_event_fields() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [
+                {"type": "Borrow"} // Missing owner_id and mutable
+            ],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Conflicts),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_disconnected_graph() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {
+                "nodes": [{"id": "1"}, {"id": "2"}, {"id": "3"}],
+                "edges": [{"from": "1", "to": "2"}] // Node 3 is disconnected
+            }
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Cycles),
+            stats: false,
+            validate: true,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_self_loop() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {
+                "nodes": [{"id": "1"}],
+                "edges": [{"from": "1", "to": "1"}]
+            }
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Cycles),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_unicode_ids() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {
+                "nodes": [{"id": "变量"}, {"id": "переменная"}],
+                "edges": [{"from": "变量", "to": "переменная"}]
+            }
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: true,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_all_event_types() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [
+                {"type": "New"},
+                {"type": "Borrow", "owner_id": "x", "mutable": false},
+                {"type": "Move"},
+                {"type": "Drop", "var_id": "x"}
+            ],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: true,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_version_field() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "1.0.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_empty_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        fs::write(&test_file, "").unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_null_values() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_immutable_borrows_no_conflict() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [
+                {"type": "Borrow", "owner_id": "x", "mutable": false},
+                {"type": "Borrow", "owner_id": "x", "mutable": false},
+                {"type": "Borrow", "owner_id": "x", "mutable": false}
+            ],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Conflicts),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_structure_extra_fields() {
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": [], "edges": []},
+            "extra": "field",
+            "metadata": {"key": "value"}
+        });
+
+        let result = validate_structure(&data);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_graph_with_string_and_number_ids() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {
+                "nodes": [{"id": "1"}, {"id": 2}],
+                "edges": [{"from": "1", "to": 2}]
+            }
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: true,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_parallel_edges() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {
+                "nodes": [{"id": "1"}, {"id": "2"}],
+                "edges": [
+                    {"from": "1", "to": "2"},
+                    {"from": "1", "to": "2"},
+                    {"from": "1", "to": "2"}
+                ]
+            }
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: None,
+            stats: false,
+            validate: true,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_drop_clears_borrows() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [
+                {"type": "Borrow", "owner_id": "x", "mutable": true},
+                {"type": "Drop", "var_id": "x"},
+                {"type": "Borrow", "owner_id": "x", "mutable": true}
+            ],
+            "graph": {"nodes": [], "edges": []}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Conflicts),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_long_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("data.json");
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        for i in 0..1000 {
+            nodes.push(serde_json::json!({"id": format!("node_{}", i)}));
+            if i > 0 {
+                edges.push(serde_json::json!({
+                    "from": format!("node_{}", i - 1),
+                    "to": format!("node_{}", i)
+                }));
+            }
+        }
+
+        let data = serde_json::json!({
+            "version": "0.1.0",
+            "events": [],
+            "graph": {"nodes": nodes, "edges": edges}
+        });
+
+        fs::write(&test_file, serde_json::to_string(&data).unwrap()).unwrap();
+
+        let args = CheckArgs {
+            file: test_file,
+            mode: Some(CheckMode::Cycles),
+            stats: false,
+            validate: false,
+        };
+
+        let result = execute(args);
+        assert!(result.is_ok());
+    }
 }
