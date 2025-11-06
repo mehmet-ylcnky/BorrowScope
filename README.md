@@ -7,7 +7,7 @@
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
-  [![Tests](https://img.shields.io/badge/tests-2121%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+  [![Tests](https://img.shields.io/badge/tests-2164%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
 </div>
 
 ---
@@ -54,7 +54,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **Batch operations** for improved performance
 
 ### Testing & Quality (✅ Complete)
-- **2,121 comprehensive tests** covering all features (555 runtime + 566 graph + 419 macro + 528 CLI + 53 integration)
+- **2,164 comprehensive tests** covering all features (555 runtime + 566 graph + 419 macro + 569 CLI + 55 integration)
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
 - **>90% code coverage** across core modules ([view report](https://mehmet-ylcnky.github.io/BorrowScope/coverage/))
@@ -84,12 +84,16 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - Dark/light theme support
   - Export to images and videos
 
-### CLI & Integration
-- [ ] **Command-Line Interface**
-  - File analysis and instrumentation
-  - Live code watching
-  - Multiple export formats (JSON, SVG, PNG)
-  - Configuration file support
+### CLI & Integration (🚧 In Progress)
+- [x] **Command-Line Interface**
+  - [x] File analysis and instrumentation
+  - [x] Multiple export formats (JSON, DOT, SVG, PNG, HTML)
+  - [x] Configuration file support (.borrowscope.toml)
+  - [x] Shell completion scripts (Bash, Zsh, Fish, PowerShell)
+  - [x] Colored error output with contextual suggestions
+  - [x] Check command for data validation
+  - [ ] Live code watching
+  - [ ] Full visualization server
   
 - [ ] **IDE Integration**
   - VS Code extension
@@ -228,23 +232,37 @@ BorrowScope/
 │   │   ├── graph.rs        # Graph data structures
 │   │   ├── export.rs       # JSON export
 │   │   └── error.rs        # Error handling
-│   └── tests/              # 566 comprehensive tests
+│   └── tests/              # 555 comprehensive tests
 │
 ├── borrowscope-macro/       # Procedural macros (✅ Complete)
 │   ├── src/
 │   │   └── lib.rs          # Macro implementation
-│   └── tests/              # Macro compatibility tests
+│   └── tests/              # 419 macro compatibility tests
+│
+├── borrowscope-graph/       # Graph analysis (✅ Complete)
+│   ├── src/
+│   │   ├── lib.rs          # Graph structures
+│   │   ├── conflicts.rs    # Conflict detection
+│   │   ├── query.rs        # Graph queries
+│   │   ├── serialization.rs # JSON/DOT export
+│   │   └── visualization.rs # Graph rendering
+│   └── tests/              # 566 graph tests
 │
 ├── borrowscope-cli/         # Command-line interface (🚧 In Progress)
 │   ├── src/
 │   │   ├── main.rs         # CLI entry point
+│   │   ├── cli.rs          # Argument parsing
 │   │   ├── commands/       # Command implementations
-│   │   ├── instrumentation.rs  # Code instrumentation engine
-│   │   ├── utils.rs        # Temporary workspace management
-│   │   ├── cargo.rs        # Cargo integration
-│   │   └── ...
-│   └── tests/              # 148 CLI tests
-│       └── main.rs
+│   │   │   ├── init.rs     # Initialize config
+│   │   │   ├── check.rs    # Validate data
+│   │   │   ├── export.rs   # Export to formats
+│   │   │   ├── run.rs      # Run instrumented code
+│   │   │   └── completion.rs # Shell completions
+│   │   ├── config.rs       # Configuration management
+│   │   ├── error.rs        # Error handling with colors
+│   │   ├── instrumentation.rs # Code instrumentation
+│   │   └── graphviz.rs     # Graphviz integration
+│   └── tests/              # 569 CLI tests (528 unit + 41 integration)
 │
 └── borrowscope-ui/          # Desktop application (📋 Planned)
     └── src/
