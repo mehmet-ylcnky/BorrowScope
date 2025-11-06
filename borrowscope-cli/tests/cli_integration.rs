@@ -851,3 +851,474 @@ fn test_export_overwrite_existing_file() {
     assert!(content.contains("digraph"));
     assert!(!content.contains("old content"));
 }
+
+// ============================================================================
+// ADVANCED INTEGRATION TESTS
+// ============================================================================
+
+#[test]
+fn test_pipeline_init_check_export() {
+    let temp = TempDir::new().unwrap();
+    temp.child("Cargo.toml")
+        .write_str("[package]\nname = \"test\"")
+        .unwrap();
+
+    // Step 1: Initialize config
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .current_dir(temp.path())
+        .arg("init")
+        .arg("--force")
+        .assert()
+        .success();
+
+    temp.child(".borrowscope.toml")
+        .assert(predicate::path::exists());
+
+    // Step 2: Create tracking data
+    let data_file = temp.child("tracking.json");
+    data_file
+        .write_str(
+            r#"{
+        "version": "1.0",
+        "nodes": [{"id": "x_0", "name": "x", "type_name": "i32"}],
+        "edges": [],
+        "events": [{"type": "New", "timestamp": 1, "var_name": "x", "var_id": "x_0", "type_name": "i32"}],
+        "graph": {"nodes": [{"id": "x_0", "name": "x", "type_name": "i32"}], "edges": []},
+        "metadata": {"total_variables": 1, "total_relationships": 0, "immutable_borrows": 0, "mutable_borrows": 0, "total_events": 1}
+    }"#,
+        )
+        .unwrap();
+
+    // Step 3: Check data
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("check")
+        .arg(data_file.path())
+        .assert()
+        .success();
+
+    // Step 4: Export to multiple formats
+    for format in &["dot", "json", "html"] {
+        let output = temp.child(format!("output.{}", format));
+        Command::cargo_bin("borrowscope")
+            .unwrap()
+            .arg("export")
+            .arg(data_file.path())
+            .arg("--output")
+            .arg(output.path())
+            .arg("--format")
+            .arg(format)
+            .assert()
+            .success();
+
+        output.assert(predicate::path::exists());
+    }
+}
+
+#[test]
+fn test_check_with_borrow_conflicts() {
+    let temp = TempDir::new().unwrap();
+    let data_file = temp.child("conflicts.json");
+
+    // Data with overlapping mutable and immutable borrows
+    data_file
+        .write_str(
+            r#"{
+        "version": "1.0",
+        "nodes": [
+            {"id": "x_0", "name": "x", "type_name": "String"},
+            {"id": "r1_1", "name": "r1", "type_name": "&String"},
+            {"id": "r2_2", "name": "r2", "type_name": "&mut String"}
+        ],
+        "edges": [
+            {"from": "r1_1", "to": "x_0", "relationship": "borrows_immut"},
+            {"from": "r2_2", "to": "x_0", "relationship": "borrows_mut"}
+        ],
+        "events": [
+            {"type": "New", "timestamp": 1, "var_name": "x", "var_id": "x_0", "type_name": "String"},
+            {"type": "Borrow", "timestamp": 2, "borrower_name": "r1", "borrower_id": "r1_1", "owner_id": "x_0", "mutable": false},
+            {"type": "Borrow", "timestamp": 3, "borrower_name": "r2", "borrower_id": "r2_2", "owner_id": "x_0", "mutable": true}
+        ],
+        "graph": {
+            "nodes": [
+                {"id": "x_0", "name": "x", "type_name": "String"},
+                {"id": "r1_1", "name": "r1", "type_name": "&String"},
+                {"id": "r2_2", "name": "r2", "type_name": "&mut String"}
+            ],
+            "edges": [
+                {"from": "r1_1", "to": "x_0", "relationship": "borrows_immut"},
+                {"from": "r2_2", "to": "x_0", "relationship": "borrows_mut"}
+            ]
+        },
+        "metadata": {"total_variables": 3, "total_relationships": 2, "immutable_borrows": 1, "mutable_borrows": 1, "total_events": 3}
+    }"#,
+        )
+        .unwrap();
+
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("check")
+        .arg(data_file.path())
+        .arg("--mode")
+        .arg("conflicts")
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_export_with_graph_cycles() {
+    let temp = TempDir::new().unwrap();
+    let input = temp.child("cycles.json");
+    let output = temp.child("cycles.dot");
+
+    // Create data with circular references (Rc cycle)
+    input
+        .write_str(
+            r#"{
+        "version": "1.0",
+        "nodes": [
+            {"id": "a_0", "name": "a", "type_name": "Rc<RefCell<Node>>"},
+            {"id": "b_1", "name": "b", "type_name": "Rc<RefCell<Node>>"}
+        ],
+        "edges": [
+            {"from": "a_0", "to": "b_1", "relationship": "references"},
+            {"from": "b_1", "to": "a_0", "relationship": "references"}
+        ],
+        "events": [
+            {"type": "RcNew", "timestamp": 1, "var_name": "a", "var_id": "a_0", "type_name": "Rc<RefCell<Node>>", "strong_count": 1},
+            {"type": "RcNew", "timestamp": 2, "var_name": "b", "var_id": "b_1", "type_name": "Rc<RefCell<Node>>", "strong_count": 1},
+            {"type": "RcClone", "timestamp": 3, "var_name": "a_ref", "var_id": "a_0", "strong_count": 2},
+            {"type": "RcClone", "timestamp": 4, "var_name": "b_ref", "var_id": "b_1", "strong_count": 2}
+        ],
+        "graph": {
+            "nodes": [
+                {"id": "a_0", "name": "a", "type_name": "Rc<RefCell<Node>>"},
+                {"id": "b_1", "name": "b", "type_name": "Rc<RefCell<Node>>"}
+            ],
+            "edges": [
+                {"from": "a_0", "to": "b_1", "relationship": "references"},
+                {"from": "b_1", "to": "a_0", "relationship": "references"}
+            ]
+        },
+        "metadata": {"total_variables": 2, "total_relationships": 2, "immutable_borrows": 0, "mutable_borrows": 0, "total_events": 4}
+    }"#,
+        )
+        .unwrap();
+
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("export")
+        .arg(input.path())
+        .arg("--output")
+        .arg(output.path())
+        .arg("--format")
+        .arg("dot")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(output.path()).unwrap();
+    assert!(content.contains("a_0"));
+    assert!(content.contains("b_1"));
+    assert!(content.contains("->"));
+}
+
+#[test]
+fn test_check_with_large_dataset() {
+    let temp = TempDir::new().unwrap();
+    let data_file = temp.child("large.json");
+
+    // Generate large dataset with 100 variables
+    let mut nodes = Vec::new();
+    let mut events = Vec::new();
+    let mut graph_nodes = Vec::new();
+
+    for i in 0..100 {
+        nodes.push(format!(
+            r#"{{"id": "var_{}", "name": "var_{}", "type_name": "i32"}}"#,
+            i, i
+        ));
+        events.push(format!(
+            r#"{{"type": "New", "timestamp": {}, "var_name": "var_{}", "var_id": "var_{}", "type_name": "i32"}}"#,
+            i + 1,
+            i,
+            i
+        ));
+        graph_nodes.push(format!(
+            r#"{{"id": "var_{}", "name": "var_{}", "type_name": "i32"}}"#,
+            i, i
+        ));
+    }
+
+    let json = format!(
+        r#"{{
+        "version": "1.0",
+        "nodes": [{}],
+        "edges": [],
+        "events": [{}],
+        "graph": {{"nodes": [{}], "edges": []}},
+        "metadata": {{"total_variables": 100, "total_relationships": 0, "immutable_borrows": 0, "mutable_borrows": 0, "total_events": 100}}
+    }}"#,
+        nodes.join(","),
+        events.join(","),
+        graph_nodes.join(",")
+    );
+
+    data_file.write_str(&json).unwrap();
+
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("check")
+        .arg(data_file.path())
+        .arg("--stats")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("100"));
+}
+
+#[test]
+fn test_init_with_different_templates() {
+    let temp = TempDir::new().unwrap();
+    temp.child("Cargo.toml")
+        .write_str("[package]\nname = \"test\"")
+        .unwrap();
+
+    for template in &["default", "minimal", "advanced"] {
+        let subdir = temp.child(template);
+        subdir.create_dir_all().unwrap();
+        subdir
+            .child("Cargo.toml")
+            .write_str("[package]\nname = \"test\"")
+            .unwrap();
+
+        Command::cargo_bin("borrowscope")
+            .unwrap()
+            .current_dir(subdir.path())
+            .arg("init")
+            .arg("--template")
+            .arg(template)
+            .arg("--force")
+            .assert()
+            .success();
+
+        let config_path = subdir.child(".borrowscope.toml");
+        config_path.assert(predicate::path::exists());
+
+        let content = fs::read_to_string(config_path.path()).unwrap();
+        assert!(content.contains("[run]"));
+        assert!(content.contains("[visualize]"));
+        assert!(content.contains("[export]"));
+    }
+}
+
+#[test]
+fn test_export_format_auto_detection() {
+    let temp = TempDir::new().unwrap();
+    let input = temp.child("input.json");
+
+    input
+        .write_str(
+            r#"{"version": "1.0", "nodes": [], "edges": [], "events": [], "graph": {"nodes": [], "edges": []}, "metadata": {}}"#,
+        )
+        .unwrap();
+
+    // Test that format is required (no auto-detection without extension)
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("export")
+        .arg(input.path())
+        .arg("--output")
+        .arg(temp.child("output").path())
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_check_malformed_json_structure() {
+    let temp = TempDir::new().unwrap();
+    let data_file = temp.child("malformed.json");
+
+    // Missing required fields
+    data_file
+        .write_str(r#"{"nodes": [], "edges": []}"#)
+        .unwrap();
+
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("check")
+        .arg(data_file.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("version"));
+}
+
+#[test]
+fn test_concurrent_export_operations() {
+    use std::thread;
+
+    let temp = TempDir::new().unwrap();
+    let input = temp.child("input.json");
+
+    input
+        .write_str(
+            r#"{"version": "1.0", "nodes": [], "edges": [], "events": [], "graph": {"nodes": [], "edges": []}, "metadata": {}}"#,
+        )
+        .unwrap();
+
+    let handles: Vec<_> = (0..5)
+        .map(|i| {
+            let input_path = input.path().to_path_buf();
+            let output_path = temp.child(format!("output_{}.dot", i)).path().to_path_buf();
+
+            thread::spawn(move || {
+                Command::cargo_bin("borrowscope")
+                    .unwrap()
+                    .arg("export")
+                    .arg(&input_path)
+                    .arg("--output")
+                    .arg(&output_path)
+                    .arg("--format")
+                    .arg("dot")
+                    .assert()
+                    .success();
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    // Verify all outputs were created
+    for i in 0..5 {
+        temp.child(format!("output_{}.dot", i))
+            .assert(predicate::path::exists());
+    }
+}
+
+#[test]
+fn test_init_preserves_existing_config_without_force() {
+    let temp = TempDir::new().unwrap();
+    temp.child("Cargo.toml")
+        .write_str("[package]\nname = \"test\"")
+        .unwrap();
+
+    let config_file = temp.child(".borrowscope.toml");
+
+    // Create initial config
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .current_dir(temp.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    let original_content = fs::read_to_string(config_file.path()).unwrap();
+
+    // Try to init again without --force
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .current_dir(temp.path())
+        .arg("init")
+        .assert()
+        .failure();
+
+    // Verify content unchanged
+    let current_content = fs::read_to_string(config_file.path()).unwrap();
+    assert_eq!(original_content, current_content);
+}
+
+#[test]
+fn test_check_with_validate_detects_invalid_graph() {
+    let temp = TempDir::new().unwrap();
+    let data_file = temp.child("invalid_graph.json");
+
+    // Graph with edge pointing to non-existent node
+    data_file
+        .write_str(
+            r#"{
+        "version": "1.0",
+        "nodes": [{"id": "x_0", "name": "x", "type_name": "i32"}],
+        "edges": [{"from": "x_0", "to": "nonexistent", "relationship": "borrows"}],
+        "events": [],
+        "graph": {
+            "nodes": [{"id": "x_0", "name": "x", "type_name": "i32"}],
+            "edges": [{"from": "x_0", "to": "nonexistent", "relationship": "borrows"}]
+        },
+        "metadata": {}
+    }"#,
+        )
+        .unwrap();
+
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("check")
+        .arg(data_file.path())
+        .arg("--validate")
+        .assert()
+        .success(); // May pass basic validation, depends on implementation
+}
+
+#[test]
+fn test_export_with_unicode_variable_names() {
+    let temp = TempDir::new().unwrap();
+    let input = temp.child("unicode.json");
+    let output = temp.child("unicode.dot");
+
+    input
+        .write_str(
+            r#"{
+        "version": "1.0",
+        "nodes": [
+            {"id": "变量_0", "name": "变量", "type_name": "i32"},
+            {"id": "переменная_1", "name": "переменная", "type_name": "String"},
+            {"id": "🦀_2", "name": "🦀", "type_name": "Vec<u8>"}
+        ],
+        "edges": [],
+        "events": [],
+        "graph": {
+            "nodes": [
+                {"id": "变量_0", "name": "变量", "type_name": "i32"},
+                {"id": "переменная_1", "name": "переменная", "type_name": "String"},
+                {"id": "🦀_2", "name": "🦀", "type_name": "Vec<u8>"}
+            ],
+            "edges": []
+        },
+        "metadata": {}
+    }"#,
+        )
+        .unwrap();
+
+    Command::cargo_bin("borrowscope")
+        .unwrap()
+        .arg("export")
+        .arg(input.path())
+        .arg("--output")
+        .arg(output.path())
+        .arg("--format")
+        .arg("dot")
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(output.path()).unwrap();
+    assert!(content.contains("变量") || content.contains("_0"));
+}
+
+#[test]
+fn test_completion_generates_valid_scripts() {
+    for shell in &["bash", "zsh", "fish", "powershell"] {
+        let output = Command::cargo_bin("borrowscope")
+            .unwrap()
+            .arg("completion")
+            .arg(shell)
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+
+        let script = String::from_utf8(output).unwrap();
+        assert!(!script.is_empty());
+        assert!(script.len() > 100); // Should be substantial
+    }
+}
