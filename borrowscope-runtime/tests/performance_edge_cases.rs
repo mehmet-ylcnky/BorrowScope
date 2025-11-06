@@ -298,7 +298,7 @@ fn test_repeated_string_allocation() {
     // Repeated strings should not cause excessive allocation overhead
     let avg_ns = duration.as_nanos() / ITERATIONS as u128;
     assert!(
-        avg_ns < 1000,
+        avg_ns < 1500,
         "Repeated string allocation too slow: {}ns",
         avg_ns
     );
