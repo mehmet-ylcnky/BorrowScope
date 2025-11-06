@@ -641,11 +641,12 @@ mod tests {
     }
 
     #[test]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn test_detect_rust_project_case_sensitive() {
         let temp_dir = TempDir::new().unwrap();
         fs::write(temp_dir.path().join("cargo.toml"), "[package]").unwrap(); // lowercase
 
-        // Should not detect lowercase cargo.toml
+        // Should not detect lowercase cargo.toml on case-sensitive filesystems
         assert!(!detect_rust_project(temp_dir.path()));
     }
 
