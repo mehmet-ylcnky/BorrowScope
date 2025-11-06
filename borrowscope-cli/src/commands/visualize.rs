@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use crate::cli::VisualizeArgs;
 use crate::config::Config;
 use crate::error::{CliError, Result};
-use crate::server;
 use crate::progress::spinner;
+use crate::server;
 
 pub fn execute(args: VisualizeArgs, config: Config) -> Result<()> {
     log::info!("Visualizing: {}", args.file.display());
@@ -43,11 +43,11 @@ pub fn execute(args: VisualizeArgs, config: Config) -> Result<()> {
         let sp = spinner("Starting visualization server");
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| CliError::Other(format!("Failed to create runtime: {}", e)))?;
-        
-        let (addr, mut shutdown_rx) = runtime.block_on(async {
-            server::start_server(host.clone(), port, args.file.clone()).await
-        }).map_err(|e| CliError::Other(format!("Failed to start server: {}", e)))?;
-        
+
+        let (addr, mut shutdown_rx) = runtime
+            .block_on(async { server::start_server(host.clone(), port, args.file.clone()).await })
+            .map_err(|e| CliError::Other(format!("Failed to start server: {}", e)))?;
+
         sp.finish_with_message("✓ Server started");
 
         let url = format!("http://{}", addr);

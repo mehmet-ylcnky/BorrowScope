@@ -52,10 +52,10 @@ fn export_svg(data: &serde_json::Value, output: &std::path::Path) -> Result<()> 
 
     let sp = spinner("Generating SVG");
     let dot = generate_dot(data);
-    
+
     graphviz::render_svg(&dot, output)
         .map_err(|e| CliError::Other(format!("Failed to generate SVG: {}", e)))?;
-    
+
     sp.finish_with_message("✓ SVG generated");
     Ok(())
 }
@@ -70,10 +70,10 @@ fn export_png(data: &serde_json::Value, output: &std::path::Path) -> Result<()> 
 
     let sp = spinner("Generating PNG");
     let dot = generate_dot(data);
-    
+
     graphviz::render_png(&dot, output)
         .map_err(|e| CliError::Other(format!("Failed to generate PNG: {}", e)))?;
-    
+
     sp.finish_with_message("✓ PNG generated");
     Ok(())
 }
@@ -598,7 +598,8 @@ mod tests {
             file: input_file.clone(),
             output: dot_output.clone(),
             format: ExportFormat::Dot,
-        }).unwrap();
+        })
+        .unwrap();
         assert!(dot_output.exists());
 
         // Test JSON
@@ -607,7 +608,8 @@ mod tests {
             file: input_file.clone(),
             output: json_output.clone(),
             format: ExportFormat::Json,
-        }).unwrap();
+        })
+        .unwrap();
         assert!(json_output.exists());
 
         // Test HTML
@@ -616,7 +618,8 @@ mod tests {
             file: input_file.clone(),
             output: html_output.clone(),
             format: ExportFormat::Html,
-        }).unwrap();
+        })
+        .unwrap();
         assert!(html_output.exists());
     }
 }

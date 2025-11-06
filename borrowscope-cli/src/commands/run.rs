@@ -3,13 +3,13 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::cargo::{CargoBuilder, CargoRunner};
 use crate::cli::RunArgs;
 use crate::config::Config;
 use crate::error::{CliError, Result};
+use crate::instrumentation::Instrumenter;
 use crate::progress::{build_progress, spinner};
 use crate::utils::TempWorkspace;
-use crate::instrumentation::Instrumenter;
-use crate::cargo::{CargoBuilder, CargoRunner};
 
 pub fn execute(args: RunArgs, config: Config) -> Result<()> {
     log::info!("Running BorrowScope on: {}", args.path.display());
@@ -92,33 +92,37 @@ fn run_project(args: &RunArgs, output_file: &PathBuf) -> Result<()> {
     // Step 1: Create temporary workspace
     let sp = spinner("Creating temporary workspace");
     let mut workspace = TempWorkspace::new().map_err(|e| CliError::Other(e.to_string()))?;
-    let project_copy = workspace.copy_project(&args.path).map_err(|e| CliError::Other(e.to_string()))?;
+    let project_copy = workspace
+        .copy_project(&args.path)
+        .map_err(|e| CliError::Other(e.to_string()))?;
     sp.finish_with_message("✓ Workspace created");
 
     // Step 2: Instrument the project
     let pb = build_progress("Instrumenting project");
     let instrumented_dir = project_copy.join("instrumented");
     fs::create_dir_all(&instrumented_dir)?;
-    
+
     let config_inst = crate::instrumentation::InstrumentationConfig::default();
-    let instrumenter = Instrumenter::new(project_copy.clone(), instrumented_dir.clone(), config_inst);
-    instrumenter.instrument_project().map_err(|e| CliError::Other(e.to_string()))?;
+    let instrumenter =
+        Instrumenter::new(project_copy.clone(), instrumented_dir.clone(), config_inst);
+    instrumenter
+        .instrument_project()
+        .map_err(|e| CliError::Other(e.to_string()))?;
     pb.finish_with_message("✓ Instrumentation complete");
 
     // Step 3: Build the instrumented project
     let pb = build_progress("Building project");
-    let mut builder = CargoBuilder::new(instrumented_dir.clone())
-        .release(args.release);
-    
+    let mut builder = CargoBuilder::new(instrumented_dir.clone()).release(args.release);
+
     if !args.features.is_empty() {
         builder = builder.features(args.features.clone());
     }
-    
-    let build_result = builder.build().map_err(|e| CliError::Other(e.to_string()))?;
+
+    let build_result = builder
+        .build()
+        .map_err(|e| CliError::Other(e.to_string()))?;
     if !build_result.success {
-        return Err(CliError::ExecutionFailed(
-            build_result.errors.join("\n")
-        ));
+        return Err(CliError::ExecutionFailed(build_result.errors.join("\n")));
     }
     pb.finish_with_message("✓ Build complete");
 
@@ -126,12 +130,15 @@ fn run_project(args: &RunArgs, output_file: &PathBuf) -> Result<()> {
     let pb = build_progress("Running instrumented binary");
     let mut runner = CargoRunner::new(instrumented_dir.clone())
         .release(args.release)
-        .env("BORROWSCOPE_OUTPUT".to_string(), output_file.display().to_string());
-    
+        .env(
+            "BORROWSCOPE_OUTPUT".to_string(),
+            output_file.display().to_string(),
+        );
+
     if !args.args.is_empty() {
         runner = runner.args(args.args.clone());
     }
-    
+
     // Handle different targets
     if let Some(ref target) = args.target {
         match target {
@@ -147,14 +154,14 @@ fn run_project(args: &RunArgs, output_file: &PathBuf) -> Result<()> {
             _ => {}
         }
     }
-    
+
     let run_output = runner.run().map_err(|e| CliError::Other(e.to_string()))?;
-    
+
     if !run_output.status.success() {
         let stderr = String::from_utf8_lossy(&run_output.stderr);
         return Err(CliError::ExecutionFailed(stderr.to_string()));
     }
-    
+
     // Capture output if requested
     if !args.no_capture {
         let stdout = String::from_utf8_lossy(&run_output.stdout);
@@ -179,7 +186,7 @@ fn run_project(args: &RunArgs, output_file: &PathBuf) -> Result<()> {
             },
             "note": "Runtime tracking data not available"
         });
-        
+
         fs::write(
             output_file,
             serde_json::to_string_pretty(&placeholder_data)?,
@@ -469,7 +476,11 @@ mod tests {
             visualize: false,
             args: vec![],
             release: false,
-            features: vec!["feat1".to_string(), "feat2".to_string(), "feat3".to_string()],
+            features: vec![
+                "feat1".to_string(),
+                "feat2".to_string(),
+                "feat3".to_string(),
+            ],
             no_capture: false,
             target: None,
             example: None,
@@ -575,7 +586,7 @@ mod tests {
 
         let contents = fs::read_to_string(&output_file).unwrap();
         let json: serde_json::Value = serde_json::from_str(&contents).unwrap();
-        
+
         assert!(json.get("version").is_some());
         assert!(json.get("source").is_some());
         assert!(json.get("events").is_some());
@@ -635,7 +646,7 @@ mod tests {
         fs::write(&test_file, "fn main() {}").unwrap();
 
         let output_file = temp_dir.path().join("output.json");
-        
+
         // First run
         let args1 = RunArgs {
             path: test_file.clone(),
@@ -649,7 +660,7 @@ mod tests {
             example: None,
         };
         execute(args1, Config::default()).unwrap();
-        
+
         // Second run should overwrite
         let args2 = RunArgs {
             path: test_file,

@@ -182,20 +182,173 @@ impl Config {
 
     /// Validate configuration values
     pub fn validate(&self) -> Result<()> {
-        if self.visualize.port < 1024 {
-            return Err(CliError::ConfigError(
-                "Port must be >= 1024 (privileged ports require root)".to_string(),
-            ));
-        }
+        self.validate_run()?;
+        self.validate_visualize()?;
+        self.validate_export()?;
+        self.validate_ignore()?;
+        Ok(())
+    }
 
+    /// Validate run configuration
+    fn validate_run(&self) -> Result<()> {
         if self.run.output.is_empty() {
             return Err(CliError::ConfigError(
                 "Output filename cannot be empty".to_string(),
             ));
         }
 
+        if self.run.output.trim().is_empty() {
+            return Err(CliError::ConfigError(
+                "Output filename cannot be only whitespace".to_string(),
+            ));
+        }
+
+        if !self.run.output.ends_with(".json") {
+            return Err(CliError::ConfigError(
+                "Output filename must end with .json".to_string(),
+            ));
+        }
+
         Ok(())
     }
+
+    /// Validate visualize configuration
+    fn validate_visualize(&self) -> Result<()> {
+        if self.visualize.port < 1024 {
+            return Err(CliError::ConfigError(
+                "Port must be >= 1024 (privileged ports require root)".to_string(),
+            ));
+        }
+
+        if !is_valid_host(&self.visualize.host) {
+            return Err(CliError::ConfigError(format!(
+                "Invalid host address: {}",
+                self.visualize.host
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Validate export configuration
+    fn validate_export(&self) -> Result<()> {
+        let valid_formats = ["dot", "json", "html", "svg", "png"];
+        if !valid_formats.contains(&self.export.format.as_str()) {
+            return Err(CliError::ConfigError(format!(
+                "Invalid export format '{}'. Must be one of: {}",
+                self.export.format,
+                valid_formats.join(", ")
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Validate ignore configuration
+    fn validate_ignore(&self) -> Result<()> {
+        for pattern in &self.ignore.patterns {
+            if pattern.contains("**/**") {
+                return Err(CliError::ConfigError(format!(
+                    "Invalid glob pattern '{}': redundant **/**",
+                    pattern
+                )));
+            }
+        }
+
+        for dir in &self.ignore.directories {
+            if dir.is_empty() {
+                return Err(CliError::ConfigError(
+                    "Ignore directory cannot be empty".to_string(),
+                ));
+            }
+            if dir.contains('\0') {
+                return Err(CliError::ConfigError(
+                    "Ignore directory cannot contain null bytes".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Validate host address (IP or hostname)
+fn is_valid_host(host: &str) -> bool {
+    if host.is_empty() {
+        return false;
+    }
+
+    // Check for IPv4
+    if is_valid_ipv4(host) {
+        return true;
+    }
+
+    // Check for IPv6
+    if is_valid_ipv6(host) {
+        return true;
+    }
+
+    // Check for hostname
+    is_valid_hostname(host)
+}
+
+/// Validate IPv4 address
+fn is_valid_ipv4(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+
+    parts.iter().all(|part| {
+        if let Ok(num) = part.parse::<u16>() {
+            num <= 255
+        } else {
+            false
+        }
+    })
+}
+
+/// Validate IPv6 address (simplified)
+fn is_valid_ipv6(s: &str) -> bool {
+    if !s.contains(':') {
+        return false;
+    }
+
+    // Reject invalid patterns
+    if s.contains(":::") || s.starts_with(':') && !s.starts_with("::") {
+        return false;
+    }
+
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() < 3 || parts.len() > 8 {
+        return false;
+    }
+
+    parts.iter().all(|part| {
+        part.is_empty() || part.len() <= 4 && part.chars().all(|c| c.is_ascii_hexdigit())
+    })
+}
+
+/// Validate hostname
+fn is_valid_hostname(s: &str) -> bool {
+    if s.len() > 253 {
+        return false;
+    }
+
+    let labels: Vec<&str> = s.split('.').collect();
+
+    // Reject if it looks like an invalid IPv4 (4+ numeric parts)
+    if labels.len() >= 4 && labels.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) {
+        return false;
+    }
+
+    labels.iter().all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && label.chars().all(|c| c.is_alphanumeric() || c == '-')
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+    })
 }
 
 fn default_output() -> String {
@@ -451,10 +604,10 @@ directories = ["build", "dist"]
         let mut config = Config::default();
         config.visualize.port = 8080;
         assert!(config.validate().is_ok());
-        
+
         config.visualize.port = 1024;
         assert!(config.validate().is_ok());
-        
+
         config.visualize.port = 65535;
         assert!(config.validate().is_ok());
     }
@@ -510,10 +663,10 @@ output = "test.json"
     #[test]
     fn test_config_extreme_port_values() {
         let mut config = Config::default();
-        
+
         config.visualize.port = 1024;
         assert!(config.validate().is_ok());
-        
+
         config.visualize.port = 65535;
         assert!(config.validate().is_ok());
     }
@@ -521,10 +674,10 @@ output = "test.json"
     #[test]
     fn test_config_port_boundary() {
         let mut config = Config::default();
-        
+
         config.visualize.port = 1023;
         assert!(config.validate().is_err());
-        
+
         config.visualize.port = 1024;
         assert!(config.validate().is_ok());
     }
@@ -557,7 +710,10 @@ directories = ["target/debug", "target/release"]
 "#;
         let config: Config = toml::from_str(toml_content).unwrap();
         assert!(config.ignore.patterns.contains(&"**/*.toml".to_string()));
-        assert!(config.ignore.directories.contains(&"target/debug".to_string()));
+        assert!(config
+            .ignore
+            .directories
+            .contains(&"target/debug".to_string()));
     }
 
     #[test]
@@ -626,13 +782,13 @@ output = "/tmp/borrowscope.json"
             (false, false, true),
             (false, false, false),
         ];
-        
+
         for (smart, async_code, unsafe_code) in combinations {
             let mut config = Config::default();
             config.tracking.smart_pointers = smart;
             config.tracking.async_code = async_code;
             config.tracking.unsafe_code = unsafe_code;
-            
+
             assert_eq!(config.tracking.smart_pointers, smart);
             assert_eq!(config.tracking.async_code, async_code);
             assert_eq!(config.tracking.unsafe_code, unsafe_code);
@@ -653,17 +809,17 @@ output = "/tmp/borrowscope.json"
     fn test_config_save_and_load_roundtrip() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("test.toml");
-        
+
         let mut original = Config::default();
         original.run.output = "custom.json".to_string();
         original.visualize.port = 8080;
         original.ignore.patterns = vec!["*.tmp".to_string()];
-        
+
         original.save(&config_path).unwrap();
-        
+
         let contents = fs::read_to_string(&config_path).unwrap();
         let loaded: Config = toml::from_str(&contents).unwrap();
-        
+
         assert_eq!(loaded.run.output, "custom.json");
         assert_eq!(loaded.visualize.port, 8080);
         assert!(loaded.ignore.patterns.contains(&"*.tmp".to_string()));
@@ -722,8 +878,8 @@ capture = false
     fn test_validate_output_with_spaces() {
         let mut config = Config::default();
         config.run.output = "   ".to_string();
-        // Non-empty but only spaces - should pass (filesystem will handle)
-        assert!(config.validate().is_ok());
+        // Only whitespace - should fail
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -731,7 +887,7 @@ capture = false
         let mut config = Config::default();
         config.visualize.port = 80;
         config.run.output = "".to_string();
-        
+
         // Should fail on first error
         let result = config.validate();
         assert!(result.is_err());
@@ -767,10 +923,7 @@ browser = false
     #[test]
     fn test_ignore_case_sensitive_patterns() {
         let mut config = Config::default();
-        config.ignore.patterns = vec![
-            "*.Test.rs".to_string(),
-            "*.test.rs".to_string(),
-        ];
+        config.ignore.patterns = vec!["*.Test.rs".to_string(), "*.test.rs".to_string()];
         assert_eq!(config.ignore.patterns.len(), 2);
     }
 
@@ -851,7 +1004,7 @@ patterns = [
     fn test_config_default_equality() {
         let config1 = Config::default();
         let config2 = Config::default();
-        
+
         assert_eq!(config1.run.output, config2.run.output);
         assert_eq!(config1.visualize.port, config2.visualize.port);
         assert_eq!(config1.export.format, config2.export.format);
@@ -896,7 +1049,7 @@ directories = ["target", "tests"]
 "#;
         let config: Config = toml::from_str(toml_content).unwrap();
         let default_config = Config::default();
-        
+
         assert_eq!(config.run.output, default_config.run.output);
         assert_eq!(config.visualize.port, default_config.visualize.port);
     }
@@ -905,10 +1058,10 @@ directories = ["target", "tests"]
     fn test_save_creates_pretty_toml() {
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("pretty.toml");
-        
+
         let config = Config::default();
         config.save(&config_path).unwrap();
-        
+
         let contents = fs::read_to_string(&config_path).unwrap();
         assert!(contents.contains("[run]"));
         assert!(contents.contains("[visualize]"));
@@ -925,5 +1078,498 @@ port = 8080
 "#;
         let config: Config = toml::from_str(toml_content).unwrap();
         assert_eq!(config.visualize.port, 8080u16);
+    }
+
+    // Schema Validation Tests
+
+    #[test]
+    fn test_validate_output_json_extension() {
+        let mut config = Config::default();
+        config.run.output = "output.txt".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_output_valid_json() {
+        let mut config = Config::default();
+        config.run.output = "output.json".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_output_whitespace_only() {
+        let mut config = Config::default();
+        config.run.output = "   ".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_export_format_valid() {
+        let formats = ["dot", "json", "html", "svg", "png"];
+        for format in formats {
+            let mut config = Config::default();
+            config.export.format = format.to_string();
+            assert!(
+                config.validate().is_ok(),
+                "Format {} should be valid",
+                format
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_export_format_invalid() {
+        let mut config = Config::default();
+        config.export.format = "invalid".to_string();
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid export format"));
+    }
+
+    #[test]
+    fn test_validate_export_format_case_sensitive() {
+        let mut config = Config::default();
+        config.export.format = "DOT".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_host_ipv4_valid() {
+        let hosts = ["127.0.0.1", "0.0.0.0", "192.168.1.1", "255.255.255.255"];
+        for host in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            assert!(config.validate().is_ok(), "Host {} should be valid", host);
+        }
+    }
+
+    #[test]
+    fn test_validate_host_ipv4_invalid() {
+        let hosts = ["256.1.1.1", "1.1.1.1.1"];
+        for host in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            assert!(
+                config.validate().is_err(),
+                "Host {} should be invalid",
+                host
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_host_ipv6_valid() {
+        let hosts = ["::1", "fe80::1", "2001:db8::1", "::"];
+        for host in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            assert!(config.validate().is_ok(), "Host {} should be valid", host);
+        }
+    }
+
+    #[test]
+    fn test_validate_host_ipv6_invalid() {
+        let hosts = [":::", "1:2:3:4:5:6:7:8:9"];
+        for host in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            assert!(
+                config.validate().is_err(),
+                "Host {} should be invalid",
+                host
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_host_hostname_valid() {
+        let hosts = ["localhost", "example.com", "sub.example.com", "my-server"];
+        for host in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            assert!(config.validate().is_ok(), "Host {} should be valid", host);
+        }
+    }
+
+    #[test]
+    fn test_validate_host_hostname_invalid() {
+        let hosts = ["-invalid", "invalid-", "inv@lid", ""];
+        for host in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            assert!(
+                config.validate().is_err(),
+                "Host {} should be invalid",
+                host
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_host_empty() {
+        let mut config = Config::default();
+        config.visualize.host = "".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_pattern_redundant_glob() {
+        let mut config = Config::default();
+        config.ignore.patterns = vec!["**/**/*.rs".to_string()];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_pattern_valid_glob() {
+        let mut config = Config::default();
+        config.ignore.patterns = vec!["**/*.rs".to_string(), "src/**/*.test.rs".to_string()];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_ignore_directory_empty() {
+        let mut config = Config::default();
+        config.ignore.directories = vec!["".to_string()];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_directory_null_byte() {
+        let mut config = Config::default();
+        config.ignore.directories = vec!["target\0".to_string()];
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_directory_valid() {
+        let mut config = Config::default();
+        config.ignore.directories = vec!["target".to_string(), "build/debug".to_string()];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_all_sections_valid() {
+        let mut config = Config::default();
+        config.run.output = "test.json".to_string();
+        config.visualize.port = 8080;
+        config.visualize.host = "localhost".to_string();
+        config.export.format = "svg".to_string();
+        config.ignore.patterns = vec!["*.tmp".to_string()];
+        config.ignore.directories = vec!["target".to_string()];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_multiple_errors_run_section() {
+        let mut config = Config::default();
+        config.run.output = "".to_string();
+        let result = config.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_multiple_errors_visualize_section() {
+        let mut config = Config::default();
+        config.visualize.port = 80;
+        config.visualize.host = "invalid@host".to_string();
+        let result = config.validate();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_output_path_with_directory() {
+        let mut config = Config::default();
+        config.run.output = "output/data.json".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_output_absolute_path() {
+        let mut config = Config::default();
+        config.run.output = "/tmp/output.json".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_output_relative_path() {
+        let mut config = Config::default();
+        config.run.output = "../output.json".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_host_max_length() {
+        let mut config = Config::default();
+        config.visualize.host = "a".repeat(254);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_host_label_max_length() {
+        let mut config = Config::default();
+        config.visualize.host = format!("{}.com", "a".repeat(64));
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_export_format_empty() {
+        let mut config = Config::default();
+        config.export.format = "".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_patterns_empty_list() {
+        let mut config = Config::default();
+        config.ignore.patterns = vec![];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_ignore_directories_empty_list() {
+        let mut config = Config::default();
+        config.ignore.directories = vec![];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_port_boundary_1024() {
+        let mut config = Config::default();
+        config.visualize.port = 1024;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_port_boundary_1023() {
+        let mut config = Config::default();
+        config.visualize.port = 1023;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_port_max_value() {
+        let mut config = Config::default();
+        config.visualize.port = 65535;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_host_ipv4_edge_cases() {
+        let mut config = Config::default();
+
+        config.visualize.host = "0.0.0.0".to_string();
+        assert!(config.validate().is_ok());
+
+        config.visualize.host = "255.255.255.255".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_host_ipv6_compressed() {
+        let mut config = Config::default();
+        config.visualize.host = "::1".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_host_ipv6_full() {
+        let mut config = Config::default();
+        config.visualize.host = "2001:0db8:85a3:0000:0000:8a2e:0370:7334".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_hostname_single_label() {
+        let mut config = Config::default();
+        config.visualize.host = "localhost".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_hostname_multiple_labels() {
+        let mut config = Config::default();
+        config.visualize.host = "sub.domain.example.com".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_hostname_with_numbers() {
+        let mut config = Config::default();
+        config.visualize.host = "server123.example.com".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_hostname_with_hyphens() {
+        let mut config = Config::default();
+        config.visualize.host = "my-server.example-domain.com".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_output_multiple_extensions() {
+        let mut config = Config::default();
+        config.run.output = "output.backup.json".to_string();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_output_no_extension() {
+        let mut config = Config::default();
+        config.run.output = "output".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_output_wrong_extension() {
+        let mut config = Config::default();
+        config.run.output = "output.xml".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_pattern_with_spaces() {
+        let mut config = Config::default();
+        config.ignore.patterns = vec!["* test.rs".to_string()];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_ignore_directory_with_spaces() {
+        let mut config = Config::default();
+        config.ignore.directories = vec!["my folder".to_string()];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_complex_valid_config() {
+        let toml_content = r#"
+[run]
+output = "tracking/data.json"
+visualize = true
+capture = false
+
+[visualize]
+port = 8080
+browser = false
+host = "192.168.1.100"
+
+[export]
+format = "svg"
+
+[tracking]
+smart_pointers = true
+async_code = true
+unsafe_code = true
+
+[ignore]
+patterns = ["*.tmp", "**/*.bak", "src/**/*.test.rs"]
+directories = ["target", "build", "dist"]
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_error_messages_descriptive() {
+        let mut config = Config::default();
+
+        config.export.format = "invalid".to_string();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("Invalid export format"));
+        assert!(err.to_string().contains("dot, json, html, svg, png"));
+    }
+
+    #[test]
+    fn test_validate_host_special_characters() {
+        let mut config = Config::default();
+        config.visualize.host = "host@example.com".to_string();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_validate_ignore_pattern_multiple_stars() {
+        let mut config = Config::default();
+        config.ignore.patterns = vec!["***/*.rs".to_string()];
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_all_export_formats() {
+        let formats = vec![
+            ("dot", true),
+            ("json", true),
+            ("html", true),
+            ("svg", true),
+            ("png", true),
+            ("pdf", false),
+            ("txt", false),
+            ("", false),
+        ];
+
+        for (format, should_pass) in formats {
+            let mut config = Config::default();
+            config.export.format = format.to_string();
+            let result = config.validate();
+            assert_eq!(
+                result.is_ok(),
+                should_pass,
+                "Format '{}' validation mismatch",
+                format
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_ipv4_octet_boundaries() {
+        let ips = vec![
+            ("0.0.0.0", true),
+            ("255.255.255.255", true),
+            ("256.0.0.0", false),
+            ("1.256.1.1", false),
+            ("1.1.256.1", false),
+            ("1.1.1.256", false),
+        ];
+
+        for (ip, should_pass) in ips {
+            let mut config = Config::default();
+            config.visualize.host = ip.to_string();
+            config.run.output = "test.json".to_string(); // Ensure valid output
+            let result = config.validate();
+            assert_eq!(
+                result.is_ok(),
+                should_pass,
+                "IP '{}' validation mismatch",
+                ip
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_hostname_edge_cases() {
+        let hosts = vec![
+            ("a", true),
+            ("a.b", true),
+            ("a-b", true),
+            ("-ab", false),
+            ("ab-", false),
+            ("a..b", false),
+            ("a_b", false),
+        ];
+
+        for (host, should_pass) in hosts {
+            let mut config = Config::default();
+            config.visualize.host = host.to_string();
+            let result = config.validate();
+            assert_eq!(
+                result.is_ok(),
+                should_pass,
+                "Host '{}' validation mismatch",
+                host
+            );
+        }
     }
 }

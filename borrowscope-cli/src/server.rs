@@ -26,7 +26,7 @@ pub async fn start_server(
     data_file: PathBuf,
 ) -> anyhow::Result<(SocketAddr, broadcast::Receiver<()>)> {
     let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-    
+
     let state = ServerState {
         data_file,
         shutdown_tx: shutdown_tx.clone(),
@@ -40,14 +40,12 @@ pub async fn start_server(
         .with_state(Arc::new(state));
 
     let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let actual_addr = listener.local_addr()?;
-    
+
     tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("Server failed");
+        axum::serve(listener, app).await.expect("Server failed");
     });
 
     Ok((actual_addr, shutdown_rx))
@@ -61,12 +59,10 @@ async fn index_handler() -> Html<&'static str> {
 /// Data API handler
 async fn data_handler(State(state): State<Arc<ServerState>>) -> Response {
     match std::fs::read_to_string(&state.data_file) {
-        Ok(content) => {
-            match serde_json::from_str::<serde_json::Value>(&content) {
-                Ok(json) => Json(json).into_response(),
-                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Invalid JSON").into_response(),
-            }
-        }
+        Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+            Ok(json) => Json(json).into_response(),
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Invalid JSON").into_response(),
+        },
         Err(_) => (StatusCode::NOT_FOUND, "Data file not found").into_response(),
     }
 }
@@ -99,7 +95,7 @@ mod tests {
 
         let result = start_server("127.0.0.1".to_string(), 0, data_file).await;
         assert!(result.is_ok());
-        
+
         let (addr, _rx) = result.unwrap();
         assert!(addr.port() > 0);
     }
@@ -110,12 +106,14 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{"test": "data"}"#).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/health", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 200);
         let json: serde_json::Value = response.json().await.unwrap();
         assert_eq!(json["status"], "ok");
@@ -127,12 +125,14 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{"test": "data"}"#).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/data", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 200);
         let json: serde_json::Value = response.json().await.unwrap();
         assert_eq!(json["test"], "data");
@@ -143,12 +143,14 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let data_file = temp_dir.path().join("nonexistent.json");
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/data", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 404);
     }
 
@@ -158,14 +160,16 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{"test": "data"}"#).unwrap();
 
-        let (addr, mut rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, mut rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/shutdown", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 200);
-        
+
         // Should receive shutdown signal
         tokio::select! {
             _ = rx.recv() => {},
@@ -181,12 +185,14 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{"test": "data"}"#).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 200);
         let text = response.text().await.unwrap();
         assert!(text.contains("html") || text.contains("HTML"));
@@ -198,7 +204,9 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{}"#).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
         assert!(addr.port() > 0);
         assert!(addr.port() <= 65535);
     }
@@ -212,7 +220,7 @@ mod tests {
         // Use a high port to avoid conflicts
         let port = 50000 + (std::process::id() % 10000) as u16;
         let result = start_server("127.0.0.1".to_string(), port, data_file).await;
-        
+
         if let Ok((addr, _rx)) = result {
             assert_eq!(addr.port(), port);
         }
@@ -224,11 +232,13 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{"test": "data"}"#).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/health", addr);
-        
+
         let mut handles = vec![];
         for _ in 0..10 {
             let client = client.clone();
@@ -237,7 +247,7 @@ mod tests {
                 client.get(&url).send().await.unwrap().status()
             }));
         }
-        
+
         for handle in handles {
             let status = handle.await.unwrap();
             assert_eq!(status, 200);
@@ -250,12 +260,14 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, "invalid json {{{").unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/data", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 500);
     }
 
@@ -263,22 +275,22 @@ mod tests {
     async fn test_large_data_file() {
         let temp_dir = TempDir::new().unwrap();
         let data_file = temp_dir.path().join("data.json");
-        
-        let events: Vec<_> = (0..1000)
-            .map(|i| serde_json::json!({"id": i}))
-            .collect();
-        
+
+        let events: Vec<_> = (0..1000).map(|i| serde_json::json!({"id": i})).collect();
+
         let large_data = serde_json::json!({
             "events": events
         });
         fs::write(&data_file, serde_json::to_string(&large_data).unwrap()).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/data", addr);
         let response = client.get(&url).send().await.unwrap();
-        
+
         assert_eq!(response.status(), 200);
         let json: serde_json::Value = response.json().await.unwrap();
         assert_eq!(json["events"].as_array().unwrap().len(), 1000);
@@ -290,7 +302,9 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{}"#).unwrap();
 
-        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
+        let (addr, _rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
         assert!(addr.ip().is_loopback());
     }
 
@@ -300,15 +314,17 @@ mod tests {
         let data_file = temp_dir.path().join("data.json");
         fs::write(&data_file, r#"{}"#).unwrap();
 
-        let (addr, mut rx) = start_server("127.0.0.1".to_string(), 0, data_file).await.unwrap();
-        
+        let (addr, mut rx) = start_server("127.0.0.1".to_string(), 0, data_file)
+            .await
+            .unwrap();
+
         let client = reqwest::Client::new();
         let url = format!("http://{}/api/shutdown", addr);
-        
+
         // Call shutdown multiple times
         let _ = client.get(&url).send().await;
         let _ = client.get(&url).send().await;
-        
+
         // Should still receive signal
         let _ = rx.recv().await;
     }

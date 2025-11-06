@@ -780,7 +780,7 @@ fn main() {
     fn test_metadata_invalid_cargo_toml() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Cargo.toml"), "invalid toml content [[[").unwrap();
-        
+
         let result = get_metadata(temp.path());
         assert!(result.is_err());
     }
@@ -796,10 +796,10 @@ fn main() {
     fn test_builder_with_multiple_features() {
         let temp = TempDir::new().unwrap();
         create_test_project(temp.path(), "multi_feat");
-        
+
         let builder = CargoBuilder::new(temp.path().to_path_buf())
             .features(vec!["feature1".into(), "feature2".into()]);
-        
+
         assert_eq!(builder.features.len(), 2);
     }
 
@@ -810,7 +810,7 @@ fn main() {
             .all_features(true)
             .no_default_features(true)
             .features(vec!["feat1".into()]);
-        
+
         assert!(builder.all_features);
         assert!(builder.no_default_features);
         assert_eq!(builder.features.len(), 1);
@@ -819,9 +819,9 @@ fn main() {
     #[test]
     fn test_builder_with_target_triple() {
         let temp = TempDir::new().unwrap();
-        let builder = CargoBuilder::new(temp.path().to_path_buf())
-            .target("x86_64-unknown-linux-gnu".into());
-        
+        let builder =
+            CargoBuilder::new(temp.path().to_path_buf()).target("x86_64-unknown-linux-gnu".into());
+
         assert_eq!(builder.target, Some("x86_64-unknown-linux-gnu".into()));
     }
 
@@ -850,14 +850,12 @@ name = "syntax_error"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
-        fs::write(
-            temp.path().join("src/main.rs"),
-            "fn main() { let x = ; }",
-        ).unwrap();
-        
+        fs::write(temp.path().join("src/main.rs"), "fn main() { let x = ; }").unwrap();
+
         let builder = CargoBuilder::new(temp.path().to_path_buf());
         let result = builder.build().unwrap();
         assert!(!result.success);
@@ -868,7 +866,7 @@ edition = "2021"
     fn test_build_release_mode() {
         let temp = TempDir::new().unwrap();
         create_test_project(temp.path(), "release_test");
-        
+
         let builder = CargoBuilder::new(temp.path().to_path_buf()).release(true);
         let result = builder.build().unwrap();
         assert!(result.success);
@@ -896,7 +894,7 @@ edition = "2021"
         let runner = CargoRunner::new(temp.path().to_path_buf())
             .env("VAR1".into(), "val1".into())
             .env("VAR2".into(), "val2".into());
-        
+
         assert_eq!(runner.env.len(), 2);
         assert_eq!(runner.env.get("VAR1"), Some(&"val1".to_string()));
     }
@@ -904,9 +902,8 @@ edition = "2021"
     #[test]
     fn test_runner_example_mode() {
         let temp = TempDir::new().unwrap();
-        let runner = CargoRunner::new(temp.path().to_path_buf())
-            .example("my_example".into());
-        
+        let runner = CargoRunner::new(temp.path().to_path_buf()).example("my_example".into());
+
         assert_eq!(runner.example, Some("my_example".into()));
     }
 
@@ -928,8 +925,9 @@ name = "failing_prog"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(
             temp.path().join("src/main.rs"),
@@ -938,8 +936,9 @@ fn main() {
     std::process::exit(1);
 }
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let runner = CargoRunner::new(temp.path().to_path_buf());
         let output = runner.run().unwrap();
         assert!(!output.status.success());
@@ -956,8 +955,9 @@ name = "fail_output"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(
             temp.path().join("src/main.rs"),
@@ -967,8 +967,9 @@ fn main() {
     std::process::exit(1);
 }
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let runner = CargoRunner::new(temp.path().to_path_buf());
         let result = runner.run_with_output();
         assert!(result.is_err());
@@ -985,8 +986,9 @@ name = "warning_test"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(
             temp.path().join("src/main.rs"),
@@ -995,8 +997,9 @@ fn main() {
     let unused_var = 42;
 }
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let result = check_project(temp.path()).unwrap();
         assert!(result.success);
     }
@@ -1018,11 +1021,12 @@ name = "no_features"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
-        
+
         let features = list_features(temp.path()).unwrap();
         assert!(features.is_empty());
     }
@@ -1046,12 +1050,13 @@ path = "src/bin1.rs"
 name = "bin2"
 path = "src/bin2.rs"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(temp.path().join("src/bin1.rs"), "fn main() {}").unwrap();
         fs::write(temp.path().join("src/bin2.rs"), "fn main() {}").unwrap();
-        
+
         let targets = list_targets(temp.path()).unwrap();
         assert!(targets.len() >= 2);
     }
@@ -1060,7 +1065,7 @@ path = "src/bin2.rs"
     fn test_workspace_detection_single_package() {
         let temp = TempDir::new().unwrap();
         create_test_project(temp.path(), "single");
-        
+
         let is_ws = is_workspace(temp.path()).unwrap();
         assert!(!is_ws);
     }
@@ -1074,14 +1079,15 @@ path = "src/bin2.rs"
 [workspace]
 members = ["member1", "member2"]
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         for member in &["member1", "member2"] {
             let member_path = temp.path().join(member);
             fs::create_dir_all(&member_path).unwrap();
             create_test_project(&member_path, member);
         }
-        
+
         let is_ws = is_workspace(temp.path()).unwrap();
         assert!(is_ws);
     }
@@ -1107,11 +1113,12 @@ edition = "2021"
 [dependencies]
 serde = "1.0"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
-        
+
         let metadata = get_metadata(temp.path()).unwrap();
         let package = &metadata.packages[0];
         assert!(!package.dependencies.is_empty());
@@ -1131,11 +1138,12 @@ edition = "2021"
 [dev-dependencies]
 tempfile = "3.0"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
-        
+
         let package = get_package_info(temp.path()).unwrap();
         assert!(!package.dependencies.is_empty());
     }
@@ -1150,7 +1158,7 @@ tempfile = "3.0"
             .verbose(true)
             .all_features(false)
             .no_default_features(true);
-        
+
         assert!(builder.release);
         assert_eq!(builder.features.len(), 1);
         assert!(builder.target.is_some());
@@ -1166,7 +1174,7 @@ tempfile = "3.0"
             .args(vec!["arg".into()])
             .env("KEY".into(), "VAL".into())
             .example("ex".into());
-        
+
         assert!(runner.release);
         assert_eq!(runner.args.len(), 1);
         assert_eq!(runner.env.len(), 1);
@@ -1184,8 +1192,9 @@ name = "warn_build"
 version = "0.1.0"
 edition = "2021"
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(
             temp.path().join("src/main.rs"),
@@ -1194,8 +1203,9 @@ fn main() {
     let x = 42;
 }
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         let builder = CargoBuilder::new(temp.path().to_path_buf());
         let result = builder.build().unwrap();
         assert!(result.success);
@@ -1205,7 +1215,7 @@ fn main() {
     fn test_metadata_target_directory() {
         let temp = TempDir::new().unwrap();
         create_test_project(temp.path(), "target_test");
-        
+
         let metadata = get_metadata(temp.path()).unwrap();
         assert!(metadata.target_directory.contains("target"));
     }
@@ -1214,7 +1224,7 @@ fn main() {
     fn test_package_manifest_path() {
         let temp = TempDir::new().unwrap();
         create_test_project(temp.path(), "manifest_test");
-        
+
         let package = get_package_info(temp.path()).unwrap();
         assert!(package.manifest_path.contains("Cargo.toml"));
     }
@@ -1249,11 +1259,12 @@ default = ["feat1"]
 feat1 = []
 feat2 = ["feat1"]
 "#,
-        ).unwrap();
-        
+        )
+        .unwrap();
+
         fs::create_dir_all(temp.path().join("src")).unwrap();
         fs::write(temp.path().join("src/main.rs"), "fn main() {}").unwrap();
-        
+
         let features = list_features(temp.path()).unwrap();
         assert!(features.contains(&"default".to_string()));
         assert!(features.contains(&"feat1".to_string()));

@@ -72,13 +72,13 @@ fn detect_rust_project(path: &Path) -> bool {
 
 fn update_gitignore(path: &Path) -> Result<()> {
     let gitignore_path = path.join(GITIGNORE_FILE);
-    
+
     if !gitignore_path.exists() {
         return Ok(());
     }
 
     let contents = fs::read_to_string(&gitignore_path)?;
-    
+
     // Check if borrowscope entries already exist
     if contents.contains("borrowscope.json") && contents.contains(".borrowscope/") {
         return Ok(());
@@ -89,7 +89,7 @@ fn update_gitignore(path: &Path) -> Result<()> {
     if !new_contents.ends_with('\n') {
         new_contents.push('\n');
     }
-    
+
     new_contents.push_str("\n# BorrowScope\n");
     if !contents.contains("borrowscope.json") {
         new_contents.push_str("borrowscope.json\n");
@@ -100,7 +100,7 @@ fn update_gitignore(path: &Path) -> Result<()> {
 
     fs::write(&gitignore_path, new_contents)?;
     log::info!("Updated .gitignore");
-    
+
     Ok(())
 }
 
@@ -153,7 +153,11 @@ fn create_advanced_config() -> Config {
         },
         ignore: crate::config::IgnoreConfig {
             patterns: vec!["*.test.rs".to_string(), "*_test.rs".to_string()],
-            directories: vec!["target".to_string(), "tests".to_string(), "benches".to_string()],
+            directories: vec![
+                "target".to_string(),
+                "tests".to_string(),
+                "benches".to_string(),
+            ],
         },
     }
 }
@@ -385,8 +389,12 @@ mod tests {
     #[test]
     fn test_detect_rust_project_with_cargo_toml() {
         let temp_dir = TempDir::new().unwrap();
-        fs::write(temp_dir.path().join("Cargo.toml"), "[package]\nname = \"test\"").unwrap();
-        
+        fs::write(
+            temp_dir.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"",
+        )
+        .unwrap();
+
         assert!(detect_rust_project(temp_dir.path()));
     }
 
@@ -432,7 +440,11 @@ mod tests {
     #[test]
     fn test_init_with_rust_project() {
         let temp_dir = TempDir::new().unwrap();
-        fs::write(temp_dir.path().join("Cargo.toml"), "[package]\nname = \"test\"").unwrap();
+        fs::write(
+            temp_dir.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"",
+        )
+        .unwrap();
 
         let args = InitArgs {
             path: temp_dir.path().to_path_buf(),
@@ -533,8 +545,11 @@ mod tests {
     fn test_config_templates_differ() {
         let minimal = create_minimal_config();
         let advanced = create_advanced_config();
-        
-        assert_ne!(minimal.tracking.smart_pointers, advanced.tracking.smart_pointers);
+
+        assert_ne!(
+            minimal.tracking.smart_pointers,
+            advanced.tracking.smart_pointers
+        );
         assert_ne!(minimal.tracking.async_code, advanced.tracking.async_code);
     }
 
@@ -602,7 +617,11 @@ mod tests {
     fn test_init_all_templates_loadable() {
         let temp_dir = TempDir::new().unwrap();
 
-        for template in [ConfigTemplate::Default, ConfigTemplate::Minimal, ConfigTemplate::Advanced] {
+        for template in [
+            ConfigTemplate::Default,
+            ConfigTemplate::Minimal,
+            ConfigTemplate::Advanced,
+        ] {
             let subdir = temp_dir.path().join(format!("{:?}", template));
             fs::create_dir(&subdir).unwrap();
 
@@ -625,7 +644,7 @@ mod tests {
     fn test_detect_rust_project_case_sensitive() {
         let temp_dir = TempDir::new().unwrap();
         fs::write(temp_dir.path().join("cargo.toml"), "[package]").unwrap(); // lowercase
-        
+
         // Should not detect lowercase cargo.toml
         assert!(!detect_rust_project(temp_dir.path()));
     }
@@ -669,7 +688,7 @@ mod tests {
     #[test]
     fn test_init_readonly_directory() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -697,7 +716,7 @@ mod tests {
     fn test_config_output_filenames() {
         let minimal = create_minimal_config();
         let advanced = create_advanced_config();
-        
+
         assert_eq!(minimal.run.output, "borrowscope.json");
         assert_eq!(advanced.run.output, "borrowscope.json");
     }
@@ -706,7 +725,7 @@ mod tests {
     fn test_config_ignore_patterns() {
         let minimal = create_minimal_config();
         let advanced = create_advanced_config();
-        
+
         assert!(minimal.ignore.patterns.is_empty());
         assert!(!advanced.ignore.patterns.is_empty());
     }

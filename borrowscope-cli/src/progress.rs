@@ -1,6 +1,6 @@
 //! Progress indicators for long-running operations
 
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
 
 /// Progress bar for building projects
@@ -117,10 +117,10 @@ mod tests {
         let mp = multi_progress();
         let pb1 = mp.add(ProgressBar::new(10));
         let pb2 = mp.add(ProgressBar::new(20));
-        
+
         assert_eq!(pb1.length(), Some(10));
         assert_eq!(pb2.length(), Some(20));
-        
+
         pb1.finish_and_clear();
         pb2.finish_and_clear();
     }
@@ -129,23 +129,23 @@ mod tests {
     fn test_progress_increment() {
         let pb = file_progress(10, "Test");
         assert_eq!(pb.position(), 0);
-        
+
         pb.inc(1);
         assert_eq!(pb.position(), 1);
-        
+
         pb.inc(5);
         assert_eq!(pb.position(), 6);
-        
+
         pb.finish_and_clear();
     }
 
     #[test]
     fn test_progress_set_position() {
         let pb = file_progress(100, "Test");
-        
+
         pb.set_position(50);
         assert_eq!(pb.position(), 50);
-        
+
         pb.finish_and_clear();
     }
 
@@ -153,7 +153,7 @@ mod tests {
     fn test_progress_finish() {
         let pb = file_progress(10, "Test");
         pb.inc(5);
-        
+
         pb.finish();
         assert!(pb.is_finished());
     }
@@ -205,7 +205,7 @@ mod tests {
         let pb1 = spinner("Task 1");
         let pb2 = spinner("Task 2");
         let pb3 = spinner("Task 3");
-        
+
         pb1.finish_and_clear();
         pb2.finish_and_clear();
         pb3.finish_and_clear();
@@ -243,7 +243,7 @@ mod tests {
         let bars: Vec<_> = (0..5)
             .map(|i| mp.add(file_progress(10, &format!("Task {}", i))))
             .collect();
-        
+
         for bar in bars {
             bar.finish_and_clear();
         }

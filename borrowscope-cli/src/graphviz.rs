@@ -1,9 +1,9 @@
 //! Graphviz integration for graph rendering
 
+use anyhow::{Context, Result};
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
-use std::io::Write;
-use anyhow::{Context, Result};
 
 /// Check if Graphviz is available
 pub fn is_available() -> bool {
@@ -20,11 +20,11 @@ pub fn get_version() -> Result<String> {
         .arg("-V")
         .output()
         .context("Failed to execute dot command")?;
-    
+
     if !output.status.success() {
         anyhow::bail!("dot command failed");
     }
-    
+
     let version = String::from_utf8_lossy(&output.stderr);
     Ok(version.trim().to_string())
 }
@@ -38,18 +38,19 @@ pub fn render_svg(dot_content: &str, output_path: &Path) -> Result<()> {
         .stdin(std::process::Stdio::piped())
         .spawn()
         .context("Failed to spawn dot process")?;
-    
+
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(dot_content.as_bytes())
+        stdin
+            .write_all(dot_content.as_bytes())
             .context("Failed to write to dot stdin")?;
     }
-    
+
     let status = child.wait().context("Failed to wait for dot process")?;
-    
+
     if !status.success() {
         anyhow::bail!("dot command failed with status: {}", status);
     }
-    
+
     Ok(())
 }
 
@@ -62,18 +63,19 @@ pub fn render_png(dot_content: &str, output_path: &Path) -> Result<()> {
         .stdin(std::process::Stdio::piped())
         .spawn()
         .context("Failed to spawn dot process")?;
-    
+
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(dot_content.as_bytes())
+        stdin
+            .write_all(dot_content.as_bytes())
             .context("Failed to write to dot stdin")?;
     }
-    
+
     let status = child.wait().context("Failed to wait for dot process")?;
-    
+
     if !status.success() {
         anyhow::bail!("dot command failed with status: {}", status);
     }
-    
+
     Ok(())
 }
 
@@ -86,27 +88,28 @@ pub fn render(dot_content: &str, output_path: &Path, format: &str) -> Result<()>
         .stdin(std::process::Stdio::piped())
         .spawn()
         .context("Failed to spawn dot process")?;
-    
+
     if let Some(mut stdin) = child.stdin.take() {
         use std::io::Write;
-        stdin.write_all(dot_content.as_bytes())
+        stdin
+            .write_all(dot_content.as_bytes())
             .context("Failed to write to dot stdin")?;
     }
-    
+
     let status = child.wait().context("Failed to wait for dot process")?;
-    
+
     if !status.success() {
         anyhow::bail!("dot command failed with status: {}", status);
     }
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_is_available() {
@@ -133,10 +136,10 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = "digraph G { A -> B; }";
         let result = render_svg(dot, &output);
-        
+
         if result.is_ok() {
             assert!(output.exists());
             let contents = fs::read_to_string(&output).unwrap();
@@ -152,10 +155,10 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.png");
-        
+
         let dot = "digraph G { A -> B; }";
         let result = render_png(dot, &output);
-        
+
         if result.is_ok() {
             assert!(output.exists());
         }
@@ -169,10 +172,10 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.pdf");
-        
+
         let dot = "digraph G { A -> B; }";
         let result = render(dot, &output, "pdf");
-        
+
         if result.is_ok() {
             assert!(output.exists());
         }
@@ -186,10 +189,10 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = "invalid dot syntax {{{";
         let result = render_svg(dot, &output);
-        
+
         // Should handle error gracefully
         assert!(result.is_err() || output.exists());
     }
@@ -202,10 +205,10 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = "digraph G {}";
         let result = render_svg(dot, &output);
-        
+
         if result.is_ok() {
             assert!(output.exists());
         }
@@ -220,7 +223,7 @@ mod tests {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"
 digraph G {
     rankdir=LR;
@@ -233,7 +236,7 @@ digraph G {
 }
 "#;
         let result = render_svg(dot, &output);
-        
+
         assert!(result.is_ok());
         assert!(output.exists());
         let contents = fs::read_to_string(&output).unwrap();
@@ -248,7 +251,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"
 digraph G {
     node [shape=circle, style=filled, fillcolor=lightblue];
@@ -269,7 +272,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"
 digraph G {
     subgraph cluster_0 {
@@ -296,13 +299,13 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let mut dot = String::from("digraph G {\n");
         for i in 0..100 {
             dot.push_str(&format!("  N{} -> N{};\n", i, i + 1));
         }
         dot.push_str("}\n");
-        
+
         let result = render_svg(&dot, &output);
         assert!(result.is_ok());
         assert!(output.exists());
@@ -316,7 +319,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"digraph G { "变量" -> "函数" [label="调用"]; }"#;
         let result = render_svg(dot, &output);
         assert!(result.is_ok());
@@ -331,7 +334,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"digraph G { "A<T>" -> "B&C" [label="x->y"]; }"#;
         let result = render_svg(dot, &output);
         assert!(result.is_ok());
@@ -346,17 +349,17 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let dot = "digraph G { A -> B; }";
-        
+
         // SVG
         let svg_output = temp_dir.path().join("test.svg");
         assert!(render_svg(dot, &svg_output).is_ok());
         assert!(svg_output.exists());
-        
+
         // PNG
         let png_output = temp_dir.path().join("test.png");
         assert!(render_png(dot, &png_output).is_ok());
         assert!(png_output.exists());
-        
+
         // PDF
         let pdf_output = temp_dir.path().join("test.pdf");
         assert!(render(dot, &pdf_output, "pdf").is_ok());
@@ -371,7 +374,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = "digraph G { A -> B -> C; }";
         let result = render_svg(dot, &output);
         assert!(result.is_ok());
@@ -386,7 +389,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = "graph G { A -- B -- C; }";
         let result = render_svg(dot, &output);
         assert!(result.is_ok());
@@ -401,7 +404,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"
 digraph G {
     A [fillcolor=red, style=filled];
@@ -423,7 +426,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"
 digraph G {
     A [shape=box];
@@ -445,12 +448,12 @@ digraph G {
         }
 
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Left to Right
         let lr_output = temp_dir.path().join("lr.svg");
         let dot_lr = "digraph G { rankdir=LR; A -> B -> C; }";
         assert!(render_svg(dot_lr, &lr_output).is_ok());
-        
+
         // Top to Bottom
         let tb_output = temp_dir.path().join("tb.svg");
         let dot_tb = "digraph G { rankdir=TB; A -> B -> C; }";
@@ -465,16 +468,14 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let dot = "digraph G { A -> B; }";
-        
+
         let mut handles = vec![];
         for i in 0..5 {
             let output = temp_dir.path().join(format!("test{}.svg", i));
             let dot_clone = dot.to_string();
-            handles.push(std::thread::spawn(move || {
-                render_svg(&dot_clone, &output)
-            }));
+            handles.push(std::thread::spawn(move || render_svg(&dot_clone, &output)));
         }
-        
+
         for handle in handles {
             assert!(handle.join().unwrap().is_ok());
         }
@@ -488,7 +489,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("");
-        
+
         let dot = "digraph G { A -> B; }";
         let result = render_svg(dot, &output);
         // Should handle gracefully
@@ -503,7 +504,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let long_label = "A".repeat(1000);
         let dot = format!(r#"digraph G {{ "{}" -> B; }}"#, long_label);
         let result = render_svg(&dot, &output);
@@ -519,7 +520,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"
 digraph G {
     subgraph cluster_outer {
@@ -545,7 +546,7 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = r#"digraph G { A [label=<<B>Bold</B>>]; A -> B; }"#;
         let result = render_svg(dot, &output);
         assert!(result.is_ok());
@@ -571,10 +572,10 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         let dot = "digraph G { A -> B; }";
         render_svg(dot, &output).unwrap();
-        
+
         assert!(output.exists());
         let metadata = fs::metadata(&output).unwrap();
         assert!(metadata.is_file());
@@ -589,17 +590,17 @@ digraph G {
 
         let temp_dir = TempDir::new().unwrap();
         let output = temp_dir.path().join("test.svg");
-        
+
         // First render
         let dot1 = "digraph G { A -> B; }";
         render_svg(dot1, &output).unwrap();
         let size1 = fs::metadata(&output).unwrap().len();
-        
+
         // Second render with different content
         let dot2 = "digraph G { A -> B -> C -> D; }";
         render_svg(dot2, &output).unwrap();
         let size2 = fs::metadata(&output).unwrap().len();
-        
+
         assert_ne!(size1, size2);
     }
 }

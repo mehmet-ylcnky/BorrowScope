@@ -22,10 +22,7 @@ where
     F: Future<Output = Result<T>> + Send + 'static,
     T: Send + 'static,
 {
-    let handles: Vec<_> = futures
-        .into_iter()
-        .map(|f| tokio::spawn(f))
-        .collect();
+    let handles: Vec<_> = futures.into_iter().map(|f| tokio::spawn(f)).collect();
 
     let mut results = Vec::new();
     for handle in handles {
@@ -73,10 +70,10 @@ where
     P: FnMut(u64) + Send + 'static,
 {
     use std::sync::{Arc, Mutex};
-    
+
     let progress_fn = Arc::new(Mutex::new(progress_fn));
     let progress_fn_clone = progress_fn.clone();
-    
+
     let progress_task = tokio::spawn(async move {
         let mut counter = 0u64;
         loop {
@@ -140,13 +137,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_concurrent_all_success() {
-        async fn task(n: i32) -> Result<i32> { Ok(n) }
-        
-        let futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> = vec![
-            Box::pin(task(1)),
-            Box::pin(task(2)),
-            Box::pin(task(3)),
-        ];
+        async fn task(n: i32) -> Result<i32> {
+            Ok(n)
+        }
+
+        let futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> =
+            vec![Box::pin(task(1)), Box::pin(task(2)), Box::pin(task(3))];
 
         let results = run_concurrent(futures).await;
         assert_eq!(results.len(), 3);
@@ -155,9 +151,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_run_concurrent_with_failure() {
-        async fn task_ok(n: i32) -> Result<i32> { Ok(n) }
-        async fn task_err() -> Result<i32> { Err(anyhow::anyhow!("error")) }
-        
+        async fn task_ok(n: i32) -> Result<i32> {
+            Ok(n)
+        }
+        async fn task_err() -> Result<i32> {
+            Err(anyhow::anyhow!("error"))
+        }
+
         let futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> = vec![
             Box::pin(task_ok(1)),
             Box::pin(task_err()),
@@ -286,8 +286,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_single_task() {
-        async fn task() -> Result<i32> { Ok(1) }
-        let futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> = vec![Box::pin(task())];
+        async fn task() -> Result<i32> {
+            Ok(1)
+        }
+        let futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> =
+            vec![Box::pin(task())];
         let results = run_concurrent(futures).await;
         assert_eq!(results.len(), 1);
         assert!(results[0].is_ok());
@@ -295,9 +298,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_many_tasks() {
-        async fn task(i: i32) -> Result<i32> { Ok(i) }
-        
-        let mut futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> = Vec::new();
+        async fn task(i: i32) -> Result<i32> {
+            Ok(i)
+        }
+
+        let mut futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> =
+            Vec::new();
         for i in 0..100 {
             futures.push(Box::pin(task(i)));
         }
@@ -309,10 +315,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeout_zero_duration() {
-        let result = with_timeout(Duration::from_secs(0), async {
-            Ok::<_, anyhow::Error>(42)
-        })
-        .await;
+        let result =
+            with_timeout(Duration::from_secs(0), async { Ok::<_, anyhow::Error>(42) }).await;
 
         // Zero timeout should still allow immediate completion
         assert!(result.is_ok() || result.is_err());
@@ -367,21 +371,24 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_progress_error() {
-        let result: Result<i32> = with_progress(
-            async { Err(anyhow::anyhow!("error")) },
-            |_| {},
-        )
-        .await;
+        let result: Result<i32> =
+            with_progress(async { Err(anyhow::anyhow!("error")) }, |_| {}).await;
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_concurrent_mixed_results() {
-        async fn task_ok(n: i32) -> Result<i32> { Ok(n) }
-        async fn task_err1() -> Result<i32> { Err(anyhow::anyhow!("error 1")) }
-        async fn task_err2() -> Result<i32> { Err(anyhow::anyhow!("error 2")) }
-        
+        async fn task_ok(n: i32) -> Result<i32> {
+            Ok(n)
+        }
+        async fn task_err1() -> Result<i32> {
+            Err(anyhow::anyhow!("error 1"))
+        }
+        async fn task_err2() -> Result<i32> {
+            Err(anyhow::anyhow!("error 2"))
+        }
+
         let futures: Vec<std::pin::Pin<Box<dyn Future<Output = Result<i32>> + Send>>> = vec![
             Box::pin(task_ok(1)),
             Box::pin(task_err1()),
@@ -392,10 +399,10 @@ mod tests {
 
         let results = run_concurrent(futures).await;
         assert_eq!(results.len(), 5);
-        
+
         let success_count = results.iter().filter(|r| r.is_ok()).count();
         let error_count = results.iter().filter(|r| r.is_err()).count();
-        
+
         assert_eq!(success_count, 3);
         assert_eq!(error_count, 2);
     }

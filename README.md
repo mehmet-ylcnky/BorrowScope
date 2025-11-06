@@ -7,7 +7,7 @@
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
-  [![Tests](https://img.shields.io/badge/tests-1742%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+  [![Tests](https://img.shields.io/badge/tests-2121%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
 </div>
 
 ---
@@ -54,7 +54,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **Batch operations** for improved performance
 
 ### Testing & Quality (✅ Complete)
-- **1,742 comprehensive tests** covering all features (555 runtime + 566 graph + 419 macro + 148 CLI + 54 integration)
+- **2,121 comprehensive tests** covering all features (555 runtime + 566 graph + 419 macro + 528 CLI + 53 integration)
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
 - **>90% code coverage** across core modules ([view report](https://mehmet-ylcnky.github.io/BorrowScope/coverage/))

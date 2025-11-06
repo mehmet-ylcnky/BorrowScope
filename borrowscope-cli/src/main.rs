@@ -16,11 +16,19 @@ mod server;
 mod utils;
 
 use clap::Parser;
+use std::process;
 
 use crate::cli::Cli;
-use crate::error::Result;
+use crate::error::{print_error, Result};
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(e) = run() {
+        print_error(&e);
+        process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     // Parse command-line arguments
     let cli = Cli::parse();
 

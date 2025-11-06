@@ -1296,8 +1296,12 @@ mod tests {
         workspace
             .write_file("file with spaces.txt", "content")
             .unwrap();
-        workspace.write_file("file-with-dashes.txt", "content").unwrap();
-        workspace.write_file("file_with_underscores.txt", "content").unwrap();
+        workspace
+            .write_file("file-with-dashes.txt", "content")
+            .unwrap();
+        workspace
+            .write_file("file_with_underscores.txt", "content")
+            .unwrap();
 
         assert!(workspace.exists("file with spaces.txt"));
         assert!(workspace.exists("file-with-dashes.txt"));
