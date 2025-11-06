@@ -84,7 +84,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - Dark/light theme support
   - Export to images and videos
 
-### CLI & Integration (🚧 In Progress)
+### CLI & Integration (✅ Complete)
 - [x] **Command-Line Interface**
   - [x] File analysis and instrumentation
   - [x] Multiple export formats (JSON, DOT, SVG, PNG, HTML)
@@ -92,8 +92,8 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
   - [x] Shell completion scripts (Bash, Zsh, Fish, PowerShell)
   - [x] Colored error output with contextual suggestions
   - [x] Check command for data validation
-  - [ ] Live code watching
-  - [ ] Full visualization server
+  - [x] Live code watching (watch command with notify)
+  - [x] Full visualization server (Axum web server)
   
 - [ ] **IDE Integration**
   - VS Code extension
