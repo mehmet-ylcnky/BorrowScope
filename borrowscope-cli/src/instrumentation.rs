@@ -627,10 +627,12 @@ fn main() {
 
     #[test]
     fn test_total_processed() {
-        let mut result = InstrumentationResult::default();
-        result.success_count = 5;
-        result.error_count = 2;
-        result.skipped_count = 3;
+        let result = InstrumentationResult {
+            success_count: 5,
+            error_count: 2,
+            skipped_count: 3,
+            ..Default::default()
+        };
 
         assert_eq!(result.total_processed(), 10);
     }
@@ -1328,16 +1330,20 @@ fn main() {
 
     #[test]
     fn test_config_track_unsafe_disabled() {
-        let mut config = InstrumentationConfig::default();
-        config.track_unsafe = false;
+        let config = InstrumentationConfig {
+            track_unsafe: false,
+            ..Default::default()
+        };
 
         assert!(!config.track_unsafe);
     }
 
     #[test]
     fn test_config_track_unsafe_enabled() {
-        let mut config = InstrumentationConfig::default();
-        config.track_unsafe = true;
+        let config = InstrumentationConfig {
+            track_unsafe: true,
+            ..Default::default()
+        };
 
         assert!(config.track_unsafe);
     }

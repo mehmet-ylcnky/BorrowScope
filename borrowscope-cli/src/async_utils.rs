@@ -1,5 +1,7 @@
 //! Async utilities for CLI operations
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use std::future::Future;
 use std::time::Duration;

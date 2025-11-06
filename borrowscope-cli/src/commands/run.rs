@@ -140,18 +140,13 @@ fn run_project(args: &RunArgs, output_file: &PathBuf) -> Result<()> {
     }
 
     // Handle different targets
-    if let Some(ref target) = args.target {
-        match target {
-            crate::cli::RunTarget::Example => {
-                if let Some(ref example) = args.example {
-                    runner = runner.example(example.clone());
-                } else {
-                    return Err(CliError::Other(
-                        "Example name required when using --target example".to_string(),
-                    ));
-                }
-            }
-            _ => {}
+    if let Some(crate::cli::RunTarget::Example) = args.target {
+        if let Some(ref example) = args.example {
+            runner = runner.example(example.clone());
+        } else {
+            return Err(CliError::Other(
+                "Example name required when using --target example".to_string(),
+            ));
         }
     }
 

@@ -6,7 +6,10 @@ use std::path::PathBuf;
 use crate::cli::VisualizeArgs;
 use crate::config::Config;
 use crate::error::{CliError, Result};
+
+#[cfg(not(test))]
 use crate::progress::spinner;
+#[cfg(not(test))]
 use crate::server;
 
 pub fn execute(args: VisualizeArgs, config: Config) -> Result<()> {
@@ -34,7 +37,7 @@ pub fn execute(args: VisualizeArgs, config: Config) -> Result<()> {
     #[cfg(test)]
     {
         println!("Visualization available at: http://{}:{}", host, port);
-        return Ok(());
+        Ok(())
     }
 
     // Start web server (only in non-test builds)
@@ -65,9 +68,8 @@ pub fn execute(args: VisualizeArgs, config: Config) -> Result<()> {
         });
 
         println!("\n✓ Server stopped");
+        Ok(())
     }
-
-    Ok(())
 }
 
 struct TrackingData {
@@ -98,6 +100,7 @@ fn is_port_available(host: &str, port: u16) -> bool {
     TcpListener::bind((host, port)).is_ok()
 }
 
+#[allow(dead_code)]
 fn open_browser(url: &str) -> Result<()> {
     log::debug!("Opening browser: {}", url);
 

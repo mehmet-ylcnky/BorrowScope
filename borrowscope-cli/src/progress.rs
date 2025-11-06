@@ -1,5 +1,7 @@
 //! Progress indicators for long-running operations
 
+#![allow(dead_code)]
+
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
 

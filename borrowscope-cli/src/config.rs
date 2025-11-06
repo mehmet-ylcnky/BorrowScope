@@ -181,6 +181,7 @@ impl Config {
     }
 
     /// Validate configuration values
+    #[allow(dead_code)]
     pub fn validate(&self) -> Result<()> {
         self.validate_run()?;
         self.validate_visualize()?;
@@ -190,6 +191,7 @@ impl Config {
     }
 
     /// Validate run configuration
+    #[allow(dead_code)]
     fn validate_run(&self) -> Result<()> {
         if self.run.output.is_empty() {
             return Err(CliError::ConfigError(
@@ -213,6 +215,7 @@ impl Config {
     }
 
     /// Validate visualize configuration
+    #[allow(dead_code)]
     fn validate_visualize(&self) -> Result<()> {
         if self.visualize.port < 1024 {
             return Err(CliError::ConfigError(
@@ -231,6 +234,7 @@ impl Config {
     }
 
     /// Validate export configuration
+    #[allow(dead_code)]
     fn validate_export(&self) -> Result<()> {
         let valid_formats = ["dot", "json", "html", "svg", "png"];
         if !valid_formats.contains(&self.export.format.as_str()) {
@@ -245,6 +249,7 @@ impl Config {
     }
 
     /// Validate ignore configuration
+    #[allow(dead_code)]
     fn validate_ignore(&self) -> Result<()> {
         for pattern in &self.ignore.patterns {
             if pattern.contains("**/**") {
@@ -273,6 +278,7 @@ impl Config {
 }
 
 /// Validate host address (IP or hostname)
+#[allow(dead_code)]
 fn is_valid_host(host: &str) -> bool {
     if host.is_empty() {
         return false;
@@ -293,6 +299,7 @@ fn is_valid_host(host: &str) -> bool {
 }
 
 /// Validate IPv4 address
+#[allow(dead_code)]
 fn is_valid_ipv4(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
     if parts.len() != 4 {
@@ -309,6 +316,7 @@ fn is_valid_ipv4(s: &str) -> bool {
 }
 
 /// Validate IPv6 address (simplified)
+#[allow(dead_code)]
 fn is_valid_ipv6(s: &str) -> bool {
     if !s.contains(':') {
         return false;
@@ -330,6 +338,7 @@ fn is_valid_ipv6(s: &str) -> bool {
 }
 
 /// Validate hostname
+#[allow(dead_code)]
 fn is_valid_hostname(s: &str) -> bool {
     if s.len() > 253 {
         return false;

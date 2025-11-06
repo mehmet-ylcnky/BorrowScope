@@ -15,6 +15,7 @@ pub fn is_available() -> bool {
 }
 
 /// Get Graphviz version
+#[allow(dead_code)]
 pub fn get_version() -> Result<String> {
     let output = Command::new("dot")
         .arg("-V")
@@ -80,6 +81,7 @@ pub fn render_png(dot_content: &str, output_path: &Path) -> Result<()> {
 }
 
 /// Render DOT file with custom format
+#[allow(dead_code)]
 pub fn render(dot_content: &str, output_path: &Path, format: &str) -> Result<()> {
     let mut child = Command::new("dot")
         .arg(format!("-T{}", format))

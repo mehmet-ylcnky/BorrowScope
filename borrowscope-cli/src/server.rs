@@ -208,7 +208,6 @@ mod tests {
             .await
             .unwrap();
         assert!(addr.port() > 0);
-        assert!(addr.port() <= 65535);
     }
 
     #[tokio::test]

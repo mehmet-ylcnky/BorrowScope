@@ -22,8 +22,8 @@ pub struct Cli {
     pub quiet: bool,
 
     /// Output format
-    #[arg(long, global = true, value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
+    #[arg(long = "output-format", global = true, value_enum, default_value_t = OutputFormat::Text)]
+    pub output_format: OutputFormat,
 
     #[command(subcommand)]
     pub command: Commands,

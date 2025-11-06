@@ -36,7 +36,15 @@ pub fn execute(args: ExportArgs) -> Result<()> {
     Ok(())
 }
 
+fn ensure_parent_dir(path: &std::path::Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
 fn export_dot(data: &serde_json::Value, output: &std::path::Path) -> Result<()> {
+    ensure_parent_dir(output)?;
     let dot = generate_dot(data);
     fs::write(output, dot)?;
     Ok(())
@@ -50,6 +58,7 @@ fn export_svg(data: &serde_json::Value, output: &std::path::Path) -> Result<()> 
         ));
     }
 
+    ensure_parent_dir(output)?;
     let sp = spinner("Generating SVG");
     let dot = generate_dot(data);
 
@@ -68,6 +77,7 @@ fn export_png(data: &serde_json::Value, output: &std::path::Path) -> Result<()> 
         ));
     }
 
+    ensure_parent_dir(output)?;
     let sp = spinner("Generating PNG");
     let dot = generate_dot(data);
 
@@ -119,12 +129,14 @@ fn generate_dot(data: &serde_json::Value) -> String {
 }
 
 fn export_json(data: &serde_json::Value, output: &std::path::Path) -> Result<()> {
+    ensure_parent_dir(output)?;
     let json = serde_json::to_string_pretty(data)?;
     fs::write(output, json)?;
     Ok(())
 }
 
 fn export_html(data: &serde_json::Value, output: &std::path::Path) -> Result<()> {
+    ensure_parent_dir(output)?;
     let html = format!(
         r#"<!DOCTYPE html>
 <html>

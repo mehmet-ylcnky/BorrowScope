@@ -8,6 +8,7 @@ use thiserror::Error;
 pub type Result<T> = std::result::Result<T, CliError>;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum CliError {
     #[error("File not found: {0}")]
     FileNotFound(PathBuf),
@@ -145,16 +146,19 @@ pub fn print_error(error: &CliError) {
 }
 
 /// Print success message
+#[allow(dead_code)]
 pub fn print_success(message: &str) {
     eprintln!("{} {}", "✓".green().bold(), message.bright_white());
 }
 
 /// Print warning message
+#[allow(dead_code)]
 pub fn print_warning(message: &str) {
     eprintln!("{} {}", "⚠".yellow().bold(), message.yellow());
 }
 
 /// Print info message
+#[allow(dead_code)]
 pub fn print_info(message: &str) {
     eprintln!("{} {}", "ℹ".blue().bold(), message.bright_white());
 }
