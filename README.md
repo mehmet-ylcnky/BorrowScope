@@ -161,12 +161,12 @@ BorrowScope/
 
 ## Performance
 
-With `track` feature enabled (debug builds):
-- ~250-300ns per tracking call
-- ~80-120 bytes per event
+With `track` feature enabled:
+- ~75-80ns per tracking call
+- ~80 bytes per event
 - Linear memory scaling O(n)
 
-Without `track` feature (release builds):
+Without `track` feature:
 - Zero overhead - all tracking compiles away
 
 ## Testing
