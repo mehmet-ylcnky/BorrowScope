@@ -144,12 +144,16 @@ proptest! {
         thread::sleep(std::time::Duration::from_micros(100));
         reset();
 
+        let mut join_results = Vec::new();
         for handle in handles {
-            let _ = handle.join();
+            join_results.push(handle.join().is_ok());
         }
 
-        // Should not crash
-        prop_assert!(true);
+        // All threads should complete successfully
+        prop_assert!(join_results.iter().all(|&ok| ok));
+        // Events should be accessible after concurrent reset
+        let events = get_events();
+        prop_assert!(events.len() <= thread_count * 10);
     }
 
     #[test]

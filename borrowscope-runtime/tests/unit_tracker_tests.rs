@@ -612,6 +612,8 @@ fn test_concurrent_reset_safe() {
 
     handle.join().unwrap();
 
-    // Should not crash
-    let _ = get_events();
+    // Events should be accessible after concurrent reset
+    let events = get_events();
+    // Either empty (reset won) or partial (some tracked before reset)
+    assert!(events.len() <= 100);
 }

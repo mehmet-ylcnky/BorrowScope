@@ -432,11 +432,14 @@ fn qc_memory_linear_scaling(size: usize, multiplier: usize) -> TestResult {
 fn qc_stateful_operations() {
     fn run_operations(ops: Vec<TrackingOperation>) -> bool {
         reset();
+        let ops_len = ops.len();
+        let mut tracked_count = 0;
 
         for op in ops {
             match op.op_type {
                 OperationType::New => {
                     track_new(&op.var_name, op.value);
+                    tracked_count += 1;
                 }
                 OperationType::Borrow => {
                     // Skip if no variables exist
@@ -449,12 +452,15 @@ fn qc_stateful_operations() {
                 }
                 OperationType::Drop => {
                     track_drop(&op.var_name);
+                    tracked_count += 1;
                 }
             }
         }
 
         // Should not panic
-        let _ = get_events();
+        let events = get_events();
+        // Events should match tracked operations
+        assert!(events.len() >= tracked_count || ops_len == 0);
         true
     }
 
