@@ -1,0 +1,8 @@
+[package]
+name = "ownership-patterns"
+version = "0.1.0"
+edition = "2021"
+description = "Experience Rust ownership patterns with BorrowScope runtime tracking"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }

@@ -1,0 +1,9 @@
+[package]
+name = "async-ownership"
+version = "0.1.0"
+edition = "2021"
+description = "Comprehensive BorrowScope runtime tracking demo with async patterns"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }
+tokio = { version = "1", features = ["full"] }

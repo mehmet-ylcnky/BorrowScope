@@ -1,0 +1,9 @@
+[package]
+name = "graph-visualization"
+version = "0.1.0"
+edition = "2021"
+description = "ASCII visualization of BorrowScope graph structures and algorithms"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }
+borrowscope-graph = { path = "../../borrowscope-graph" }

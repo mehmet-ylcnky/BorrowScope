@@ -1,0 +1,9 @@
+[package]
+name = "borrow-conflicts"
+version = "0.1.0"
+edition = "2021"
+description = "Demonstrate borrow conflict detection with BorrowScope"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }
+borrowscope-graph = { path = "../../borrowscope-graph" }
