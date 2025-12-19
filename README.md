@@ -7,7 +7,7 @@
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
-  [![Tests](https://img.shields.io/badge/tests-2164%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+  [![Tests](https://img.shields.io/badge/tests-555%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
 </div>
 
 ---
@@ -54,7 +54,7 @@ BorrowScope is a production-ready developer tool that makes Rust's ownership and
 - **Batch operations** for improved performance
 
 ### Testing & Quality (✅ Complete)
-- **2,164 comprehensive tests** covering all features (555 runtime + 566 graph + 419 macro + 569 CLI + 55 integration)
+- **555 comprehensive tests** covering all runtime features
 - **Property-based testing** with PropTest and QuickCheck
 - **Edge case coverage** for extreme scenarios
 - **>90% code coverage** across core modules
@@ -234,38 +234,19 @@ BorrowScope/
 │   │   └── error.rs        # Error handling
 │   └── tests/              # 555 comprehensive tests
 │
-├── borrowscope-macro/       # Procedural macros (✅ Complete)
-│   ├── src/
-│   │   └── lib.rs          # Macro implementation
-│   └── tests/              # 419 macro compatibility tests
+├── examples/                # Example projects
+│   ├── allocator-sim/      # Memory allocator patterns
+│   ├── async-ownership/    # Async/await ownership
+│   ├── borrow-conflicts/   # Borrow checker scenarios
+│   ├── graph-visualization/# Graph export demo
+│   ├── ownership-patterns/ # Basic ownership patterns
+│   └── smart-pointers/     # Rc/Arc/RefCell/Cell usage
 │
-├── borrowscope-graph/       # Graph analysis (✅ Complete)
-│   ├── src/
-│   │   ├── lib.rs          # Graph structures
-│   │   ├── conflicts.rs    # Conflict detection
-│   │   ├── query.rs        # Graph queries
-│   │   ├── serialization.rs # JSON/DOT export
-│   │   └── visualization.rs # Graph rendering
-│   └── tests/              # 566 graph tests
-│
-├── borrowscope-cli/         # Command-line interface (🚧 In Progress)
-│   ├── src/
-│   │   ├── main.rs         # CLI entry point
-│   │   ├── cli.rs          # Argument parsing
-│   │   ├── commands/       # Command implementations
-│   │   │   ├── init.rs     # Initialize config
-│   │   │   ├── check.rs    # Validate data
-│   │   │   ├── export.rs   # Export to formats
-│   │   │   ├── run.rs      # Run instrumented code
-│   │   │   └── completion.rs # Shell completions
-│   │   ├── config.rs       # Configuration management
-│   │   ├── error.rs        # Error handling with colors
-│   │   ├── instrumentation.rs # Code instrumentation
-│   │   └── graphviz.rs     # Graphviz integration
-│   └── tests/              # 569 CLI tests (528 unit + 41 integration)
-│
-└── borrowscope-ui/          # Desktop application (📋 Planned)
-    └── src/
+└── (planned)
+    ├── borrowscope-macro/  # Procedural macros
+    ├── borrowscope-graph/  # Graph analysis
+    ├── borrowscope-cli/    # Command-line interface
+    └── borrowscope-ui/     # Desktop application
 ```
 
 ## 📊 Performance Metrics
