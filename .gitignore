@@ -28,3 +28,4 @@ borrowscope-graph/
 borrowscope-macro/
 borrowscope-cli/
 borrowscope-web/
+examples/*/target/

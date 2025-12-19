@@ -1,10 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "borrowscope-macro",
     "borrowscope-runtime",
-    "borrowscope-cli",
-    "borrowscope-graph",
+]
+exclude = [
+    "examples/ownership-patterns",
+    "examples/async-ownership",
+    "examples/smart-pointers",
+    "examples/borrow-conflicts",
+    "examples/graph-visualization",
+    "examples/allocator-sim",
 ]
 
 [workspace.package]

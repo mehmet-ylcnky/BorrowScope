@@ -63,6 +63,30 @@ pub use tracker::{
     track_unsafe_block_enter, track_unsafe_block_exit, track_unsafe_fn_call,
 };
 
+/// Convenience macro for RefCell borrow tracking with auto file:line capture
+#[macro_export]
+macro_rules! refcell_borrow {
+    ($name:expr, $id:expr, $guard:expr) => {
+        $crate::track_refcell_borrow($name, $id, concat!(file!(), ":", line!()), $guard)
+    };
+}
+
+/// Convenience macro for RefCell borrow_mut tracking with auto file:line capture
+#[macro_export]
+macro_rules! refcell_borrow_mut {
+    ($name:expr, $id:expr, $guard:expr) => {
+        $crate::track_refcell_borrow_mut($name, $id, concat!(file!(), ":", line!()), $guard)
+    };
+}
+
+/// Convenience macro for RefCell drop tracking with auto file:line capture
+#[macro_export]
+macro_rules! refcell_drop {
+    ($name:expr) => {
+        $crate::track_refcell_drop($name, concat!(file!(), ":", line!()))
+    };
+}
+
 /// Get the ownership graph built from current events
 pub fn get_graph() -> OwnershipGraph {
     let events = get_events();
