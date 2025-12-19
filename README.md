@@ -8,6 +8,8 @@
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
   [![Tests](https://img.shields.io/badge/tests-524%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+  
+  📖 [Read the introductory article on LinkedIn](https://www.linkedin.com/feed/update/urn:li:ugcPost:7407928315648503808/)
 </div>
 
 ---
