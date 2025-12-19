@@ -16,12 +16,9 @@ BorrowScope is a runtime tracking library for Rust that captures ownership trans
 
 ## Why BorrowScope?
 
-Rust's ownership system is powerful but can be difficult to understand, especially for:
-- **Learners** trying to grasp move semantics and borrowing rules
-- **Developers** debugging complex ownership patterns in production code
-- **Educators** teaching Rust's memory model with concrete examples
+Rust's ownership and borrowing system is one of its most powerful features, but also one of the hardest to learn. The borrow checker operates at compile time, rejecting invalid code with error messages that can be cryptic for newcomers. Even experienced developers sometimes struggle to visualize how ownership flows through complex code paths involving smart pointers, interior mutability, or async boundaries.
 
-BorrowScope makes the invisible visible by recording every ownership operation at runtime.
+BorrowScope was created to bridge this gap. By instrumenting your code with lightweight tracking calls, you can capture every ownership transfer, borrow, and drop as it happens at runtime. The resulting event stream can be exported to JSON for analysis, fed into visualization tools, or simply printed to understand what your code is actually doing. Whether you're learning Rust, teaching others, or debugging a tricky ownership issue in production code, BorrowScope makes the invisible mechanics of Rust's memory model visible.
 
 ## Installation
 
