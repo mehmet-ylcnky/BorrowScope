@@ -24,3 +24,7 @@ Thumbs.db
 /course/
 /docs/
 /progress/
+borrowscope-graph/
+borrowscope-macro/
+borrowscope-cli/
+borrowscope-web/
