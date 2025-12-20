@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Graph Construction - BorrowScope Runtime White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="section-content">
+        <div class="section" id="graph-construction">
+            <h1>4. Ownership Graph Construction</h1>
+
+            <p>
+                The ownership graph construction algorithm transforms temporal event streams into structured
+                relationship graphs that represent the complete ownership topology of a program execution. This
+                transformation is critical for visualization, analysis, and understanding of ownership patterns. The
+                algorithm operates in linear time O(n) where n is the number of events, making it suitable for real-time
+                analysis of large-scale applications.
+            </p>
+
+            <div id="graph-model">
+                <h2>4.1 Graph Model and Data Structures</h2>
+
+                <p>
+                    The ownership graph model represents variables as nodes and ownership relationships as directed
+                    edges. Each node contains complete metadata about a variable's lifecycle, while edges capture the
+                    temporal and semantic aspects of ownership relationships. The model supports three fundamental
+                    relationship types: ownership, immutable borrowing, and mutable borrowing, each with distinct
+                    temporal characteristics.
+                </p>
+
+                <h3>Core Data Structures</h3>
+
+                <p>
+                    The ownership graph model relies on three fundamental data structures that capture the complete
+                    state of variable lifecycles and their relationships. The <code>Variable</code> struct represents
+                    individual tracked variables with temporal metadata, while the <code>Relationship</code> enum
+                    captures the semantic connections between variables. The <code>OwnershipGraph</code> struct combines
+                    these elements into a cohesive structure optimized for both construction and analysis operations.
+                </p>
+
+                <p>
+                    Each variable node maintains comprehensive lifecycle information including creation and destruction
+                    timestamps, enabling precise temporal analysis. The relationship edges distinguish between permanent
+                    ownership connections and temporary borrow relationships, with immutable and mutable borrows tracked
+                    separately to reflect Rust's borrowing semantics. The graph structure includes an internal index for
+                    O(1) variable lookup operations, essential for efficient graph construction from large event
+                    streams.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Ownership graph data model with complete metadata</span>
+
+<span class="rust-keyword">use</span> serde::{<span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>};
+<span class="rust-keyword">use</span> std::collections::<span class="rust-type">HashMap</span>;
+
+<span class="rust-comment">// ═══════════════════════════════════════════════════════════════════</span>
+<span class="rust-comment">// VARIABLE NODE: Represents a tracked variable in the ownership graph</span>
+<span class="rust-comment">// ═══════════════════════════════════════════════════════════════════</span>
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>, <span class="rust-type">PartialEq</span>, <span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>)]
+<span class="rust-keyword">pub</span> <span class="rust-keyword">struct</span> <span class="rust-type">Variable</span> {
+    <span class="rust-comment">/// Unique identifier for correlation across events</span>
+    <span class="rust-keyword">pub</span> id: <span class="rust-type">String</span>,
+
+    <span class="rust-comment">/// Human-readable name from source code</span>
+    <span class="rust-keyword">pub</span> name: <span class="rust-type">String</span>,
+
+    <span class="rust-comment">/// Full type name from std::any::type_name</span>
+    <span class="rust-keyword">pub</span> type_name: <span class="rust-type">String</span>,
+
+    <span class="rust-comment">/// Timestamp when variable was created</span>
+    <span class="rust-keyword">pub</span> created_at: <span class="rust-type">u64</span>,
+
+    <span class="rust-comment">/// Timestamp when variable was dropped (None if still alive)</span>
+    <span class="rust-keyword">pub</span> dropped_at: <span class="rust-type">Option</span>&lt;<span class="rust-type">u64</span>&gt;,
+
+    <span class="rust-comment">/// Variable lifetime duration (computed from timestamps)</span>
+    <span class="rust-keyword">pub</span> lifetime_duration: <span class="rust-type">Option</span>&lt;<span class="rust-type">u64</span>&gt;,
+}
+
+<span class="rust-comment">// ═══════════════════════════════════════════════════════════════════</span>
+<span class="rust-comment">// RELATIONSHIP EDGE: Represents ownership connections between variables</span>
+<span class="rust-comment">// ═══════════════════════════════════════════════════════════════════</span>
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>, <span class="rust-type">PartialEq</span>, <span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>)]
+#[<span class="rust-function">serde</span>(tag = <span class="rust-string">"kind"</span>)]
+<span class="rust-keyword">pub</span> <span class="rust-keyword">enum</span> <span class="rust-type">Relationship</span> {
+    <span class="rust-comment">/// Direct ownership relationship (permanent until move/drop)</span>
+    Owns {
+        from: <span class="rust-type">String</span>,  <span class="rust-comment">// Owner variable ID</span>
+        to: <span class="rust-type">String</span>,    <span class="rust-comment">// Owned variable ID</span>
+    },
+
+    <span class="rust-comment">/// Immutable borrow relationship (temporary, time-bounded)</span>
+    BorrowsImmut {
+        from: <span class="rust-type">String</span>,  <span class="rust-comment">// Borrower variable ID</span>
+        to: <span class="rust-type">String</span>,    <span class="rust-comment">// Borrowed variable ID</span>
+        start: <span class="rust-type">u64</span>,    <span class="rust-comment">// Borrow creation timestamp</span>
+        end: <span class="rust-type">u64</span>,      <span class="rust-comment">// Borrow end timestamp</span>
+    },
+
+    <span class="rust-comment">/// Mutable borrow relationship (exclusive, time-bounded)</span>
+    BorrowsMut {
+        from: <span class="rust-type">String</span>,  <span class="rust-comment">// Borrower variable ID</span>
+        to: <span class="rust-type">String</span>,    <span class="rust-comment">// Borrowed variable ID</span>
+        start: <span class="rust-type">u64</span>,    <span class="rust-comment">// Borrow creation timestamp</span>
+        end: <span class="rust-type">u64</span>,      <span class="rust-comment">// Borrow end timestamp</span>
+    },
+}
+
+<span class="rust-comment">// ═══════════════════════════════════════════════════════════════════</span>
+<span class="rust-comment">// OWNERSHIP GRAPH: Complete graph structure with analysis methods</span>
+<span class="rust-comment">// ═══════════════════════════════════════════════════════════════════</span>
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>, <span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>)]
+<span class="rust-keyword">pub</span> <span class="rust-keyword">struct</span> <span class="rust-type">OwnershipGraph</span> {
+    <span class="rust-comment">/// All variables in the program execution</span>
+    <span class="rust-keyword">pub</span> nodes: <span class="rust-type">Vec</span>&lt;<span class="rust-type">Variable</span>&gt;,
+
+    <span class="rust-comment">/// All ownership relationships</span>
+    <span class="rust-keyword">pub</span> edges: <span class="rust-type">Vec</span>&lt;<span class="rust-type">Relationship</span>&gt;,
+
+    <span class="rust-comment">/// Index for fast variable lookup by ID</span>
+    #[<span class="rust-function">serde</span>(skip)]
+    node_index: <span class="rust-type">HashMap</span>&lt;<span class="rust-type">String</span>, <span class="rust-type">usize</span>&gt;,
+}</pre>
+                </div>
+
+                <h3>Graph Visualization Examples</h3>
+
+                <p>
+                    Understanding how source code translates into graph structures is crucial for interpreting ownership
+                    analysis results. The visualization examples demonstrate the direct correspondence between Rust code
+                    patterns and their graph representations, showing how temporal relationships are captured and how
+                    multiple borrows create complex graph topologies.
+                </p>
+
+                <p>
+                    The example below illustrates a fundamental borrowing pattern where a single owned variable is
+                    borrowed by multiple immutable references with overlapping lifetimes. The resulting graph structure
+                    captures both the hierarchical ownership relationship and the temporal characteristics of each
+                    borrow, enabling analysis of concurrent access patterns and lifetime dependencies. The ASCII diagram
+                    format provides an intuitive representation that can be generated programmatically for debugging and
+                    educational purposes.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Example 1: Simple ownership and borrowing</span>
+
+<span class="rust-comment">// Source code:</span>
+<span class="rust-keyword">let</span> data = <span class="rust-function">track_new</span>(<span class="rust-string">"data"</span>, <span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]);  <span class="rust-comment">// t=100</span>
+<span class="rust-keyword">let</span> r1 = <span class="rust-function">track_borrow</span>(<span class="rust-string">"r1"</span>, &data);           <span class="rust-comment">// t=101</span>
+<span class="rust-keyword">let</span> r2 = <span class="rust-function">track_borrow</span>(<span class="rust-string">"r2"</span>, &data);           <span class="rust-comment">// t=102</span>
+<span class="rust-function">track_drop</span>(<span class="rust-string">"r2"</span>);                            <span class="rust-comment">// t=103</span>
+<span class="rust-function">track_drop</span>(<span class="rust-string">"r1"</span>);                            <span class="rust-comment">// t=104</span>
+<span class="rust-function">track_drop</span>(<span class="rust-string">"data"</span>);                          <span class="rust-comment">// t=105</span>
+
+<span class="rust-comment">// Resulting graph structure:</span>
+<span class="rust-comment">//</span>
+<span class="rust-comment">//     ┌─────────────────┐</span>
+<span class="rust-comment">//     │   data_0        │  ← Variable node</span>
+<span class="rust-comment">//     │   Vec&lt;i32&gt;      │    (created: 100, dropped: 105)</span>
+<span class="rust-comment">//     │   [100→105]     │</span>
+<span class="rust-comment">//     └─────────────────┘</span>
+<span class="rust-comment">//            ▲     ▲</span>
+<span class="rust-comment">//            │     │</span>
+<span class="rust-comment">//   ┌────────┘     └────────┐</span>
+<span class="rust-comment">//   │                       │</span>
+<span class="rust-comment">//   │ BorrowsImmut          │ BorrowsImmut</span>
+<span class="rust-comment">//   │ [101→104]             │ [102→103]</span>
+<span class="rust-comment">//   │                       │</span>
+<span class="rust-comment">//   ▼                       ▼</span>
+<span class="rust-comment">// ┌──────────┐           ┌──────────┐</span>
+<span class="rust-comment">// │  r1_1    │           │  r2_2    │</span>
+<span class="rust-comment">// │  &Vec    │           │  &Vec    │</span>
+<span class="rust-comment">// │ [101→104]│           │ [102→103]│</span>
+<span class="rust-comment">// └──────────┘           └──────────┘</span>
+
+<span class="rust-comment">// Graph contains:</span>
+<span class="rust-comment">// - 3 nodes: data_0, r1_1, r2_2</span>
+<span class="rust-comment">// - 2 edges: r1_1 borrows data_0, r2_2 borrows data_0</span>
+<span class="rust-comment">// - Temporal overlap: r1 and r2 coexist from t=102 to t=103</span></pre>
+                </div>
+            </div>
+
+            <div id="construction-algorithm">
+                <h2>4.2 Graph Construction Algorithm</h2>
+
+                <p>
+                    The graph construction algorithm processes events in chronological order, maintaining active
+                    variable states and relationship mappings. The algorithm uses a two-phase approach: first building
+                    the variable lifecycle map, then constructing relationships based on temporal overlaps and event
+                    semantics. This approach ensures O(n) time complexity while handling complex ownership patterns
+                    including cycles, temporary borrows, and smart pointer relationships.
+                </p>
+
+                <h3>Algorithm Implementation</h3>
+
+                <p>
+                    The graph construction algorithm transforms chronologically ordered events into structured ownership
+                    relationships through a sophisticated two-phase process. The first phase builds comprehensive
+                    variable lifecycle maps by processing creation, borrowing, and destruction events in temporal order.
+                    The second phase converts these lifecycle maps into graph nodes and edges, ensuring that all
+                    temporal relationships are preserved in the final structure.
+                </p>
+
+                <p>
+                    The algorithm maintains active state tracking throughout event processing, using hash maps for
+                    efficient variable lookup and borrow correlation. Each event type triggers specific state
+                    transitions: <code>New</code> events initialize variable lifecycles, <code>Borrow</code> and
+                    <code>BorrowMut</code> events create temporary relationship tracking, and <code>Drop</code> events
+                    finalize both variable lifetimes and any associated borrow relationships. This approach ensures O(n)
+                    time complexity while handling complex scenarios like nested borrows, smart pointer operations, and
+                    concurrent access patterns.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-keyword">impl</span> <span class="rust-type">OwnershipGraph</span> {
+    <span class="rust-comment">/// Construct ownership graph from chronologically ordered events</span>
+    <span class="rust-comment">/// Time complexity: O(n) where n = number of events</span>
+    <span class="rust-comment">/// Space complexity: O(v + e) where v = variables, e = relationships</span>
+    <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">from_events</span>(events: &[<span class="rust-type">Event</span>]) -> <span class="rust-type">Self</span> {
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> graph = <span class="rust-type">OwnershipGraph</span> {
+            nodes: <span class="rust-type">Vec</span>::<span class="rust-function">new</span>(),
+            edges: <span class="rust-type">Vec</span>::<span class="rust-function">new</span>(),
+            node_index: <span class="rust-type">HashMap</span>::<span class="rust-function">new</span>(),
+        };
+
+        <span class="rust-comment">// Phase 1: Build variable lifecycle map</span>
+        <span class="rust-comment">// Track creation, modification, and destruction events</span>
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> variable_states = <span class="rust-type">HashMap</span>::&lt;<span class="rust-type">String</span>, <span class="rust-type">VariableState</span>&gt;::<span class="rust-function">new</span>();
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> active_borrows = <span class="rust-type">HashMap</span>::&lt;<span class="rust-type">String</span>, <span class="rust-type">BorrowInfo</span>&gt;::<span class="rust-function">new</span>();
+
+        <span class="rust-comment">// Process events chronologically to build state transitions</span>
+        <span class="rust-keyword">for</span> event <span class="rust-keyword">in</span> events {
+            <span class="rust-keyword">match</span> &event.event_type {
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-comment">// VARIABLE CREATION: Initialize new variable state</span>
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-type">EventType</span>::New { name, type_name, .. } => {
+                    variable_states.<span class="rust-function">insert</span>(
+                        event.id.<span class="rust-function">clone</span>(),
+                        <span class="rust-type">VariableState</span> {
+                            name: name.<span class="rust-function">clone</span>(),
+                            type_name: type_name.<span class="rust-function">clone</span>(),
+                            created_at: event.timestamp,
+                            dropped_at: <span class="rust-type">None</span>,
+                            borrow_history: <span class="rust-type">Vec</span>::<span class="rust-function">new</span>(),
+                        }
+                    );
+                }
+
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-comment">// IMMUTABLE BORROW: Track shared reference creation</span>
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-type">EventType</span>::Borrow { name, source, .. } => {
+                    <span class="rust-comment">// Create borrower variable if not exists</span>
+                    <span class="rust-keyword">if</span> !variable_states.<span class="rust-function">contains_key</span>(&event.id) {
+                        variable_states.<span class="rust-function">insert</span>(
+                            event.id.<span class="rust-function">clone</span>(),
+                            <span class="rust-type">VariableState</span> {
+                                name: name.<span class="rust-function">clone</span>(),
+                                type_name: <span class="rust-function">format!</span>(<span class="rust-string">"&{}"</span>,
+                                    variable_states.<span class="rust-function">get</span>(source)
+                                        .<span class="rust-function">map</span>(|s| s.type_name.<span class="rust-function">as_str</span>())
+                                        .<span class="rust-function">unwrap_or</span>(<span class="rust-string">"Unknown"</span>)),
+                                created_at: event.timestamp,
+                                dropped_at: <span class="rust-type">None</span>,
+                                borrow_history: <span class="rust-type">Vec</span>::<span class="rust-function">new</span>(),
+                            }
+                        );
+                    }
+
+                    <span class="rust-comment">// Track active borrow for relationship construction</span>
+                    active_borrows.<span class="rust-function">insert</span>(
+                        event.id.<span class="rust-function">clone</span>(),
+                        <span class="rust-type">BorrowInfo</span> {
+                            borrower: event.id.<span class="rust-function">clone</span>(),
+                            borrowed: source.<span class="rust-function">clone</span>(),
+                            borrow_type: <span class="rust-type">BorrowType</span>::Immutable,
+                            start_time: event.timestamp,
+                        }
+                    );
+                }
+
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-comment">// MUTABLE BORROW: Track exclusive reference creation</span>
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-type">EventType</span>::BorrowMut { name, source, .. } => {
+                    <span class="rust-comment">// Similar to immutable borrow but with exclusive semantics</span>
+                    <span class="rust-keyword">if</span> !variable_states.<span class="rust-function">contains_key</span>(&event.id) {
+                        variable_states.<span class="rust-function">insert</span>(
+                            event.id.<span class="rust-function">clone</span>(),
+                            <span class="rust-type">VariableState</span> {
+                                name: name.<span class="rust-function">clone</span>(),
+                                type_name: <span class="rust-function">format!</span>(<span class="rust-string">"&mut {}"</span>,
+                                    variable_states.<span class="rust-function">get</span>(source)
+                                        .<span class="rust-function">map</span>(|s| s.type_name.<span class="rust-function">as_str</span>())
+                                        .<span class="rust-function">unwrap_or</span>(<span class="rust-string">"Unknown"</span>)),
+                                created_at: event.timestamp,
+                                dropped_at: <span class="rust-type">None</span>,
+                                borrow_history: <span class="rust-type">Vec</span>::<span class="rust-function">new</span>(),
+                            }
+                        );
+                    }
+
+                    active_borrows.<span class="rust-function">insert</span>(
+                        event.id.<span class="rust-function">clone</span>(),
+                        <span class="rust-type">BorrowInfo</span> {
+                            borrower: event.id.<span class="rust-function">clone</span>(),
+                            borrowed: source.<span class="rust-function">clone</span>(),
+                            borrow_type: <span class="rust-type">BorrowType</span>::Mutable,
+                            start_time: event.timestamp,
+                        }
+                    );
+                }
+
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-comment">// VARIABLE DROP: Finalize variable lifecycle</span>
+                <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+                <span class="rust-type">EventType</span>::Drop { name } => {
+                    <span class="rust-comment">// Mark variable as dropped and finalize any active borrows</span>
+                    <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(state) = variable_states.<span class="rust-function">get_mut</span>(&event.id) {
+                        state.dropped_at = <span class="rust-type">Some</span>(event.timestamp);
+                    }
+
+                    <span class="rust-comment">// Finalize any borrow relationships involving this variable</span>
+                    <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(borrow_info) = active_borrows.<span class="rust-function">remove</span>(&event.id) {
+                        graph.<span class="rust-function">add_borrow_relationship</span>(
+                            borrow_info,
+                            event.timestamp
+                        );
+                    }
+                }
+
+                <span class="rust-comment">// Handle other event types (Move, RcClone, etc.)</span>
+                _ => { <span class="rust-comment">/* Additional event type handling */</span> }
+            }
+        }
+
+        <span class="rust-comment">// Phase 2: Convert variable states to graph nodes</span>
+        <span class="rust-keyword">for</span> (id, state) <span class="rust-keyword">in</span> variable_states {
+            <span class="rust-keyword">let</span> variable = <span class="rust-type">Variable</span> {
+                id: id.<span class="rust-function">clone</span>(),
+                name: state.name,
+                type_name: state.type_name,
+                created_at: state.created_at,
+                dropped_at: state.dropped_at,
+                lifetime_duration: state.dropped_at
+                    .<span class="rust-function">map</span>(|end| end - state.created_at),
+            };
+
+            graph.node_index.<span class="rust-function">insert</span>(id, graph.nodes.<span class="rust-function">len</span>());
+            graph.nodes.<span class="rust-function">push</span>(variable);
+        }
+
+        <span class="rust-comment">// Finalize any remaining active borrows</span>
+        <span class="rust-keyword">for</span> (_, borrow_info) <span class="rust-keyword">in</span> active_borrows {
+            <span class="rust-comment">// Use last event timestamp as end time for unclosed borrows</span>
+            <span class="rust-keyword">let</span> end_time = events.<span class="rust-function">last</span>()
+                .<span class="rust-function">map</span>(|e| e.timestamp)
+                .<span class="rust-function">unwrap_or</span>(borrow_info.start_time);
+
+            graph.<span class="rust-function">add_borrow_relationship</span>(borrow_info, end_time);
+        }
+
+        graph
+    }
+
+    <span class="rust-comment">/// Add borrow relationship edge to the graph</span>
+    <span class="rust-keyword">fn</span> <span class="rust-function">add_borrow_relationship</span>(&<span class="rust-keyword">mut</span> <span class="rust-keyword">self</span>, borrow_info: <span class="rust-type">BorrowInfo</span>, end_time: <span class="rust-type">u64</span>) {
+        <span class="rust-keyword">let</span> relationship = <span class="rust-keyword">match</span> borrow_info.borrow_type {
+            <span class="rust-type">BorrowType</span>::Immutable => <span class="rust-type">Relationship</span>::BorrowsImmut {
+                from: borrow_info.borrower,
+                to: borrow_info.borrowed,
+                start: borrow_info.start_time,
+                end: end_time,
+            },
+            <span class="rust-type">BorrowType</span>::Mutable => <span class="rust-type">Relationship</span>::BorrowsMut {
+                from: borrow_info.borrower,
+                to: borrow_info.borrowed,
+                start: borrow_info.start_time,
+                end: end_time,
+            },
+        };
+
+        <span class="rust-keyword">self</span>.edges.<span class="rust-function">push</span>(relationship);
+    }
+}</pre>
+                </div>
+
+                <h3>Supporting Data Structures</h3>
+
+                <p>
+                    The graph construction process relies on several internal data structures that maintain state during
+                    the transformation from events to graph representation. These structures are designed for efficient
+                    temporal tracking and relationship correlation, enabling the algorithm to handle complex ownership
+                    patterns while maintaining linear time complexity.
+                </p>
+
+                <p>
+                    The <code>VariableState</code> struct tracks the complete lifecycle of each variable during
+                    construction, including creation timestamps, type information, and borrow history. The
+                    <code>BorrowInfo</code> struct captures active borrow relationships that span multiple events,
+                    enabling proper temporal correlation when borrow relationships are finalized. The
+                    <code>BorrowType</code> enum distinguishes between immutable and mutable borrows, ensuring that the
+                    resulting graph accurately reflects Rust's borrowing semantics and can support conflict analysis
+                    algorithms.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Internal state tracking during graph construction</span>
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>)]
+<span class="rust-keyword">struct</span> <span class="rust-type">VariableState</span> {
+    name: <span class="rust-type">String</span>,
+    type_name: <span class="rust-type">String</span>,
+    created_at: <span class="rust-type">u64</span>,
+    dropped_at: <span class="rust-type">Option</span>&lt;<span class="rust-type">u64</span>&gt;,
+    borrow_history: <span class="rust-type">Vec</span>&lt;<span class="rust-type">BorrowInfo</span>&gt;,
+}
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>)]
+<span class="rust-keyword">struct</span> <span class="rust-type">BorrowInfo</span> {
+    borrower: <span class="rust-type">String</span>,      <span class="rust-comment">// ID of borrowing variable</span>
+    borrowed: <span class="rust-type">String</span>,      <span class="rust-comment">// ID of borrowed variable</span>
+    borrow_type: <span class="rust-type">BorrowType</span>,
+    start_time: <span class="rust-type">u64</span>,
+}
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>, <span class="rust-type">PartialEq</span>)]
+<span class="rust-keyword">enum</span> <span class="rust-type">BorrowType</span> {
+    Immutable,
+    Mutable,
+}</pre>
+                </div>
+            </div>
+
+            <div id="complex-patterns">
+                <h2>4.3 Complex Ownership Patterns</h2>
+
+                <p>
+                    Real-world Rust programs exhibit complex ownership patterns that challenge simple graph models. The
+                    <code>borrowscope-runtime</code> graph construction algorithm handles advanced scenarios including smart pointer cycles,
+                    interior mutability, and async ownership transfers. These patterns require sophisticated temporal
+                    analysis and relationship inference to construct accurate ownership graphs.
+                </p>
+
+                <h3>Smart Pointer Cycles and Reference Counting</h3>
+
+                <p>
+                    Smart pointer cycles represent one of the most challenging ownership patterns in Rust. When using
+                    <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> for shared mutable data structures like linked lists or
+                    graphs, it's possible to create reference cycles that prevent automatic memory deallocation. The
+                    <code>borrowscope-runtime</code> graph construction algorithm detects these cycles by analyzing ownership relationships
+                    and identifying strongly connected components in the graph.
+                </p>
+
+                <p>
+                    The following example demonstrates a classic reference cycle scenario where two nodes reference each
+                    other through <code>Rc</code> smart pointers. This pattern is common in data structures like
+                    doubly-linked lists, graphs, or parent-child relationships where bidirectional references are
+                    needed. The graph construction algorithm captures both the individual <code>Rc</code> relationships
+                    and the resulting cycle, enabling analysis tools to warn developers about potential memory leaks.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Example: Rc&lt;RefCell&lt;T&gt;&gt; pattern with potential cycles</span>
+
+<span class="rust-keyword">use</span> std::rc::<span class="rust-type">Rc</span>;
+<span class="rust-keyword">use</span> std::cell::<span class="rust-type">RefCell</span>;
+
+<span class="rust-comment">// Source code demonstrating complex ownership</span>
+<span class="rust-keyword">let</span> node1 = <span class="rust-function">track_rc_new</span>(<span class="rust-string">"node1"</span>,
+    <span class="rust-type">Rc</span>::<span class="rust-function">new</span>(<span class="rust-type">RefCell</span>::<span class="rust-function">new</span>(<span class="rust-type">Node</span> {
+        value: <span class="rust-string">1</span>,
+        next: <span class="rust-type">None</span>
+    })));
+
+<span class="rust-keyword">let</span> node2 = <span class="rust-function">track_rc_new</span>(<span class="rust-string">"node2"</span>,
+    <span class="rust-type">Rc</span>::<span class="rust-function">new</span>(<span class="rust-type">RefCell</span>::<span class="rust-function">new</span>(<span class="rust-type">Node</span> {
+        value: <span class="rust-string">2</span>,
+        next: <span class="rust-type">Some</span>(<span class="rust-type">Rc</span>::<span class="rust-function">clone</span>(&node1))
+    })));
+
+<span class="rust-comment">// Create cycle: node1.next = Some(node2)</span>
+node1.<span class="rust-function">borrow_mut</span>().next = <span class="rust-type">Some</span>(<span class="rust-type">Rc</span>::<span class="rust-function">clone</span>(&node2));
+
+<span class="rust-comment">// Resulting graph structure with cycle detection:</span>
+<span class="rust-comment">//</span>
+<span class="rust-comment">//     ┌─────────────────┐</span>
+<span class="rust-comment">//     │   node1_0       │</span>
+<span class="rust-comment">//     │   Rc&lt;RefCell&gt;   │</span>
+<span class="rust-comment">//     │   [100→∞]       │</span>
+<span class="rust-comment">//     └─────────────────┘</span>
+<span class="rust-comment">//            ▲     │</span>
+<span class="rust-comment">//            │     │ Owns (via RefCell)</span>
+<span class="rust-comment">//            │     ▼</span>
+<span class="rust-comment">//     ┌─────────────────┐</span>
+<span class="rust-comment">//     │   node2_1       │</span>
+<span class="rust-comment">//     │   Rc&lt;RefCell&gt;   │</span>
+<span class="rust-comment">//     │   [101→∞]       │</span>
+<span class="rust-comment">//     └─────────────────┘</span>
+<span class="rust-comment">//            │     ▲</span>
+<span class="rust-comment">//            │     │</span>
+<span class="rust-comment">//            └─────┘ Owns (via RefCell)</span>
+<span class="rust-comment">//</span>
+<span class="rust-comment">//   ⚠️  CYCLE DETECTED: Strong reference cycle prevents deallocation</span>
+<span class="rust-comment">//       Both nodes have dropped_at = None (never dropped)</span></pre>
+                </div>
+
+                <h3>Temporal Borrow Analysis</h3>
+
+                <p>
+                    Temporal borrow analysis examines the timing and overlap of borrow operations to identify patterns
+                    that would cause compile-time errors in Rust. This analysis is particularly valuable for
+                    understanding complex borrowing scenarios where multiple references exist simultaneously, and for
+                    educational purposes where developers need to visualize why certain borrow patterns are rejected by
+                    the compiler.
+                </p>
+
+                <p>
+                    The example below demonstrates a sophisticated borrowing scenario involving multiple immutable
+                    borrows followed by an attempted mutable borrow. While Rust's borrow checker prevents this pattern
+                    at compile time, <code>borrowscope-runtime</code> captures the attempted operations and provides temporal analysis
+                    showing exactly when and why conflicts occur. This enables developers to understand the precise
+                    timing requirements of Rust's borrowing rules and helps identify the minimal changes needed to
+                    resolve borrow conflicts.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Complex borrowing scenario with overlapping lifetimes</span>
+
+<span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> data = <span class="rust-function">track_new</span>(<span class="rust-string">"data"</span>, <span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]);     <span class="rust-comment">// t=100</span>
+
+<span class="rust-comment">// Multiple immutable borrows (allowed)</span>
+<span class="rust-keyword">let</span> r1 = <span class="rust-function">track_borrow</span>(<span class="rust-string">"r1"</span>, &data);                    <span class="rust-comment">// t=101</span>
+<span class="rust-keyword">let</span> r2 = <span class="rust-function">track_borrow</span>(<span class="rust-string">"r2"</span>, &data);                    <span class="rust-comment">// t=102</span>
+<span class="rust-keyword">let</span> r3 = <span class="rust-function">track_borrow</span>(<span class="rust-string">"r3"</span>, &data);                    <span class="rust-comment">// t=103</span>
+
+<span class="rust-function">println!</span>(<span class="rust-string">"{:?} {:?} {:?}"</span>, r1, r2, r3);
+<span class="rust-function">track_drop</span>(<span class="rust-string">"r2"</span>);                                    <span class="rust-comment">// t=104</span>
+
+<span class="rust-comment">// Mutable borrow after some immutable borrows end</span>
+<span class="rust-keyword">let</span> m1 = <span class="rust-function">track_borrow_mut</span>(<span class="rust-string">"m1"</span>, &<span class="rust-keyword">mut</span> data);           <span class="rust-comment">// t=105 (would fail at compile time)</span>
+
+<span class="rust-comment">// Temporal analysis reveals borrow conflicts:</span>
+<span class="rust-comment">//</span>
+<span class="rust-comment">//   Timeline: 100   101   102   103   104   105   106</span>
+<span class="rust-comment">//             │     │     │     │     │     │     │</span>
+<span class="rust-comment">//   data      ├─────┼─────┼─────┼─────┼─────┼─────┤</span>
+<span class="rust-comment">//   r1              ├─────┼─────┼─────┼─────┼─────┤</span>
+<span class="rust-comment">//   r2                    ├─────┼─────┤</span>
+<span class="rust-comment">//   r3                          ├─────┼─────┼─────┤</span>
+<span class="rust-comment">//   m1                                ├─────┼─────┤ ⚠️  CONFLICT!</span>
+<span class="rust-comment">//</span>
+<span class="rust-comment">//   Conflict Analysis:</span>
+<span class="rust-comment">//   - r1 and r3 still active when m1 attempts mutable borrow</span>
+<span class="rust-comment">//   - Rust's borrow checker would reject this at compile time</span>
+<span class="rust-comment">//   - borrowscope-runtime captures the attempted pattern for analysis</span></pre>
+                </div>
+
+                <h3>Graph Analysis Methods</h3>
+
+                <p>
+                    The ownership graph provides a foundation for sophisticated analysis algorithms that can detect
+                    patterns, conflicts, and optimization opportunities in Rust programs. These analysis methods operate
+                    on the constructed graph to provide insights that would be difficult to obtain from raw event
+                    streams alone. The algorithms leverage graph theory concepts like strongly connected components,
+                    temporal overlap analysis, and path traversal to identify meaningful patterns in ownership behavior.
+                </p>
+
+                <p>
+                    The implementation below showcases three critical analysis capabilities: cycle detection for
+                    identifying memory leaks in smart pointer structures, borrow conflict analysis for understanding
+                    compile-time borrowing errors, and comprehensive metrics calculation for performance and complexity
+                    assessment. Each method provides actionable insights that can guide code optimization, debugging
+                    efforts, and educational understanding of Rust's ownership system.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-keyword">impl</span> <span class="rust-type">OwnershipGraph</span> {
+    <span class="rust-comment">/// Detect cycles in the ownership graph</span>
+    <span class="rust-comment">/// Returns list of strongly connected components</span>
+    <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">detect_cycles</span>(&<span class="rust-keyword">self</span>) -> <span class="rust-type">Vec</span>&lt;<span class="rust-type">Vec</span>&lt;<span class="rust-type">String</span>&gt;&gt; {
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> visited = <span class="rust-type">HashSet</span>::<span class="rust-function">new</span>();
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> cycles = <span class="rust-type">Vec</span>::<span class="rust-function">new</span>();
+
+        <span class="rust-keyword">for</span> node <span class="rust-keyword">in</span> &<span class="rust-keyword">self</span>.nodes {
+            <span class="rust-keyword">if</span> !visited.<span class="rust-function">contains</span>(&node.id) {
+                <span class="rust-keyword">let</span> cycle = <span class="rust-keyword">self</span>.<span class="rust-function">dfs_cycle_detection</span>(&node.id, &<span class="rust-keyword">mut</span> visited);
+                <span class="rust-keyword">if</span> !cycle.<span class="rust-function">is_empty</span>() {
+                    cycles.<span class="rust-function">push</span>(cycle);
+                }
+            }
+        }
+
+        cycles
+    }
+
+    <span class="rust-comment">/// Analyze temporal borrow conflicts</span>
+    <span class="rust-comment">/// Returns overlapping borrow periods that would cause compile errors</span>
+    <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">analyze_borrow_conflicts</span>(&<span class="rust-keyword">self</span>) -> <span class="rust-type">Vec</span>&lt;<span class="rust-type">BorrowConflict</span>&gt; {
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> conflicts = <span class="rust-type">Vec</span>::<span class="rust-function">new</span>();
+
+        <span class="rust-comment">// Group borrows by target variable</span>
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> borrows_by_target = <span class="rust-type">HashMap</span>::&lt;<span class="rust-type">String</span>, <span class="rust-type">Vec</span>&lt;&<span class="rust-type">Relationship</span>&gt;&gt;::<span class="rust-function">new</span>();
+
+        <span class="rust-keyword">for</span> edge <span class="rust-keyword">in</span> &<span class="rust-keyword">self</span>.edges {
+            <span class="rust-keyword">let</span> target = <span class="rust-keyword">match</span> edge {
+                <span class="rust-type">Relationship</span>::BorrowsImmut { to, .. } => to,
+                <span class="rust-type">Relationship</span>::BorrowsMut { to, .. } => to,
+                _ => <span class="rust-keyword">continue</span>,
+            };
+
+            borrows_by_target
+                .<span class="rust-function">entry</span>(target.<span class="rust-function">clone</span>())
+                .<span class="rust-function">or_default</span>()
+                .<span class="rust-function">push</span>(edge);
+        }
+
+        <span class="rust-comment">// Check for temporal overlaps within each target</span>
+        <span class="rust-keyword">for</span> (target, borrows) <span class="rust-keyword">in</span> borrows_by_target {
+            <span class="rust-keyword">for</span> i <span class="rust-keyword">in</span> <span class="rust-string">0</span>..borrows.<span class="rust-function">len</span>() {
+                <span class="rust-keyword">for</span> j <span class="rust-keyword">in</span> (i + <span class="rust-string">1</span>)..borrows.<span class="rust-function">len</span>() {
+                    <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(conflict) = <span class="rust-keyword">self</span>.<span class="rust-function">check_borrow_overlap</span>(borrows[i], borrows[j]) {
+                        conflicts.<span class="rust-function">push</span>(conflict);
+                    }
+                }
+            }
+        }
+
+        conflicts
+    }
+
+    <span class="rust-comment">/// Calculate graph metrics for analysis</span>
+    <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">calculate_metrics</span>(&<span class="rust-keyword">self</span>) -> <span class="rust-type">GraphMetrics</span> {
+        <span class="rust-type">GraphMetrics</span> {
+            node_count: <span class="rust-keyword">self</span>.nodes.<span class="rust-function">len</span>(),
+            edge_count: <span class="rust-keyword">self</span>.edges.<span class="rust-function">len</span>(),
+            avg_lifetime: <span class="rust-keyword">self</span>.<span class="rust-function">calculate_average_lifetime</span>(),
+            max_borrow_depth: <span class="rust-keyword">self</span>.<span class="rust-function">calculate_max_borrow_depth</span>(),
+            cycle_count: <span class="rust-keyword">self</span>.<span class="rust-function">detect_cycles</span>().<span class="rust-function">len</span>(),
+            conflict_count: <span class="rust-keyword">self</span>.<span class="rust-function">analyze_borrow_conflicts</span>().<span class="rust-function">len</span>(),
+        }
+    }
+}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="scripts.js"></script>
+</body>
+
+</html>

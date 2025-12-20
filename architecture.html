@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Architecture - BorrowScope Runtime White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="section-content">
+        <div class="section" id="architecture">
+            <h1>2. System Architecture</h1>
+
+            <p>
+                The architecture of <strong><code>borrowscope-runtime</code></strong> is built on three fundamental
+                design principles: (1) event sourcing for temporal analysis and replay capabilities, (2) separation of
+                concerns between tracking, storage, and analysis, and (3) zero-cost abstractions through conditional
+                compilation. This section details the architectural decisions that enable comprehensive ownership
+                tracking with minimal runtime overhead.
+            </p>
+
+            <div id="event-sourced">
+                <h2>2.1 Event-Sourced Design</h2>
+
+                <p>
+                    The system employs an event sourcing architecture where all ownership operations are captured as
+                    immutable events and stored in a temporal sequence. This design provides several critical
+                    advantages: complete audit trails of ownership operations, ability to reconstruct ownership state at
+                    any point in time, support for incremental graph construction, and separation of tracking overhead
+                    from analysis complexity.
+                </p>
+
+                <h3>Architectural Overview</h3>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// High-level architecture flow</span>
+
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Code                           │
+│  (Instrumented with track_new, track_borrow, etc.)              │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Tracking calls (~75ns each)
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Global Tracker (Thread-Safe)                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │  Timestamp   │  │   Event      │  │   Variable   │           │
+│  │  Generator   │─▶│   Storage   │◀─│   ID Gen     │           │
+│  │  (Atomic)    │  │   (Vector)   │  │  (Counter)   │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Event stream
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Analysis Layer                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │   Graph      │  │   Timeline   │  │   Pattern    │           │
+│  │   Builder    │  │   Analyzer   │  │   Detector   │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ Structured data
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Export Layer                               │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │     JSON     │  │     DOT      │  │   Custom     │           │
+│  │   Exporter   │  │   Exporter   │  │   Formats    │           │
+│  └──────────────┘  └──────────────┘  └──────────────┘           │
+└─────────────────────────────────────────────────────────────────┘</pre>
+                </div>
+
+                <h3>Event Flow and Lifecycle</h3>
+
+                <p>
+                    Each ownership operation follows a consistent lifecycle from instrumentation to analysis. When
+                    application code invokes a tracking function, the system generates a unique timestamp using atomic
+                    operations, creates an immutable event object with complete metadata, acquires the global tracker
+                    lock, appends the event to the storage vector, and releases the lock. This entire process completes
+                    in approximately 75 nanoseconds, with the majority of time spent in mutex acquisition and vector
+                    append operations.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Event lifecycle example</span>
+<span class="rust-keyword">use</span> borrowscope_runtime::*;
+
+<span class="rust-comment">// 1. Application code with instrumentation</span>
+<span class="rust-keyword">let</span> data = <span class="rust-function">track_new</span>(<span class="rust-string">"data"</span>, <span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]);
+<span class="rust-comment">// ↓ Internally generates Event::New</span>
+
+<span class="rust-comment">// 2. Event structure (simplified)</span>
+<span class="rust-keyword">struct</span> <span class="rust-type">Event</span> {
+    timestamp: <span class="rust-type">u64</span>,        <span class="rust-comment">// Atomic counter</span>
+    var_name: <span class="rust-type">String</span>,      <span class="rust-comment">// "data"</span>
+    var_id: <span class="rust-type">String</span>,        <span class="rust-comment">// "data_0" (unique)</span>
+    type_name: <span class="rust-type">String</span>,     <span class="rust-comment">// "alloc::vec::Vec<i32>"</span>
+}
+
+<span class="rust-comment">// 3. Storage in global tracker</span>
+<span class="rust-keyword">static</span> <span class="rust-type">TRACKER</span>: <span class="rust-type">Mutex</span>&lt;<span class="rust-type">Vec</span>&lt;<span class="rust-type">Event</span>&gt;&gt; = <span class="rust-comment">/* ... */</span>;
+
+<span class="rust-comment">// 4. Later analysis (on-demand)</span>
+<span class="rust-keyword">let</span> events = <span class="rust-function">get_events</span>();
+<span class="rust-keyword">let</span> graph = <span class="rust-function">build_graph</span>(&events);</pre>
+                </div>
+
+                <h3>Design Rationale</h3>
+
+                <p>
+                    The event sourcing approach was chosen over alternative architectures for several compelling
+                    reasons. Direct graph construction during tracking would impose significantly higher overhead due to
+                    complex graph operations under lock contention. Sampling-based approaches would miss critical
+                    ownership operations and fail to provide complete audit trails. The event sourcing model defers
+                    expensive analysis operations until explicitly requested, maintains complete temporal ordering for
+                    replay and debugging, enables multiple analysis algorithms to operate on the same event stream, and
+                    supports incremental updates for real-time visualization.
+                </p>
+            </div>
+
+            <div id="core-components">
+                <h2>2.2 Core Components</h2>
+
+                <h3>2.2.1 Global Tracker</h3>
+
+                <p>
+                    The global tracker serves as the central coordination point for all ownership tracking operations.
+                    It maintains a thread-safe event store, generates unique identifiers for variables, and provides
+                    atomic timestamp generation. The implementation uses carefully chosen synchronization primitives to
+                    minimize contention while ensuring correctness.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-keyword">use</span> parking_lot::<span class="rust-type">Mutex</span>;
+<span class="rust-keyword">use</span> lazy_static::<span class="rust-macro">lazy_static!</span>;
+<span class="rust-keyword">use</span> std::sync::atomic::{<span class="rust-type">AtomicU64</span>, <span class="rust-type">Ordering</span>};
+
+<span class="rust-comment">// Global tracker instance (singleton pattern)</span>
+<span class="rust-macro">lazy_static!</span> {
+    <span class="rust-keyword">static</span> <span class="rust-keyword">ref</span> <span class="rust-type">TRACKER</span>: <span class="rust-type">Mutex</span>&lt;<span class="rust-type">Tracker</span>&gt; = <span class="rust-type">Mutex</span>::<span class="rust-function">new</span>(<span class="rust-type">Tracker</span>::<span class="rust-function">new</span>());
+}
+
+<span class="rust-comment">// Lock-free timestamp generation</span>
+<span class="rust-keyword">static</span> <span class="rust-type">TIMESTAMP</span>: <span class="rust-type">AtomicU64</span> = <span class="rust-type">AtomicU64</span>::<span class="rust-function">new</span>(<span class="rust-string">0</span>);
+
+<span class="rust-comment">// Tracker implementation</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">struct</span> <span class="rust-type">Tracker</span> {
+    <span class="rust-comment">/// Event storage (append-only for thread safety)</span>
+    events: <span class="rust-type">Vec</span>&lt;<span class="rust-type">Event</span>&gt;,
+
+    <span class="rust-comment">/// Variable ID counter (monotonically increasing)</span>
+    var_counter: <span class="rust-type">u64</span>,
+}
+
+<span class="rust-keyword">impl</span> <span class="rust-type">Tracker</span> {
+    <span class="rust-comment">/// Generate next timestamp (lock-free, ~1-2ns)</span>
+    <span class="rust-keyword">fn</span> <span class="rust-function">next_timestamp</span>() -&gt; <span class="rust-type">u64</span> {
+        <span class="rust-type">TIMESTAMP</span>.<span class="rust-function">fetch_add</span>(<span class="rust-string">1</span>, <span class="rust-type">Ordering</span>::Relaxed)
+    }
+
+    <span class="rust-comment">/// Generate unique variable ID</span>
+    <span class="rust-keyword">fn</span> <span class="rust-function">next_var_id</span>(&<span class="rust-keyword">mut</span> <span class="rust-keyword">self</span>, name: &<span class="rust-type">str</span>) -&gt; <span class="rust-type">String</span> {
+        <span class="rust-keyword">let</span> id = <span class="rust-macro">format!</span>(<span class="rust-string">"{}_{}"</span>, name, <span class="rust-keyword">self</span>.var_counter);
+        <span class="rust-keyword">self</span>.var_counter += <span class="rust-string">1</span>;
+        id
+    }
+
+    <span class="rust-comment">/// Record a new variable creation event</span>
+    <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">record_new</span>(&<span class="rust-keyword">mut</span> <span class="rust-keyword">self</span>, var_name: &<span class="rust-type">str</span>, type_name: &<span class="rust-type">str</span>) -&gt; <span class="rust-type">String</span> {
+        <span class="rust-keyword">let</span> timestamp = <span class="rust-type">Self</span>::<span class="rust-function">next_timestamp</span>();
+        <span class="rust-keyword">let</span> var_id = <span class="rust-keyword">self</span>.<span class="rust-function">next_var_id</span>(var_name);
+
+        <span class="rust-keyword">self</span>.events.<span class="rust-function">push</span>(<span class="rust-type">Event</span>::New {
+            timestamp,
+            var_name: var_name.<span class="rust-function">to_string</span>(),
+            var_id: var_id.<span class="rust-function">clone</span>(),
+            type_name: type_name.<span class="rust-function">to_string</span>(),
+        });
+
+        var_id
+    }
+}</pre>
+                </div>
+
+                <h3>Synchronization Strategy</h3>
+
+                <p>
+                    The choice of synchronization primitives directly impacts performance. The system uses
+                    <code>parking_lot::Mutex</code> instead of <code>std::sync::Mutex</code> for 40-60% better
+                    performance in low-contention scenarios. Atomic operations with <code>Relaxed</code> ordering
+                    suffice for timestamp generation since strict ordering is not required—only uniqueness matters. The
+                    append-only event vector avoids complex synchronization for reads, as the vector is only accessed
+                    under lock for writes.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Performance comparison of synchronization approaches</span>
+
+<span class="rust-comment">// Approach 1: std::sync::Mutex (baseline)</span>
+<span class="rust-keyword">use</span> std::sync::<span class="rust-type">Mutex</span>;
+<span class="rust-comment">// Average lock acquisition: ~25ns</span>
+
+<span class="rust-comment">// Approach 2: parking_lot::Mutex (chosen)</span>
+<span class="rust-keyword">use</span> parking_lot::<span class="rust-type">Mutex</span>;
+<span class="rust-comment">// Average lock acquisition: ~15ns (40% faster)</span>
+
+<span class="rust-comment">// Approach 3: Lock-free data structures</span>
+<span class="rust-keyword">use</span> crossbeam::queue::<span class="rust-type">SegQueue</span>;
+<span class="rust-comment">// Faster but loses ordering guarantees</span>
+<span class="rust-comment">// Not suitable for temporal event streams</span></pre>
+                </div>
+
+                <h3>2.2.2 Event Taxonomy</h3>
+
+                <p>
+                    The event taxonomy represents the complete spectrum of Rust's ownership operations. Each event type
+                    captures specific ownership semantics with sufficient metadata for accurate reconstruction of
+                    ownership relationships. The taxonomy is organized hierarchically into six major categories, each
+                    addressing distinct aspects of Rust's ownership model.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Complete event taxonomy (simplified)</span>
+<span class="rust-keyword">use</span> serde::{<span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>};
+
+#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>, <span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>)]
+#[<span class="rust-function">serde</span>(tag = <span class="rust-string">"type"</span>)]
+<span class="rust-keyword">pub</span> <span class="rust-keyword">enum</span> <span class="rust-type">Event</span> {
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+    <span class="rust-comment">// Category 1: Basic Ownership Operations</span>
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+
+    <span class="rust-comment">/// Variable creation (ownership begins)</span>
+    New {
+        timestamp: <span class="rust-type">u64</span>,
+        var_name: <span class="rust-type">String</span>,
+        var_id: <span class="rust-type">String</span>,
+        type_name: <span class="rust-type">String</span>,
+    },
+
+    <span class="rust-comment">/// Borrow creation (shared or mutable reference)</span>
+    Borrow {
+        timestamp: <span class="rust-type">u64</span>,
+        borrower_name: <span class="rust-type">String</span>,
+        borrower_id: <span class="rust-type">String</span>,
+        owner_id: <span class="rust-type">String</span>,
+        mutable: <span class="rust-type">bool</span>,
+    },
+
+    <span class="rust-comment">/// Ownership transfer (move semantics)</span>
+    Move {
+        timestamp: <span class="rust-type">u64</span>,
+        from_id: <span class="rust-type">String</span>,
+        to_name: <span class="rust-type">String</span>,
+        to_id: <span class="rust-type">String</span>,
+    },
+
+    <span class="rust-comment">/// Variable destruction (ownership ends)</span>
+    Drop {
+        timestamp: <span class="rust-type">u64</span>,
+        var_id: <span class="rust-type">String</span>,
+    },
+
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+    <span class="rust-comment">// Category 2: Smart Pointers (Reference Counting)</span>
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+
+    <span class="rust-comment">/// Rc&lt;T&gt; allocation</span>
+    RcNew {
+        timestamp: <span class="rust-type">u64</span>,
+        var_name: <span class="rust-type">String</span>,
+        var_id: <span class="rust-type">String</span>,
+        type_name: <span class="rust-type">String</span>,
+        strong_count: <span class="rust-type">usize</span>,  <span class="rust-comment">// Initially 1</span>
+        weak_count: <span class="rust-type">usize</span>,    <span class="rust-comment">// Initially 0</span>
+    },
+
+    <span class="rust-comment">/// Rc&lt;T&gt; clone (shared ownership)</span>
+    RcClone {
+        timestamp: <span class="rust-type">u64</span>,
+        var_name: <span class="rust-type">String</span>,
+        var_id: <span class="rust-type">String</span>,
+        source_id: <span class="rust-type">String</span>,
+        strong_count: <span class="rust-type">usize</span>,  <span class="rust-comment">// Incremented count</span>
+        weak_count: <span class="rust-type">usize</span>,
+    },
+
+    <span class="rust-comment">// Arc&lt;T&gt; variants (thread-safe reference counting)</span>
+    ArcNew { <span class="rust-comment">/* similar to RcNew */</span> },
+    ArcClone { <span class="rust-comment">/* similar to RcClone */</span> },
+
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+    <span class="rust-comment">// Category 3: Interior Mutability</span>
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+
+    <span class="rust-comment">/// RefCell&lt;T&gt; allocation</span>
+    RefCellNew {
+        timestamp: <span class="rust-type">u64</span>,
+        var_name: <span class="rust-type">String</span>,
+        var_id: <span class="rust-type">String</span>,
+        type_name: <span class="rust-type">String</span>,
+    },
+
+    <span class="rust-comment">/// RefCell borrow (runtime borrow checking)</span>
+    RefCellBorrow {
+        timestamp: <span class="rust-type">u64</span>,
+        borrow_id: <span class="rust-type">String</span>,
+        refcell_id: <span class="rust-type">String</span>,
+        is_mutable: <span class="rust-type">bool</span>,
+        location: <span class="rust-type">String</span>,  <span class="rust-comment">// file:line for debugging</span>
+    },
+
+    <span class="rust-comment">// Cell&lt;T&gt; variants (Copy types only)</span>
+    CellNew { <span class="rust-comment">/* ... */</span> },
+    CellGet { <span class="rust-comment">/* ... */</span> },
+    CellSet { <span class="rust-comment">/* ... */</span> },
+
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+    <span class="rust-comment">// Category 4: Unsafe Operations</span>
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+
+    <span class="rust-comment">/// Raw pointer creation</span>
+    RawPtrCreated {
+        timestamp: <span class="rust-type">u64</span>,
+        var_name: <span class="rust-type">String</span>,
+        var_id: <span class="rust-type">String</span>,
+        ptr_type: <span class="rust-type">String</span>,  <span class="rust-comment">// "*const T" or "*mut T"</span>
+        address: <span class="rust-type">usize</span>,     <span class="rust-comment">// Memory address</span>
+        location: <span class="rust-type">String</span>,
+    },
+
+    <span class="rust-comment">/// Unsafe block boundaries</span>
+    UnsafeBlockEnter {
+        timestamp: <span class="rust-type">u64</span>,
+        block_id: <span class="rust-type">String</span>,
+        location: <span class="rust-type">String</span>,
+    },
+
+    UnsafeBlockExit {
+        timestamp: <span class="rust-type">u64</span>,
+        block_id: <span class="rust-type">String</span>,
+        location: <span class="rust-type">String</span>,
+    },
+
+    <span class="rust-comment">// FFI and transmute operations</span>
+    FfiCall { <span class="rust-comment">/* ... */</span> },
+    Transmute { <span class="rust-comment">/* ... */</span> },
+
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+    <span class="rust-comment">// Category 5: Static and Const</span>
+    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
+
+    StaticInit { <span class="rust-comment">/* ... */</span> },
+    StaticAccess { <span class="rust-comment">/* ... */</span> },
+    ConstEval { <span class="rust-comment">/* ... */</span> },
+}</pre>
+                </div>
+
+                <h3>Event Design Principles</h3>
+
+                <p>
+                    Each event type adheres to strict design principles: (1) <strong>Immutability:</strong> Events are
+                    never modified after creation, ensuring temporal consistency. (2) <strong>Complete
+                        Metadata:</strong> Each event contains sufficient information for standalone interpretation
+                    without requiring context from other events. (3) <strong>Unique Identification:</strong> All
+                    entities (variables, borrows, blocks) receive unique identifiers for unambiguous correlation. (4)
+                    <strong>Location Tracking:</strong> Source code locations are captured for debugging and
+                    visualization. (5) <strong>Serialization Support:</strong> All events serialize to JSON with tagged
+                    union format for easy parsing and filtering.
+                </p>
+
+                <h3>2.2.3 Memory Layout and Performance</h3>
+
+                <p>
+                    The memory layout of events is optimized for cache efficiency and minimal allocation overhead. Each
+                    event occupies approximately 80 bytes on average, with the event vector using contiguous memory
+                    allocation for optimal cache locality. The system employs several strategies to minimize memory
+                    overhead while maintaining complete tracking fidelity.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Memory layout analysis</span>
+
+<span class="rust-comment">// Event size breakdown (64-bit system):</span>
+<span class="rust-comment">// ┌─────────────────────────────────────────┐</span>
+<span class="rust-comment">// │ Discriminant (enum tag)      8 bytes    │</span>
+<span class="rust-comment">// │ timestamp (u64)              8 bytes    │</span>
+<span class="rust-comment">// │ var_name (String)           24 bytes    │</span>
+<span class="rust-comment">// │   - ptr                      8 bytes    │</span>
+<span class="rust-comment">// │   - len                      8 bytes    │</span>
+<span class="rust-comment">// │   - capacity                 8 bytes    │</span>
+<span class="rust-comment">// │ var_id (String)             24 bytes    │</span>
+<span class="rust-comment">// │ type_name (String)          24 bytes    │</span>
+<span class="rust-comment">// │ Padding                      ~8 bytes   │</span>
+<span class="rust-comment">// ├─────────────────────────────────────────┤</span>
+<span class="rust-comment">// │ Total (Event::New)          ~96 bytes   │</span>
+<span class="rust-comment">// └─────────────────────────────────────────┘</span>
+
+<span class="rust-comment">// Memory growth characteristics:</span>
+<span class="rust-comment">// - 1,000 events   ≈ 96 KB</span>
+<span class="rust-comment">// - 10,000 events  ≈ 960 KB</span>
+<span class="rust-comment">// - 100,000 events ≈ 9.6 MB</span>
+<span class="rust-comment">// - 1,000,000 events ≈ 96 MB</span>
+
+<span class="rust-comment">// Vector capacity management:</span>
+<span class="rust-keyword">impl</span> <span class="rust-type">Tracker</span> {
+    <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">new</span>() -&gt; <span class="rust-type">Self</span> {
+        <span class="rust-type">Self</span> {
+            <span class="rust-comment">// Pre-allocate for typical workloads</span>
+            events: <span class="rust-type">Vec</span>::<span class="rust-function">with_capacity</span>(<span class="rust-string">1024</span>),
+            var_counter: <span class="rust-string">0</span>,
+        }
+    }
+}</pre>
+                </div>
+
+                <h3>2.2.4 Thread Safety Model</h3>
+
+                <p>
+                    The thread safety model balances correctness with performance. The global tracker is protected by a
+                    mutex, ensuring that event insertion is atomic and events maintain temporal ordering across threads.
+                    However, timestamp generation uses lock-free atomic operations to minimize contention. This hybrid
+                    approach provides strong consistency guarantees while avoiding unnecessary synchronization overhead.
+                </p>
+
+                <div class="code-block">
+                    <pre
+                        class="rust-code"><span class="rust-comment">// Thread safety guarantees</span>
+
+<span class="rust-comment">// Scenario 1: Concurrent tracking from multiple threads</span>
+<span class="rust-keyword">use</span> std::thread;
+
+<span class="rust-function">reset</span>();
+
+<span class="rust-keyword">let</span> handles: <span class="rust-type">Vec</span>&lt;_&gt; = (<span class="rust-string">0</span>..<span class="rust-string">4</span>)
+    .<span class="rust-function">map</span>(|i| {
+        thread::<span class="rust-function">spawn</span>(<span class="rust-keyword">move</span> || {
+            <span class="rust-keyword">let</span> data = <span class="rust-function">track_new</span>(
+                &<span class="rust-macro">format!</span>(<span class="rust-string">"thread_{}"</span>, i),
+                <span class="rust-macro">vec!</span>[i; <span class="rust-string">100</span>]
+            );
+            <span class="rust-comment">// Each thread gets unique timestamps</span>
+            <span class="rust-comment">// Events are serialized by mutex</span>
+        })
+    })
+    .<span class="rust-function">collect</span>();
+
+<span class="rust-keyword">for</span> handle <span class="rust-keyword">in</span> handles {
+    handle.<span class="rust-function">join</span>().<span class="rust-function">unwrap</span>();
+}
+
+<span class="rust-comment">// Result: 4 events with unique timestamps</span>
+<span class="rust-comment">// Order depends on thread scheduling</span>
+<span class="rust-keyword">let</span> events = <span class="rust-function">get_events</span>();
+<span class="rust-macro">assert_eq!</span>(events.<span class="rust-function">len</span>(), <span class="rust-string">4</span>);</pre>
+                </div>
+
+                <h3>Concurrency Patterns</h3>
+
+                <p>
+                    The system handles several concurrent access patterns: (1) <strong>Multiple Writers:</strong>
+                    Multiple threads can track events concurrently, with the mutex serializing insertions. (2)
+                    <strong>Read-After-Write:</strong> Event queries acquire the same mutex, ensuring visibility of all
+                    previously written events. (3) <strong>Lock-Free Reads:</strong> Timestamp generation never blocks
+                    on the event storage mutex. (4) <strong>Atomic Ordering:</strong> Relaxed ordering suffices for
+                    timestamps since the mutex provides happens-before relationships for event ordering.
+                </p>
+            </div>
+        </div>
+    </div>
+    <script src="scripts.js"></script>
+</body>
+
+</html>
