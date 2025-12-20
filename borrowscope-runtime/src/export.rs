@@ -1,4 +1,16 @@
-//! Export functionality for graphs and events
+//! Export functionality for graphs and events.
+//!
+//! This module provides JSON export capabilities for ownership graphs and events.
+//!
+//! # Example
+//!
+//! ```rust,no_run
+//! # use borrowscope_runtime::*;
+//! # reset();
+//! # let _ = track_new("x", 42);
+//! // Export to file
+//! export_json("ownership.json").unwrap();
+//! ```
 
 use crate::event::Event;
 use crate::graph::{OwnershipGraph, Relationship, Variable};
@@ -7,28 +19,37 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-/// Complete export format optimized for visualization
+/// Complete export format optimized for visualization tools.
 #[derive(Debug, Serialize)]
 pub struct ExportData {
+    /// Variable nodes
     pub nodes: Vec<Variable>,
+    /// Relationship edges
     pub edges: Vec<ExportEdge>,
+    /// Raw event stream
     pub events: Vec<Event>,
+    /// Summary statistics
     pub metadata: ExportMetadata,
 }
 
-/// Serializable edge for export
+/// Serializable edge for export.
 #[derive(Debug, Serialize)]
 pub struct ExportEdge {
+    /// Source variable ID
     pub from: String,
+    /// Target variable ID
     pub to: String,
+    /// Relationship type ("owns", "borrows_immut", "borrows_mut")
     pub relationship: String,
+    /// Start timestamp (for borrows)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<u64>,
+    /// End timestamp (for borrows)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end: Option<u64>,
 }
 
-/// Export metadata
+/// Export metadata with summary statistics.
 #[derive(Debug, Serialize)]
 pub struct ExportMetadata {
     pub total_variables: usize,
@@ -39,7 +60,7 @@ pub struct ExportMetadata {
 }
 
 impl ExportData {
-    /// Create export data from graph and events
+    /// Create export data from graph and events.
     pub fn new(graph: OwnershipGraph, events: Vec<Event>) -> Self {
         let stats = graph.stats();
         let edges = graph

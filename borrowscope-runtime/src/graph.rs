@@ -1,34 +1,54 @@
-//! Ownership graph data structures
+//! Ownership graph data structures and analysis.
+//!
+//! This module provides graph-based representations of ownership relationships
+//! built from event streams. Use [`build_graph`] to construct a graph from events.
+//!
+//! # Example
+//!
+//! ```rust
+//! # use borrowscope_runtime::*;
+//! # reset();
+//! let x = track_new("x", 42);
+//! let r = track_borrow("r", &x);
+//!
+//! let graph = get_graph();
+//! assert!(!graph.nodes.is_empty());
+//! ```
 
 use crate::event::Event;
 use crate::lifetime::{LifetimeRelation, Timeline};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// A variable in the ownership graph
+/// A variable node in the ownership graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Variable {
+    /// Unique identifier
     pub id: String,
+    /// Human-readable name
     pub name: String,
+    /// Type from `std::any::type_name`
     pub type_name: String,
+    /// Timestamp when created
     pub created_at: u64,
+    /// Timestamp when dropped (if dropped)
     pub dropped_at: Option<u64>,
 }
 
-/// A relationship between variables
+/// A relationship edge between variables.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Relationship {
-    Owns {
-        from: String,
-        to: String,
-    },
+    /// Ownership relationship
+    Owns { from: String, to: String },
+    /// Immutable borrow (`&T`)
     BorrowsImmut {
         from: String,
         to: String,
         start: u64,
         end: u64,
     },
+    /// Mutable borrow (`&mut T`)
     BorrowsMut {
         from: String,
         to: String,
@@ -37,15 +57,17 @@ pub enum Relationship {
     },
 }
 
-/// The complete ownership graph
+/// The complete ownership graph built from events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnershipGraph {
+    /// Variable nodes
     pub nodes: Vec<Variable>,
+    /// Relationship edges
     pub edges: Vec<Relationship>,
 }
 
 impl OwnershipGraph {
-    /// Create an empty graph
+    /// Create an empty graph.
     pub fn new() -> Self {
         Self {
             nodes: Vec::new(),
@@ -53,22 +75,22 @@ impl OwnershipGraph {
         }
     }
 
-    /// Add a variable node
+    /// Add a variable node.
     pub fn add_variable(&mut self, var: Variable) {
         self.nodes.push(var);
     }
 
-    /// Add a relationship edge
+    /// Add a relationship edge.
     pub fn add_relationship(&mut self, rel: Relationship) {
         self.edges.push(rel);
     }
 
-    /// Find a variable by ID
+    /// Find a variable by ID.
     pub fn find_variable(&self, id: &str) -> Option<&Variable> {
         self.nodes.iter().find(|v| v.id == id)
     }
 
-    /// Find all borrows of a variable
+    /// Find all borrows of a variable.
     pub fn find_borrows(&self, var_id: &str) -> Vec<&Relationship> {
         self.edges
             .iter()

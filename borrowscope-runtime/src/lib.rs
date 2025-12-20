@@ -1,40 +1,66 @@
 #![allow(dead_code)]
-//! BorrowScope Runtime
+//! # BorrowScope Runtime
 //!
-//! This crate provides the runtime tracking system that records ownership
-//! and borrowing events during program execution.
+//! A runtime tracking library for visualizing Rust's ownership and borrowing system.
 //!
-//! # Design Principles
+//! This crate captures ownership transfers, borrows, and smart pointer operations
+//! as they happen at runtime, generating structured event data for analysis.
 //!
-//! - **Zero-cost abstractions**: Tracking functions are inlined and return values unchanged
-//! - **Type safety**: Generic functions work with any type without boxing
-//! - **Thread safety**: All operations are thread-safe using efficient synchronization
-//! - **Simplicity**: Clean, minimal API that's easy to use
-//! - **Reliability**: Tracking never panics or breaks user code
-//!
-//! # Architecture
-//!
-//! The runtime uses an event sourcing pattern:
-//! 1. Track operations as events (New, Borrow, Move, Drop)
-//! 2. Store events in a thread-safe global tracker
-//! 3. Build ownership graphs from event streams on demand
-//! 4. Export data to JSON for visualization
-//!
-//! # Example
+//! # Quick Start
 //!
 //! ```rust
 //! use borrowscope_runtime::*;
 //!
+//! // Clear previous tracking data
+//! reset();
+//!
 //! // Track variable creation
-//! let x = track_new("x", 5);
+//! let data = track_new("data", vec![1, 2, 3]);
 //!
 //! // Track borrowing
-//! let r = track_borrow("r", &x);
+//! let r = track_borrow("r", &data);
+//! println!("{:?}", r);
 //!
-//! // Track drop (called automatically by macro)
+//! // Track drops
 //! track_drop("r");
-//! track_drop("x");
+//! track_drop("data");
+//!
+//! // Export events as JSON
+//! let events = get_events();
+//! println!("{}", serde_json::to_string_pretty(&events).unwrap());
 //! ```
+//!
+//! # Feature Flags
+//!
+//! - `track` - Enables runtime tracking. Without this feature, all tracking
+//!   functions compile to no-ops with zero overhead.
+//!
+//! ```toml
+//! [dependencies]
+//! borrowscope-runtime = { version = "0.1", features = ["track"] }
+//! ```
+//!
+//! # Modules
+//!
+//! - [`tracker`] - Core tracking functions (41 functions for all ownership patterns)
+//! - [`event`] - Event types and serialization
+//! - [`graph`] - Ownership graph building and analysis
+//! - [`export`] - JSON export utilities
+//! - [`lifetime`] - Lifetime analysis and timeline construction
+//!
+//! # Tracking Categories
+//!
+//! | Category | Functions |
+//! |----------|-----------|
+//! | Basic ownership | `track_new`, `track_borrow`, `track_borrow_mut`, `track_move`, `track_drop` |
+//! | Smart pointers | `track_rc_new`, `track_rc_clone`, `track_arc_new`, `track_arc_clone` |
+//! | Interior mutability | `track_refcell_*`, `track_cell_*` |
+//! | Unsafe code | `track_raw_ptr*`, `track_unsafe_*`, `track_ffi_call`, `track_transmute` |
+//!
+//! # Performance
+//!
+//! - With `track` feature: ~75-80ns per tracking call
+//! - Without `track` feature: zero overhead (compiled away)
 
 mod error;
 mod event;

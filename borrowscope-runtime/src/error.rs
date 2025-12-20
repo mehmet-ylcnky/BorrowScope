@@ -1,23 +1,21 @@
-//! Error types for BorrowScope runtime
+//! Error types for BorrowScope runtime.
+//!
+//! This module defines the [`Error`] type and [`Result`] alias used throughout the crate.
 
 use std::fmt;
 use std::io;
 
-/// Runtime errors
+/// Runtime errors that can occur during tracking or export.
 #[derive(Debug)]
 pub enum Error {
     /// JSON serialization failed
     SerializationError(serde_json::Error),
-
     /// File I/O error
     IoError(io::Error),
-
     /// Export failed
     ExportError(String),
-
     /// Invalid event sequence
     InvalidEventSequence(String),
-
     /// Lock acquisition failed
     LockError,
 }

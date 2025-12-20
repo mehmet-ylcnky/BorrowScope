@@ -1,13 +1,19 @@
-//! Lifetime tracking and inference
+//! Lifetime tracking and analysis.
 //!
-//! This module provides utilities for tracking and inferring lifetime relationships
-//! from runtime events. Since lifetimes are a compile-time concept, we approximate
-//! them by tracking scope boundaries and borrow relationships.
+//! This module provides utilities for analyzing lifetime relationships from runtime events.
+//! Since Rust lifetimes are a compile-time concept, this module approximates them by
+//! tracking borrow start/end times and detecting overlaps.
+//!
+//! # Key Types
+//!
+//! - [`LifetimeRelation`] - A borrow relationship with start/end times
+//! - [`Timeline`] - Chronological view of all lifetime relations
+//! - [`ElisionRule`] - Lifetime elision rules for educational purposes
 
 use crate::event::Event;
 use serde::{Deserialize, Serialize};
 
-/// Represents a lifetime relationship between a borrower and borrowed variable
+/// A lifetime relationship between a borrower and borrowed variable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LifetimeRelation {
     /// ID of the borrowing variable
@@ -23,7 +29,7 @@ pub struct LifetimeRelation {
 }
 
 impl LifetimeRelation {
-    /// Create a new lifetime relation
+    /// Create a new lifetime relation.
     pub fn new(
         borrower_id: String,
         borrowed_id: String,
@@ -39,17 +45,19 @@ impl LifetimeRelation {
         }
     }
 
-    /// Check if this lifetime is still active
+    /// Check if this lifetime is still active (not yet ended).
     pub fn is_active(&self) -> bool {
         self.end_time.is_none()
     }
 
-    /// Get the duration of this lifetime (if ended)
+    /// Get the duration of this lifetime in timestamp units.
     pub fn duration(&self) -> Option<u64> {
         self.end_time.map(|end| end - self.start_time)
     }
 
-    /// Check if this lifetime overlaps with another
+    /// Check if this lifetime overlaps with another.
+    ///
+    /// Useful for detecting potential borrow conflicts.
     pub fn overlaps_with(&self, other: &LifetimeRelation) -> bool {
         let self_end = self.end_time.unwrap_or(u64::MAX);
         let other_end = other.end_time.unwrap_or(u64::MAX);
@@ -58,7 +66,7 @@ impl LifetimeRelation {
     }
 }
 
-/// Timeline representation for visualization
+/// Timeline representation for visualization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Timeline {
     /// All lifetime relations in chronological order
