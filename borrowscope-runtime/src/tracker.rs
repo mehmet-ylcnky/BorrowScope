@@ -1,4 +1,55 @@
-//! Core tracking functionality
+//! Core tracking functionality for recording ownership and borrowing events.
+//!
+//! This module provides the public API for tracking Rust ownership operations at runtime.
+//! All tracking functions are designed to be zero-cost when the `track` feature is disabled.
+//!
+//! # Overview
+//!
+//! The tracker records events for:
+//! - **Basic ownership**: variable creation, borrowing, moves, and drops
+//! - **Smart pointers**: `Rc` and `Arc` creation and cloning
+//! - **Interior mutability**: `RefCell` and `Cell` operations
+//! - **Unsafe code**: raw pointers, unsafe blocks, FFI calls, transmute
+//! - **Static/const**: static variable access and const evaluation
+//!
+//! # Quick Start
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//!
+//! // Always reset before tracking a new session
+//! reset();
+//!
+//! // Track variable creation - returns the value unchanged
+//! let data = track_new("data", vec![1, 2, 3]);
+//!
+//! // Track borrowing - returns the reference unchanged
+//! let r = track_borrow("r", &data);
+//! println!("{:?}", r);
+//!
+//! // Track drops explicitly
+//! track_drop("r");
+//! track_drop("data");
+//!
+//! // Retrieve all recorded events
+//! let events = get_events();
+//! assert_eq!(events.len(), 4); // New, Borrow, Drop, Drop
+//! ```
+//!
+//! # Feature Flags
+//!
+//! - `track` - Enables runtime tracking. Without this feature, all tracking
+//!   functions compile to no-ops that simply return their input values.
+//!
+//! # Thread Safety
+//!
+//! All tracking functions are thread-safe. The global tracker uses a mutex
+//! to ensure consistent event ordering across threads.
+//!
+//! # Performance
+//!
+//! With `track` enabled: ~75-80ns per tracking call.
+//! Without `track`: zero overhead (functions are inlined away).
 
 use crate::event::Event;
 use lazy_static::lazy_static;
@@ -646,7 +697,44 @@ impl Default for Tracker {
     }
 }
 
-/// Track a new variable
+/// Track a new variable creation.
+///
+/// Records a `New` event and returns the value unchanged. Use this when
+/// a variable is first created or initialized.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the variable (used in event output)
+/// * `value` - The value being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input `value`, unchanged. This allows chaining:
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let x = track_new("x", 42);
+/// assert_eq!(x, 42);
+/// ```
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let data = track_new("data", vec![1, 2, 3]);
+/// let events = get_events();
+/// assert!(events[0].is_new());
+/// ```
+///
+/// With structs:
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// struct Point { x: i32, y: i32 }
+/// let p = track_new("point", Point { x: 10, y: 20 });
+/// ```
 #[inline(always)]
 pub fn track_new<T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -661,7 +749,34 @@ pub fn track_new<T>(
     value
 }
 
-/// Track an immutable borrow
+/// Track an immutable borrow.
+///
+/// Records a `Borrow` event with `mutable: false` and returns the reference unchanged.
+/// Use this when creating a shared reference (`&T`).
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the borrow
+/// * `value` - The reference being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input reference, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let data = track_new("data", vec![1, 2, 3]);
+/// let r1 = track_borrow("r1", &data);
+/// let r2 = track_borrow("r2", &data); // Multiple immutable borrows OK
+/// println!("{:?}, {:?}", r1, r2);
+///
+/// let events = get_events();
+/// assert!(events[1].is_borrow());
+/// assert!(events[2].is_borrow());
+/// ```
 #[inline(always)]
 pub fn track_borrow<'a, T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -675,7 +790,34 @@ pub fn track_borrow<'a, T: ?Sized>(
     value
 }
 
-/// Track a mutable borrow
+/// Track a mutable borrow.
+///
+/// Records a `Borrow` event with `mutable: true` and returns the reference unchanged.
+/// Use this when creating an exclusive reference (`&mut T`).
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the borrow
+/// * `value` - The mutable reference being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input mutable reference, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let mut data = track_new("data", vec![1, 2, 3]);
+/// {
+///     let r = track_borrow_mut("r", &mut data);
+///     r.push(4);
+/// }
+/// // Mutable borrow ended, can borrow again
+/// let events = get_events();
+/// assert!(events[1].is_borrow());
+/// ```
 #[inline(always)]
 pub fn track_borrow_mut<'a, T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -689,7 +831,33 @@ pub fn track_borrow_mut<'a, T: ?Sized>(
     value
 }
 
-/// Track a move
+/// Track an ownership move.
+///
+/// Records a `Move` event and returns the value unchanged.
+/// Use this when ownership transfers from one variable to another.
+///
+/// # Arguments
+///
+/// * `from_name` - Name of the source variable (giving up ownership)
+/// * `to_name` - Name of the destination variable (receiving ownership)
+/// * `value` - The value being moved (returned unchanged)
+///
+/// # Returns
+///
+/// The input `value`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let s1 = track_new("s1", String::from("hello"));
+/// let s2 = track_move("s1", "s2", s1);
+/// // s1 is no longer valid, s2 owns the String
+///
+/// let events = get_events();
+/// assert!(events[1].is_move());
+/// ```
 #[inline(always)]
 pub fn track_move<T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] from_name: &str,
@@ -704,7 +872,35 @@ pub fn track_move<T>(
     value
 }
 
-/// Track a drop
+/// Track a variable going out of scope.
+///
+/// Records a `Drop` event. Call this when a variable's lifetime ends.
+/// Unlike other tracking functions, this doesn't return a value since
+/// the variable is being destroyed.
+///
+/// # Arguments
+///
+/// * `name` - Name of the variable being dropped
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// {
+///     let x = track_new("x", 42);
+///     // x goes out of scope here
+///     track_drop("x");
+/// }
+///
+/// let events = get_events();
+/// assert!(events[1].is_drop());
+/// ```
+///
+/// # Note
+///
+/// For automatic drop tracking, consider using RAII guards or the
+/// future `borrowscope-macro` crate which will instrument drops automatically.
 #[inline(always)]
 pub fn track_drop(#[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str) {
     #[cfg(feature = "track")]
@@ -714,7 +910,29 @@ pub fn track_drop(#[cfg_attr(not(feature = "track"), allow(unused_variables))] n
     }
 }
 
-/// Track multiple drops in batch (optimized)
+/// Track multiple drops in batch (optimized).
+///
+/// Records multiple `Drop` events efficiently with a single lock acquisition.
+/// Use this when multiple variables go out of scope simultaneously.
+///
+/// # Arguments
+///
+/// * `names` - Slice of variable names being dropped
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let a = track_new("a", 1);
+/// let b = track_new("b", 2);
+/// let c = track_new("c", 3);
+/// // All go out of scope together
+/// track_drop_batch(&["a", "b", "c"]);
+///
+/// let events = get_events();
+/// assert_eq!(events.len(), 6); // 3 New + 3 Drop
+/// ```
 #[inline(always)]
 pub fn track_drop_batch(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] names: &[&str],
@@ -728,13 +946,65 @@ pub fn track_drop_batch(
     }
 }
 
-/// Reset tracking state
+/// Reset tracking state.
+///
+/// Clears all recorded events and resets internal counters.
+/// Call this before starting a new tracking session.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// let _ = track_new("x", 1);
+/// assert!(!get_events().is_empty());
+///
+/// reset();
+/// assert!(get_events().is_empty());
+/// ```
+///
+/// # Thread Safety
+///
+/// This function is thread-safe but will clear events from all threads.
+/// In multi-threaded tests, use synchronization to ensure reset completes
+/// before other threads start tracking.
 pub fn reset() {
     let mut tracker = TRACKER.lock();
     tracker.clear();
 }
 
-/// Get all events
+/// Get all recorded events.
+///
+/// Returns a copy of all events recorded since the last [`reset()`].
+/// Events are ordered by timestamp (monotonically increasing).
+///
+/// # Returns
+///
+/// A `Vec<Event>` containing all recorded events.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let x = track_new("x", 42);
+/// let r = track_borrow("r", &x);
+///
+/// let events = get_events();
+/// assert_eq!(events.len(), 2);
+/// assert!(events[0].is_new());
+/// assert!(events[1].is_borrow());
+/// ```
+///
+/// # Exporting to JSON
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// # let _ = track_new("x", 1);
+/// let events = get_events();
+/// let json = serde_json::to_string_pretty(&events).unwrap();
+/// println!("{}", json);
+/// ```
 pub fn get_events() -> Vec<Event> {
     TRACKER.lock().events().to_vec()
 }
@@ -929,7 +1199,34 @@ pub fn track_arc_clone_with_id<T: ?Sized>(
     value
 }
 
-/// Track Rc::new allocation
+/// Track `Rc::new` allocation.
+///
+/// Records an `RcNew` event with the current strong and weak reference counts.
+/// Use this when creating a new reference-counted pointer.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the Rc
+/// * `value` - The Rc being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input `Rc`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::rc::Rc;
+/// # reset();
+///
+/// let shared = track_rc_new("shared", Rc::new(vec![1, 2, 3]));
+/// assert_eq!(Rc::strong_count(&shared), 1);
+///
+/// let events = get_events();
+/// assert!(events[0].is_rc());
+/// assert_eq!(events[0].strong_count(), Some(1));
+/// ```
 #[inline(always)]
 pub fn track_rc_new<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -945,7 +1242,38 @@ pub fn track_rc_new<T: ?Sized>(
     value
 }
 
-/// Track Rc::clone operation
+/// Track `Rc::clone` operation.
+///
+/// Records an `RcClone` event with the updated reference counts.
+/// Use this when cloning an Rc to share ownership.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the new clone
+/// * `source_name` - Name of the Rc being cloned from
+/// * `value` - The cloned Rc (returned unchanged)
+///
+/// # Returns
+///
+/// The input `Rc`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::rc::Rc;
+/// # reset();
+///
+/// let original = track_rc_new("original", Rc::new(42));
+/// let clone1 = track_rc_clone("clone1", "original", Rc::clone(&original));
+/// let clone2 = track_rc_clone("clone2", "original", Rc::clone(&original));
+///
+/// assert_eq!(Rc::strong_count(&original), 3);
+///
+/// let events = get_events();
+/// assert_eq!(events[1].strong_count(), Some(2)); // After first clone
+/// assert_eq!(events[2].strong_count(), Some(3)); // After second clone
+/// ```
 #[inline(always)]
 pub fn track_rc_clone<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -962,7 +1290,33 @@ pub fn track_rc_clone<T: ?Sized>(
     value
 }
 
-/// Track Arc::new allocation
+/// Track `Arc::new` allocation.
+///
+/// Records an `ArcNew` event with the current strong and weak reference counts.
+/// Use this when creating a new thread-safe reference-counted pointer.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the Arc
+/// * `value` - The Arc being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input `Arc`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::sync::Arc;
+/// # reset();
+///
+/// let shared = track_arc_new("shared", Arc::new(vec![1, 2, 3]));
+/// assert_eq!(Arc::strong_count(&shared), 1);
+///
+/// let events = get_events();
+/// assert!(events[0].is_arc());
+/// ```
 #[inline(always)]
 pub fn track_arc_new<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -978,7 +1332,37 @@ pub fn track_arc_new<T: ?Sized>(
     value
 }
 
-/// Track Arc::clone operation
+/// Track `Arc::clone` operation.
+///
+/// Records an `ArcClone` event with the updated reference counts.
+/// Use this when cloning an Arc for thread-safe shared ownership.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the new clone
+/// * `source_name` - Name of the Arc being cloned from
+/// * `value` - The cloned Arc (returned unchanged)
+///
+/// # Returns
+///
+/// The input `Arc`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::sync::Arc;
+/// use std::thread;
+/// # reset();
+///
+/// let data = track_arc_new("data", Arc::new(42));
+/// let data_clone = track_arc_clone("thread_copy", "data", Arc::clone(&data));
+///
+/// let handle = thread::spawn(move || {
+///     println!("Value: {}", *data_clone);
+/// });
+/// handle.join().unwrap();
+/// ```
 #[inline(always)]
 pub fn track_arc_clone<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -995,7 +1379,32 @@ pub fn track_arc_clone<T: ?Sized>(
     value
 }
 
-/// Track RefCell::new allocation
+/// Track `RefCell::new` allocation.
+///
+/// Records a `RefCellNew` event. Use this when creating a new RefCell
+/// for interior mutability.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the RefCell
+/// * `value` - The RefCell being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input `RefCell`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::RefCell;
+/// # reset();
+///
+/// let cell = track_refcell_new("cell", RefCell::new(42));
+///
+/// let events = get_events();
+/// assert!(events[0].is_refcell());
+/// ```
 #[inline(always)]
 pub fn track_refcell_new<T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -1009,7 +1418,35 @@ pub fn track_refcell_new<T>(
     value
 }
 
-/// Track RefCell::borrow operation
+/// Track `RefCell::borrow` operation.
+///
+/// Records a `RefCellBorrow` event with `is_mutable: false`.
+/// Use this when obtaining a shared borrow from a RefCell.
+///
+/// # Arguments
+///
+/// * `borrow_id` - Unique identifier for this borrow
+/// * `refcell_id` - Identifier of the RefCell being borrowed
+/// * `location` - Source location (e.g., "file.rs:42")
+/// * `value` - The Ref guard (returned unchanged)
+///
+/// # Returns
+///
+/// The input `Ref` guard, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::RefCell;
+/// # reset();
+///
+/// let cell = track_refcell_new("cell", RefCell::new(42));
+/// {
+///     let guard = track_refcell_borrow("borrow1", "cell", "main.rs:10", cell.borrow());
+///     println!("Value: {}", *guard);
+/// } // guard dropped here
+/// ```
 #[inline(always)]
 pub fn track_refcell_borrow<'a, T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] borrow_id: &str,
@@ -1025,7 +1462,36 @@ pub fn track_refcell_borrow<'a, T>(
     value
 }
 
-/// Track RefCell::borrow_mut operation
+/// Track `RefCell::borrow_mut` operation.
+///
+/// Records a `RefCellBorrow` event with `is_mutable: true`.
+/// Use this when obtaining an exclusive borrow from a RefCell.
+///
+/// # Arguments
+///
+/// * `borrow_id` - Unique identifier for this borrow
+/// * `refcell_id` - Identifier of the RefCell being borrowed
+/// * `location` - Source location (e.g., "file.rs:42")
+/// * `value` - The RefMut guard (returned unchanged)
+///
+/// # Returns
+///
+/// The input `RefMut` guard, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::RefCell;
+/// # reset();
+///
+/// let cell = track_refcell_new("cell", RefCell::new(42));
+/// {
+///     let mut guard = track_refcell_borrow_mut("borrow1", "cell", "main.rs:10", cell.borrow_mut());
+///     *guard = 100;
+/// }
+/// assert_eq!(*cell.borrow(), 100);
+/// ```
 #[inline(always)]
 pub fn track_refcell_borrow_mut<'a, T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] borrow_id: &str,
@@ -1041,7 +1507,29 @@ pub fn track_refcell_borrow_mut<'a, T>(
     value
 }
 
-/// Track RefCell borrow drop (when Ref/RefMut is dropped)
+/// Track RefCell borrow drop (when Ref/RefMut is dropped).
+///
+/// Records a `RefCellDrop` event. Call this when a RefCell guard goes out of scope.
+///
+/// # Arguments
+///
+/// * `borrow_id` - The identifier used when the borrow was created
+/// * `location` - Source location where the drop occurs
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::RefCell;
+/// # reset();
+///
+/// let cell = track_refcell_new("cell", RefCell::new(42));
+/// {
+///     let guard = track_refcell_borrow("b1", "cell", "main.rs:10", cell.borrow());
+///     // use guard...
+///     track_refcell_drop("b1", "main.rs:12");
+/// }
+/// ```
 #[inline(always)]
 pub fn track_refcell_drop(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] borrow_id: &str,
@@ -1054,7 +1542,32 @@ pub fn track_refcell_drop(
     }
 }
 
-/// Track Cell::new allocation
+/// Track `Cell::new` allocation.
+///
+/// Records a `CellNew` event. Use this when creating a new Cell
+/// for interior mutability with Copy types.
+///
+/// # Arguments
+///
+/// * `name` - A descriptive name for the Cell
+/// * `value` - The Cell being tracked (returned unchanged)
+///
+/// # Returns
+///
+/// The input `Cell`, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::Cell;
+/// # reset();
+///
+/// let counter = track_cell_new("counter", Cell::new(0));
+///
+/// let events = get_events();
+/// assert!(events[0].is_cell());
+/// ```
 #[inline(always)]
 pub fn track_cell_new<T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
@@ -1068,7 +1581,31 @@ pub fn track_cell_new<T>(
     value
 }
 
-/// Track Cell::get operation
+/// Track `Cell::get` operation.
+///
+/// Records a `CellGet` event. Use this when reading a value from a Cell.
+///
+/// # Arguments
+///
+/// * `cell_id` - Identifier of the Cell being read
+/// * `location` - Source location (e.g., "file.rs:42")
+/// * `value` - The value read from the Cell (returned unchanged)
+///
+/// # Returns
+///
+/// The input value, unchanged.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::Cell;
+/// # reset();
+///
+/// let counter = track_cell_new("counter", Cell::new(42));
+/// let value = track_cell_get("counter", "main.rs:5", counter.get());
+/// assert_eq!(value, 42);
+/// ```
 #[inline(always)]
 pub fn track_cell_get<T: Copy>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
@@ -1083,7 +1620,31 @@ pub fn track_cell_get<T: Copy>(
     value
 }
 
-/// Track Cell::set operation
+/// Track `Cell::set` operation.
+///
+/// Records a `CellSet` event. Use this when writing a value to a Cell.
+///
+/// # Arguments
+///
+/// * `cell_id` - Identifier of the Cell being written
+/// * `location` - Source location (e.g., "file.rs:42")
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// use std::cell::Cell;
+/// # reset();
+///
+/// let counter = track_cell_new("counter", Cell::new(0));
+/// counter.set(1);
+/// track_cell_set("counter", "main.rs:5");
+/// counter.set(2);
+/// track_cell_set("counter", "main.rs:6");
+///
+/// let events = get_events();
+/// assert_eq!(events.iter().filter(|e| matches!(e, borrowscope_runtime::Event::CellSet { .. })).count(), 2);
+/// ```
 #[inline(always)]
 pub fn track_cell_set(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
