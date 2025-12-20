@@ -42,11 +42,11 @@
 //!
 //! # Modules
 //!
-//! - [`tracker`] - Core tracking functions (41 functions for all ownership patterns)
-//! - [`event`] - Event types and serialization
-//! - [`graph`] - Ownership graph building and analysis
-//! - [`export`] - JSON export utilities
-//! - [`lifetime`] - Lifetime analysis and timeline construction
+//! - Core tracking functions (41 functions for all ownership patterns)
+//! - Event types and serialization
+//! - Ownership graph building and analysis
+//! - JSON export utilities
+//! - Lifetime analysis and timeline construction
 //!
 //! # Tracking Categories
 //!
