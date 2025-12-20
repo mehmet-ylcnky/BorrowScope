@@ -103,16 +103,16 @@ pub use guard::{
 pub use lifetime::{ElisionRule, LifetimeRelation, Timeline};
 pub use tracker::{
     __track_new_with_id_helper, get_borrow_events, get_drop_events, get_event_counts, get_events,
-    get_events_filtered, get_events_for_var, get_move_events, get_new_events, reset,
-    track_arc_clone, track_arc_clone_with_id, track_arc_new, track_arc_new_with_id, track_borrow,
-    track_borrow_mut, track_borrow_mut_with_id, track_borrow_with_id, track_cell_get,
-    track_cell_new, track_cell_set, track_const_eval, track_drop, track_drop_batch,
-    track_drop_with_id, track_ffi_call, track_move, track_move_with_id, track_new,
-    track_new_with_id, track_raw_ptr, track_raw_ptr_deref, track_raw_ptr_mut, track_rc_clone,
-    track_rc_clone_with_id, track_rc_new, track_rc_new_with_id, track_refcell_borrow,
-    track_refcell_borrow_mut, track_refcell_drop, track_refcell_new, track_static_access,
-    track_static_init, track_transmute, track_union_field_access, track_unsafe_block_enter,
-    track_unsafe_block_exit, track_unsafe_fn_call,
+    get_events_filtered, get_events_for_var, get_move_events, get_new_events, get_summary,
+    print_summary, reset, track_arc_clone, track_arc_clone_with_id, track_arc_new,
+    track_arc_new_with_id, track_borrow, track_borrow_mut, track_borrow_mut_with_id,
+    track_borrow_with_id, track_cell_get, track_cell_new, track_cell_set, track_const_eval,
+    track_drop, track_drop_batch, track_drop_with_id, track_ffi_call, track_move,
+    track_move_with_id, track_new, track_new_with_id, track_raw_ptr, track_raw_ptr_deref,
+    track_raw_ptr_mut, track_rc_clone, track_rc_clone_with_id, track_rc_new, track_rc_new_with_id,
+    track_refcell_borrow, track_refcell_borrow_mut, track_refcell_drop, track_refcell_new,
+    track_static_access, track_static_init, track_transmute, track_union_field_access,
+    track_unsafe_block_enter, track_unsafe_block_exit, track_unsafe_fn_call, TrackingSummary,
 };
 
 /// Convenience macro for RefCell borrow tracking with auto file:line capture
