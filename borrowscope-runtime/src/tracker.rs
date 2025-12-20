@@ -1009,6 +1009,88 @@ pub fn get_events() -> Vec<Event> {
     TRACKER.lock().events().to_vec()
 }
 
+/// Get events filtered by a predicate.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let _ = track_new("x", 1);
+/// let _ = track_borrow("r", &1);
+/// let borrows = get_events_filtered(|e| e.is_borrow());
+/// assert_eq!(borrows.len(), 1);
+/// ```
+pub fn get_events_filtered<F>(predicate: F) -> Vec<Event>
+where
+    F: Fn(&Event) -> bool,
+{
+    TRACKER.lock().events().iter().filter(|e| predicate(e)).cloned().collect()
+}
+
+/// Get all `New` events.
+pub fn get_new_events() -> Vec<Event> {
+    get_events_filtered(|e| e.is_new())
+}
+
+/// Get all `Borrow` events (both mutable and immutable).
+pub fn get_borrow_events() -> Vec<Event> {
+    get_events_filtered(|e| e.is_borrow())
+}
+
+/// Get all `Drop` events.
+pub fn get_drop_events() -> Vec<Event> {
+    get_events_filtered(|e| e.is_drop())
+}
+
+/// Get all `Move` events.
+pub fn get_move_events() -> Vec<Event> {
+    get_events_filtered(|e| e.is_move())
+}
+
+/// Get events for a specific variable by name.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let _ = track_new("data", vec![1, 2, 3]);
+/// let _ = track_new("other", 42);
+/// let data_events = get_events_for_var("data");
+/// assert_eq!(data_events.len(), 1);
+/// ```
+pub fn get_events_for_var(name: &str) -> Vec<Event> {
+    get_events_filtered(|e| e.var_name().map(|n| n == name).unwrap_or(false))
+}
+
+/// Get count of events by type.
+///
+/// Returns (new, borrow, move, drop) counts.
+///
+/// # Examples
+///
+/// ```rust
+/// # use borrowscope_runtime::*;
+/// # reset();
+/// let x = track_new("x", 1);
+/// let _ = track_borrow("r", &x);
+/// track_drop("r");
+/// track_drop("x");
+/// let (new, borrow, mov, drop) = get_event_counts();
+/// assert_eq!((new, borrow, mov, drop), (1, 1, 0, 2));
+/// ```
+pub fn get_event_counts() -> (usize, usize, usize, usize) {
+    let events = TRACKER.lock();
+    let events = events.events();
+    (
+        events.iter().filter(|e| e.is_new()).count(),
+        events.iter().filter(|e| e.is_borrow()).count(),
+        events.iter().filter(|e| e.is_move()).count(),
+        events.iter().filter(|e| e.is_drop()).count(),
+    )
+}
+
 /// Helper function for track_new_with_id that extracts type at runtime
 #[inline(always)]
 #[doc(hidden)]
