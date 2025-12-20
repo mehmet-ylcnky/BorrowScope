@@ -1657,7 +1657,21 @@ pub fn track_cell_set(
     }
 }
 
-/// Track static variable initialization
+/// Track static variable initialization.
+///
+/// Records a `StaticInit` event. Use this when a static variable is first initialized.
+///
+/// # Arguments
+///
+/// * `var_name` - Name of the static variable
+/// * `var_id` - Unique identifier for the variable
+/// * `type_name` - Type of the static variable
+/// * `is_mutable` - Whether this is a `static mut`
+/// * `value` - The initial value (returned unchanged)
+///
+/// # Returns
+///
+/// The input value, unchanged.
 #[inline(always)]
 pub fn track_static_init<T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
@@ -1674,7 +1688,16 @@ pub fn track_static_init<T>(
     value
 }
 
-/// Track static variable access (read or write)
+/// Track static variable access (read or write).
+///
+/// Records a `StaticAccess` event. Use this when reading from or writing to a static variable.
+///
+/// # Arguments
+///
+/// * `var_id` - Identifier of the static variable
+/// * `var_name` - Name of the static variable
+/// * `is_write` - `true` for writes, `false` for reads
+/// * `location` - Source location (e.g., "file.rs:42")
 #[inline(always)]
 pub fn track_static_access(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: usize,
@@ -1689,7 +1712,21 @@ pub fn track_static_access(
     }
 }
 
-/// Track const evaluation
+/// Track const evaluation.
+///
+/// Records a `ConstEval` event. Use this when a const value is evaluated.
+///
+/// # Arguments
+///
+/// * `const_name` - Name of the const
+/// * `const_id` - Unique identifier
+/// * `type_name` - Type of the const
+/// * `location` - Source location
+/// * `value` - The const value (returned unchanged)
+///
+/// # Returns
+///
+/// The input value, unchanged.
 #[inline(always)]
 pub fn track_const_eval<T>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] const_name: &str,
@@ -1706,7 +1743,25 @@ pub fn track_const_eval<T>(
     value
 }
 
-/// Track raw pointer creation
+/// Track raw pointer creation.
+///
+/// Records a `RawPtrCreated` event. Use this when creating a `*const T` pointer.
+///
+/// # Arguments
+///
+/// * `var_name` - Name for the pointer variable
+/// * `var_id` - Unique identifier
+/// * `ptr_type` - Type description (e.g., "*const i32")
+/// * `location` - Source location
+/// * `ptr` - The raw pointer (returned unchanged)
+///
+/// # Returns
+///
+/// The input pointer, unchanged.
+///
+/// # Safety
+///
+/// This function is safe to call, but the pointer it tracks may be unsafe to dereference.
 #[inline(always)]
 pub fn track_raw_ptr<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
@@ -1729,7 +1784,25 @@ pub fn track_raw_ptr<T: ?Sized>(
     ptr
 }
 
-/// Track mutable raw pointer creation
+/// Track mutable raw pointer creation.
+///
+/// Records a `RawPtrCreated` event. Use this when creating a `*mut T` pointer.
+///
+/// # Arguments
+///
+/// * `var_name` - Name for the pointer variable
+/// * `var_id` - Unique identifier
+/// * `ptr_type` - Type description (e.g., "*mut i32")
+/// * `location` - Source location
+/// * `ptr` - The raw pointer (returned unchanged)
+///
+/// # Returns
+///
+/// The input pointer, unchanged.
+///
+/// # Safety
+///
+/// This function is safe to call, but the pointer it tracks may be unsafe to dereference.
 #[inline(always)]
 pub fn track_raw_ptr_mut<T: ?Sized>(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
@@ -1752,7 +1825,15 @@ pub fn track_raw_ptr_mut<T: ?Sized>(
     ptr
 }
 
-/// Track raw pointer dereference
+/// Track raw pointer dereference.
+///
+/// Records a `RawPtrDeref` event. Use this when dereferencing a raw pointer.
+///
+/// # Arguments
+///
+/// * `ptr_id` - Identifier of the pointer being dereferenced
+/// * `location` - Source location
+/// * `is_write` - `true` if writing through the pointer, `false` if reading
 #[inline(always)]
 pub fn track_raw_ptr_deref(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] ptr_id: usize,
@@ -1766,7 +1847,14 @@ pub fn track_raw_ptr_deref(
     }
 }
 
-/// Track unsafe block entry
+/// Track unsafe block entry.
+///
+/// Records an `UnsafeBlockEnter` event. Use this when entering an unsafe block.
+///
+/// # Arguments
+///
+/// * `block_id` - Unique identifier for this unsafe block
+/// * `location` - Source location
 #[inline(always)]
 pub fn track_unsafe_block_enter(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
@@ -1779,7 +1867,14 @@ pub fn track_unsafe_block_enter(
     }
 }
 
-/// Track unsafe block exit
+/// Track unsafe block exit.
+///
+/// Records an `UnsafeBlockExit` event. Use this when exiting an unsafe block.
+///
+/// # Arguments
+///
+/// * `block_id` - Identifier matching the corresponding `track_unsafe_block_enter`
+/// * `location` - Source location
 #[inline(always)]
 pub fn track_unsafe_block_exit(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
@@ -1792,7 +1887,14 @@ pub fn track_unsafe_block_exit(
     }
 }
 
-/// Track unsafe function call
+/// Track unsafe function call.
+///
+/// Records an `UnsafeFnCall` event. Use this when calling an unsafe function.
+///
+/// # Arguments
+///
+/// * `fn_name` - Name of the unsafe function being called
+/// * `location` - Source location
 #[inline(always)]
 pub fn track_unsafe_fn_call(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
@@ -1805,7 +1907,14 @@ pub fn track_unsafe_fn_call(
     }
 }
 
-/// Track FFI call
+/// Track FFI call.
+///
+/// Records an `FfiCall` event. Use this when calling a foreign function.
+///
+/// # Arguments
+///
+/// * `fn_name` - Name of the foreign function being called
+/// * `location` - Source location
 #[inline(always)]
 pub fn track_ffi_call(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
@@ -1818,7 +1927,15 @@ pub fn track_ffi_call(
     }
 }
 
-/// Track transmute operation
+/// Track transmute operation.
+///
+/// Records a `Transmute` event. Use this when using `std::mem::transmute`.
+///
+/// # Arguments
+///
+/// * `from_type` - Source type name
+/// * `to_type` - Destination type name
+/// * `location` - Source location
 #[inline(always)]
 pub fn track_transmute(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] from_type: &str,
@@ -1832,7 +1949,15 @@ pub fn track_transmute(
     }
 }
 
-/// Track union field access
+/// Track union field access.
+///
+/// Records a `UnionFieldAccess` event. Use this when accessing a union field.
+///
+/// # Arguments
+///
+/// * `union_name` - Name of the union
+/// * `field_name` - Name of the field being accessed
+/// * `location` - Source location
 #[inline(always)]
 pub fn track_union_field_access(
     #[cfg_attr(not(feature = "track"), allow(unused_variables))] union_name: &str,
