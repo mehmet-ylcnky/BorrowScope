@@ -1,12 +1,26 @@
-//! Event types for tracking ownership operations
+//! Event types for tracking ownership operations.
+//!
+//! This module defines the [`Event`] enum which represents all possible
+//! ownership and borrowing events that can be tracked at runtime.
+//!
+//! # Event Categories
+//!
+//! - **Basic ownership**: `New`, `Borrow`, `Move`, `Drop`
+//! - **Smart pointers**: `RcNew`, `RcClone`, `ArcNew`, `ArcClone`
+//! - **Interior mutability**: `RefCellNew`, `RefCellBorrow`, `RefCellDrop`, `CellNew`, `CellGet`, `CellSet`
+//! - **Unsafe operations**: `RawPtrCreated`, `RawPtrDeref`, `UnsafeBlockEnter`, `UnsafeBlockExit`
+//!
+//! # Serialization
+//!
+//! All events serialize to JSON with a `type` tag for easy filtering.
 
 use serde::{Deserialize, Serialize};
 
-/// An ownership or borrowing event
+/// An ownership or borrowing event recorded at runtime.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Event {
-    /// Variable created
+    /// Variable created via [`track_new`](crate::track_new).
     New {
         timestamp: u64,
         var_name: String,
@@ -14,7 +28,7 @@ pub enum Event {
         type_name: String,
     },
 
-    /// Variable borrowed
+    /// Variable borrowed via [`track_borrow`](crate::track_borrow).
     Borrow {
         timestamp: u64,
         borrower_name: String,
@@ -23,7 +37,7 @@ pub enum Event {
         mutable: bool,
     },
 
-    /// Ownership moved
+    /// Ownership moved via [`track_move`](crate::track_move).
     Move {
         timestamp: u64,
         from_id: String,
@@ -31,10 +45,10 @@ pub enum Event {
         to_id: String,
     },
 
-    /// Variable dropped
+    /// Variable dropped via [`track_drop`](crate::track_drop).
     Drop { timestamp: u64, var_id: String },
 
-    /// Rc::new allocation with reference counting
+    /// `Rc::new` allocation with reference counting.
     RcNew {
         timestamp: u64,
         var_name: String,
@@ -44,7 +58,7 @@ pub enum Event {
         weak_count: usize,
     },
 
-    /// Rc::clone operation (shared ownership)
+    /// `Rc::clone` operation (shared ownership).
     RcClone {
         timestamp: u64,
         var_name: String,
