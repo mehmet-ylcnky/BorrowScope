@@ -264,33 +264,27 @@ fn demo_arc_threads() {
 // Results
 // ============================================================================
 fn print_results() {
-    let events = get_events();
-    println!("=== Captured Events ({}) ===", events.len());
-    
-    // Group by event type
-    let mut rc_events = 0;
-    let mut arc_events = 0;
-    let mut refcell_events = 0;
-    let mut other_events = 0;
+    println!("=== Results ===\n");
 
-    for e in &events {
-        match e {
-            Event::RcNew { .. } | Event::RcClone { .. } => rc_events += 1,
-            Event::ArcNew { .. } | Event::ArcClone { .. } => arc_events += 1,
-            Event::RefCellNew { .. } | Event::RefCellBorrow { .. } | Event::RefCellDrop { .. } => refcell_events += 1,
-            _ => other_events += 1,
-        }
-    }
+    // Use pretty print summary
+    print_summary();
 
-    println!("  Rc events: {}", rc_events);
-    println!("  Arc events: {}", arc_events);
-    println!("  RefCell events: {}", refcell_events);
-    println!("  Other events: {}", other_events);
+    // Use filtering API
+    println!("\n--- Filtering API Demo ---");
+    let rc_events = get_events_filtered(|e| e.is_rc());
+    let arc_events = get_events_filtered(|e| e.is_arc());
+    let refcell_events = get_events_filtered(|e| e.is_refcell());
 
-    println!("\n=== All Events ===");
-    for (i, e) in events.iter().enumerate() {
-        println!("{:3}. {:?}", i + 1, e);
-    }
+    println!("Rc events: {}", rc_events.len());
+    println!("Arc events: {}", arc_events.len());
+    println!("RefCell events: {}", refcell_events.len());
+
+    // Get summary struct for programmatic access
+    let summary = get_summary();
+    println!(
+        "\nSummary struct: {} vars created, {} Rc ops, {} Arc ops",
+        summary.variables_created, summary.rc_operations, summary.arc_operations
+    );
 
     let path = std::env::temp_dir().join("smart-pointers.json");
     export_json(&path).unwrap();

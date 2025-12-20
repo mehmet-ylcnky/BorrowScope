@@ -1,6 +1,6 @@
 # Ownership Patterns
 
-A hands-on example demonstrating Rust ownership patterns with BorrowScope runtime tracking.
+A hands-on example demonstrating Rust ownership patterns with BorrowScope runtime tracking, including RAII guards and filtering API.
 
 ## What It Demonstrates
 
@@ -10,6 +10,9 @@ A hands-on example demonstrating Rust ownership patterns with BorrowScope runtim
 | Borrowing | `track_borrow`, `track_borrow_mut` |
 | Shared ownership (Rc) | `track_rc_new`, `track_rc_clone` |
 | Interior mutability (RefCell) | `track_refcell_new`, `refcell_borrow!`, `refcell_borrow_mut!` |
+| **RAII Guards** | `track_new_guard`, `track_borrow_guard` |
+| **Filtering API** | `get_borrow_events`, `get_events_filtered` |
+| **Pretty Print** | `print_summary` |
 
 ## Run
 
@@ -17,13 +20,34 @@ A hands-on example demonstrating Rust ownership patterns with BorrowScope runtim
 cargo run
 ```
 
-## Output
+## New Features
 
-The example prints:
-1. Demo output showing each pattern in action
-2. All captured events with timestamps and variable IDs
-3. Graph statistics
-4. Path to exported JSON file
+### RAII Guards
+```rust
+let data = track_new_guard("guarded_data", vec![1, 2, 3]);
+{
+    let r = track_borrow_guard("guarded_ref", &*data);
+    // track_drop called automatically when r goes out of scope
+}
+// track_drop called automatically when data goes out of scope
+```
+
+### Filtering API
+```rust
+let borrows = get_borrow_events();
+let rc_events = get_events_filtered(|e| e.is_rc());
+```
+
+### Pretty Print Summary
+```rust
+print_summary();
+// Output:
+// === BorrowScope Summary ===
+// Variables: 5 created, 12 dropped
+// Borrows: 3 immutable, 2 mutable
+// Smart pointers: 3 Rc, 0 Arc
+// Interior mutability: 5 RefCell, 0 Cell
+```
 
 ## Sample Event Output
 

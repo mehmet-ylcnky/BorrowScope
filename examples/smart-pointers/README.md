@@ -1,6 +1,6 @@
 # Smart Pointers
 
-Deep dive into Rust smart pointers (`Box`, `Rc`, `Arc`, `RefCell`, `Weak`) with BorrowScope tracking.
+Deep dive into Rust smart pointers (`Box`, `Rc`, `Arc`, `RefCell`, `Weak`) with BorrowScope tracking, including filtering API and pretty print summary.
 
 ## Demos
 
@@ -13,10 +13,31 @@ Deep dive into Rust smart pointers (`Box`, `Rc`, `Arc`, `RefCell`, `Weak`) with 
 | 5 | `Weak<T>` | Breaking reference cycles (parent-child) |
 | 6 | `Arc<T>` | Thread-safe sharing across threads |
 
+## New Features Demonstrated
+
+- **Filtering API**: `get_events_filtered()` with `is_rc()`, `is_arc()`, `is_refcell()` predicates
+- **Pretty Print**: `print_summary()` for human-readable output
+- **Summary Struct**: `get_summary()` for programmatic access to statistics
+
 ## Run
 
 ```bash
 cargo run
+```
+
+## Filtering API Example
+
+```rust
+let rc_events = get_events_filtered(|e| e.is_rc());
+let arc_events = get_events_filtered(|e| e.is_arc());
+let refcell_events = get_events_filtered(|e| e.is_refcell());
+
+println!("Rc events: {}", rc_events.len());
+println!("Arc events: {}", arc_events.len());
+println!("RefCell events: {}", refcell_events.len());
+
+let summary = get_summary();
+println!("Summary: {} vars, {} Rc ops", summary.new_count, summary.rc_new_count + summary.rc_clone_count);
 ```
 
 ## Key Concepts Demonstrated
@@ -48,31 +69,27 @@ RefCellBorrow { borrow_id: "mut2", is_mutable: true }
 
 ### Weak References
 ```
-Parent strong: 1, weak: 1  (child has Weak to parent)
-Child strong: 2, weak: 0   (parent has Rc to child)
+WeakNew { var_name: "weak", strong_count: 1, weak_count: 1 }
+WeakUpgrade { var_name: "upgraded", success: true }
+  → after strong dropped: upgrade returns None
 ```
 
-### Arc Across Threads
+## Sample Output
+
 ```
-ArcClone { var_name: "thread_0", strong_count: 2 }
-ArcClone { var_name: "thread_1", strong_count: 3 }
-ArcClone { var_name: "thread_2", strong_count: 4 }
-  → threads complete, drops happen
-All threads done, count: 1
+=== BorrowScope Summary ===
+Variables: 1 created, 17 dropped
+Borrows: 0 immutable, 0 mutable
+Smart pointers: 14 Rc, 4 Arc
+Interior mutability: 6 RefCell, 0 Cell
+
+Rc events: 14
+Arc events: 4
+RefCell events: 6
+
+Summary struct: 1 vars created, 17 Rc ops, 4 Arc ops
 ```
 
-## Event Summary
+## Exported JSON
 
-| Event Type | Count | Description |
-|------------|-------|-------------|
-| RcNew | 9 | Rc allocations |
-| RcClone | 8 | Rc clones with count tracking |
-| ArcNew | 1 | Arc allocation |
-| ArcClone | 3 | Arc clones for threads |
-| RefCellBorrow | 3 | Interior mutability borrows |
-| RefCellDrop | 3 | Borrow releases |
-| Other | 23 | New, Move, Drop, Borrow |
-
-## Output
-
-Tracking data exported to `/tmp/smart-pointers.json`
+Tracking data is exported to `/tmp/smart-pointers.json`.

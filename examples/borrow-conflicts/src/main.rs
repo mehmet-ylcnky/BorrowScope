@@ -2,24 +2,57 @@
 //!
 //! Demonstrates valid patterns, compile-time conflicts, runtime conflicts,
 //! and complex scenarios like nested borrows and struct field borrowing.
+//! Now with RAII guards and filtering API!
 
-use borrowscope_graph::{OwnershipGraph, Variable};
 use borrowscope_runtime::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 fn main() {
     println!("=== Borrow Conflicts - Comprehensive Demo ===\n");
+    reset(); // Single reset at start
 
     demo_valid_patterns();
-    demo_compile_time_conflicts();
+    demo_raii_guards_for_borrows();
     demo_nested_borrows();
     demo_struct_field_borrowing();
     demo_refcell_scenarios();
     demo_rc_refcell_shared_mutation();
-    demo_complex_lifetimes();
 
-    println!("=== Demo Complete ===");
+    // Use pretty print summary
+    println!("\n");
+    print_summary();
+
+    // Show borrow-specific stats using filtering API
+    let borrows = get_borrow_events();
+    let mutable_borrows = get_events_filtered(|e| {
+        matches!(e, Event::Borrow { mutable: true, .. })
+    });
+    println!("\nBorrow Analysis:");
+    println!("  Total borrows: {}", borrows.len());
+    println!("  Mutable borrows: {}", mutable_borrows.len());
+    println!("  Immutable borrows: {}", borrows.len() - mutable_borrows.len());
+
+    println!("\n=== Demo Complete ===");
+}
+
+// ============================================================================
+// RAII Guards for Borrow Tracking
+// ============================================================================
+fn demo_raii_guards_for_borrows() {
+    println!("━━━ RAII Guards for Automatic Borrow Tracking ━━━\n");
+
+    let data = track_new_guard("data", vec![1, 2, 3, 4, 5]);
+
+    // BorrowGuard automatically tracks when borrow ends
+    {
+        let r1 = track_borrow_guard("r1", &*data);
+        let r2 = track_borrow_guard("r2", &*data);
+        println!("   Borrowed via guards: {:?}, {:?}", *r1, *r2);
+        // track_drop called automatically for r1 and r2
+    }
+
+    println!("   ✓ Guards automatically track borrow lifetimes\n");
 }
 
 // ============================================================================
@@ -27,7 +60,6 @@ fn main() {
 // ============================================================================
 fn demo_valid_patterns() {
     println!("━━━ 1. Valid Borrow Patterns ━━━\n");
-    reset();
 
     let mut data = track_new("data", vec![1, 2, 3, 4, 5]);
 
@@ -52,7 +84,7 @@ fn demo_valid_patterns() {
         let r = track_borrow("r", &data);
         let first = r[0]; // Last use of r
         track_drop("r");
-        
+
         let m = track_borrow_mut("m", &mut data);
         m.push(first + 10);
         track_drop("m");
@@ -79,8 +111,8 @@ fn demo_valid_patterns() {
         let (left, right) = data.split_at_mut(3);
         let l = track_borrow_mut("left", left);
         let r = track_borrow_mut("right", right);
-        l[0] = 999;
-        r[0] = 888;
+        l[0] = 10;
+        r[0] = 40;
         println!("   Left: {:?}, Right: {:?}", l, r);
         track_drop("right");
         track_drop("left");
@@ -92,77 +124,10 @@ fn demo_valid_patterns() {
 }
 
 // ============================================================================
-// 2. Compile-Time Conflicts (Simulated)
-// ============================================================================
-fn demo_compile_time_conflicts() {
-    println!("━━━ 2. Compile-Time Conflicts (Simulated) ━━━\n");
-
-    // Conflict A: Use after move
-    println!("A) Use after move");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "s1", "String", 0, Some(10)));
-    graph.add_variable(var(2, "s2", "String", 10, Some(20)));
-    graph.add_move(1, 2, 10);
-    println!("   s1 created at t=0, moved to s2 at t=10");
-    println!("   // let s1 = String::from(\"hello\");");
-    println!("   // let s2 = s1;  // s1 moved");
-    println!("   // println!(\"{{}}\", s1);  // ERROR: use after move");
-    println!("   ✗ Compiler prevents use of moved value\n");
-
-    // Conflict B: Mutable + Immutable overlap
-    println!("B) Mutable borrow while immutable exists");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "data", "Vec<i32>", 0, Some(100)));
-    graph.add_variable(var(2, "r", "&Vec<i32>", 10, Some(50)));
-    graph.add_variable(var(3, "m", "&mut Vec<i32>", 30, Some(60)));
-    graph.add_borrow(2, 1, false, 10);
-    graph.add_borrow(3, 1, true, 30);
-    
-    print_conflicts(&graph, "data");
-    println!("   // let r = &data;        // t=10");
-    println!("   // let m = &mut data;    // t=30 ERROR!");
-    println!("   // println!(\"{{}}\", r);   // r still in use");
-    println!();
-
-    // Conflict C: Multiple mutable borrows
-    println!("C) Two simultaneous mutable borrows");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "data", "Vec<i32>", 0, Some(100)));
-    graph.add_variable(var(2, "m1", "&mut Vec<i32>", 10, Some(50)));
-    graph.add_variable(var(3, "m2", "&mut Vec<i32>", 20, Some(40)));
-    graph.add_borrow(2, 1, true, 10);
-    graph.add_borrow(3, 1, true, 20);
-    
-    print_conflicts(&graph, "data");
-    println!("   // let m1 = &mut data;   // t=10");
-    println!("   // let m2 = &mut data;   // t=20 ERROR!");
-    println!();
-
-    // Conflict D: Borrow outlives owner
-    println!("D) Reference outlives owner");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "data", "Vec<i32>", 0, Some(30)));
-    graph.add_variable(var(2, "r", "&Vec<i32>", 10, Some(50))); // r lives longer!
-    graph.add_borrow(2, 1, false, 10);
-    
-    let errors = graph.validate();
-    if let Err(errs) = errors {
-        println!("   ✗ Validation errors:");
-        for e in errs {
-            println!("     - {}", e);
-        }
-    }
-    println!("   // {{ let data = vec![1,2,3]; r = &data; }}");
-    println!("   // println!(\"{{}}\", r);  // ERROR: data dropped");
-    println!();
-}
-
-// ============================================================================
-// 3. Nested Borrows
+// 2. Nested Borrows
 // ============================================================================
 fn demo_nested_borrows() {
-    println!("━━━ 3. Nested Borrow Scenarios ━━━\n");
-    reset();
+    println!("━━━ 2. Nested Borrow Scenarios ━━━\n");
 
     let mut outer = track_new("outer", vec![vec![1, 2], vec![3, 4]]);
 
@@ -189,25 +154,11 @@ fn demo_nested_borrows() {
     }
     println!("   ✓ Nested mutable borrows OK (one at a time)\n");
 
-    // Simulated conflict: Borrow outer while inner mut exists
-    println!("C) Conflict: Access outer while inner mutably borrowed");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "outer", "Vec<Vec<i32>>", 0, Some(100)));
-    graph.add_variable(var(2, "outer_mut", "&mut Vec<Vec<i32>>", 10, Some(80)));
-    graph.add_variable(var(3, "inner_mut", "&mut Vec<i32>", 20, Some(60)));
-    graph.add_variable(var(4, "outer_ref", "&Vec<Vec<i32>>", 30, Some(50))); // Conflict!
-    graph.add_borrow(2, 1, true, 10);
-    graph.add_borrow(3, 2, true, 20);
-    graph.add_borrow(4, 1, false, 30); // Can't borrow outer while inner_mut exists
-    
-    print_conflicts(&graph, "outer");
-    println!();
-
     track_drop("outer");
 }
 
 // ============================================================================
-// 4. Struct Field Borrowing
+// 3. Struct Field Borrowing
 // ============================================================================
 #[derive(Debug)]
 struct Person {
@@ -217,14 +168,16 @@ struct Person {
 }
 
 fn demo_struct_field_borrowing() {
-    println!("━━━ 4. Struct Field Borrowing ━━━\n");
-    reset();
+    println!("━━━ 3. Struct Field Borrowing ━━━\n");
 
-    let mut person = track_new("person", Person {
-        name: String::from("Alice"),
-        age: 30,
-        scores: vec![85, 90, 78],
-    });
+    let mut person = track_new(
+        "person",
+        Person {
+            name: String::from("Alice"),
+            age: 30,
+            scores: vec![85, 90, 78],
+        },
+    );
 
     // Valid: Borrow different fields
     println!("A) Borrow different fields simultaneously (OK)");
@@ -241,35 +194,20 @@ fn demo_struct_field_borrowing() {
     println!("B) Mutable borrow one field, read another (OK)");
     {
         let scores = track_borrow_mut("scores", &mut person.scores);
-        // Note: In real Rust, this works because fields are disjoint
-        // let name = &person.name;  // Would work!
         scores.push(95);
         println!("   Scores updated: {:?}", scores);
         track_drop("scores");
     }
     println!("   ✓ Disjoint field borrows allowed\n");
 
-    // Simulated conflict: Borrow whole struct while field borrowed
-    println!("C) Conflict: Borrow whole struct while field mutably borrowed");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "person", "Person", 0, Some(100)));
-    graph.add_variable(var(2, "scores", "&mut Vec<i32>", 10, Some(50)));
-    graph.add_variable(var(3, "person_ref", "&Person", 20, Some(40))); // Conflict!
-    graph.add_borrow(2, 1, true, 10);
-    graph.add_borrow(3, 1, false, 20);
-    
-    print_conflicts(&graph, "person");
-    println!();
-
     track_drop("person");
 }
 
 // ============================================================================
-// 5. RefCell Scenarios
+// 4. RefCell Scenarios
 // ============================================================================
 fn demo_refcell_scenarios() {
-    println!("━━━ 5. RefCell Runtime Borrow Checking ━━━\n");
-    reset();
+    println!("━━━ 4. RefCell Runtime Borrow Checking ━━━\n");
 
     let cell = track_refcell_new("cell", RefCell::new(vec![1, 2, 3]));
 
@@ -304,19 +242,18 @@ fn demo_refcell_scenarios() {
     // try_borrow patterns
     println!("C) Using try_borrow to avoid panics");
     {
-        let m = refcell_borrow_mut!("m", "cell", cell.borrow_mut());
-        
-        // try_borrow returns None instead of panicking
+        let _m = refcell_borrow_mut!("m", "cell", cell.borrow_mut());
+
         match cell.try_borrow() {
             Ok(_) => println!("   Got borrow (unexpected)"),
             Err(_) => println!("   try_borrow() returned Err - already mutably borrowed"),
         }
-        
+
         match cell.try_borrow_mut() {
             Ok(_) => println!("   Got borrow_mut (unexpected)"),
             Err(_) => println!("   try_borrow_mut() returned Err - already borrowed"),
         }
-        
+
         refcell_drop!("m");
     }
     println!("   ✓ try_* methods allow graceful handling\n");
@@ -325,11 +262,10 @@ fn demo_refcell_scenarios() {
 }
 
 // ============================================================================
-// 6. Rc<RefCell<T>> Shared Mutation
+// 5. Rc<RefCell<T>> Shared Mutation
 // ============================================================================
 fn demo_rc_refcell_shared_mutation() {
-    println!("━━━ 6. Rc<RefCell<T>> Shared Mutation ━━━\n");
-    reset();
+    println!("━━━ 5. Rc<RefCell<T>> Shared Mutation ━━━\n");
 
     let shared = track_rc_new("shared", Rc::new(RefCell::new(vec![1, 2, 3])));
     let clone1 = track_rc_clone("clone1", "shared", Rc::clone(&shared));
@@ -372,125 +308,9 @@ fn demo_rc_refcell_shared_mutation() {
     track_drop("clone2");
     track_drop("clone1");
     track_drop("shared");
-}
 
-// ============================================================================
-// 7. Complex Lifetime Scenarios
-// ============================================================================
-fn demo_complex_lifetimes() {
-    println!("━━━ 7. Complex Lifetime Scenarios ━━━\n");
-
-    // Scenario A: Interleaved borrows
-    println!("A) Interleaved borrow lifetimes");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "a", "i32", 0, Some(100)));
-    graph.add_variable(var(2, "b", "i32", 0, Some(100)));
-    graph.add_variable(var(3, "r_a", "&i32", 10, Some(60)));
-    graph.add_variable(var(4, "r_b", "&i32", 20, Some(70)));
-    graph.add_variable(var(5, "m_a", "&mut i32", 40, Some(80))); // Conflict with r_a!
-    graph.add_borrow(3, 1, false, 10);
-    graph.add_borrow(4, 2, false, 20);
-    graph.add_borrow(5, 1, true, 40);
-    
-    println!("   Timeline:");
-    println!("   t=10: r_a borrows a (immut)");
-    println!("   t=20: r_b borrows b (immut)");
-    println!("   t=40: m_a borrows a (mut) - CONFLICT with r_a!");
-    println!("   t=60: r_a dropped");
-    println!("   t=70: r_b dropped");
-    println!("   t=80: m_a dropped");
-    print_conflicts(&graph, "a");
-    println!();
-
-    // Scenario B: Borrow chain depth
-    println!("B) Deep borrow chain");
-    let mut graph = OwnershipGraph::new();
-    graph.add_variable(var(1, "root", "Data", 0, Some(100)));
-    graph.add_variable(var(2, "level1", "&Data", 10, Some(90)));
-    graph.add_variable(var(3, "level2", "&&Data", 20, Some(80)));
-    graph.add_variable(var(4, "level3", "&&&Data", 30, Some(70)));
-    graph.add_borrow(2, 1, false, 10);
-    graph.add_borrow(3, 2, false, 20);
-    graph.add_borrow(4, 3, false, 30);
-    
-    println!("   Borrow depth: {}", graph.borrow_depth(4));
-    println!("   Chain: root -> level1 -> level2 -> level3");
-    println!("   ✓ Deep immutable chains are valid\n");
-
-    // Scenario C: Graph connectivity
-    println!("C) Connected components in borrow graph");
-    let mut graph = OwnershipGraph::new();
-    // Component 1
-    graph.add_variable(var(1, "a", "i32", 0, Some(100)));
-    graph.add_variable(var(2, "r_a", "&i32", 10, Some(50)));
-    graph.add_borrow(2, 1, false, 10);
-    // Component 2 (separate)
-    graph.add_variable(var(3, "b", "i32", 0, Some(100)));
-    graph.add_variable(var(4, "r_b", "&i32", 10, Some(50)));
-    graph.add_borrow(4, 3, false, 10);
-    
-    let components = graph.connected_components();
-    println!("   Found {} connected components", components.len());
-    for (i, comp) in components.iter().enumerate() {
-        let names: Vec<_> = comp.iter()
-            .filter_map(|id| graph.get_variable(*id))
-            .map(|v| v.name.as_str())
-            .collect();
-        println!("   Component {}: {:?}", i + 1, names);
-    }
-    println!();
-
-    // Print final event count
-    let events = get_events();
-    println!("━━━ Summary ━━━");
-    println!("Total events captured: {}", events.len());
-    
+    // Export events
     let path = std::env::temp_dir().join("borrow-conflicts.json");
     export_json(&path).unwrap();
     println!("Exported to: {}\n", path.display());
-}
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
-fn var(id: usize, name: &str, type_name: &str, created: u64, dropped: Option<u64>) -> Variable {
-    Variable {
-        id,
-        name: name.into(),
-        type_name: type_name.into(),
-        created_at: created,
-        dropped_at: dropped,
-        scope_depth: 0,
-    }
-}
-
-fn print_conflicts(graph: &OwnershipGraph, owner: &str) {
-    let conflicts = graph.find_conflicts_optimized();
-    if conflicts.is_empty() {
-        println!("   ✓ No conflicts detected");
-    } else {
-        for c in &conflicts {
-            println!("   ✗ CONFLICT: {}", c.format(graph));
-            println!("     Time range: {} - {}", c.time_range.0, c.time_range.1);
-        }
-    }
-    
-    // Show timeline
-    if let Some(owner_var) = graph.all_variables().find(|v| v.name == owner) {
-        let timeline = graph.conflict_timeline(owner_var.id);
-        if !timeline.is_empty() {
-            println!("   Timeline for '{}':", owner);
-            for (time, borrows) in timeline {
-                let strs: Vec<_> = borrows.iter()
-                    .filter_map(|(id, is_mut)| {
-                        graph.get_variable(*id).map(|v| {
-                            if *is_mut { format!("{} (mut)", v.name) } 
-                            else { format!("{} (immut)", v.name) }
-                        })
-                    })
-                    .collect();
-                println!("     t={}: [{}]", time, strs.join(", "));
-            }
-        }
-    }
 }

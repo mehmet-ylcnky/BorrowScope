@@ -1,18 +1,23 @@
 # Borrow Conflicts
 
-Comprehensive demonstration of Rust borrow checking with BorrowScope conflict detection.
+Comprehensive demonstration of Rust borrow checking with BorrowScope tracking, including RAII guards and filtering API.
 
 ## Scenarios Covered
 
 | Section | Scenarios |
 |---------|-----------|
 | **1. Valid Patterns** | Multiple immutable, NLL, reborrowing, split_at_mut |
-| **2. Compile-Time Conflicts** | Use after move, mut+immut overlap, double mut, outlives |
-| **3. Nested Borrows** | Borrow chains, nested mutation, outer access conflicts |
-| **4. Struct Fields** | Disjoint field borrows, whole-struct conflicts |
-| **5. RefCell** | Sequential access, multiple readers, try_borrow |
-| **6. Rc\<RefCell\>** | Shared mutation, cross-handle conflicts |
-| **7. Complex Lifetimes** | Interleaved borrows, borrow depth, connected components |
+| **RAII Guards** | Automatic borrow tracking with `track_borrow_guard` |
+| **2. Nested Borrows** | Borrow chains, nested mutation |
+| **3. Struct Fields** | Disjoint field borrows |
+| **4. RefCell** | Sequential access, multiple readers, try_borrow |
+| **5. Rc\<RefCell\>** | Shared mutation, cross-handle conflicts |
+
+## New Features Demonstrated
+
+- **RAII Guards**: `track_new_guard()`, `track_borrow_guard()` for automatic drop tracking
+- **Filtering API**: `get_borrow_events()`, `get_events_filtered()` for analysis
+- **Pretty Print**: `print_summary()` for human-readable output
 
 ## Run
 
@@ -21,6 +26,16 @@ cargo run
 ```
 
 ## Key Demonstrations
+
+### RAII Guards
+```rust
+let data = track_new_guard("data", vec![1, 2, 3]);
+{
+    let r1 = track_borrow_guard("r1", &*data);
+    let r2 = track_borrow_guard("r2", &*data);
+    // track_drop called automatically when guards go out of scope
+}
+```
 
 ### Valid Patterns
 ```rust
@@ -45,56 +60,32 @@ left[0] = 1;   // OK
 right[0] = 2;  // OK, disjoint
 ```
 
-### Conflict Detection
-```
-Conflict: Mutable + Immutable overlap
-  t=10: r borrows data (immut)
-  t=30: m borrows data (mut)  ← CONFLICT!
-  t=50: r dropped
-
-✗ CONFLICT: Mutable and immutable borrows of 'data' by: r, m
-  Time range: 30 - 50
-
-Timeline:
-  t=10: [r (immut)]
-  t=30: [m (mut), r (immut)]  ← Both active!
-  t=50: [m (mut)]
-```
-
-### RefCell Runtime Checking
+### Filtering API
 ```rust
-// try_borrow avoids panics
-let m = cell.borrow_mut();
-match cell.try_borrow() {
-    Err(_) => println!("Already borrowed"),
-    Ok(r) => { /* use r */ }
-}
-
-// Rc<RefCell> tracks across handles
-let clone1 = Rc::clone(&shared);
-let clone2 = Rc::clone(&shared);
-let r = clone1.borrow();
-let m = clone2.borrow_mut();  // PANIC! Same RefCell
+let borrows = get_borrow_events();
+let mutable_borrows = get_events_filtered(|e| {
+    matches!(e, Event::Borrow { mutable: true, .. })
+});
+println!("Mutable: {}, Immutable: {}", 
+    mutable_borrows.len(), 
+    borrows.len() - mutable_borrows.len());
 ```
 
-### Graph Analysis Features
-```rust
-// Conflict detection
-graph.find_conflicts_optimized()
+## Sample Output
 
-// Borrow timeline
-graph.conflict_timeline(owner_id)
+```
+=== BorrowScope Summary ===
+Variables: 4 created, 26 dropped
+Borrows: 11 immutable, 7 mutable
+Smart pointers: 3 Rc, 0 Arc
+Interior mutability: 19 RefCell, 0 Cell
 
-// Borrow chain depth
-graph.borrow_depth(var_id)
-
-// Connected components
-graph.connected_components()
-
-// Validation
-graph.validate()  // Checks lifetimes, cycles
+Borrow Analysis:
+  Total borrows: 18
+  Mutable borrows: 7
+  Immutable borrows: 11
 ```
 
-## Output
+## Exported JSON
 
-Exported to `/tmp/borrow-conflicts.json`
+Tracking data is exported to `/tmp/borrow-conflicts.json`.
