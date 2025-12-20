@@ -53,9 +53,28 @@
 //! | Category | Functions |
 //! |----------|-----------|
 //! | Basic ownership | `track_new`, `track_borrow`, `track_borrow_mut`, `track_move`, `track_drop` |
+//! | RAII guards | `track_new_guard`, `track_borrow_guard`, `track_borrow_mut_guard` |
 //! | Smart pointers | `track_rc_new`, `track_rc_clone`, `track_arc_new`, `track_arc_clone` |
 //! | Interior mutability | `track_refcell_*`, `track_cell_*` |
 //! | Unsafe code | `track_raw_ptr*`, `track_unsafe_*`, `track_ffi_call`, `track_transmute` |
+//!
+//! # RAII Guards
+//!
+//! For automatic drop tracking, use the guard variants:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//!
+//! reset();
+//! {
+//!     let data = track_new_guard("data", vec![1, 2, 3]);
+//!     println!("{:?}", *data);
+//!     // track_drop("data") called automatically when data goes out of scope
+//! }
+//!
+//! let events = get_events();
+//! assert!(events.last().unwrap().is_drop());
+//! ```
 //!
 //! # Performance
 //!
@@ -66,6 +85,7 @@ mod error;
 mod event;
 mod export;
 mod graph;
+mod guard;
 mod lifetime;
 mod tracker;
 
@@ -76,6 +96,10 @@ pub use error::{Error, Result};
 pub use event::Event;
 pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
+pub use guard::{
+    track_borrow_guard, track_borrow_mut_guard, track_new_guard, BorrowGuard, BorrowMutGuard,
+    TrackGuard,
+};
 pub use lifetime::{ElisionRule, LifetimeRelation, Timeline};
 pub use tracker::{
     __track_new_with_id_helper, get_events, reset, track_arc_clone, track_arc_clone_with_id,
