@@ -3,6 +3,7 @@
   
   > Visualize Rust's ownership and borrowing at runtime
 
+  [![Crates.io](https://img.shields.io/crates/v/borrowscope-runtime.svg)](https://crates.io/crates/borrowscope-runtime)
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -24,11 +25,11 @@ BorrowScope was created to bridge this gap. By instrumenting your code with ligh
 
 ## Installation
 
-Add to your `Cargo.toml`:
+Available on [crates.io](https://crates.io/crates/borrowscope-runtime). Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-borrowscope-runtime = { path = "path/to/borrowscope-runtime", features = ["track"] }
+borrowscope-runtime = { version = "0.1", features = ["track"] }
 ```
 
 The `track` feature enables runtime tracking. Without it, all tracking functions compile to no-ops with zero overhead.
