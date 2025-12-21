@@ -1,452 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BorrowScope Runtime: A Technical White Paper</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <title>BorrowScope - Technical Whitepapers</title>
     <style>
-        .section-container {
-            margin-bottom: 3rem;
-        }
-
-        .loading {
-            text-align: center;
-            color: var(--secondary-color);
-            font-style: italic;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Georgia', serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 2rem;
         }
-
-        .navigation {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: var(--bg-color);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 1rem;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            max-width: 250px;
-            z-index: 1000;
-        }
-
-        .navigation h3 {
-            margin-top: 0;
-            font-size: 1rem;
-            color: var(--primary-color);
-        }
-
-        .navigation ul {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .navigation li {
-            margin: 0.3rem 0;
-        }
-
-        .navigation a {
-            color: var(--secondary-color);
+        .container { max-width: 800px; text-align: center; }
+        h1 { color: #fff; font-size: 3rem; margin-bottom: 0.5rem; }
+        .subtitle { color: #8892b0; font-size: 1.2rem; margin-bottom: 3rem; }
+        .papers { display: grid; gap: 1.5rem; }
+        .paper {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 2rem;
             text-decoration: none;
-            font-size: 0.9rem;
+            transition: all 0.3s ease;
         }
-
-        .navigation a:hover {
-            text-decoration: underline;
+        .paper:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateY(-4px);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
         }
-
-        @media (max-width: 1024px) {
-            .navigation {
-                display: none;
-            }
+        .paper h2 { color: #64ffda; font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .paper p { color: #8892b0; line-height: 1.6; }
+        .paper .tag {
+            display: inline-block;
+            background: rgba(100,255,218,0.1);
+            color: #64ffda;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-top: 1rem;
         }
     </style>
 </head>
-
 <body>
-    <div class="navigation">
-        <h3>Quick Navigation</h3>
-        <ul>
-            <li><a href="#abstract">Abstract</a></li>
-            <li><a href="#introduction">1. Introduction</a></li>
-            <li><a href="#architecture">2. Architecture</a></li>
-            <li><a href="#implementation">3. Implementation</a></li>
-            <li><a href="#graph-construction">4. Graph Construction</a></li>
-            <li><a href="#performance">5. Performance</a></li>
-            <li><a href="#applications">6. Applications</a></li>
-            <li><a href="#evaluation">7. Evaluation</a></li>
-            <li><a href="#future-work">8. Future Work</a></li>
-            <li><a href="#conclusion">9. Conclusion</a></li>
-        </ul>
-    </div>
-
-    <div class="header">
-        <h1 class="title"><strong><code>borrowscope-runtime</code></strong>: A Technical White Paper</h1>
-        <p class="subtitle">Runtime Instrumentation and Analysis of Rust's Ownership System</p>
-        <div class="logo-container">
-            <img src="logo.png" alt="BorrowScope Logo" class="logo">
-        </div>
-        <div class="authors">
-            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank"
-                class="author-link">Mehmet Yalcinkaya, PhD</a><br>
-            Senior Cloud/Software Engineer<br><br>
-            <strong>Date:</strong> December 2025<br>
-            <strong>Version:</strong> 1.0<br>
-            <div class="dedication">
-                <em>hayatımın -de hâli yanımda olsun.. sonrasına bakarız</em><br>
-                <em>Canım kızım Dena'ya ❤️</em><br><br>
-            </div>
-            <div class="badges">
-                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
-                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github"
-                        alt="GitHub Repository">
-                </a>
-                <a href="https://crates.io/crates/borrowscope-runtime/0.1.1" target="_blank">
-                    <img src="https://img.shields.io/badge/crates.io-v0.1.1-orange?style=for-the-badge&logo=rust"
-                        alt="Crates.io">
-                </a>
-                <a href="https://docs.rs/borrowscope-runtime/0.1.1/borrowscope_runtime/index.html" target="_blank">
-                    <img src="https://img.shields.io/badge/docs.rs-Documentation-blue?style=for-the-badge&logo=rust"
-                        alt="Documentation">
-                </a>
-            </div>
+    <div class="container">
+        <h1>🦀 BorrowScope</h1>
+        <p class="subtitle">Technical Whitepapers & Documentation</p>
+        <div class="papers">
+            <a href="borrowscope-runtime/" class="paper">
+                <h2>BorrowScope Runtime</h2>
+                <p>A comprehensive technical whitepaper on runtime ownership tracking for Rust. Covers event-sourced architecture, zero-cost abstractions, and ownership graph construction.</p>
+                <span class="tag">v0.1.1</span>
+            </a>
         </div>
     </div>
-
-    <div class="toc">
-        <h2>Table of Contents</h2>
-        <ul>
-            <li><a href="#abstract">Abstract</a></li>
-            <li><a href="#introduction">1. Introduction and Motivation</a>
-                <ul>
-                    <li><a href="#ownership-problem">1.1 The Ownership Visibility Problem</a></li>
-                    <li><a href="#research-questions">1.2 Research Questions</a></li>
-                    <li><a href="#contributions">1.3 Contributions</a></li>
-                </ul>
-            </li>
-            <li><a href="#architecture">2. System Architecture</a>
-                <ul>
-                    <li><a href="#event-sourced">2.1 Event-Sourced Design</a></li>
-                    <li><a href="#core-components">2.2 Core Components</a></li>
-                </ul>
-            </li>
-            <li><a href="#implementation">3. Implementation Details</a>
-                <ul>
-                    <li><a href="#zero-cost">3.1 Zero-Cost Abstraction</a></li>
-                    <li><a href="#thread-safety">3.2 Thread Safety</a></li>
-                    <li><a href="#raii-guards">3.3 RAII Guards</a></li>
-                </ul>
-            </li>
-            <li><a href="#graph-construction">4. Ownership Graph Construction</a>
-                <ul>
-                    <li><a href="#graph-model">4.1 Graph Model and Data Structures</a></li>
-                    <li><a href="#construction-algorithm">4.2 Graph Construction Algorithm</a></li>
-                    <li><a href="#complex-patterns">4.3 Complex Ownership Patterns</a></li>
-                </ul>
-            </li>
-            <li><a href="#performance">5. Performance Analysis</a>
-                <ul>
-                    <li><a href="#test-environment">5.1 Test Environment and Methodology</a></li>
-                    <li><a href="#tracking-overhead">5.2 Basic Tracking Overhead</a></li>
-                    <li><a href="#memory-scaling">5.3 Memory Usage Scaling</a></li>
-                    <li><a href="#complex-patterns">5.4 Complex Ownership Pattern Performance</a></li>
-                    <li><a href="#zero-cost-abstraction">5.5 Zero-Cost Abstraction Verification</a></li>
-                    <li><a href="#performance-summary">5.6 Performance Summary and Recommendations</a></li>
-                </ul>
-            </li>
-            <li><a href="#applications">6. Applications and Use Cases</a>
-                <ul>
-                    <li><a href="#educational-applications">6.1 Educational Applications</a></li>
-                    <li><a href="#development-debugging">6.2 Development and Debugging Applications</a></li>
-                </ul>
-            </li>
-            <li><a href="#evaluation">7. Evaluation and Validation</a>
-                <ul>
-                    <li><a href="#development-status">7.1 Development Status and Scope</a></li>
-                    <li><a href="#test-suite">7.2 Test Suite Architecture</a></li>
-                    <li><a href="#coverage-analysis">7.3 Pattern Coverage Analysis</a></li>
-                    <li><a href="#validation-results">7.4 Validation Results and Findings</a></li>
-                </ul>
-            </li>
-            <li><a href="#future-work">8. Future Work and Extensions</a>
-                <ul>
-                    <li><a href="#ecosystem-overview">8.1 BorrowScope Ecosystem Overview</a></li>
-                    <li><a href="#macro-system">8.2 Automatic Instrumentation</a></li>
-                    <li><a href="#graph-analysis">8.3 Advanced Graph Analysis</a></li>
-                    <li><a href="#cli-tools">8.4 Command-Line Analysis</a></li>
-                    <li><a href="#interactive-ui">8.5 Interactive Visualization</a></li>
-                </ul>
-            </li>
-            <li><a href="#conclusion">9. Conclusion</a>
-                <ul>
-                    <li><a href="#key-contributions">9.1 Key Contributions</a></li>
-                    <li><a href="#technical-achievements">9.2 Technical Achievements</a></li>
-                    <li><a href="#practical-impact">9.3 Practical Impact and Applications</a></li>
-                    <li><a href="#ecosystem-foundation">9.4 Foundation for Future Development</a></li>
-                    <li><a href="#broader-implications">9.5 Broader Implications</a></li>
-                    <li><a href="#final-remarks">9.6 Final Remarks</a></li>
-                </ul>
-            </li>
-        </ul>
-    </div>
-
-    <!-- Abstract Section -->
-    <div class="section-container" id="abstract-container">
-        <div class="loading">Loading Abstract...</div>
-    </div>
-
-    <!-- Introduction Section -->
-    <div class="section-container" id="introduction-container">
-        <div class="loading">Loading Introduction...</div>
-    </div>
-
-    <!-- Architecture Section -->
-    <div class="section-container" id="architecture-container">
-        <div class="loading">Loading Architecture...</div>
-    </div>
-
-    <!-- Implementation Section -->
-    <div class="section-container" id="implementation-container">
-        <div class="loading">Loading Implementation...</div>
-    </div>
-
-    <!-- Graph Construction Section -->
-    <div class="section-container" id="graph-construction-container">
-        <div class="loading">Loading Graph Construction...</div>
-    </div>
-
-    <!-- Performance Section -->
-    <div class="section-container" id="performance-container">
-        <div class="loading">Loading Performance Analysis...</div>
-    </div>
-
-    <!-- Applications Section -->
-    <div class="section-container" id="applications-container">
-        <div class="loading">Loading Applications and Use Cases...</div>
-    </div>
-
-    <!-- Evaluation Section -->
-    <div class="section-container" id="evaluation-container">
-        <div class="loading">Loading Evaluation and Validation...</div>
-    </div>
-
-    <!-- Future Work Section -->
-    <div class="section-container" id="future-work-container">
-        <div class="loading">Loading Future Work and Extensions...</div>
-    </div>
-
-    <!-- Conclusion Section -->
-    <div class="section-container" id="conclusion-container">
-        <div class="loading">Loading Conclusion...</div>
-    </div>
-
-    <script src="scripts.js"></script>
-    <script>
-        // Load individual sections
-        document.addEventListener('DOMContentLoaded', function () {
-            // Load Abstract
-            fetch('abstract.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('abstract-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading abstract:', error);
-                    document.getElementById('abstract-container').innerHTML = '<p>Error loading abstract content.</p>';
-                });
-
-            // Load Introduction
-            fetch('introduction.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('introduction-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading introduction:', error);
-                    document.getElementById('introduction-container').innerHTML = '<p>Error loading introduction content.</p>';
-                });
-
-            // Load Architecture
-            fetch('architecture.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('architecture-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading architecture:', error);
-                    document.getElementById('architecture-container').innerHTML = '<p>Error loading architecture content.</p>';
-                });
-
-            // Load Implementation
-            fetch('implementation.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('implementation-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading implementation:', error);
-                    document.getElementById('implementation-container').innerHTML = '<p>Error loading implementation content.</p>';
-                });
-
-            // Load Graph Construction
-            fetch('graph-construction.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('graph-construction-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading graph construction:', error);
-                    document.getElementById('graph-construction-container').innerHTML = '<p>Error loading graph construction content.</p>';
-                });
-
-            // Load Performance Analysis
-            fetch('performance.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('performance-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading performance:', error);
-                    document.getElementById('performance-container').innerHTML = '<p>Error loading performance content.</p>';
-                });
-
-            // Load Applications and Use Cases
-            fetch('applications.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('applications-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading applications:', error);
-                    document.getElementById('applications-container').innerHTML = '<p>Error loading applications content.</p>';
-                });
-
-            // Load Evaluation and Validation
-            fetch('evaluation.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('evaluation-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading evaluation:', error);
-                    document.getElementById('evaluation-container').innerHTML = '<p>Error loading evaluation content.</p>';
-                });
-
-            // Load Future Work
-            fetch('future-work.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('future-work-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading future work:', error);
-                    document.getElementById('future-work-container').innerHTML = '<p>Error loading future work content.</p>';
-                });
-
-            // Load Conclusion
-            fetch('conclusion.html')
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const content = doc.querySelector('.section-content');
-                    if (content) {
-                        document.getElementById('conclusion-container').innerHTML = content.innerHTML;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error loading conclusion:', error);
-                    document.getElementById('conclusion-container').innerHTML = '<p>Error loading conclusion content.</p>';
-                });
-
-            // Initialize shared functionality after content loads
-            setTimeout(() => {
-                // Re-initialize copy buttons and theme buttons for all code blocks
-                document.querySelectorAll('.code-block').forEach(block => {
-                    // Skip if buttons already exist
-                    if (block.querySelector('.copy-btn')) return;
-
-                    const copyButton = document.createElement('button');
-                    copyButton.textContent = 'Copy';
-                    copyButton.className = 'copy-btn';
-
-                    const themeButton = document.createElement('button');
-                    themeButton.textContent = '🌙';
-                    themeButton.className = 'theme-btn';
-                    themeButton.title = 'Toggle dark/light theme';
-
-                    block.appendChild(copyButton);
-                    block.appendChild(themeButton);
-
-                    copyButton.addEventListener('click', () => {
-                        const text = block.querySelector('pre').textContent;
-                        navigator.clipboard.writeText(text).then(() => {
-                            copyButton.textContent = 'Copied!';
-                            setTimeout(() => {
-                                copyButton.textContent = 'Copy';
-                            }, 2000);
-                        });
-                    });
-
-                    themeButton.addEventListener('click', () => {
-                        block.classList.toggle('dark-theme');
-                        themeButton.textContent = block.classList.contains('dark-theme') ? '☀️' : '🌙';
-                    });
-                });
-            }, 1000);
-        });
-    </script>
 </body>
-
 </html>
