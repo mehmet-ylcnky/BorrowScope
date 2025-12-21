@@ -65,6 +65,25 @@ BorrowScope Macro addresses this by making ownership operations observable. Inst
 - **Generic function support** - Works with generic type parameters and lifetimes
 - **Async tracking** - Tracks async blocks and await expressions
 
+### Control Flow Tracking
+
+| Operation | Description |
+|-----------|-------------|
+| Loops | Tracks `for`, `while`, `loop` entry, iterations, and exit |
+| Match expressions | Tracks match entry, which arm was taken, and exit |
+| If/else branches | Tracks which branch was taken |
+| Return statements | Tracks early returns |
+| Try operator (`?`) | Tracks error propagation points |
+
+### Method Call Tracking
+
+| Method | Description |
+|--------|-------------|
+| `.clone()` | Tracks clone operations |
+| `.lock()`, `.try_lock()` | Tracks Mutex lock acquisition |
+| `.read()`, `.write()` | Tracks RwLock operations |
+| `.unwrap()`, `.expect()` | Tracks Option/Result unwrapping |
+
 ## Usage
 
 Add both crates to your `Cargo.toml`:
@@ -131,6 +150,58 @@ fn unsafe_example() {
     unsafe {                      // track_unsafe_block_enter
         let _val = *ptr;
     }                             // track_unsafe_block_exit
+}
+```
+
+### Control Flow Example
+
+```rust
+use borrowscope_macro::trace_borrow;
+
+#[trace_borrow]
+fn control_flow_example() -> Result<i32, &'static str> {
+    // Loop tracking
+    for i in 0..3 {              // track_loop_enter, track_loop_iteration (x3), track_loop_exit
+        println!("{}", i);
+    }
+    
+    // Match tracking
+    let x = 42;
+    let result = match x {       // track_match_enter
+        0 => "zero",             // track_match_arm if taken
+        _ => "other",            // track_match_arm if taken
+    };                           // track_match_exit
+    
+    // Branch tracking
+    if x > 0 {                   // track_branch("then")
+        println!("positive");
+    } else {                     // track_branch("else")
+        println!("non-positive");
+    }
+    
+    // Try operator tracking
+    let value = some_fallible_fn()?;  // track_try
+    
+    Ok(value)
+}
+```
+
+### Method Call Example
+
+```rust
+use borrowscope_macro::trace_borrow;
+use std::sync::Mutex;
+
+#[trace_borrow]
+fn method_call_example() {
+    let data = vec![1, 2, 3];
+    let cloned = data.clone();        // track_clone
+    
+    let mutex = Mutex::new(42);
+    let guard = mutex.lock().unwrap(); // track_lock, track_unwrap
+    
+    let option: Option<i32> = Some(42);
+    let value = option.unwrap();       // track_unwrap
 }
 ```
 

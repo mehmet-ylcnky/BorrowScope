@@ -802,6 +802,327 @@ impl OwnershipVisitor {
             _ => "future".to_string(),
         }
     }
+
+    // ========== Phase 5: Extended Tracking Transformations ==========
+
+    /// Transform for loop
+    fn transform_for_loop(&mut self, expr: &mut Expr, for_loop: &syn::ExprForLoop) {
+        let loop_id = self.gen_id();
+        let location = Self::location_tokens(for_loop.for_token.span);
+        let pat = &for_loop.pat;
+        let iter_expr = &for_loop.expr;
+        let body = &for_loop.body;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_loop_enter(#loop_id, "for", #location);
+                let mut __iter_count = 0usize;
+                for #pat in #iter_expr {
+                    borrowscope_runtime::track_loop_iteration(#loop_id, __iter_count, #location);
+                    __iter_count += 1;
+                    #body
+                }
+                borrowscope_runtime::track_loop_exit(#loop_id, #location);
+            }
+        };
+    }
+
+    /// Transform while loop
+    fn transform_while_loop(&mut self, expr: &mut Expr, while_loop: &syn::ExprWhile) {
+        let loop_id = self.gen_id();
+        let location = Self::location_tokens(while_loop.while_token.span);
+        let cond = &while_loop.cond;
+        let body = &while_loop.body;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_loop_enter(#loop_id, "while", #location);
+                let mut __iter_count = 0usize;
+                while #cond {
+                    borrowscope_runtime::track_loop_iteration(#loop_id, __iter_count, #location);
+                    __iter_count += 1;
+                    #body
+                }
+                borrowscope_runtime::track_loop_exit(#loop_id, #location);
+            }
+        };
+    }
+
+    /// Transform infinite loop
+    fn transform_loop(&mut self, expr: &mut Expr, loop_expr: &syn::ExprLoop) {
+        let loop_id = self.gen_id();
+        let location = Self::location_tokens(loop_expr.loop_token.span);
+        let body = &loop_expr.body;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_loop_enter(#loop_id, "loop", #location);
+                let mut __iter_count = 0usize;
+                loop {
+                    borrowscope_runtime::track_loop_iteration(#loop_id, __iter_count, #location);
+                    __iter_count += 1;
+                    #body
+                }
+            }
+        };
+    }
+
+    /// Transform try/? operator
+    fn transform_try(&mut self, expr: &mut Expr, try_expr: &syn::ExprTry) {
+        let try_id = self.gen_id();
+        let location = Self::location_tokens(try_expr.question_token.span);
+        let inner = &try_expr.expr;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_try(#try_id, #location);
+                #inner?
+            }
+        };
+    }
+
+    /// Transform clone method call
+    fn transform_clone(&mut self, expr: &mut Expr, method_call: &syn::ExprMethodCall) {
+        let clone_id = self.gen_id();
+        let location = Self::location_tokens(method_call.method.span());
+        let receiver = &method_call.receiver;
+        let var_name = Self::extract_receiver_name(receiver).unwrap_or_else(|| "expr".to_string());
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_clone(#clone_id, #var_name, #location);
+                #receiver.clone()
+            }
+        };
+    }
+
+    /// Transform lock method calls (Mutex/RwLock)
+    fn transform_lock(&mut self, expr: &mut Expr, method_call: &syn::ExprMethodCall, lock_type: &str) {
+        let lock_id = self.gen_id();
+        let location = Self::location_tokens(method_call.method.span());
+        let receiver = &method_call.receiver;
+        let var_name = Self::extract_receiver_name(receiver).unwrap_or_else(|| "lock".to_string());
+        let method = &method_call.method;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_lock(#lock_id, #lock_type, #var_name, #location);
+                #receiver.#method()
+            }
+        };
+    }
+
+    /// Transform unwrap method calls
+    fn transform_unwrap(&mut self, expr: &mut Expr, method_call: &syn::ExprMethodCall) {
+        let unwrap_id = self.gen_id();
+        let location = Self::location_tokens(method_call.method.span());
+        let receiver = &method_call.receiver;
+        let var_name = Self::extract_receiver_name(receiver).unwrap_or_else(|| "expr".to_string());
+        let method_name = method_call.method.to_string();
+        let method = &method_call.method;
+        let args = &method_call.args;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
+                #receiver.#method(#args)
+            }
+        };
+    }
+
+    /// Transform deref operation
+    fn transform_deref(&mut self, expr: &mut Expr, unary: &syn::ExprUnary) {
+        let deref_id = self.gen_id();
+        let location = Self::location_tokens(unary.op.span());
+        let inner = &unary.expr;
+        let var_name = if let Expr::Path(path) = inner.as_ref() {
+            quote::quote!(#path).to_string()
+        } else {
+            "expr".to_string()
+        };
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_deref(#deref_id, #var_name, #location);
+                *#inner
+            }
+        };
+    }
+
+    /// Transform match expression
+    fn transform_match(&mut self, expr: &mut Expr, match_expr: &syn::ExprMatch) {
+        let match_id = self.gen_id();
+        let location = Self::location_tokens(match_expr.match_token.span);
+        let scrutinee = &match_expr.expr;
+
+        let mut new_arms: Vec<syn::Arm> = Vec::new();
+        for (idx, arm) in match_expr.arms.iter().enumerate() {
+            let pat = &arm.pat;
+            let guard = &arm.guard;
+            let body = &arm.body;
+            let pat_str = quote::quote!(#pat).to_string();
+
+            let new_body: Expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_match_arm(#match_id, #idx, #pat_str, #location);
+                    #body
+                }
+            };
+
+            let new_arm: syn::Arm = if let Some((if_token, guard_expr)) = guard {
+                syn::parse_quote! { #pat #if_token #guard_expr => #new_body }
+            } else {
+                syn::parse_quote! { #pat => #new_body }
+            };
+            new_arms.push(new_arm);
+        }
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_match_enter(#match_id, #location);
+                let __match_result = match #scrutinee {
+                    #(#new_arms),*
+                };
+                borrowscope_runtime::track_match_exit(#match_id, #location);
+                __match_result
+            }
+        };
+    }
+
+    /// Transform if expression
+    fn transform_if(&mut self, expr: &mut Expr, if_expr: &syn::ExprIf) {
+        let branch_id = self.gen_id();
+        let location = Self::location_tokens(if_expr.if_token.span);
+        let cond = &if_expr.cond;
+        let then_branch = &if_expr.then_branch;
+
+        let new_then: Block = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_branch(#branch_id, "then", #location);
+                #then_branch
+            }
+        };
+
+        if let Some((_else_token, else_branch)) = &if_expr.else_branch {
+            let new_else: Expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_branch(#branch_id, "else", #location);
+                    #else_branch
+                }
+            };
+            *expr = syn::parse_quote! {
+                if #cond #new_then else #new_else
+            };
+        } else {
+            *expr = syn::parse_quote! {
+                if #cond #new_then
+            };
+        }
+    }
+
+    /// Transform return expression
+    fn transform_return(&mut self, expr: &mut Expr, return_expr: &syn::ExprReturn) {
+        let return_id = self.gen_id();
+        let location = Self::location_tokens(return_expr.return_token.span);
+        let has_value = return_expr.expr.is_some();
+
+        if let Some(value) = &return_expr.expr {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_return(#return_id, #has_value, #location);
+                    return #value
+                }
+            };
+        } else {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_return(#return_id, #has_value, #location);
+                    return
+                }
+            };
+        }
+    }
+
+    /// Transform index expression
+    fn transform_index(&mut self, expr: &mut Expr, index_expr: &syn::ExprIndex) {
+        let access_id = self.gen_id();
+        let location = Self::location_tokens(index_expr.bracket_token.span.open());
+        let base = &index_expr.expr;
+        let index = &index_expr.index;
+        let container = if let Expr::Path(path) = base.as_ref() {
+            quote::quote!(#path).to_string()
+        } else {
+            "expr".to_string()
+        };
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_index_access(#access_id, #container, #location);
+                #base[#index]
+            }
+        };
+    }
+
+    /// Transform field access expression
+    fn transform_field(&mut self, expr: &mut Expr, field_expr: &syn::ExprField) {
+        let access_id = self.gen_id();
+        let location = Self::location_tokens(field_expr.dot_token.span);
+        let base_expr = &field_expr.base;
+        let member = &field_expr.member;
+
+        let base_name = if let Expr::Path(path) = base_expr.as_ref() {
+            quote::quote!(#path).to_string()
+        } else {
+            "expr".to_string()
+        };
+
+        let field_name = match member {
+            syn::Member::Named(ident) => ident.to_string(),
+            syn::Member::Unnamed(idx) => idx.index.to_string(),
+        };
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_field_access(#access_id, #base_name, #field_name, #location);
+                #base_expr.#member
+            }
+        };
+    }
+
+    /// Transform function call (generic, excluding special cases)
+    /// Note: Currently disabled as it would be too noisy. Can be enabled via feature flag.
+    #[allow(dead_code)]
+    fn transform_fn_call(&mut self, expr: &mut Expr, call_expr: &syn::ExprCall) {
+        let call_id = self.gen_id();
+        let func = &call_expr.func;
+        let args = &call_expr.args;
+
+        let fn_name = if let Expr::Path(path) = func.as_ref() {
+            quote::quote!(#path).to_string()
+        } else {
+            "fn".to_string()
+        };
+
+        // Skip if already handled (transmute, etc.)
+        if fn_name.contains("transmute") || fn_name.contains("track_") {
+            return;
+        }
+
+        let location = Self::location_tokens(
+            if let Expr::Path(path) = func.as_ref() {
+                path.path.segments.last().map(|s| s.ident.span()).unwrap_or_else(proc_macro2::Span::call_site)
+            } else {
+                proc_macro2::Span::call_site()
+            }
+        );
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_call(#call_id, #fn_name, #location);
+                #func(#args)
+            }
+        };
+    }
 }
 
 impl Default for OwnershipVisitor {
@@ -908,9 +1229,84 @@ impl VisitMut for OwnershipVisitor {
             return;
         }
 
+        // Handle loops before default traversal
+        if let Expr::ForLoop(for_loop) = expr.clone() {
+            self.transform_for_loop(expr, &for_loop);
+            return;
+        }
+        if let Expr::While(while_loop) = expr.clone() {
+            self.transform_while_loop(expr, &while_loop);
+            return;
+        }
+        if let Expr::Loop(loop_expr) = expr.clone() {
+            self.transform_loop(expr, &loop_expr);
+            return;
+        }
+
+        // Handle try/? operator
+        if let Expr::Try(try_expr) = expr.clone() {
+            self.transform_try(expr, &try_expr);
+            return;
+        }
+
+        // Handle match expressions
+        if let Expr::Match(match_expr) = expr.clone() {
+            self.transform_match(expr, &match_expr);
+            return;
+        }
+
+        // Handle if expressions
+        if let Expr::If(if_expr) = expr.clone() {
+            self.transform_if(expr, &if_expr);
+            return;
+        }
+
+        // Handle return expressions
+        if let Expr::Return(return_expr) = expr.clone() {
+            self.transform_return(expr, &return_expr);
+            return;
+        }
+
         // Handle method calls - check for RefCell/Cell methods first
         if let Expr::MethodCall(method_call) = expr {
             let method_name = method_call.method.to_string();
+            
+            // Check for clone
+            if method_name == "clone" {
+                let mc = method_call.clone();
+                self.transform_clone(expr, &mc);
+                return;
+            }
+
+            // Check for lock methods (Mutex/RwLock)
+            match method_name.as_str() {
+                "lock" | "try_lock" => {
+                    let mc = method_call.clone();
+                    self.transform_lock(expr, &mc, "mutex");
+                    return;
+                }
+                "read" | "try_read" => {
+                    let mc = method_call.clone();
+                    self.transform_lock(expr, &mc, "rwlock_read");
+                    return;
+                }
+                "write" | "try_write" => {
+                    let mc = method_call.clone();
+                    self.transform_lock(expr, &mc, "rwlock_write");
+                    return;
+                }
+                _ => {}
+            }
+
+            // Check for unwrap methods
+            match method_name.as_str() {
+                "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" => {
+                    let mc = method_call.clone();
+                    self.transform_unwrap(expr, &mc);
+                    return;
+                }
+                _ => {}
+            }
             
             // Check for RefCell/Cell specific methods that need wrapping
             if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
@@ -965,6 +1361,28 @@ impl VisitMut for OwnershipVisitor {
             self.transform_method_call(method_call);
             return;
         }
+
+        // Handle deref operations (*expr) - DISABLED: breaks assignment expressions
+        // The transformation `*x = y` -> `{ track_deref(...); *x } = y` is invalid
+        // Would need context-aware transformation to handle lvalue vs rvalue
+        // if let Expr::Unary(unary) = expr.clone() {
+        //     if matches!(unary.op, syn::UnOp::Deref(_)) {
+        //         self.transform_deref(expr, &unary);
+        //         return;
+        //     }
+        // }
+
+        // Handle index access (arr[i]) - DISABLED: same issue as deref
+        // if let Expr::Index(index_expr) = expr.clone() {
+        //     self.transform_index(expr, &index_expr);
+        //     return;
+        // }
+
+        // Handle field access (obj.field) - DISABLED: same issue as deref
+        // if let Expr::Field(field_expr) = expr.clone() {
+        //     self.transform_field(expr, &field_expr);
+        //     return;
+        // }
 
         // First recursively visit nested expressions
         visit_mut::visit_expr_mut(self, expr);
@@ -1329,5 +1747,192 @@ mod tests {
         let output = expr.to_token_stream().to_string();
         assert!(output.contains("track_await_start"));
         assert!(output.contains("fetch_data"));
+    }
+
+    // ========== Phase 5 Tests ==========
+
+    #[test]
+    fn test_for_loop_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            for i in 0..10 { println!("{}", i); }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_loop_enter"));
+        assert!(output.contains("track_loop_iteration"));
+        assert!(output.contains("track_loop_exit"));
+        assert!(output.contains("\"for\""));
+    }
+
+    #[test]
+    fn test_while_loop_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            while x > 0 { x -= 1; }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_loop_enter"));
+        assert!(output.contains("track_loop_iteration"));
+        assert!(output.contains("track_loop_exit"));
+        assert!(output.contains("\"while\""));
+    }
+
+    #[test]
+    fn test_loop_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            loop { break; }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_loop_enter"));
+        assert!(output.contains("track_loop_iteration"));
+        assert!(output.contains("\"loop\""));
+    }
+
+    #[test]
+    fn test_try_operator_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            some_result?
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_try"));
+    }
+
+    #[test]
+    fn test_clone_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            data.clone()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_clone"));
+        assert!(output.contains("\"data\""));
+    }
+
+    #[test]
+    fn test_mutex_lock_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            mutex.lock()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_lock"));
+        assert!(output.contains("\"mutex\""));
+    }
+
+    #[test]
+    fn test_rwlock_read_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            rwlock.read()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_lock"));
+        assert!(output.contains("rwlock_read"));
+    }
+
+    #[test]
+    fn test_unwrap_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            option.unwrap()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_unwrap"));
+        assert!(output.contains("\"unwrap\""));
+    }
+
+    #[test]
+    fn test_expect_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            result.expect("error")
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_unwrap"));
+        assert!(output.contains("\"expect\""));
+    }
+
+    #[test]
+    fn test_match_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            match x { 1 => "one", _ => "other" }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_match_enter"));
+        assert!(output.contains("track_match_arm"));
+        assert!(output.contains("track_match_exit"));
+    }
+
+    #[test]
+    fn test_if_else_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            if x > 0 { 1 } else { 0 }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_branch"));
+        assert!(output.contains("\"then\""));
+        assert!(output.contains("\"else\""));
+    }
+
+    #[test]
+    fn test_return_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            return 42
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_return"));
     }
 }

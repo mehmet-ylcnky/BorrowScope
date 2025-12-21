@@ -107,13 +107,16 @@ pub use tracker::{
     print_summary, reset, track_arc_clone, track_arc_clone_with_id, track_arc_new,
     track_arc_new_with_id, track_async_block_enter, track_async_block_exit, track_await_end,
     track_await_start, track_borrow, track_borrow_mut, track_borrow_mut_with_id,
-    track_borrow_with_id, track_cell_get, track_cell_new, track_cell_set, track_const_eval,
-    track_drop, track_drop_batch, track_drop_with_id, track_ffi_call, track_move,
-    track_move_with_id, track_new, track_new_with_id, track_raw_ptr, track_raw_ptr_deref,
-    track_raw_ptr_mut, track_rc_clone, track_rc_clone_with_id, track_rc_new, track_rc_new_with_id,
-    track_refcell_borrow, track_refcell_borrow_mut, track_refcell_drop, track_refcell_new,
-    track_static_access, track_static_init, track_transmute, track_union_field_access,
-    track_unsafe_block_enter, track_unsafe_block_exit, track_unsafe_fn_call, TrackingSummary,
+    track_borrow_with_id, track_branch, track_call, track_cell_get, track_cell_new, track_cell_set,
+    track_clone, track_const_eval, track_deref, track_drop, track_drop_batch, track_drop_with_id,
+    track_ffi_call, track_field_access, track_index_access, track_lock, track_loop_enter,
+    track_loop_exit, track_loop_iteration, track_match_arm, track_match_enter, track_match_exit,
+    track_move, track_move_with_id, track_new, track_new_with_id, track_raw_ptr,
+    track_raw_ptr_deref, track_raw_ptr_mut, track_rc_clone, track_rc_clone_with_id, track_rc_new,
+    track_rc_new_with_id, track_refcell_borrow, track_refcell_borrow_mut, track_refcell_drop,
+    track_refcell_new, track_return, track_static_access, track_static_init, track_transmute,
+    track_try, track_union_field_access, track_unsafe_block_enter, track_unsafe_block_exit,
+    track_unsafe_fn_call, track_unwrap, TrackingSummary,
 };
 
 /// Convenience macro for RefCell borrow tracking with auto file:line capture

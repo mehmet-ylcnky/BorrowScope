@@ -1,198 +1,387 @@
 # BorrowScope Macro Implementation Plan
 
-## Current State
-
-### Aligned with Runtime
-- `track_new`, `track_borrow`, `track_borrow_mut`, `track_move`, `track_drop`
-- `track_rc_new`, `track_rc_clone`, `track_arc_new`, `track_arc_clone`
-- `track_refcell_new`, `track_refcell_borrow`, `track_refcell_borrow_mut` ✅
-- `track_cell_new`, `track_cell_get`, `track_cell_set` ✅
-- `track_unsafe_block_enter/exit` ✅
-- `track_raw_ptr`, `track_raw_ptr_mut` ✅
-- `track_transmute` ✅
-- `track_async_block_enter/exit`, `track_await_start/end` ✅
-
-### Implementation Status
-
-| Runtime Feature | Macro Support | Status |
-|-----------------|---------------|--------|
-| `track_refcell_new` | Transformed | ✅ DONE |
-| `track_refcell_borrow` | Transformed | ✅ DONE |
-| `track_refcell_borrow_mut` | Transformed | ✅ DONE |
-| `track_refcell_drop` | Not implemented | N/A (uses track_drop) |
-| `track_cell_new` | Transformed | ✅ DONE |
-| `track_cell_get` | Transformed | ✅ DONE |
-| `track_cell_set` | Transformed | ✅ DONE |
-| `track_raw_ptr` | Transformed | ✅ DONE |
-| `track_raw_ptr_mut` | Transformed | ✅ DONE |
-| `track_raw_ptr_deref` | Not possible | ❌ Requires type info |
-| `track_unsafe_block_enter/exit` | Transformed | ✅ DONE |
-| `track_unsafe_fn_call` | Not possible | ❌ Requires type info |
-| `track_ffi_call` | Not possible | ❌ Requires type info |
-| `track_transmute` | Transformed | ✅ DONE |
-| `track_union_field_access` | Not possible | ❌ Requires type info |
-| `track_static_init` | Not possible | ❌ Requires type info |
-| `track_static_access` | Not possible | ❌ Requires type info |
-| `track_const_eval` | Not possible | ❌ Requires type info |
-| `track_async_block_enter/exit` | Transformed | ✅ DONE |
-| `track_await_start/end` | Transformed | ✅ DONE |
-
----
-
-## Phase 1: Fix Inconsistencies & Low-Hanging Fruit ✅ COMPLETE
-
-### 1.1 Fix Location Extraction ✅
-- Replaced placeholder `extract_location()` with `location_tokens()` 
-- Uses `concat!(file!(), ":", line!())` macros evaluated at call site
-
-### 1.2 Fix async/unsafe Inconsistency ✅
-- Removed rejection in `best_practices.rs` for async/unsafe functions
-- Only const functions are now rejected (cannot have runtime tracking)
-
-### 1.3 Complete RefCell Transformation ✅
-| Pattern | Transform To |
-|---------|-------------|
-| `RefCell::new(x)` | `track_refcell_new("name", RefCell::new(x))` |
-| `cell.borrow()` | `track_refcell_borrow("id", "cell_id", "loc", cell.borrow())` |
-| `cell.borrow_mut()` | `track_refcell_borrow_mut("id", "cell_id", "loc", cell.borrow_mut())` |
-
-### 1.4 Complete Cell Transformation ✅
-| Pattern | Transform To |
-|---------|-------------|
-| `Cell::new(x)` | `track_cell_new("name", Cell::new(x))` |
-| `cell.get()` | `track_cell_get("cell_id", "loc", cell.get())` |
-| `cell.set(v)` | `{ track_cell_set("cell_id", "loc"); cell.set(v) }` |
-
----
-
-## Phase 2: Unsafe Code Tracking ✅ COMPLETE
-
-### 2.1 Unsafe Block Tracking ✅
-Transform:
-```rust
-unsafe { ... }
-```
-To:
-```rust
-unsafe {
-    borrowscope_runtime::track_unsafe_block_enter(ID, "loc");
-    let __unsafe_result = { ... };
-    borrowscope_runtime::track_unsafe_block_exit(ID, "loc");
-    __unsafe_result
-}
-```
-
-### 2.2 Raw Pointer Tracking ✅
-| Pattern | Transform To |
-|---------|-------------|
-| `&x as *const T` | `track_raw_ptr("name", id, "*const T", "loc", &x as *const T)` |
-| `&mut x as *mut T` | `track_raw_ptr_mut("name", id, "*mut T", "loc", &mut x as *mut T)` |
-
-### 2.3 Transmute Tracking ✅
-| Pattern | Transform To |
-|---------|-------------|
-| `std::mem::transmute(x)` | `{ track_transmute(...); std::mem::transmute(x) }` |
-
-### Known Limitations (Require Type Information)
-
-The following cannot be implemented in a proc macro because they require type
-information that is not available during macro expansion:
-
-| Operation | Why It's Not Possible |
-|-----------|----------------------|
-| `*ptr` dereference tracking | Cannot distinguish raw pointer deref from regular `Deref` trait |
-| FFI call tracking | Cannot know if a function is `extern "C"` without seeing its declaration |
-| Union field access tracking | Cannot know if a type is `union` vs `struct` |
-| Unsafe fn call tracking | Cannot know if a function is `unsafe fn` without seeing its signature |
-
----
-
-## Phase 3: Static/Const Tracking ❌ NOT IMPLEMENTABLE
-
-### Analysis
-
-Static and const tracking cannot be implemented in `#[trace_borrow]` for two reasons:
-
-1. **Scope mismatch**: `#[trace_borrow]` is a function-level attribute. Static and const declarations are module-level items that exist outside function bodies.
-
-2. **No type information**: When code accesses a static variable (e.g., `SOME_STATIC`), the macro sees only a path expression. It cannot distinguish between:
-   - A static variable (`static SOME_STATIC: i32 = 0`)
-   - A const item (`const SOME_CONST: i32 = 0`)
-   - A local variable (`let some_static = 0`)
-   - A function call (`some_static()`)
-
-### Conclusion
-
-Phase 3 is **not implementable** within the current `#[trace_borrow]` design. The runtime API exists but cannot be automatically invoked without type information.
-
----
-
-## Phase 4: Async Tracking ✅ COMPLETE
-
-### 4.1 Runtime API ✅
-Added to borrowscope-runtime:
-- `track_async_block_enter(block_id, location)`
-- `track_async_block_exit(block_id, location)`
-- `track_await_start(await_id, future_name, location)`
-- `track_await_end(await_id, location)`
-
-New event types:
-- `AsyncBlockEnter { timestamp, block_id, location }`
-- `AsyncBlockExit { timestamp, block_id, location }`
-- `AwaitStart { timestamp, await_id, future_name, location }`
-- `AwaitEnd { timestamp, await_id, location }`
-
-### 4.2 Macro Transformations ✅
-
-**Async blocks:**
-```rust
-async { expr }
-```
-Transforms to:
-```rust
-async {
-    track_async_block_enter(ID, "loc");
-    let __async_result = { expr };
-    track_async_block_exit(ID, "loc");
-    __async_result
-}
-```
-
-**Await expressions:**
-```rust
-future.await
-```
-Transforms to:
-```rust
-{
-    track_await_start(ID, "future", "loc");
-    let __await_result = future.await;
-    track_await_end(ID, "loc");
-    __await_result
-}
-```
-
-### What Cannot Be Tracked
-- Future polling (happens in executor, not user code)
-- Pin/Unpin semantics (type-dependent)
-- Waker interactions (runtime internals)
-- State machine transitions (compiler-generated)
-
----
-
-## Summary
+## Completed Phases
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| Phase 1 | ✅ Complete | Location, async/unsafe consistency, RefCell/Cell |
+| Phase 1 | ✅ Complete | Location, RefCell/Cell |
 | Phase 2 | ✅ Complete | Unsafe blocks, raw ptr casts, transmute |
-| Phase 3 | ❌ Not Implementable | Requires type info or different macro approach |
+| Phase 3 | ❌ Not Implementable | Static/const (requires type info) |
 | Phase 4 | ✅ Complete | Async blocks and await expressions |
+
+---
+
+## Phase 5: Extended Tracking Features
+
+### 5.1 Loop Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_loop_enter(loop_id: usize, loop_type: &str, location: &str)
+pub fn track_loop_iteration(loop_id: usize, iteration: usize, location: &str)
+pub fn track_loop_exit(loop_id: usize, location: &str)
+```
+
+**Events:**
+- `LoopEnter { timestamp, loop_id, loop_type, location }`
+- `LoopIteration { timestamp, loop_id, iteration, location }`
+- `LoopExit { timestamp, loop_id, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+for item in collection { body }
+
+// Output:
+{
+    track_loop_enter(ID, "for", "loc");
+    let mut __iter_count = 0usize;
+    for item in collection {
+        track_loop_iteration(ID, __iter_count, "loc");
+        __iter_count += 1;
+        body
+    }
+    track_loop_exit(ID, "loc");
+}
+```
+
+**Detectable patterns:** `Expr::ForLoop`, `Expr::While`, `Expr::Loop`
+
+---
+
+### 5.2 Match Arm Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_match_enter(match_id: usize, location: &str)
+pub fn track_match_arm(match_id: usize, arm_index: usize, pattern: &str, location: &str)
+pub fn track_match_exit(match_id: usize, location: &str)
+```
+
+**Events:**
+- `MatchEnter { timestamp, match_id, location }`
+- `MatchArm { timestamp, match_id, arm_index, pattern, location }`
+- `MatchExit { timestamp, match_id, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+match value { A => a, B => b }
+
+// Output:
+{
+    track_match_enter(ID, "loc");
+    let __match_result = match value {
+        A => { track_match_arm(ID, 0, "A", "loc"); a }
+        B => { track_match_arm(ID, 1, "B", "loc"); b }
+    };
+    track_match_exit(ID, "loc");
+    __match_result
+}
+```
+
+**Detectable patterns:** `Expr::Match`
+
+---
+
+### 5.3 If/Else Branch Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_branch(branch_id: usize, branch_type: &str, taken: bool, location: &str)
+```
+
+**Events:**
+- `Branch { timestamp, branch_id, branch_type, taken, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+if cond { then } else { else_branch }
+
+// Output:
+if cond {
+    track_branch(ID, "if_then", true, "loc");
+    then
+} else {
+    track_branch(ID, "if_else", true, "loc");
+    else_branch
+}
+```
+
+**Detectable patterns:** `Expr::If`
+
+---
+
+### 5.4 Return Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_return(return_id: usize, has_value: bool, location: &str)
+```
+
+**Events:**
+- `Return { timestamp, return_id, has_value, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+return value;
+
+// Output:
+{
+    track_return(ID, true, "loc");
+    return value;
+}
+```
+
+**Detectable patterns:** `Expr::Return`
+
+---
+
+### 5.5 Try/? Operator Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_try(try_id: usize, location: &str)
+```
+
+**Events:**
+- `Try { timestamp, try_id, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+expr?
+
+// Output:
+{
+    track_try(ID, "loc");
+    expr?
+}
+```
+
+**Detectable patterns:** `Expr::Try`
+
+---
+
+### 5.6 Index Access Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_index_access(access_id: usize, container: &str, location: &str)
+```
+
+**Events:**
+- `IndexAccess { timestamp, access_id, container, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+arr[i]
+
+// Output:
+{
+    track_index_access(ID, "arr", "loc");
+    arr[i]
+}
+```
+
+**Detectable patterns:** `Expr::Index`
+
+---
+
+### 5.7 Field Access Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_field_access(access_id: usize, base: &str, field: &str, location: &str)
+```
+
+**Events:**
+- `FieldAccess { timestamp, access_id, base, field, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+obj.field
+
+// Output:
+{
+    track_field_access(ID, "obj", "field", "loc");
+    obj.field
+}
+```
+
+**Detectable patterns:** `Expr::Field`
+
+---
+
+### 5.8 Function Call Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_call(call_id: usize, fn_name: &str, location: &str)
+```
+
+**Events:**
+- `Call { timestamp, call_id, fn_name, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+some_fn(args)
+
+// Output:
+{
+    track_call(ID, "some_fn", "loc");
+    some_fn(args)
+}
+```
+
+**Detectable patterns:** `Expr::Call` (excluding already-handled cases like transmute)
+
+---
+
+### 5.9 Mutex/RwLock Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_lock(lock_id: usize, lock_type: &str, var_name: &str, location: &str)
+```
+
+**Events:**
+- `Lock { timestamp, lock_id, lock_type, var_name, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+mutex.lock()
+
+// Output:
+{
+    track_lock(ID, "mutex_lock", "mutex", "loc");
+    mutex.lock()
+}
+```
+
+**Detectable patterns:** `Expr::MethodCall` where method is `lock`, `read`, `write`, `try_lock`, `try_read`, `try_write`
+
+---
+
+### 5.10 Option/Result Unwrap Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_unwrap(unwrap_id: usize, method: &str, var_name: &str, location: &str)
+```
+
+**Events:**
+- `Unwrap { timestamp, unwrap_id, method, var_name, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+option.unwrap()
+
+// Output:
+{
+    track_unwrap(ID, "unwrap", "option", "loc");
+    option.unwrap()
+}
+```
+
+**Detectable patterns:** `Expr::MethodCall` where method is `unwrap`, `expect`, `unwrap_or`, `unwrap_or_else`, `unwrap_or_default`
+
+---
+
+### 5.11 Clone Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_clone(clone_id: usize, var_name: &str, location: &str)
+```
+
+**Events:**
+- `Clone { timestamp, clone_id, var_name, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+data.clone()
+
+// Output:
+{
+    track_clone(ID, "data", "loc");
+    data.clone()
+}
+```
+
+**Detectable patterns:** `Expr::MethodCall` where method is `clone`
+
+---
+
+### 5.12 Deref Tracking
+
+**Runtime functions needed:**
+```rust
+pub fn track_deref(deref_id: usize, var_name: &str, location: &str)
+```
+
+**Events:**
+- `Deref { timestamp, deref_id, var_name, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+*reference
+
+// Output:
+{
+    track_deref(ID, "reference", "loc");
+    *reference
+}
+```
+
+**Detectable patterns:** `Expr::Unary` where op is `Deref` (`*`)
+
+---
+
+## Implementation Order
+
+1. **5.1 Loop Tracking** ✅ - for, while, loop with iteration counting
+2. **5.5 Try/? Tracking** ✅ - Error propagation points
+3. **5.11 Clone Tracking** ✅ - .clone() method calls
+4. **5.9 Mutex/RwLock Tracking** ✅ - lock, read, write, try_* methods
+5. **5.10 Unwrap Tracking** ✅ - unwrap, expect, unwrap_or, etc.
+6. **5.12 Deref Tracking** ❌ - DISABLED (breaks assignment expressions)
+7. **5.2 Match Arm Tracking** ✅ - Match enter, arm taken, exit
+8. **5.3 Branch Tracking** ✅ - If/else branch taken
+9. **5.4 Return Tracking** ✅ - Early returns
+10. **5.6 Index Access Tracking** ❌ - DISABLED (breaks assignment expressions)
+11. **5.7 Field Access Tracking** ❌ - DISABLED (breaks assignment expressions)
+12. **5.8 Function Call Tracking** ❌ - DISABLED (too noisy, available but not enabled)
+
+### Disabled Features Explanation
+
+Features 5.6, 5.7, and 5.12 (index access, field access, deref) were disabled because
+they break assignment expressions. The transformation:
+
+```rust
+*x = y;  // becomes { track_deref(...); *x } = y;  // INVALID!
+```
+
+The left-hand side of an assignment cannot be a block expression. Fixing this would
+require context-aware transformation that distinguishes lvalue from rvalue positions,
+which significantly increases complexity.
+
+Feature 5.8 (function call tracking) is implemented but disabled by default as it
+would generate too many events for most use cases.
 
 ---
 
 ## Test Coverage
 
-- 143+ macro unit tests
+- 155+ macro unit tests (including 14 new Phase 5 tests)
 - 7 async tracking integration tests
 - All tests passing

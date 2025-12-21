@@ -189,6 +189,49 @@ track_await_start(1, "fetch_data", "main.rs:12:9");
 track_await_end(1, "main.rs:12:9");
 ```
 
+### Control Flow Tracking
+
+Track loops, branches, and control flow:
+
+```rust
+// Loop tracking
+track_loop_enter(1, "for", "main.rs:10:5");
+track_loop_iteration(1, 0, "main.rs:10:5");
+track_loop_iteration(1, 1, "main.rs:10:5");
+track_loop_exit(1, "main.rs:15:5");
+
+// Match tracking
+track_match_enter(1, "main.rs:20:5");
+track_match_arm(1, 0, "Some(x)", "main.rs:21:9");
+track_match_exit(1, "main.rs:25:5");
+
+// Branch tracking
+track_branch(1, "then", "main.rs:30:5");
+
+// Return tracking
+track_return(1, true, "main.rs:35:5");
+
+// Try operator tracking
+track_try(1, "main.rs:40:5");
+```
+
+### Method Call Tracking
+
+Track common method calls:
+
+```rust
+// Clone tracking
+track_clone(1, "data", "main.rs:10:5");
+
+// Lock tracking (Mutex/RwLock)
+track_lock(1, "mutex", "guard", "main.rs:15:5");
+track_lock(2, "rwlock_read", "reader", "main.rs:20:5");
+
+// Unwrap tracking
+track_unwrap(1, "unwrap", "option", "main.rs:25:5");
+track_unwrap(2, "expect", "result", "main.rs:30:5");
+```
+
 ### Advanced API Features
 
 #### Custom ID Correlation
@@ -306,7 +349,7 @@ export_data.to_file("custom_export.json").unwrap();
 
 ## Event Types
 
-BorrowScope Runtime tracks 25+ event types covering all ownership patterns:
+BorrowScope Runtime tracks 40+ event types covering all ownership patterns:
 
 | Category | Events |
 |----------|--------|
@@ -317,6 +360,10 @@ BorrowScope Runtime tracks 25+ event types covering all ownership patterns:
 | **Unsafe Operations** | `RawPtrCreated`, `RawPtrDeref`, `UnsafeBlockEnter`, `UnsafeBlockExit`, `UnsafeFnCall` |
 | **FFI/Transmute** | `FfiCall`, `Transmute`, `UnionFieldAccess` |
 | **Async** | `AsyncBlockEnter`, `AsyncBlockExit`, `AwaitStart`, `AwaitEnd` |
+| **Loops** | `LoopEnter`, `LoopIteration`, `LoopExit` |
+| **Control Flow** | `MatchEnter`, `MatchArm`, `MatchExit`, `Branch`, `Return`, `Try` |
+| **Method Calls** | `Clone`, `Lock`, `Unwrap` |
+| **Access** | `IndexAccess`, `FieldAccess`, `Call`, `Deref` |
 
 All events include timestamps and are serializable to JSON for analysis.
 

@@ -251,6 +251,136 @@ pub enum Event {
         await_id: String,
         location: String,
     },
+
+    // ========== Phase 5: Extended Tracking ==========
+
+    /// Loop entered (for, while, loop)
+    LoopEnter {
+        timestamp: u64,
+        loop_id: String,
+        loop_type: String,
+        location: String,
+    },
+
+    /// Loop iteration
+    LoopIteration {
+        timestamp: u64,
+        loop_id: String,
+        iteration: usize,
+        location: String,
+    },
+
+    /// Loop exited
+    LoopExit {
+        timestamp: u64,
+        loop_id: String,
+        location: String,
+    },
+
+    /// Match expression entered
+    MatchEnter {
+        timestamp: u64,
+        match_id: String,
+        location: String,
+    },
+
+    /// Match arm taken
+    MatchArm {
+        timestamp: u64,
+        match_id: String,
+        arm_index: usize,
+        pattern: String,
+        location: String,
+    },
+
+    /// Match expression exited
+    MatchExit {
+        timestamp: u64,
+        match_id: String,
+        location: String,
+    },
+
+    /// Branch taken (if/else)
+    Branch {
+        timestamp: u64,
+        branch_id: String,
+        branch_type: String,
+        location: String,
+    },
+
+    /// Return statement
+    Return {
+        timestamp: u64,
+        return_id: String,
+        has_value: bool,
+        location: String,
+    },
+
+    /// Try/? operator
+    Try {
+        timestamp: u64,
+        try_id: String,
+        location: String,
+    },
+
+    /// Index access (arr[i])
+    IndexAccess {
+        timestamp: u64,
+        access_id: String,
+        container: String,
+        location: String,
+    },
+
+    /// Field access (obj.field)
+    FieldAccess {
+        timestamp: u64,
+        access_id: String,
+        base: String,
+        field: String,
+        location: String,
+    },
+
+    /// Function call
+    Call {
+        timestamp: u64,
+        call_id: String,
+        fn_name: String,
+        location: String,
+    },
+
+    /// Lock acquired (Mutex/RwLock)
+    Lock {
+        timestamp: u64,
+        lock_id: String,
+        lock_type: String,
+        var_name: String,
+        location: String,
+    },
+
+    /// Unwrap called (Option/Result)
+    Unwrap {
+        timestamp: u64,
+        unwrap_id: String,
+        method: String,
+        var_name: String,
+        location: String,
+    },
+
+    /// Clone called
+    Clone {
+        timestamp: u64,
+        clone_id: String,
+        var_name: String,
+        location: String,
+    },
+
+    /// Dereference operation
+    Deref {
+        timestamp: u64,
+        deref_id: String,
+        var_name: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -285,7 +415,23 @@ impl Event {
             | Event::AsyncBlockEnter { timestamp, .. }
             | Event::AsyncBlockExit { timestamp, .. }
             | Event::AwaitStart { timestamp, .. }
-            | Event::AwaitEnd { timestamp, .. } => *timestamp,
+            | Event::AwaitEnd { timestamp, .. }
+            | Event::LoopEnter { timestamp, .. }
+            | Event::LoopIteration { timestamp, .. }
+            | Event::LoopExit { timestamp, .. }
+            | Event::MatchEnter { timestamp, .. }
+            | Event::MatchArm { timestamp, .. }
+            | Event::MatchExit { timestamp, .. }
+            | Event::Branch { timestamp, .. }
+            | Event::Return { timestamp, .. }
+            | Event::Try { timestamp, .. }
+            | Event::IndexAccess { timestamp, .. }
+            | Event::FieldAccess { timestamp, .. }
+            | Event::Call { timestamp, .. }
+            | Event::Lock { timestamp, .. }
+            | Event::Unwrap { timestamp, .. }
+            | Event::Clone { timestamp, .. }
+            | Event::Deref { timestamp, .. } => *timestamp,
         }
     }
 
@@ -323,7 +469,23 @@ impl Event {
             | Event::AsyncBlockEnter { .. }
             | Event::AsyncBlockExit { .. }
             | Event::AwaitStart { .. }
-            | Event::AwaitEnd { .. } => None,
+            | Event::AwaitEnd { .. }
+            | Event::LoopEnter { .. }
+            | Event::LoopIteration { .. }
+            | Event::LoopExit { .. }
+            | Event::MatchEnter { .. }
+            | Event::MatchArm { .. }
+            | Event::MatchExit { .. }
+            | Event::Branch { .. }
+            | Event::Return { .. }
+            | Event::Try { .. }
+            | Event::IndexAccess { .. }
+            | Event::FieldAccess { .. }
+            | Event::Call { .. }
+            | Event::Lock { .. }
+            | Event::Unwrap { .. }
+            | Event::Clone { .. }
+            | Event::Deref { .. } => None,
         }
     }
 

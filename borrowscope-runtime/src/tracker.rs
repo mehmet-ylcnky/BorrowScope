@@ -723,6 +723,184 @@ impl Tracker {
         });
     }
 
+    // ========== Phase 5: Extended Tracking Record Methods ==========
+
+    /// Record loop entry
+    pub fn record_loop_enter(&mut self, loop_id: usize, loop_type: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::LoopEnter {
+            timestamp,
+            loop_id: loop_id.to_string(),
+            loop_type: loop_type.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record loop iteration
+    pub fn record_loop_iteration(&mut self, loop_id: usize, iteration: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::LoopIteration {
+            timestamp,
+            loop_id: loop_id.to_string(),
+            iteration,
+            location: location.to_string(),
+        });
+    }
+
+    /// Record loop exit
+    pub fn record_loop_exit(&mut self, loop_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::LoopExit {
+            timestamp,
+            loop_id: loop_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record match expression entry
+    pub fn record_match_enter(&mut self, match_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MatchEnter {
+            timestamp,
+            match_id: match_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record match arm taken
+    pub fn record_match_arm(&mut self, match_id: usize, arm_index: usize, pattern: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MatchArm {
+            timestamp,
+            match_id: match_id.to_string(),
+            arm_index,
+            pattern: pattern.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record match expression exit
+    pub fn record_match_exit(&mut self, match_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MatchExit {
+            timestamp,
+            match_id: match_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record branch taken
+    pub fn record_branch(&mut self, branch_id: usize, branch_type: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Branch {
+            timestamp,
+            branch_id: branch_id.to_string(),
+            branch_type: branch_type.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record return statement
+    pub fn record_return(&mut self, return_id: usize, has_value: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Return {
+            timestamp,
+            return_id: return_id.to_string(),
+            has_value,
+            location: location.to_string(),
+        });
+    }
+
+    /// Record try/? operator
+    pub fn record_try(&mut self, try_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Try {
+            timestamp,
+            try_id: try_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record index access
+    pub fn record_index_access(&mut self, access_id: usize, container: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::IndexAccess {
+            timestamp,
+            access_id: access_id.to_string(),
+            container: container.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record field access
+    pub fn record_field_access(&mut self, access_id: usize, base: &str, field: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::FieldAccess {
+            timestamp,
+            access_id: access_id.to_string(),
+            base: base.to_string(),
+            field: field.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record function call
+    pub fn record_call(&mut self, call_id: usize, fn_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Call {
+            timestamp,
+            call_id: call_id.to_string(),
+            fn_name: fn_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record lock acquisition
+    pub fn record_lock(&mut self, lock_id: usize, lock_type: &str, var_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Lock {
+            timestamp,
+            lock_id: lock_id.to_string(),
+            lock_type: lock_type.to_string(),
+            var_name: var_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record unwrap call
+    pub fn record_unwrap(&mut self, unwrap_id: usize, method: &str, var_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Unwrap {
+            timestamp,
+            unwrap_id: unwrap_id.to_string(),
+            method: method.to_string(),
+            var_name: var_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record clone call
+    pub fn record_clone(&mut self, clone_id: usize, var_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Clone {
+            timestamp,
+            clone_id: clone_id.to_string(),
+            var_name: var_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record dereference operation
+    pub fn record_deref(&mut self, deref_id: usize, var_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Deref {
+            timestamp,
+            deref_id: deref_id.to_string(),
+            var_name: var_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -2317,6 +2495,234 @@ pub fn track_await_end(
     {
         let mut tracker = TRACKER.lock();
         tracker.record_await_end(await_id, location);
+    }
+}
+
+// ============================================================================
+// Phase 5: Extended Tracking Functions
+// ============================================================================
+
+/// Track loop entry
+#[inline(always)]
+pub fn track_loop_enter(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] loop_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] loop_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_loop_enter(loop_id, loop_type, location);
+    }
+}
+
+/// Track loop iteration
+#[inline(always)]
+pub fn track_loop_iteration(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] loop_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] iteration: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_loop_iteration(loop_id, iteration, location);
+    }
+}
+
+/// Track loop exit
+#[inline(always)]
+pub fn track_loop_exit(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] loop_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_loop_exit(loop_id, location);
+    }
+}
+
+/// Track match expression entry
+#[inline(always)]
+pub fn track_match_enter(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] match_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_match_enter(match_id, location);
+    }
+}
+
+/// Track match arm taken
+#[inline(always)]
+pub fn track_match_arm(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] match_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] arm_index: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] pattern: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_match_arm(match_id, arm_index, pattern, location);
+    }
+}
+
+/// Track match expression exit
+#[inline(always)]
+pub fn track_match_exit(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] match_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_match_exit(match_id, location);
+    }
+}
+
+/// Track branch taken (if/else)
+#[inline(always)]
+pub fn track_branch(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] branch_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] branch_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_branch(branch_id, branch_type, location);
+    }
+}
+
+/// Track return statement
+#[inline(always)]
+pub fn track_return(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] return_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] has_value: bool,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_return(return_id, has_value, location);
+    }
+}
+
+/// Track try/? operator
+#[inline(always)]
+pub fn track_try(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] try_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_try(try_id, location);
+    }
+}
+
+/// Track index access
+#[inline(always)]
+pub fn track_index_access(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] access_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] container: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_index_access(access_id, container, location);
+    }
+}
+
+/// Track field access
+#[inline(always)]
+pub fn track_field_access(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] access_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] base: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] field: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_field_access(access_id, base, field, location);
+    }
+}
+
+/// Track function call
+#[inline(always)]
+pub fn track_call(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] call_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_call(call_id, fn_name, location);
+    }
+}
+
+/// Track lock acquisition (Mutex/RwLock)
+#[inline(always)]
+pub fn track_lock(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] lock_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] lock_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_lock(lock_id, lock_type, var_name, location);
+    }
+}
+
+/// Track unwrap call (Option/Result)
+#[inline(always)]
+pub fn track_unwrap(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] unwrap_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] method: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_unwrap(unwrap_id, method, var_name, location);
+    }
+}
+
+/// Track clone call
+#[inline(always)]
+pub fn track_clone(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] clone_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_clone(clone_id, var_name, location);
+    }
+}
+
+/// Track dereference operation
+#[inline(always)]
+pub fn track_deref(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] deref_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_deref(deref_id, var_name, location);
     }
 }
 
