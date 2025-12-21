@@ -96,7 +96,8 @@ fn test_multiple_type_parameters() {
     assert_eq!(result, (42, "hello"));
 
     let events = get_events();
-    assert_eq!(events.len(), 4, "Should have 2 Move and 2 Drop events");
+    // 2 Move events + 1 TupleCreate + 2 Drop events = 5
+    assert_eq!(events.len(), 5, "Should have 2 Move, 1 TupleCreate, and 2 Drop events");
 
     // Check x is tracked (move from t)
     assert!(events[0].is_move());

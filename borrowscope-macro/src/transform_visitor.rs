@@ -1123,6 +1123,153 @@ impl OwnershipVisitor {
             }
         };
     }
+
+    // =========================================================================
+    // Phase 6: Additional Transformations
+    // =========================================================================
+
+    /// Transform break statement
+    fn transform_break(&mut self, expr: &mut Expr, break_expr: &syn::ExprBreak) {
+        let break_id = self.gen_id();
+        let location = Self::location_tokens(break_expr.break_token.span);
+        let label = break_expr.label.as_ref().map(|l| l.ident.to_string());
+
+        if let Some(ref lbl) = label {
+            if let Some(value) = &break_expr.expr {
+                *expr = syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_break(#break_id, Some(#lbl), #location);
+                        break #value
+                    }
+                };
+            } else {
+                let label_lifetime = &break_expr.label;
+                *expr = syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_break(#break_id, Some(#lbl), #location);
+                        break #label_lifetime
+                    }
+                };
+            }
+        } else if let Some(value) = &break_expr.expr {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_break(#break_id, None::<&str>, #location);
+                    break #value
+                }
+            };
+        } else {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_break(#break_id, None::<&str>, #location);
+                    break
+                }
+            };
+        }
+    }
+
+    /// Transform continue statement
+    fn transform_continue(&mut self, expr: &mut Expr, continue_expr: &syn::ExprContinue) {
+        let continue_id = self.gen_id();
+        let location = Self::location_tokens(continue_expr.continue_token.span);
+        let label = continue_expr.label.as_ref().map(|l| l.ident.to_string());
+
+        if let Some(ref lbl) = label {
+            let label_lifetime = &continue_expr.label;
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_continue(#continue_id, Some(#lbl), #location);
+                    continue #label_lifetime
+                }
+            };
+        } else {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_continue(#continue_id, None::<&str>, #location);
+                    continue
+                }
+            };
+        }
+    }
+
+    /// Transform struct creation
+    fn transform_struct(&mut self, expr: &mut Expr, struct_expr: &syn::ExprStruct) {
+        let struct_id = self.gen_id();
+        let location = Self::location_tokens(struct_expr.brace_token.span.open());
+        let type_name = quote::quote!(#struct_expr).to_string().split('{').next().unwrap_or("").trim().to_string();
+        let original = struct_expr.clone();
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_struct_create(#struct_id, #type_name, #location);
+                #original
+            }
+        };
+    }
+
+    /// Transform tuple creation
+    fn transform_tuple(&mut self, expr: &mut Expr, tuple_expr: &syn::ExprTuple) {
+        let tuple_id = self.gen_id();
+        let location = Self::location_tokens(tuple_expr.paren_token.span.open());
+        let len = tuple_expr.elems.len();
+        let original = tuple_expr.clone();
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_tuple_create(#tuple_id, #len, #location);
+                #original
+            }
+        };
+    }
+
+    /// Transform range expression
+    fn transform_range(&mut self, expr: &mut Expr, range_expr: &syn::ExprRange) {
+        let range_id = self.gen_id();
+        let location = Self::location_tokens(proc_macro2::Span::call_site());
+        let range_type = match range_expr.limits {
+            syn::RangeLimits::HalfOpen(_) => "half_open",
+            syn::RangeLimits::Closed(_) => "closed",
+        };
+        let original = range_expr.clone();
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_range(#range_id, #range_type, #location);
+                #original
+            }
+        };
+    }
+
+    /// Transform array creation
+    fn transform_array(&mut self, expr: &mut Expr, array_expr: &syn::ExprArray) {
+        let array_id = self.gen_id();
+        let location = Self::location_tokens(array_expr.bracket_token.span.open());
+        let len = array_expr.elems.len();
+        let original = array_expr.clone();
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_array_create(#array_id, #len, #location);
+                #original
+            }
+        };
+    }
+
+    /// Transform type cast (non-pointer)
+    fn transform_cast(&mut self, expr: &mut Expr, cast_expr: &syn::ExprCast) {
+        let cast_id = self.gen_id();
+        let location = Self::location_tokens(cast_expr.as_token.span);
+        let to_type = quote::quote!(#cast_expr.ty).to_string();
+        let inner = &cast_expr.expr;
+        let ty = &cast_expr.ty;
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_type_cast(#cast_id, #to_type, #location);
+                #inner as #ty
+            }
+        };
+    }
 }
 
 impl Default for OwnershipVisitor {
@@ -1267,6 +1414,44 @@ impl VisitMut for OwnershipVisitor {
             return;
         }
 
+        // Phase 6: Handle break expressions
+        if let Expr::Break(break_expr) = expr.clone() {
+            self.transform_break(expr, &break_expr);
+            return;
+        }
+
+        // Phase 6: Handle continue expressions
+        if let Expr::Continue(continue_expr) = expr.clone() {
+            self.transform_continue(expr, &continue_expr);
+            return;
+        }
+
+        // Phase 6: Handle struct creation
+        if let Expr::Struct(struct_expr) = expr.clone() {
+            self.transform_struct(expr, &struct_expr);
+            return;
+        }
+
+        // Phase 6: Handle tuple creation (skip unit tuples)
+        if let Expr::Tuple(tuple_expr) = expr.clone() {
+            if !tuple_expr.elems.is_empty() {
+                self.transform_tuple(expr, &tuple_expr);
+                return;
+            }
+        }
+
+        // Phase 6: Handle range expressions
+        if let Expr::Range(range_expr) = expr.clone() {
+            self.transform_range(expr, &range_expr);
+            return;
+        }
+
+        // Phase 6: Handle array creation
+        if let Expr::Array(array_expr) = expr.clone() {
+            self.transform_array(expr, &array_expr);
+            return;
+        }
+
         // Handle method calls - check for RefCell/Cell methods first
         if let Expr::MethodCall(method_call) = expr {
             let method_name = method_call.method.to_string();
@@ -1397,9 +1582,15 @@ impl VisitMut for OwnershipVisitor {
             self.transform_unsafe_block(unsafe_expr);
         }
 
-        // Transform raw pointer casts
+        // Transform raw pointer casts (takes precedence over general cast tracking)
         if let Expr::Cast(cast_expr) = expr.clone() {
-            self.transform_ptr_cast(expr, &cast_expr);
+            // Check if it's a pointer cast - those are handled specially
+            if matches!(cast_expr.ty.as_ref(), syn::Type::Ptr(_)) {
+                self.transform_ptr_cast(expr, &cast_expr);
+            } else {
+                // Non-pointer casts - Phase 6 tracking
+                self.transform_cast(expr, &cast_expr);
+            }
         }
 
         // Transform transmute calls
@@ -1934,5 +2125,124 @@ mod tests {
 
         let output = expr.to_token_stream().to_string();
         assert!(output.contains("track_return"));
+    }
+
+    // ========== Phase 6 Tests ==========
+
+    #[test]
+    fn test_break_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            break
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_break"));
+    }
+
+    #[test]
+    fn test_break_with_label_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            break 'outer
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_break"));
+        assert!(output.contains("outer"));
+    }
+
+    #[test]
+    fn test_continue_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            continue
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_continue"));
+    }
+
+    #[test]
+    fn test_struct_creation_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            Point { x: 1, y: 2 }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_struct_create"));
+        assert!(output.contains("Point"));
+    }
+
+    #[test]
+    fn test_tuple_creation_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            (1, 2, 3)
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_tuple_create"));
+        assert!(output.contains("3")); // arity
+    }
+
+    #[test]
+    fn test_range_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            0..10
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_range"));
+        assert!(output.contains("half_open"));
+    }
+
+    #[test]
+    fn test_array_creation_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            [1, 2, 3, 4]
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_array_create"));
+        assert!(output.contains("4")); // length
+    }
+
+    #[test]
+    fn test_type_cast_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            x as i64
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_type_cast"));
     }
 }
