@@ -901,6 +901,129 @@ impl Tracker {
         });
     }
 
+    // =========================================================================
+    // Phase 6: Additional Record Methods
+    // =========================================================================
+
+    pub fn record_break(&mut self, break_id: usize, label: Option<&str>, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Break {
+            timestamp,
+            break_id: break_id.to_string(),
+            loop_label: label.map(|s| s.to_string()),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_continue(&mut self, continue_id: usize, label: Option<&str>, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Continue {
+            timestamp,
+            continue_id: continue_id.to_string(),
+            loop_label: label.map(|s| s.to_string()),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_closure_create(&mut self, closure_id: usize, capture_mode: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ClosureCreate {
+            timestamp,
+            closure_id: closure_id.to_string(),
+            capture_mode: capture_mode.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_struct_create(&mut self, struct_id: usize, type_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::StructCreate {
+            timestamp,
+            struct_id: struct_id.to_string(),
+            type_name: type_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_tuple_create(&mut self, tuple_id: usize, len: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::TupleCreate {
+            timestamp,
+            tuple_id: tuple_id.to_string(),
+            len,
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_let_else(&mut self, let_id: usize, pattern: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::LetElse {
+            timestamp,
+            let_id: let_id.to_string(),
+            pattern: pattern.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_range(&mut self, range_id: usize, range_type: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Range {
+            timestamp,
+            range_id: range_id.to_string(),
+            range_type: range_type.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_binary_op(&mut self, op_id: usize, operator: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::BinaryOp {
+            timestamp,
+            op_id: op_id.to_string(),
+            operator: operator.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_array_create(&mut self, array_id: usize, len: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ArrayCreate {
+            timestamp,
+            array_id: array_id.to_string(),
+            len,
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_type_cast(&mut self, cast_id: usize, to_type: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::TypeCast {
+            timestamp,
+            cast_id: cast_id.to_string(),
+            to_type: to_type.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_region_enter(&mut self, region_id: usize, name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::RegionEnter {
+            timestamp,
+            region_id: region_id.to_string(),
+            name: name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_region_exit(&mut self, region_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::RegionExit {
+            timestamp,
+            region_id: region_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -2723,6 +2846,177 @@ pub fn track_deref(
     {
         let mut tracker = TRACKER.lock();
         tracker.record_deref(deref_id, var_name, location);
+    }
+}
+
+// =============================================================================
+// Phase 6: Additional Tracking Functions
+// =============================================================================
+
+/// Track break statement
+#[inline(always)]
+pub fn track_break(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] break_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] label: Option<&str>,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_break(break_id, label, location);
+    }
+}
+
+/// Track continue statement
+#[inline(always)]
+pub fn track_continue(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] continue_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] label: Option<&str>,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_continue(continue_id, label, location);
+    }
+}
+
+/// Track closure creation
+#[inline(always)]
+pub fn track_closure_create(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] closure_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] capture_mode: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_closure_create(closure_id, capture_mode, location);
+    }
+}
+
+/// Track struct creation
+#[inline(always)]
+pub fn track_struct_create(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] struct_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] struct_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_struct_create(struct_id, struct_name, location);
+    }
+}
+
+/// Track tuple creation
+#[inline(always)]
+pub fn track_tuple_create(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] tuple_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] arity: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_tuple_create(tuple_id, arity, location);
+    }
+}
+
+/// Track let-else divergence
+#[inline(always)]
+pub fn track_let_else(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] let_else_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] pattern: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_let_else(let_else_id, pattern, location);
+    }
+}
+
+/// Track range expression
+#[inline(always)]
+pub fn track_range(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] range_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] range_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_range(range_id, range_type, location);
+    }
+}
+
+/// Track binary operation
+#[inline(always)]
+pub fn track_binary_op(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] op_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] operator: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_binary_op(op_id, operator, location);
+    }
+}
+
+/// Track array creation
+#[inline(always)]
+pub fn track_array_create(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] array_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] length: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_array_create(array_id, length, location);
+    }
+}
+
+/// Track type cast
+#[inline(always)]
+pub fn track_type_cast(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cast_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] target_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_type_cast(cast_id, target_type, location);
+    }
+}
+
+/// Track region/scope entry
+#[inline(always)]
+pub fn track_region_enter(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] region_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] region_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_region_enter(region_id, region_name, location);
+    }
+}
+
+/// Track region/scope exit
+#[inline(always)]
+pub fn track_region_exit(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] region_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_region_exit(region_id, location);
     }
 }
 

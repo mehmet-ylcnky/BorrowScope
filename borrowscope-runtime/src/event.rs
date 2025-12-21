@@ -381,6 +381,103 @@ pub enum Event {
         var_name: String,
         location: String,
     },
+
+    // ========== Phase 6: Additional Tracking ==========
+
+    /// Break statement
+    Break {
+        timestamp: u64,
+        break_id: String,
+        loop_label: Option<String>,
+        location: String,
+    },
+
+    /// Continue statement
+    Continue {
+        timestamp: u64,
+        continue_id: String,
+        loop_label: Option<String>,
+        location: String,
+    },
+
+    /// Closure creation
+    ClosureCreate {
+        timestamp: u64,
+        closure_id: String,
+        capture_mode: String,
+        location: String,
+    },
+
+    /// Struct construction
+    StructCreate {
+        timestamp: u64,
+        struct_id: String,
+        type_name: String,
+        location: String,
+    },
+
+    /// Tuple construction
+    TupleCreate {
+        timestamp: u64,
+        tuple_id: String,
+        len: usize,
+        location: String,
+    },
+
+    /// Let-else pattern
+    LetElse {
+        timestamp: u64,
+        let_id: String,
+        pattern: String,
+        location: String,
+    },
+
+    /// Range expression
+    Range {
+        timestamp: u64,
+        range_id: String,
+        range_type: String,
+        location: String,
+    },
+
+    /// Binary operation
+    BinaryOp {
+        timestamp: u64,
+        op_id: String,
+        operator: String,
+        location: String,
+    },
+
+    /// Array creation
+    ArrayCreate {
+        timestamp: u64,
+        array_id: String,
+        len: usize,
+        location: String,
+    },
+
+    /// Type cast (non-pointer)
+    TypeCast {
+        timestamp: u64,
+        cast_id: String,
+        to_type: String,
+        location: String,
+    },
+
+    /// Region enter
+    RegionEnter {
+        timestamp: u64,
+        region_id: String,
+        name: String,
+        location: String,
+    },
+
+    /// Region exit
+    RegionExit {
+        timestamp: u64,
+        region_id: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -431,7 +528,19 @@ impl Event {
             | Event::Lock { timestamp, .. }
             | Event::Unwrap { timestamp, .. }
             | Event::Clone { timestamp, .. }
-            | Event::Deref { timestamp, .. } => *timestamp,
+            | Event::Deref { timestamp, .. }
+            | Event::Break { timestamp, .. }
+            | Event::Continue { timestamp, .. }
+            | Event::ClosureCreate { timestamp, .. }
+            | Event::StructCreate { timestamp, .. }
+            | Event::TupleCreate { timestamp, .. }
+            | Event::LetElse { timestamp, .. }
+            | Event::Range { timestamp, .. }
+            | Event::BinaryOp { timestamp, .. }
+            | Event::ArrayCreate { timestamp, .. }
+            | Event::TypeCast { timestamp, .. }
+            | Event::RegionEnter { timestamp, .. }
+            | Event::RegionExit { timestamp, .. } => *timestamp,
         }
     }
 
@@ -485,7 +594,19 @@ impl Event {
             | Event::Lock { .. }
             | Event::Unwrap { .. }
             | Event::Clone { .. }
-            | Event::Deref { .. } => None,
+            | Event::Deref { .. }
+            | Event::Break { .. }
+            | Event::Continue { .. }
+            | Event::ClosureCreate { .. }
+            | Event::StructCreate { .. }
+            | Event::TupleCreate { .. }
+            | Event::LetElse { .. }
+            | Event::Range { .. }
+            | Event::BinaryOp { .. }
+            | Event::ArrayCreate { .. }
+            | Event::TypeCast { .. }
+            | Event::RegionEnter { .. }
+            | Event::RegionExit { .. } => None,
         }
     }
 
