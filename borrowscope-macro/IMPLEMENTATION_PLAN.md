@@ -8,10 +8,337 @@
 | Phase 2 | ✅ Complete | Unsafe blocks, raw ptr casts, transmute |
 | Phase 3 | ❌ Not Implementable | Static/const (requires type info) |
 | Phase 4 | ✅ Complete | Async blocks and await expressions |
+| Phase 5 | ✅ Complete | Loops, match, branches, return, try, clone, lock, unwrap |
 
 ---
 
-## Phase 5: Extended Tracking Features
+## Phase 6: Additional Tracking Features
+
+### 6.1 Break/Continue Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_break(break_id: usize, loop_id: Option<&str>, location: &str)
+pub fn track_continue(continue_id: usize, loop_id: Option<&str>, location: &str)
+```
+
+**Events:** ✅ NEW
+- `Break { timestamp, break_id, loop_label, location }`
+- `Continue { timestamp, continue_id, loop_label, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+loop {
+    if done { break; }
+    if skip { continue; }
+}
+
+// Output:
+loop {
+    if done {
+        track_break(ID, None, "loc");
+        break;
+    }
+    if skip {
+        track_continue(ID, None, "loc");
+        continue;
+    }
+}
+
+// With labels:
+'outer: loop { break 'outer; }
+// Output:
+'outer: loop {
+    track_break(ID, Some("outer"), "loc");
+    break 'outer;
+}
+```
+
+**Detectable patterns:** `Expr::Break`, `Expr::Continue`
+
+---
+
+### 6.2 Closure Capture Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_closure_create(closure_id: usize, capture_mode: &str, location: &str)
+```
+
+**Events:** ✅ NEW
+- `ClosureCreate { timestamp, closure_id, capture_mode, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+let c = || x + 1;
+let c = move || x + 1;
+
+// Output:
+let c = {
+    track_closure_create(ID, "ref", "loc");
+    || x + 1
+};
+let c = {
+    track_closure_create(ID, "move", "loc");
+    move || x + 1
+};
+```
+
+**Detectable patterns:** `Expr::Closure` (check `capture` field for `move` keyword)
+
+---
+
+### 6.3 Struct/Tuple Construction Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_struct_create(struct_id: usize, type_name: &str, location: &str)
+pub fn track_tuple_create(tuple_id: usize, len: usize, location: &str)
+```
+
+**Events:** ✅ NEW
+- `StructCreate { timestamp, struct_id, type_name, location }`
+- `TupleCreate { timestamp, tuple_id, len, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+Point { x: 1, y: 2 }
+(a, b, c)
+
+// Output:
+{
+    track_struct_create(ID, "Point", "loc");
+    Point { x: 1, y: 2 }
+}
+{
+    track_tuple_create(ID, 3, "loc");
+    (a, b, c)
+}
+```
+
+**Detectable patterns:** `Expr::Struct`, `Expr::Tuple`
+
+---
+
+### 6.4 Let-Else Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_let_else(let_id: usize, pattern: &str, location: &str)
+```
+
+**Events:** ✅ NEW
+- `LetElse { timestamp, let_id, pattern, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+let Some(x) = opt else { return };
+
+// Output:
+let Some(x) = opt else {
+    track_let_else(ID, "Some(x)", "loc");
+    return
+};
+```
+
+**Detectable patterns:** `Stmt::Local` with `else` branch (syn: `local.init.diverge`)
+
+---
+
+### 6.5 Range Expression Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_range(range_id: usize, range_type: &str, location: &str)
+```
+
+**Events:** ✅ NEW
+- `Range { timestamp, range_id, range_type, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+0..10
+0..=10
+..10
+0..
+
+// Output:
+{ track_range(ID, "Range", "loc"); 0..10 }
+{ track_range(ID, "RangeInclusive", "loc"); 0..=10 }
+{ track_range(ID, "RangeTo", "loc"); ..10 }
+{ track_range(ID, "RangeFrom", "loc"); 0.. }
+```
+
+**Detectable patterns:** `Expr::Range`
+
+---
+
+### 6.6 Binary Operation Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_binary_op(op_id: usize, operator: &str, location: &str)
+```
+
+**Events:** ✅ NEW
+- `BinaryOp { timestamp, op_id, operator, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+x + y
+a && b
+
+// Output:
+{ track_binary_op(ID, "+", "loc"); x + y }
+{ track_binary_op(ID, "&&", "loc"); a && b }
+```
+
+**Detectable patterns:** `Expr::Binary`
+
+**Note:** May be noisy - consider making optional via attribute parameter.
+
+---
+
+### 6.7 Array Literal Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_array_create(array_id: usize, len: usize, location: &str)
+```
+
+**Events:** ✅ NEW
+- `ArrayCreate { timestamp, array_id, len, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+[1, 2, 3]
+[0; 10]
+
+// Output:
+{ track_array_create(ID, 3, "loc"); [1, 2, 3] }
+{ track_array_create(ID, 10, "loc"); [0; 10] }
+```
+
+**Detectable patterns:** `Expr::Array`, `Expr::Repeat`
+
+---
+
+### 6.8 Type Cast Tracking (non-pointer)
+
+**Runtime functions needed:** Uses existing `track_cast` or ✅ NEW
+```rust
+pub fn track_type_cast(cast_id: usize, to_type: &str, location: &str)
+```
+
+**Events:** ✅ NEW (if not reusing existing)
+- `TypeCast { timestamp, cast_id, to_type, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+x as i64
+y as f32
+
+// Output (skip if already handled as ptr cast):
+{ track_type_cast(ID, "i64", "loc"); x as i64 }
+```
+
+**Detectable patterns:** `Expr::Cast` (exclude pointer casts already handled)
+
+---
+
+## Phase 7: Usability Improvements
+
+### 7.1 Attribute Parameters
+
+**No runtime changes needed.**
+
+**Macro enhancement:**
+```rust
+#[trace_borrow]                           // default: all tracking
+#[trace_borrow(skip = "loops,branches")]  // skip specific features
+#[trace_borrow(only = "ownership")]       // only new/move/drop/borrow
+#[trace_borrow(verbose)]                  // enable all including fn calls
+#[trace_borrow(quiet)]                    // minimal tracking
+```
+
+**Implementation:** Parse attribute arguments in `lib.rs`, pass config to `OwnershipVisitor`.
+
+---
+
+### 7.2 Region/Span Tracking
+
+**Runtime functions needed:** ✅ NEW
+```rust
+pub fn track_region_enter(region_id: usize, name: &str, location: &str)
+pub fn track_region_exit(region_id: usize, location: &str)
+```
+
+**Events:** ✅ NEW
+- `RegionEnter { timestamp, region_id, name, location }`
+- `RegionExit { timestamp, region_id, location }`
+
+**Usage (manual, not auto-transformed):**
+```rust
+// User code:
+borrowscope_runtime::region!("initialization", {
+    // setup code
+});
+
+// Expands to:
+{
+    track_region_enter(ID, "initialization", "loc");
+    let __result = { /* setup code */ };
+    track_region_exit(ID, "loc");
+    __result
+}
+```
+
+---
+
+## Summary: New Runtime Functions Needed
+
+| Feature | Functions | Events |
+|---------|-----------|--------|
+| 6.1 Break/Continue | `track_break`, `track_continue` | `Break`, `Continue` |
+| 6.2 Closure | `track_closure_create` | `ClosureCreate` |
+| 6.3 Struct/Tuple | `track_struct_create`, `track_tuple_create` | `StructCreate`, `TupleCreate` |
+| 6.4 Let-Else | `track_let_else` | `LetElse` |
+| 6.5 Range | `track_range` | `Range` |
+| 6.6 Binary Op | `track_binary_op` | `BinaryOp` |
+| 6.7 Array | `track_array_create` | `ArrayCreate` |
+| 6.8 Type Cast | `track_type_cast` | `TypeCast` |
+| 7.2 Region | `track_region_enter`, `track_region_exit` | `RegionEnter`, `RegionExit` |
+
+**Total: 12 new functions, 11 new event types**
+
+---
+
+## Implementation Priority
+
+| Priority | Feature | Effort | Value | Runtime Changes |
+|----------|---------|--------|-------|-----------------|
+| 1 | 6.1 Break/Continue | Low | High | 2 functions, 2 events |
+| 2 | 6.2 Closure capture | Low | High | 1 function, 1 event |
+| 3 | 6.3 Struct/Tuple | Low | Medium | 2 functions, 2 events |
+| 4 | 6.4 Let-Else | Low | Medium | 1 function, 1 event |
+| 5 | 7.1 Attribute params | Medium | High | None |
+| 6 | 6.5 Range | Low | Low | 1 function, 1 event |
+| 7 | 6.7 Array | Low | Low | 1 function, 1 event |
+| 8 | 6.6 Binary Op | Low | Low | 1 function, 1 event |
+| 9 | 6.8 Type Cast | Low | Low | 1 function, 1 event |
+| 10 | 7.2 Region | Medium | Medium | 2 functions, 2 events |
+
+---
+
+## Phase 5: Extended Tracking Features (COMPLETED)
 
 ### 5.1 Loop Tracking
 
