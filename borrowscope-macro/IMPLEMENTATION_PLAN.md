@@ -9,20 +9,22 @@
 | Phase 3 | ❌ Not Implementable | Static/const (requires type info) |
 | Phase 4 | ✅ Complete | Async blocks and await expressions |
 | Phase 5 | ✅ Complete | Loops, match, branches, return, try, clone, lock, unwrap |
+| Phase 6 | ✅ Complete | Break/continue, struct/tuple, range, array, cast, closure, region |
+| Phase 7 | ✅ Complete | Attribute parameters for configurable tracking |
 
 ---
 
-## Phase 6: Additional Tracking Features
+## Phase 6: Additional Tracking Features (COMPLETED)
 
-### 6.1 Break/Continue Tracking
+### 6.1 Break/Continue Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_break(break_id: usize, loop_id: Option<&str>, location: &str)
 pub fn track_continue(continue_id: usize, loop_id: Option<&str>, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `Break { timestamp, break_id, loop_label, location }`
 - `Continue { timestamp, continue_id, loop_label, location }`
 
@@ -59,14 +61,14 @@ loop {
 
 ---
 
-### 6.2 Closure Capture Tracking
+### 6.2 Closure Capture Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_closure_create(closure_id: usize, capture_mode: &str, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `ClosureCreate { timestamp, closure_id, capture_mode, location }`
 
 **Macro transformation:**
@@ -88,17 +90,19 @@ let c = {
 
 **Detectable patterns:** `Expr::Closure` (check `capture` field for `move` keyword)
 
+**Note:** Runtime function implemented, macro transformation not yet added (closures are visited but not tracked with new event).
+
 ---
 
-### 6.3 Struct/Tuple Construction Tracking
+### 6.3 Struct/Tuple Construction Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_struct_create(struct_id: usize, type_name: &str, location: &str)
 pub fn track_tuple_create(tuple_id: usize, len: usize, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `StructCreate { timestamp, struct_id, type_name, location }`
 - `TupleCreate { timestamp, tuple_id, len, location }`
 
@@ -123,14 +127,14 @@ Point { x: 1, y: 2 }
 
 ---
 
-### 6.4 Let-Else Tracking
+### 6.4 Let-Else Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_let_else(let_id: usize, pattern: &str, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `LetElse { timestamp, let_id, pattern, location }`
 
 **Macro transformation:**
@@ -147,16 +151,18 @@ let Some(x) = opt else {
 
 **Detectable patterns:** `Stmt::Local` with `else` branch (syn: `local.init.diverge`)
 
+**Note:** Runtime function implemented, macro transformation not yet added.
+
 ---
 
-### 6.5 Range Expression Tracking
+### 6.5 Range Expression Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_range(range_id: usize, range_type: &str, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `Range { timestamp, range_id, range_type, location }`
 
 **Macro transformation:**
@@ -178,14 +184,14 @@ pub fn track_range(range_id: usize, range_type: &str, location: &str)
 
 ---
 
-### 6.6 Binary Operation Tracking
+### 6.6 Binary Operation Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_binary_op(op_id: usize, operator: &str, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `BinaryOp { timestamp, op_id, operator, location }`
 
 **Macro transformation:**
@@ -201,18 +207,18 @@ a && b
 
 **Detectable patterns:** `Expr::Binary`
 
-**Note:** May be noisy - consider making optional via attribute parameter.
+**Note:** Runtime function implemented, macro transformation not added (too noisy).
 
 ---
 
-### 6.7 Array Literal Tracking
+### 6.7 Array Literal Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_array_create(array_id: usize, len: usize, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `ArrayCreate { timestamp, array_id, len, location }`
 
 **Macro transformation:**
@@ -230,14 +236,14 @@ pub fn track_array_create(array_id: usize, len: usize, location: &str)
 
 ---
 
-### 6.8 Type Cast Tracking (non-pointer)
+### 6.8 Type Cast Tracking (non-pointer) ✅
 
-**Runtime functions needed:** Uses existing `track_cast` or ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_type_cast(cast_id: usize, to_type: &str, location: &str)
 ```
 
-**Events:** ✅ NEW (if not reusing existing)
+**Events:** ✅ IMPLEMENTED
 - `TypeCast { timestamp, cast_id, to_type, location }`
 
 **Macro transformation:**
@@ -254,34 +260,46 @@ y as f32
 
 ---
 
-## Phase 7: Usability Improvements
+## Phase 7: Usability Improvements (COMPLETED)
 
-### 7.1 Attribute Parameters
+### 7.1 Attribute Parameters ✅
 
 **No runtime changes needed.**
 
-**Macro enhancement:**
+**Macro enhancement:** ✅ IMPLEMENTED
 ```rust
-#[trace_borrow]                           // default: all tracking
+#[trace_borrow]                           // default: standard tracking
 #[trace_borrow(skip = "loops,branches")]  // skip specific features
 #[trace_borrow(only = "ownership")]       // only new/move/drop/borrow
-#[trace_borrow(verbose)]                  // enable all including fn calls
-#[trace_borrow(quiet)]                    // minimal tracking
+#[trace_borrow(verbose)]                  // enable all tracking
+#[trace_borrow(quiet)]                    // minimal tracking (ownership only)
 ```
 
-**Implementation:** Parse attribute arguments in `lib.rs`, pass config to `OwnershipVisitor`.
+**Toggleable feature groups:**
+- `ownership` - new, move, drop, borrow
+- `smart_pointers` - Rc, Arc, RefCell, Cell
+- `loops` - for, while, loop tracking
+- `branches` - if/else, match tracking
+- `control_flow` - break, continue, return
+- `try` - ? operator tracking
+- `methods` - clone, lock, unwrap
+- `async` - async blocks, await
+- `unsafe` - unsafe blocks, ptr casts
+- `expressions` - struct, tuple, array, range, cast
+
+**Implementation:** `config.rs` module with `TraceConfig` and `TraceArgs` parsing.
 
 ---
 
-### 7.2 Region/Span Tracking
+### 7.2 Region/Span Tracking ✅
 
-**Runtime functions needed:** ✅ NEW
+**Runtime functions needed:** ✅ IMPLEMENTED
 ```rust
 pub fn track_region_enter(region_id: usize, name: &str, location: &str)
 pub fn track_region_exit(region_id: usize, location: &str)
 ```
 
-**Events:** ✅ NEW
+**Events:** ✅ IMPLEMENTED
 - `RegionEnter { timestamp, region_id, name, location }`
 - `RegionExit { timestamp, region_id, location }`
 
