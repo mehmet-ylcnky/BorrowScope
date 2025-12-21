@@ -1,4 +1,4 @@
-//! Configuration for trace_borrow attribute.
+//! Configuration for the `#[trace_borrow]` attribute.
 //!
 //! This module provides [`TraceConfig`] for controlling which operations are tracked
 //! and [`TraceArgs`] for parsing attribute arguments.
@@ -18,6 +18,16 @@
 //! | `unsafe` | `track_unsafe` | unsafe blocks, pointers |
 //! | `expressions` | `track_expressions` | struct, tuple, array, range, cast |
 //! | `functions` | `track_functions` | Function entry/exit |
+//!
+//! # Usage
+//!
+//! ```ignore
+//! #[trace_borrow]                           // standard (default)
+//! #[trace_borrow(quiet)]                    // ownership only
+//! #[trace_borrow(verbose)]                  // all features
+//! #[trace_borrow(skip = "loops,branches")]  // skip specific groups
+//! #[trace_borrow(only = "ownership")]       // only specific groups
+//! ```
 
 use syn::{
     parse::{Parse, ParseStream},
@@ -25,41 +35,96 @@ use syn::{
     Ident, LitStr, Token,
 };
 
-/// Configuration for what to track
+/// Configuration for what operations to track.
+///
+/// Each field controls a category of tracking. All fields default to `true`
+/// in standard mode except `track_functions` which defaults to `false`.
+///
+/// # Example
+///
+/// ```ignore
+/// let config = TraceConfig::standard();
+/// assert!(config.track_new);
+/// assert!(config.track_borrow);
+/// assert!(!config.track_functions); // disabled by default
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct TraceConfig {
-    /// Track variable creation (new)
+    /// Track variable creation via `let x = value;`
+    ///
+    /// Generates `New` events with variable name and type.
     pub track_new: bool,
-    /// Track moves
+
+    /// Track ownership moves via `let y = x;`
+    ///
+    /// Generates `Move` events showing source and destination.
     pub track_move: bool,
-    /// Track drops
+
+    /// Track variable drops at scope exit.
+    ///
+    /// Generates `Drop` events in LIFO order.
     pub track_drop: bool,
-    /// Track borrows
+
+    /// Track borrows via `&x` and `&mut x`.
+    ///
+    /// Generates `Borrow` events with mutability info.
     pub track_borrow: bool,
-    /// Track smart pointers (Rc, Arc, RefCell, Cell)
+
+    /// Track smart pointer operations (Rc, Arc, RefCell, Cell).
+    ///
+    /// Generates events like `RcNew`, `RcClone`, `RefCellBorrow`, etc.
     pub track_smart_pointers: bool,
-    /// Track loops (for, while, loop)
+
+    /// Track loop constructs (for, while, loop).
+    ///
+    /// Generates `LoopEnter`, `LoopIteration`, `LoopExit` events.
     pub track_loops: bool,
-    /// Track branches (if/else, match)
+
+    /// Track branching (if/else, match).
+    ///
+    /// Generates `Branch`, `MatchEnter`, `MatchArm`, `MatchExit` events.
     pub track_branches: bool,
-    /// Track control flow (break, continue, return)
+
+    /// Track control flow (break, continue, return).
+    ///
+    /// Generates `Break`, `Continue`, `Return` events.
     pub track_control_flow: bool,
-    /// Track try/? operator
+
+    /// Track the `?` operator.
+    ///
+    /// Generates `Try` events at each `?` usage.
     pub track_try: bool,
-    /// Track method calls (clone, lock, unwrap)
+
+    /// Track method calls (clone, lock, unwrap).
+    ///
+    /// Generates `Clone`, `Lock`, `Unwrap` events.
     pub track_methods: bool,
-    /// Track async (async blocks, await)
+
+    /// Track async operations (async blocks, await).
+    ///
+    /// Generates `AsyncBlockEnter/Exit`, `AwaitStart/End` events.
     pub track_async: bool,
-    /// Track unsafe blocks
+
+    /// Track unsafe blocks and operations.
+    ///
+    /// Generates `UnsafeBlockEnter/Exit`, `RawPtrCreated`, `Transmute` events.
     pub track_unsafe: bool,
-    /// Track expressions (struct, tuple, array, range, cast)
+
+    /// Track expression constructs (struct, tuple, array, range, cast).
+    ///
+    /// Generates `StructCreate`, `TupleCreate`, `ArrayCreate`, `Range`, `TypeCast` events.
     pub track_expressions: bool,
-    /// Track function entry/exit
+
+    /// Track function entry and exit points.
+    ///
+    /// Generates `FnEnter` and `FnExit` events. Disabled by default.
     pub track_functions: bool,
 }
 
 impl TraceConfig {
-    /// Default configuration - standard tracking
+    /// Create standard configuration with all tracking enabled except functions.
+    ///
+    /// This is the default when using `#[trace_borrow]` without arguments.
     pub fn standard() -> Self {
         Self {
             track_new: true,
@@ -79,7 +144,13 @@ impl TraceConfig {
         }
     }
 
-    /// Quiet mode - ownership only
+    /// Create quiet configuration with only ownership tracking.
+    ///
+    /// Used with `#[trace_borrow(quiet)]`. Tracks only:
+    /// - Variable creation (new)
+    /// - Moves
+    /// - Drops
+    /// - Borrows
     pub fn quiet() -> Self {
         Self {
             track_new: true,
@@ -99,12 +170,29 @@ impl TraceConfig {
         }
     }
 
-    /// Verbose mode - everything enabled
+    /// Create verbose configuration with all tracking enabled.
+    ///
+    /// Used with `#[trace_borrow(verbose)]`. Same as standard for now.
     pub fn verbose() -> Self {
         Self::standard()
     }
 
-    /// Apply skip list
+    /// Disable specific feature groups.
+    ///
+    /// Used with `#[trace_borrow(skip = "loops,branches")]`.
+    ///
+    /// # Supported Groups
+    ///
+    /// - `loops` - Disable loop tracking
+    /// - `branches` - Disable if/else and match tracking
+    /// - `control_flow` or `control` - Disable break/continue/return
+    /// - `try` - Disable ? operator tracking
+    /// - `methods` - Disable clone/lock/unwrap tracking
+    /// - `async` - Disable async block and await tracking
+    /// - `unsafe` - Disable unsafe block tracking
+    /// - `expressions` or `exprs` - Disable struct/tuple/array/range/cast
+    /// - `smart_pointers` or `pointers` - Disable Rc/Arc/RefCell/Cell
+    /// - `functions` or `fn` - Disable function entry/exit
     pub fn skip(&mut self, features: &str) {
         for feature in features.split(',').map(|s| s.trim()) {
             match feature {
@@ -123,7 +211,27 @@ impl TraceConfig {
         }
     }
 
-    /// Apply only list - disable everything except specified
+    /// Enable only specific feature groups, disabling all others.
+    ///
+    /// Used with `#[trace_borrow(only = "ownership")]`.
+    ///
+    /// # Supported Groups
+    ///
+    /// - `ownership` - Enable new, move, drop, borrow
+    /// - `new` - Enable only variable creation
+    /// - `move` or `moves` - Enable only move tracking
+    /// - `drop` or `drops` - Enable only drop tracking
+    /// - `borrow` or `borrows` - Enable only borrow tracking
+    /// - `loops` - Enable loop tracking
+    /// - `branches` - Enable if/else and match tracking
+    /// - `control_flow` or `control` - Enable break/continue/return
+    /// - `try` - Enable ? operator tracking
+    /// - `methods` - Enable clone/lock/unwrap tracking
+    /// - `async` - Enable async block and await tracking
+    /// - `unsafe` - Enable unsafe block tracking
+    /// - `expressions` or `exprs` - Enable struct/tuple/array/range/cast
+    /// - `smart_pointers` or `pointers` - Enable Rc/Arc/RefCell/Cell
+    /// - `functions` or `fn` - Enable function entry/exit
     pub fn only(&mut self, features: &str) {
         // Start with nothing
         *self = Self {
@@ -171,8 +279,11 @@ impl TraceConfig {
     }
 }
 
-/// Parsed attribute arguments
+/// Parsed attribute arguments for `#[trace_borrow(...)]`.
+///
+/// This struct is used internally to parse the attribute arguments.
 pub struct TraceArgs {
+    /// The resulting configuration after parsing arguments.
     pub config: TraceConfig,
 }
 
