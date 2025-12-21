@@ -173,6 +173,22 @@ const PI: f64 = 3.14159;
 track_const_eval("PI", "PI_id", "f64", "main.rs:5");
 ```
 
+### Async Tracking
+
+Track async blocks and await expressions:
+
+```rust
+// Async block tracking
+track_async_block_enter(1, "main.rs:10:5");
+// ... async block body ...
+track_async_block_exit(1, "main.rs:15:5");
+
+// Await expression tracking
+track_await_start(1, "fetch_data", "main.rs:12:9");
+// ... await completes ...
+track_await_end(1, "main.rs:12:9");
+```
+
 ### Advanced API Features
 
 #### Custom ID Correlation
@@ -290,7 +306,7 @@ export_data.to_file("custom_export.json").unwrap();
 
 ## Event Types
 
-BorrowScope Runtime tracks 20+ event types covering all ownership patterns:
+BorrowScope Runtime tracks 25+ event types covering all ownership patterns:
 
 | Category | Events |
 |----------|--------|
@@ -300,6 +316,7 @@ BorrowScope Runtime tracks 20+ event types covering all ownership patterns:
 | **Static/Const** | `StaticInit`, `StaticAccess`, `ConstEval` |
 | **Unsafe Operations** | `RawPtrCreated`, `RawPtrDeref`, `UnsafeBlockEnter`, `UnsafeBlockExit`, `UnsafeFnCall` |
 | **FFI/Transmute** | `FfiCall`, `Transmute`, `UnionFieldAccess` |
+| **Async** | `AsyncBlockEnter`, `AsyncBlockExit`, `AwaitStart`, `AwaitEnd` |
 
 All events include timestamps and are serializable to JSON for analysis.
 
