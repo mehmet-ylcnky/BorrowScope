@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use syn::{
     spanned::Spanned,
     visit_mut::{self, VisitMut},
-    Block, Expr, ExprClosure, ExprMethodCall, ExprReference, Ident, Index, ItemFn, Local, Pat,
-    Stmt,
+    Block, Expr, ExprCall, ExprCast, ExprClosure, ExprMethodCall, ExprReference, ExprUnsafe,
+    Ident, Index, ItemFn, Local, Pat, Stmt,
 };
 
 /// Type of self borrow in method call
@@ -56,12 +56,13 @@ impl OwnershipVisitor {
         id
     }
 
-    /// Extract source location from span (simplified for proc_macro2)
-    fn extract_location(_span: proc_macro2::Span) -> String {
-        // proc_macro2::Span doesn't have start()/end() methods
-        // In a real proc macro, we'd use proc_macro::Span
-        // For now, return a placeholder
-        "unknown".to_string()
+    /// Generate location expression that will be evaluated at compile time
+    /// Returns a token stream that produces the location string
+    fn location_tokens(span: proc_macro2::Span) -> proc_macro2::TokenStream {
+        // Use file!() and line!() macros which are evaluated at the call site
+        syn::parse_quote_spanned! { span =>
+            concat!(file!(), ":", line!())
+        }
     }
 
     /// Extract variable name from pattern
@@ -499,7 +500,7 @@ impl OwnershipVisitor {
 
             let var_name = Self::extract_pattern_name(&local.pat);
             let var_id = self.gen_id();
-            let location = Self::extract_location(local.pat.span());
+            let location = Self::location_tokens(local.pat.span());
 
             // Store variable ID for later reference
             self.var_ids.insert(var_name.clone(), var_id);
@@ -522,6 +523,16 @@ impl OwnershipVisitor {
                     SmartPointerType::Arc => {
                         syn::parse_quote! {
                             borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
+                        }
+                    }
+                    SmartPointerType::RefCell => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_refcell_new(#var_name, std::cell::RefCell::new(#original_expr))
+                        }
+                    }
+                    SmartPointerType::Cell => {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_cell_new(#var_name, std::cell::Cell::new(#original_expr))
                         }
                     }
                     _ => {
@@ -622,7 +633,7 @@ impl OwnershipVisitor {
 
         let is_mutable = ref_expr.mutability.is_some();
         let borrowed_expr = &ref_expr.expr;
-        let location = Self::extract_location(ref_expr.span());
+        let location = Self::location_tokens(ref_expr.span());
 
         // Try to get owner ID
         let owner_id = if let Expr::Path(path) = borrowed_expr.as_ref() {
@@ -662,6 +673,72 @@ impl OwnershipVisitor {
         };
 
         *expr = tracking_call;
+    }
+
+    /// Transform unsafe block to add enter/exit tracking
+    fn transform_unsafe_block(&mut self, unsafe_expr: &mut ExprUnsafe) {
+        let block_id = self.gen_id();
+        let location = Self::location_tokens(unsafe_expr.unsafe_token.span);
+        let inner_block = &unsafe_expr.block;
+
+        // Replace block content with tracked version
+        unsafe_expr.block = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_unsafe_block_enter(#block_id, #location);
+                let __unsafe_result = #inner_block;
+                borrowscope_runtime::track_unsafe_block_exit(#block_id, #location);
+                __unsafe_result
+            }
+        };
+    }
+
+    /// Transform raw pointer cast expressions
+    fn transform_ptr_cast(&mut self, expr: &mut Expr, cast_expr: &ExprCast) {
+        // Check if casting to raw pointer type
+        if let syn::Type::Ptr(type_ptr) = cast_expr.ty.as_ref() {
+            let ptr_id = self.gen_id();
+            let location = Self::location_tokens(cast_expr.as_token.span);
+            let inner = &cast_expr.expr;
+            let ty = &cast_expr.ty;
+            let ptr_type = quote::quote!(#ty).to_string();
+            let var_name = format!("ptr_{}", ptr_id);
+
+            if type_ptr.mutability.is_some() {
+                *expr = syn::parse_quote! {
+                    borrowscope_runtime::track_raw_ptr_mut(#var_name, #ptr_id, #ptr_type, #location, #inner as #ty)
+                };
+            } else {
+                *expr = syn::parse_quote! {
+                    borrowscope_runtime::track_raw_ptr(#var_name, #ptr_id, #ptr_type, #location, #inner as #ty)
+                };
+            }
+        }
+    }
+
+    /// Transform transmute calls
+    fn transform_transmute_call(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
+        // Check for std::mem::transmute or mem::transmute
+        if let Expr::Path(path) = call_expr.func.as_ref() {
+            let path_str = quote::quote!(#path).to_string();
+            if path_str.contains("transmute") {
+                let location = Self::location_tokens(
+                    path.path
+                        .segments
+                        .last()
+                        .map(|s| s.ident.span())
+                        .unwrap_or_else(proc_macro2::Span::call_site),
+                );
+                let args = &call_expr.args;
+                let func = &call_expr.func;
+
+                *expr = syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_transmute("unknown", "unknown", #location);
+                        #func(#args)
+                    }
+                };
+            }
+        }
     }
 }
 
@@ -757,8 +834,60 @@ impl VisitMut for OwnershipVisitor {
             return;
         }
 
-        // Handle method calls before default traversal
+        // Handle method calls - check for RefCell/Cell methods first
         if let Expr::MethodCall(method_call) = expr {
+            let method_name = method_call.method.to_string();
+            
+            // Check for RefCell/Cell specific methods that need wrapping
+            if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                let location = Self::location_tokens(method_call.method.span());
+                let borrow_id = format!("borrow_{}", self.gen_id());
+                let receiver_id = format!("refcell_{}", receiver_name);
+                let receiver = method_call.receiver.clone();
+                
+                match method_name.as_str() {
+                    "borrow" => {
+                        // Transform cell.borrow() -> track_refcell_borrow(id, cell_id, loc, cell.borrow())
+                        *expr = syn::parse_quote! {
+                            borrowscope_runtime::track_refcell_borrow(#borrow_id, #receiver_id, #location, #receiver.borrow())
+                        };
+                        return;
+                    }
+                    "borrow_mut" => {
+                        // Transform cell.borrow_mut() -> track_refcell_borrow_mut(id, cell_id, loc, cell.borrow_mut())
+                        *expr = syn::parse_quote! {
+                            borrowscope_runtime::track_refcell_borrow_mut(#borrow_id, #receiver_id, #location, #receiver.borrow_mut())
+                        };
+                        return;
+                    }
+                    "get" => {
+                        // Transform cell.get() -> track_cell_get(cell_id, loc, cell.get())
+                        let cell_id = format!("cell_{}", receiver_name);
+                        *expr = syn::parse_quote! {
+                            borrowscope_runtime::track_cell_get(#cell_id, #location, #receiver.get())
+                        };
+                        return;
+                    }
+                    "set" => {
+                        // Transform cell.set(v) -> { track_cell_set(cell_id, loc); cell.set(v) }
+                        let cell_id = format!("cell_{}", receiver_name);
+                        // Visit arguments first
+                        let args: Vec<_> = method_call.args.iter().cloned().collect();
+                        if let Some(arg) = args.first() {
+                            *expr = syn::parse_quote! {
+                                {
+                                    borrowscope_runtime::track_cell_set(#cell_id, #location);
+                                    #receiver.set(#arg)
+                                }
+                            };
+                        }
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            
+            // Handle other method calls
             self.transform_method_call(method_call);
             return;
         }
@@ -769,6 +898,21 @@ impl VisitMut for OwnershipVisitor {
         // Then transform reference expressions at this level
         if let Expr::Reference(ref_expr) = expr.clone() {
             self.transform_reference(expr, &ref_expr);
+        }
+
+        // Transform unsafe blocks
+        if let Expr::Unsafe(unsafe_expr) = expr {
+            self.transform_unsafe_block(unsafe_expr);
+        }
+
+        // Transform raw pointer casts - clone to avoid borrow issues
+        if let Expr::Cast(cast_expr) = expr.clone() {
+            self.transform_ptr_cast(expr, &cast_expr);
+        }
+
+        // Transform transmute calls - clone to avoid borrow issues
+        if let Expr::Call(call_expr) = expr.clone() {
+            self.transform_transmute_call(expr, &call_expr);
         }
     }
 }
@@ -931,5 +1075,118 @@ mod tests {
         assert!(output.contains("a"));
         assert!(output.contains("b"));
         assert!(output.contains("c"));
+    }
+
+    #[test]
+    fn test_refcell_borrow_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            cell.borrow()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_refcell_borrow"));
+    }
+
+    #[test]
+    fn test_refcell_borrow_mut_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            cell.borrow_mut()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_refcell_borrow_mut"));
+    }
+
+    #[test]
+    fn test_cell_get_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            counter.get()
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_cell_get"));
+    }
+
+    #[test]
+    fn test_cell_set_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            counter.set(42)
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_cell_set"));
+    }
+
+    #[test]
+    fn test_unsafe_block_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            unsafe { *ptr }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_unsafe_block_enter"));
+        assert!(output.contains("track_unsafe_block_exit"));
+    }
+
+    #[test]
+    fn test_raw_ptr_const_cast_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            &x as *const i32
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_raw_ptr"));
+    }
+
+    #[test]
+    fn test_raw_ptr_mut_cast_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            &mut x as *mut i32
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_raw_ptr_mut"));
+    }
+
+    #[test]
+    fn test_transmute_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            std::mem::transmute::<u32, f32>(x)
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_transmute"));
     }
 }

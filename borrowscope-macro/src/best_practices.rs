@@ -7,24 +7,14 @@ use syn::{Error, Ident, ItemFn};
 
 /// Validate function before transformation
 pub fn validate_before_transform(func: &ItemFn) -> syn::Result<()> {
-    if func.sig.asyncness.is_some() {
-        return Err(Error::new_spanned(
-            func.sig.asyncness,
-            "trace_borrow does not support async functions yet",
-        ));
-    }
-
-    if func.sig.unsafety.is_some() {
-        return Err(Error::new_spanned(
-            func.sig.unsafety,
-            "trace_borrow cannot be used on unsafe functions",
-        ));
-    }
+    // Note: async and unsafe functions are allowed but may have limitations
+    // - async: tracking may not capture all ownership across await points
+    // - unsafe: tracking cannot verify safety invariants
 
     if func.sig.constness.is_some() {
         return Err(Error::new_spanned(
             func.sig.constness,
-            "trace_borrow cannot be used on const functions",
+            "trace_borrow cannot be used on const functions (tracking requires runtime operations)",
         ));
     }
 
@@ -33,7 +23,8 @@ pub fn validate_before_transform(func: &ItemFn) -> syn::Result<()> {
 
 /// Check if transformation is safe
 pub fn is_safe_to_transform(func: &ItemFn) -> bool {
-    func.sig.asyncness.is_none() && func.sig.unsafety.is_none() && func.sig.constness.is_none()
+    // Only const functions are rejected
+    func.sig.constness.is_none()
 }
 
 /// Generate unique temporary name
@@ -60,7 +51,8 @@ mod tests {
         let func: ItemFn = parse_quote! {
             async fn example() {}
         };
-        assert!(validate_before_transform(&func).is_err());
+        // async functions are now allowed
+        assert!(validate_before_transform(&func).is_ok());
     }
 
     #[test]
@@ -68,7 +60,8 @@ mod tests {
         let func: ItemFn = parse_quote! {
             unsafe fn example() {}
         };
-        assert!(validate_before_transform(&func).is_err());
+        // unsafe functions are now allowed
+        assert!(validate_before_transform(&func).is_ok());
     }
 
     #[test]
@@ -92,7 +85,8 @@ mod tests {
         let func: ItemFn = parse_quote! {
             async fn example() {}
         };
-        assert!(!is_safe_to_transform(&func));
+        // async functions are now allowed
+        assert!(is_safe_to_transform(&func));
     }
 
     #[test]
@@ -100,7 +94,8 @@ mod tests {
         let func: ItemFn = parse_quote! {
             unsafe fn example() {}
         };
-        assert!(!is_safe_to_transform(&func));
+        // unsafe functions are now allowed
+        assert!(is_safe_to_transform(&func));
     }
 
     #[test]
