@@ -33,6 +33,7 @@
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
         }
         .paper h2 { color: #64ffda; font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .paper h2 code { background: rgba(100,255,218,0.15); padding: 0.2rem 0.5rem; border-radius: 4px; font-family: 'Consolas', monospace; }
         .paper p { color: #8892b0; line-height: 1.6; }
         .paper .tag {
             display: inline-block;
@@ -43,6 +44,10 @@
             font-size: 0.8rem;
             margin-top: 1rem;
         }
+        .paper .tag.dev { background: rgba(255,200,100,0.1); color: #ffc864; }
+        .paper .tag.roadmap { background: rgba(136,146,176,0.2); color: #8892b0; }
+        .paper.placeholder { opacity: 0.7; cursor: default; }
+        .paper.placeholder:hover { transform: none; box-shadow: none; }
     </style>
 </head>
 <body>
@@ -51,10 +56,35 @@
         <p class="subtitle">Technical Whitepapers & Documentation</p>
         <div class="papers">
             <a href="borrowscope-runtime/" class="paper">
-                <h2>BorrowScope Runtime</h2>
+                <h2><code>borrowscope-runtime</code></h2>
                 <p>A comprehensive technical whitepaper on runtime ownership tracking for Rust. Covers event-sourced architecture, zero-cost abstractions, and ownership graph construction.</p>
                 <span class="tag">v0.1.1</span>
             </a>
+            <div class="paper placeholder">
+                <h2><code>borrowscope-macro</code></h2>
+                <p>Procedural macro crate providing the <code>#[trace_borrow]</code> attribute for automatic instrumentation of Rust code to track ownership and borrowing operations at runtime.</p>
+                <span class="tag dev">Under Development</span>
+            </div>
+            <div class="paper placeholder">
+                <h2><code>borrowscope-graph</code></h2>
+                <p>Graph data structures and algorithms for ownership visualization. Includes conflict detection, query builders, D3.js export, and timeline-based analysis of borrow relationships.</p>
+                <span class="tag roadmap">Future Roadmap</span>
+            </div>
+            <div class="paper placeholder">
+                <h2><code>borrowscope-memory</code></h2>
+                <p>Memory layout analysis and allocation tracking. Bridges logical ownership with physical memory usage—stack vs heap visualization, cache line analysis, and fragmentation detection.</p>
+                <span class="tag roadmap">Future Roadmap</span>
+            </div>
+            <div class="paper placeholder">
+                <h2><code>borrowscope-cli</code></h2>
+                <p>Command-line interface for analyzing and visualizing Rust ownership. Includes Cargo integration, Graphviz export, and an embedded web server for interactive exploration.</p>
+                <span class="tag roadmap">Future Roadmap</span>
+            </div>
+            <div class="paper placeholder">
+                <h2><code>borrowscope-web</code></h2>
+                <p>Web application and REST API for interactive ownership graph exploration. Built with Actix-web, featuring Swagger UI, real-time updates, and rich visualization components.</p>
+                <span class="tag roadmap">Future Roadmap</span>
+            </div>
         </div>
     </div>
 </body>
