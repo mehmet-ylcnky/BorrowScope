@@ -362,21 +362,153 @@ pub fn track_deref(deref_id: usize, var_name: &str, location: &str)
 11. **5.7 Field Access Tracking** ❌ - DISABLED (breaks assignment expressions)
 12. **5.8 Function Call Tracking** ❌ - DISABLED (too noisy, available but not enabled)
 
-### Disabled Features Explanation
+---
 
-Features 5.6, 5.7, and 5.12 (index access, field access, deref) were disabled because
-they break assignment expressions. The transformation:
+## Disabled Features - Detailed Explanations
 
+### 5.12 Deref Tracking (`*expr`) - DISABLED
+
+**Problem:** The dereference operator `*` can appear in both lvalue (left-hand side of assignment) and rvalue (right-hand side) positions. Our transformation wraps expressions in blocks, which is invalid for lvalues.
+
+**Example of the problem:**
 ```rust
-*x = y;  // becomes { track_deref(...); *x } = y;  // INVALID!
+// Original code:
+*ptr = 42;
+
+// Our transformation would produce:
+{ track_deref(1, "ptr", "loc"); *ptr } = 42;
+//                                      ^^^ ERROR: cannot assign to block expression
 ```
 
-The left-hand side of an assignment cannot be a block expression. Fixing this would
-require context-aware transformation that distinguishes lvalue from rvalue positions,
-which significantly increases complexity.
+**Why it cannot be fixed:**
 
-Feature 5.8 (function call tracking) is implemented but disabled by default as it
-would generate too many events for most use cases.
+1. **Rust's grammar restriction**: The left-hand side of an assignment must be a "place expression" (lvalue). Block expressions `{ ... }` are "value expressions" (rvalues) and cannot appear on the left side of `=`, `+=`, etc.
+
+2. **Context-awareness required**: To fix this, the macro would need to determine whether `*expr` appears in an lvalue or rvalue position. This requires analyzing the parent expression:
+   - `*x = y` → lvalue (cannot wrap)
+   - `let z = *x` → rvalue (can wrap)
+   - `*x += 1` → lvalue (cannot wrap)
+   - `foo(*x)` → rvalue (can wrap)
+
+3. **Proc macro limitations**: While syn provides the AST, determining lvalue vs rvalue context requires walking up the tree from the current expression, which is complex and error-prone in the visitor pattern we use.
+
+4. **Compound assignments**: Even if we detected simple assignments, compound assignments (`+=`, `-=`, `*=`, etc.) and other mutating operations would also break.
+
+**Alternative approaches (not implemented):**
+- Only track derefs in known rvalue positions (function arguments, let initializers)
+- Require explicit opt-in via a separate attribute
+- Use a post-processing pass to remove invalid transformations
+
+---
+
+### 5.6 Index Access Tracking (`arr[i]`) - DISABLED
+
+**Problem:** Same as deref - index expressions can be lvalues.
+
+**Example of the problem:**
+```rust
+// Original code:
+arr[0] = 42;
+vec[i] += 1;
+
+// Our transformation would produce:
+{ track_index_access(1, "arr", "loc"); arr[0] } = 42;
+//                                              ^^^ ERROR: cannot assign to block expression
+```
+
+**Why it cannot be fixed:**
+
+1. **Index expressions are place expressions**: In Rust, `arr[i]` can be assigned to if `arr` implements `IndexMut`. The expression `arr[i]` evaluates to a place (memory location), not a value.
+
+2. **Same lvalue/rvalue problem**: We cannot distinguish:
+   - `arr[i] = x` → lvalue (cannot wrap)
+   - `let x = arr[i]` → rvalue (can wrap)
+   - `arr[i] += 1` → lvalue (cannot wrap)
+   - `foo(arr[i])` → rvalue (can wrap)
+
+3. **Chained indexing**: Expressions like `matrix[i][j] = x` compound the problem - both index operations are lvalues.
+
+4. **Slice patterns**: Index expressions in patterns (`let [a, b] = arr`) have different semantics entirely.
+
+---
+
+### 5.7 Field Access Tracking (`obj.field`) - DISABLED
+
+**Problem:** Same as deref and index - field access can be lvalues.
+
+**Example of the problem:**
+```rust
+// Original code:
+point.x = 10;
+self.counter += 1;
+
+// Our transformation would produce:
+{ track_field_access(1, "point", "x", "loc"); point.x } = 10;
+//                                                      ^^^ ERROR: cannot assign to block expression
+```
+
+**Why it cannot be fixed:**
+
+1. **Field access is a place expression**: `obj.field` refers to a memory location within the struct, which can be assigned to if the struct is mutable.
+
+2. **Extremely common pattern**: Field assignment is one of the most common operations in Rust. Disabling it for lvalue positions would miss most field accesses.
+
+3. **Method call confusion**: The syntax `obj.field` is visually similar to `obj.method()`, but they have completely different semantics. We already handle method calls separately, but field access tracking would interfere.
+
+4. **Tuple field access**: Tuple fields (`tuple.0`, `tuple.1`) have the same problem.
+
+---
+
+### 5.8 Function Call Tracking - DISABLED (by choice)
+
+**Problem:** Unlike the above, function call tracking *can* be implemented correctly. It is disabled because it would generate excessive noise in the event stream.
+
+**Why it's disabled by choice:**
+
+1. **Volume of events**: Every function call would generate an event. In typical Rust code, this includes:
+   - Standard library functions (`println!`, `format!`, `Vec::new`)
+   - Iterator methods (`.map()`, `.filter()`, `.collect()`)
+   - Trait method calls
+   - Operator overloads (which are function calls)
+
+2. **Low signal-to-noise ratio**: Most function calls are not relevant to ownership analysis. Tracking `vec.push(x)` is useful, but tracking `x.to_string()` or `format!("{}", x)` adds noise without insight.
+
+3. **Performance impact**: The sheer number of function calls in typical code would significantly increase:
+   - Event storage memory usage
+   - JSON export size
+   - Analysis/visualization processing time
+
+4. **Already covered cases**: The important function calls are already tracked:
+   - `Rc::new`, `Arc::new`, `Rc::clone`, `Arc::clone` → smart pointer tracking
+   - `RefCell::borrow`, `RefCell::borrow_mut` → interior mutability tracking
+   - `.clone()` → clone tracking
+   - `.lock()`, `.read()`, `.write()` → lock tracking
+   - `.unwrap()`, `.expect()` → unwrap tracking
+   - `std::mem::transmute` → transmute tracking
+
+**The code exists but is not called:** The `transform_fn_call` method is implemented and can be enabled if needed for specific debugging scenarios. It could be exposed via a feature flag or attribute parameter in the future.
+
+---
+
+## Summary of Lvalue Problem
+
+The fundamental issue with deref, index, and field access tracking is Rust's distinction between **place expressions** (lvalues) and **value expressions** (rvalues):
+
+| Expression | Can be lvalue? | Can wrap in block? |
+|------------|---------------|-------------------|
+| `*ptr` | Yes (if ptr is `*mut T`) | No (when lvalue) |
+| `arr[i]` | Yes (if arr is `IndexMut`) | No (when lvalue) |
+| `obj.field` | Yes (if obj is `&mut`) | No (when lvalue) |
+| `x` (variable) | Yes | No (when lvalue) |
+| `foo()` | No | Yes |
+| `x + y` | No | Yes |
+
+Our transformation `expr` → `{ track(...); expr }` converts a place expression into a value expression, which breaks assignment semantics. This is a fundamental limitation of the block-wrapping approach.
+
+**Possible future solutions:**
+1. **Statement-level tracking**: Instead of wrapping expressions, insert tracking statements before/after the containing statement
+2. **Compiler plugin**: Use rustc's MIR or HIR where lvalue/rvalue information is available
+3. **Selective tracking**: Only track in positions known to be rvalues (function arguments, return values, let initializers)
 
 ---
 
