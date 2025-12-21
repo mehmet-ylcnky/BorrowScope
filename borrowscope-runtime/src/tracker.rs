@@ -3324,4 +3324,223 @@ mod tests {
             "All events should be New events"
         );
     }
+
+    // =========================================================================
+    // Phase 6 Tests
+    // =========================================================================
+
+    #[test]
+    fn test_track_break() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_break(1, None, "test.rs:1");
+        track_break(2, Some("outer"), "test.rs:2");
+
+        let events = get_events();
+        assert_eq!(events.len(), 2);
+
+        if let Event::Break { break_id, loop_label, .. } = &events[0] {
+            assert_eq!(break_id, "1");
+            assert!(loop_label.is_none());
+        } else {
+            panic!("Expected Break event");
+        }
+
+        if let Event::Break { break_id, loop_label, .. } = &events[1] {
+            assert_eq!(break_id, "2");
+            assert_eq!(loop_label.as_deref(), Some("outer"));
+        } else {
+            panic!("Expected Break event");
+        }
+    }
+
+    #[test]
+    fn test_track_continue() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_continue(1, None, "test.rs:1");
+        track_continue(2, Some("inner"), "test.rs:2");
+
+        let events = get_events();
+        assert_eq!(events.len(), 2);
+
+        if let Event::Continue { continue_id, loop_label, .. } = &events[0] {
+            assert_eq!(continue_id, "1");
+            assert!(loop_label.is_none());
+        } else {
+            panic!("Expected Continue event");
+        }
+    }
+
+    #[test]
+    fn test_track_struct_create() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_struct_create(1, "Point", "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::StructCreate { struct_id, type_name, .. } = &events[0] {
+            assert_eq!(struct_id, "1");
+            assert_eq!(type_name, "Point");
+        } else {
+            panic!("Expected StructCreate event");
+        }
+    }
+
+    #[test]
+    fn test_track_tuple_create() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_tuple_create(1, 3, "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::TupleCreate { tuple_id, len, .. } = &events[0] {
+            assert_eq!(tuple_id, "1");
+            assert_eq!(*len, 3);
+        } else {
+            panic!("Expected TupleCreate event");
+        }
+    }
+
+    #[test]
+    fn test_track_range() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_range(1, "half_open", "test.rs:1");
+        track_range(2, "closed", "test.rs:2");
+
+        let events = get_events();
+        assert_eq!(events.len(), 2);
+
+        if let Event::Range { range_id, range_type, .. } = &events[0] {
+            assert_eq!(range_id, "1");
+            assert_eq!(range_type, "half_open");
+        } else {
+            panic!("Expected Range event");
+        }
+    }
+
+    #[test]
+    fn test_track_array_create() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_array_create(1, 5, "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ArrayCreate { array_id, len, .. } = &events[0] {
+            assert_eq!(array_id, "1");
+            assert_eq!(*len, 5);
+        } else {
+            panic!("Expected ArrayCreate event");
+        }
+    }
+
+    #[test]
+    fn test_track_type_cast() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_type_cast(1, "i64", "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::TypeCast { cast_id, to_type, .. } = &events[0] {
+            assert_eq!(cast_id, "1");
+            assert_eq!(to_type, "i64");
+        } else {
+            panic!("Expected TypeCast event");
+        }
+    }
+
+    #[test]
+    fn test_track_closure_create() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_closure_create(1, "move", "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::ClosureCreate { closure_id, capture_mode, .. } = &events[0] {
+            assert_eq!(closure_id, "1");
+            assert_eq!(capture_mode, "move");
+        } else {
+            panic!("Expected ClosureCreate event");
+        }
+    }
+
+    #[test]
+    fn test_track_let_else() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_let_else(1, "Some(x)", "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::LetElse { let_id, pattern, .. } = &events[0] {
+            assert_eq!(let_id, "1");
+            assert_eq!(pattern, "Some(x)");
+        } else {
+            panic!("Expected LetElse event");
+        }
+    }
+
+    #[test]
+    fn test_track_binary_op() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_binary_op(1, "+", "test.rs:1");
+
+        let events = get_events();
+        assert_eq!(events.len(), 1);
+
+        if let Event::BinaryOp { op_id, operator, .. } = &events[0] {
+            assert_eq!(op_id, "1");
+            assert_eq!(operator, "+");
+        } else {
+            panic!("Expected BinaryOp event");
+        }
+    }
+
+    #[test]
+    fn test_track_region() {
+        let _lock = TEST_LOCK.lock();
+        reset();
+
+        track_region_enter(1, "scope", "test.rs:1");
+        track_region_exit(1, "test.rs:2");
+
+        let events = get_events();
+        assert_eq!(events.len(), 2);
+
+        if let Event::RegionEnter { region_id, name, .. } = &events[0] {
+            assert_eq!(region_id, "1");
+            assert_eq!(name, "scope");
+        } else {
+            panic!("Expected RegionEnter event");
+        }
+
+        if let Event::RegionExit { region_id, .. } = &events[1] {
+            assert_eq!(region_id, "1");
+        } else {
+            panic!("Expected RegionExit event");
+        }
+    }
 }
