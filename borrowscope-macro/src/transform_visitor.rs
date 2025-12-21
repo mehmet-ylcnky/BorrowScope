@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use syn::{
     spanned::Spanned,
     visit_mut::{self, VisitMut},
-    Block, Expr, ExprCall, ExprCast, ExprClosure, ExprField, ExprMethodCall, ExprReference,
-    ExprUnsafe, Ident, Index, ItemFn, Local, Pat, Stmt,
+    Block, Expr, ExprCall, ExprCast, ExprClosure, ExprMethodCall, ExprReference, ExprUnsafe,
+    Ident, Index, ItemFn, Local, Pat, Stmt,
 };
 
 /// Type of self borrow in method call
@@ -715,22 +715,23 @@ impl OwnershipVisitor {
         }
     }
 
-    /// Transform call expressions (transmute, FFI, unsafe fn)
+    /// Transform call expressions (transmute only - FFI/unsafe fn require type info)
     fn transform_call_expr(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
         if let Expr::Path(path) = call_expr.func.as_ref() {
             let path_str = quote::quote!(#path).to_string();
-            let location = Self::location_tokens(
-                path.path
-                    .segments
-                    .last()
-                    .map(|s| s.ident.span())
-                    .unwrap_or_else(proc_macro2::Span::call_site),
-            );
-            let args = &call_expr.args;
-            let func = &call_expr.func;
 
-            // Check for transmute
+            // Check for transmute (reliably detectable by name)
             if path_str.contains("transmute") {
+                let location = Self::location_tokens(
+                    path.path
+                        .segments
+                        .last()
+                        .map(|s| s.ident.span())
+                        .unwrap_or_else(proc_macro2::Span::call_site),
+                );
+                let args = &call_expr.args;
+                let func = &call_expr.func;
+
                 *expr = syn::parse_quote! {
                     {
                         borrowscope_runtime::track_transmute("unknown", "unknown", #location);
@@ -738,37 +739,8 @@ impl OwnershipVisitor {
                     }
                 };
             }
+            // Note: FFI calls and unsafe fn calls cannot be detected without type information
         }
-    }
-
-    /// Transform raw pointer dereference
-    fn transform_ptr_deref(&mut self, expr: &mut Expr, unary_expr: &syn::ExprUnary) {
-        // Check for dereference operator on pointer-like expressions
-        if matches!(unary_expr.op, syn::UnOp::Deref(_)) {
-            // Heuristic: if inner expr looks like a raw pointer variable
-            if let Expr::Path(path) = unary_expr.expr.as_ref() {
-                let var_name = quote::quote!(#path).to_string();
-                // Only track if it looks like a pointer (contains "ptr" or starts with "p_")
-                if var_name.contains("ptr") || var_name.starts_with("p_") {
-                    let location = Self::location_tokens(unary_expr.op.span());
-                    let inner = &unary_expr.expr;
-                    let ptr_id = self.gen_id();
-                    *expr = syn::parse_quote! {
-                        {
-                            borrowscope_runtime::track_raw_ptr_deref(#ptr_id, #location, false);
-                            *#inner
-                        }
-                    };
-                }
-            }
-        }
-    }
-
-    /// Transform union field access
-    fn transform_field_access(&mut self, _expr: &mut Expr, _field_expr: &syn::ExprField) {
-        // Union field access detection requires type information not available at macro time
-        // This would need to be done via attribute hints or naming conventions
-        // For now, this is a placeholder for future implementation
     }
 }
 
@@ -940,20 +912,16 @@ impl VisitMut for OwnershipVisitor {
             self.transform_ptr_cast(expr, &cast_expr);
         }
 
-        // Transform raw pointer dereferences
-        if let Expr::Unary(unary_expr) = expr.clone() {
-            self.transform_ptr_deref(expr, &unary_expr);
-        }
-
-        // Transform transmute and FFI calls
+        // Transform transmute calls
         if let Expr::Call(call_expr) = expr.clone() {
             self.transform_call_expr(expr, &call_expr);
         }
 
-        // Transform union field access
-        if let Expr::Field(field_expr) = expr.clone() {
-            self.transform_field_access(expr, &field_expr);
-        }
+        // Note: The following cannot be detected without type information:
+        // - Raw pointer dereferences (*ptr) - can't distinguish from regular deref
+        // - FFI calls - can't know if function is extern "C"
+        // - Union field access - can't know if type is union vs struct
+        // - Unsafe fn calls - can't know if function is unsafe
     }
 }
 
@@ -1228,19 +1196,5 @@ mod tests {
 
         let output = expr.to_token_stream().to_string();
         assert!(output.contains("track_transmute"));
-    }
-
-    #[test]
-    fn test_raw_ptr_deref_transformation() {
-        let mut visitor = OwnershipVisitor::new();
-
-        let mut expr: Expr = parse_quote! {
-            *ptr
-        };
-
-        visitor.visit_expr_mut(&mut expr);
-
-        let output = expr.to_token_stream().to_string();
-        assert!(output.contains("track_raw_ptr_deref"));
     }
 }
