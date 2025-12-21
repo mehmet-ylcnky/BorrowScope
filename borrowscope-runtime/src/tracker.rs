@@ -1024,6 +1024,41 @@ impl Tracker {
         });
     }
 
+    // =========================================================================
+    // Phase 8: Enhanced Record Methods
+    // =========================================================================
+
+    pub fn record_fn_enter(&mut self, fn_id: usize, fn_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::FnEnter {
+            timestamp,
+            fn_id: fn_id.to_string(),
+            fn_name: fn_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_fn_exit(&mut self, fn_id: usize, fn_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::FnExit {
+            timestamp,
+            fn_id: fn_id.to_string(),
+            fn_name: fn_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_closure_capture(&mut self, closure_id: usize, var_name: &str, capture_mode: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ClosureCapture {
+            timestamp,
+            closure_id: closure_id.to_string(),
+            var_name: var_name.to_string(),
+            capture_mode: capture_mode.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -3017,6 +3052,53 @@ pub fn track_region_exit(
     {
         let mut tracker = TRACKER.lock();
         tracker.record_region_exit(region_id, location);
+    }
+}
+
+// =============================================================================
+// Phase 8: Enhanced Tracking Functions
+// =============================================================================
+
+/// Track function entry
+#[inline(always)]
+pub fn track_fn_enter(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_fn_enter(fn_id, fn_name, location);
+    }
+}
+
+/// Track function exit
+#[inline(always)]
+pub fn track_fn_exit(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_fn_exit(fn_id, fn_name, location);
+    }
+}
+
+/// Track closure variable capture
+#[inline(always)]
+pub fn track_closure_capture(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] closure_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] capture_mode: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_closure_capture(closure_id, var_name, capture_mode, location);
     }
 }
 

@@ -1305,8 +1305,50 @@ impl Default for OwnershipVisitor {
 
 impl VisitMut for OwnershipVisitor {
     fn visit_item_fn_mut(&mut self, func: &mut ItemFn) {
-        // Only visit the function body, not nested items
+        let fn_name = func.sig.ident.to_string();
+        let fn_id = self.gen_id();
+
+        // Visit the function body first
         self.visit_block_mut(&mut func.block);
+
+        // Wrap body with fn_enter/fn_exit if functions tracking is enabled
+        if self.config.track_functions {
+            let fn_name_lit = syn::LitStr::new(&fn_name, proc_macro2::Span::call_site());
+            let location = Self::location_tokens(func.sig.ident.span());
+
+            let original_stmts = std::mem::take(&mut func.block.stmts);
+
+            // Check if last statement is an expression (return value)
+            let (body_stmts, return_expr) = if let Some(Stmt::Expr(expr, None)) = original_stmts.last() {
+                let body: Vec<_> = original_stmts[..original_stmts.len() - 1].to_vec();
+                (body, Some(expr.clone()))
+            } else {
+                (original_stmts, None)
+            };
+
+            let enter_stmt: Stmt = syn::parse_quote! {
+                borrowscope_runtime::track_fn_enter(#fn_id, #fn_name_lit, #location);
+            };
+
+            func.block.stmts = vec![enter_stmt];
+            func.block.stmts.extend(body_stmts);
+
+            if let Some(ret_expr) = return_expr {
+                let exit_with_return: Stmt = syn::parse_quote! {
+                    {
+                        let __fn_result = #ret_expr;
+                        borrowscope_runtime::track_fn_exit(#fn_id, #fn_name_lit, #location);
+                        __fn_result
+                    }
+                };
+                func.block.stmts.push(exit_with_return);
+            } else {
+                let exit_stmt: Stmt = syn::parse_quote! {
+                    borrowscope_runtime::track_fn_exit(#fn_id, #fn_name_lit, #location);
+                };
+                func.block.stmts.push(exit_stmt);
+            }
+        }
     }
 
     fn visit_block_mut(&mut self, block: &mut Block) {

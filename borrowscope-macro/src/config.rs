@@ -37,6 +37,8 @@ pub struct TraceConfig {
     pub track_unsafe: bool,
     /// Track expressions (struct, tuple, array, range, cast)
     pub track_expressions: bool,
+    /// Track function entry/exit
+    pub track_functions: bool,
 }
 
 impl TraceConfig {
@@ -56,6 +58,7 @@ impl TraceConfig {
             track_async: true,
             track_unsafe: true,
             track_expressions: true,
+            track_functions: false,
         }
     }
 
@@ -75,6 +78,7 @@ impl TraceConfig {
             track_async: false,
             track_unsafe: false,
             track_expressions: false,
+            track_functions: false,
         }
     }
 
@@ -96,6 +100,7 @@ impl TraceConfig {
                 "unsafe" => self.track_unsafe = false,
                 "expressions" | "exprs" => self.track_expressions = false,
                 "smart_pointers" | "pointers" => self.track_smart_pointers = false,
+                "functions" | "fn" => self.track_functions = false,
                 _ => {} // ignore unknown
             }
         }
@@ -118,6 +123,7 @@ impl TraceConfig {
             track_async: false,
             track_unsafe: false,
             track_expressions: false,
+            track_functions: false,
         };
 
         for feature in features.split(',').map(|s| s.trim()) {
@@ -141,6 +147,7 @@ impl TraceConfig {
                 "unsafe" => self.track_unsafe = true,
                 "expressions" | "exprs" => self.track_expressions = true,
                 "smart_pointers" | "pointers" => self.track_smart_pointers = true,
+                "functions" | "fn" => self.track_functions = true,
                 _ => {} // ignore unknown
             }
         }

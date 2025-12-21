@@ -862,3 +862,187 @@ Our transformation `expr` → `{ track(...); expr }` converts a place expression
 - 155+ macro unit tests (including 14 new Phase 5 tests)
 - 7 async tracking integration tests
 - All tests passing
+
+
+---
+
+## Phase 8: Enhanced Tracking Features
+
+### 8.1 Function Entry/Exit Tracking
+
+**Runtime functions needed:** NEW
+```rust
+pub fn track_fn_enter(fn_id: usize, fn_name: &str, location: &str)
+pub fn track_fn_exit(fn_id: usize, fn_name: &str, location: &str)
+```
+
+**Events:** NEW
+- `FnEnter { timestamp, fn_id, fn_name, location }`
+- `FnExit { timestamp, fn_id, fn_name, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+#[trace_borrow]
+fn example(x: i32) -> i32 {
+    x + 1
+}
+
+// Output:
+fn example(x: i32) -> i32 {
+    track_fn_enter(ID, "example", "loc");
+    let __result = { x + 1 };
+    track_fn_exit(ID, "example", "loc");
+    __result
+}
+```
+
+**Status:** TODO
+
+---
+
+### 8.2 Parameter Tracking
+
+**Runtime functions needed:** Uses existing `track_new`
+
+**Macro transformation:**
+```rust
+// Input:
+#[trace_borrow]
+fn example(x: i32, name: String) {
+    // ...
+}
+
+// Output:
+fn example(x: i32, name: String) {
+    track_new("x", &x);  // or track_new_with_id
+    track_new("name", &name);
+    // ...
+}
+```
+
+**Status:** TODO
+
+---
+
+### 8.3 Drop Order Tracking
+
+**Runtime functions needed:** Uses existing `track_drop`
+
+**Macro transformation:**
+```rust
+// Input:
+{
+    let a = 1;
+    let b = 2;
+    let c = 3;
+}
+
+// Output:
+{
+    let a = track_new("a", 1);
+    let b = track_new("b", 2);
+    let c = track_new("c", 3);
+    // At scope exit, drops in reverse order:
+    track_drop("c");
+    track_drop("b");
+    track_drop("a");
+}
+```
+
+**Note:** Currently drops are tracked via `TrackGuard`. This would add explicit drop order tracking.
+
+**Status:** TODO
+
+---
+
+### 8.4 Let-Else Transformation
+
+**Runtime functions needed:** Uses existing `track_let_else`
+
+**Macro transformation:**
+```rust
+// Input:
+let Some(x) = opt else { return };
+
+// Output:
+let Some(x) = opt else {
+    track_let_else(ID, "Some(x)", "loc");
+    return
+};
+```
+
+**Detectable patterns:** `Local` with `diverge` in init
+
+**Status:** TODO (runtime exists)
+
+---
+
+### 8.5 Repeat Array Tracking
+
+**Runtime functions needed:** Uses existing `track_array_create`
+
+**Macro transformation:**
+```rust
+// Input:
+[0; 100]
+
+// Output:
+{
+    track_array_create(ID, 100, "loc");
+    [0; 100]
+}
+```
+
+**Detectable patterns:** `Expr::Repeat`
+
+**Status:** TODO
+
+---
+
+### 8.6 Closure Capture Details
+
+**Runtime functions needed:** NEW
+```rust
+pub fn track_closure_capture(closure_id: usize, var_name: &str, capture_mode: &str, location: &str)
+```
+
+**Events:** NEW
+- `ClosureCapture { timestamp, closure_id, var_name, capture_mode, location }`
+
+**Macro transformation:**
+```rust
+// Input:
+let x = 1;
+let y = String::new();
+let c = move || x + y.len();
+
+// Output:
+let c = {
+    track_closure_create(ID, "move", "loc");
+    track_closure_capture(ID, "x", "copy", "loc");
+    track_closure_capture(ID, "y", "move", "loc");
+    move || x + y.len()
+};
+```
+
+**Note:** Requires analyzing closure body to detect captured variables.
+
+**Status:** TODO
+
+---
+
+## Phase 8 Summary
+
+| Feature | Runtime Changes | Macro Changes | Effort |
+|---------|-----------------|---------------|--------|
+| 8.1 Fn Entry/Exit | 2 functions, 2 events | Wrap fn body | Low |
+| 8.2 Parameters | None | Add track_new for params | Low |
+| 8.3 Drop Order | None | Insert drops at scope exit | Medium |
+| 8.4 Let-Else | None (exists) | Transform diverge branch | Low |
+| 8.5 Repeat Array | None (exists) | Handle Expr::Repeat | Low |
+| 8.6 Closure Capture | 1 function, 1 event | Analyze closure body | Medium |
+
+**Total new runtime additions:**
+- 3 new functions: `track_fn_enter`, `track_fn_exit`, `track_closure_capture`
+- 3 new events: `FnEnter`, `FnExit`, `ClosureCapture`

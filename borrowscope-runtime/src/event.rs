@@ -478,6 +478,35 @@ pub enum Event {
         region_id: String,
         location: String,
     },
+
+    // =========================================================================
+    // Phase 8: Enhanced Tracking Events
+    // =========================================================================
+
+    /// Function entry
+    FnEnter {
+        timestamp: u64,
+        fn_id: String,
+        fn_name: String,
+        location: String,
+    },
+
+    /// Function exit
+    FnExit {
+        timestamp: u64,
+        fn_id: String,
+        fn_name: String,
+        location: String,
+    },
+
+    /// Closure variable capture
+    ClosureCapture {
+        timestamp: u64,
+        closure_id: String,
+        var_name: String,
+        capture_mode: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -540,7 +569,10 @@ impl Event {
             | Event::ArrayCreate { timestamp, .. }
             | Event::TypeCast { timestamp, .. }
             | Event::RegionEnter { timestamp, .. }
-            | Event::RegionExit { timestamp, .. } => *timestamp,
+            | Event::RegionExit { timestamp, .. }
+            | Event::FnEnter { timestamp, .. }
+            | Event::FnExit { timestamp, .. }
+            | Event::ClosureCapture { timestamp, .. } => *timestamp,
         }
     }
 
@@ -606,7 +638,10 @@ impl Event {
             | Event::ArrayCreate { .. }
             | Event::TypeCast { .. }
             | Event::RegionEnter { .. }
-            | Event::RegionExit { .. } => None,
+            | Event::RegionExit { .. }
+            | Event::FnEnter { .. }
+            | Event::FnExit { .. }
+            | Event::ClosureCapture { .. } => None,
         }
     }
 
