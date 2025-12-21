@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Performance Analysis - BorrowScope Runtime White Paper</title>
     <link rel="stylesheet" href="styles.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
     <div class="section-content">
@@ -535,5 +536,166 @@ borrowscope-runtime = <span class="rust-string">"0.1"</span>  <span class="rust-
         </div>
     </div>
     <script src="scripts.js"></script>
+    <script>
+        // Memory Scaling Chart
+        document.addEventListener('DOMContentLoaded', function() {
+            // Memory scaling data
+            const memoryData = [
+                { variables: 1000, events: 3000, memory_mb: 0.43 },
+                { variables: 5000, events: 15000, memory_mb: 2.14 },
+                { variables: 10000, events: 30000, memory_mb: 4.27 },
+                { variables: 25000, events: 75000, memory_mb: 10.68 },
+                { variables: 50000, events: 150000, memory_mb: 21.35 },
+                { variables: 100000, events: 300000, memory_mb: 42.70 }
+            ];
+
+            // Create memory chart
+            createChart('memory-chart', memoryData, 'Variables', 'Memory (MB)', 
+                d => d.variables, d => d.memory_mb, '#3498db');
+
+            // Complex pattern benchmark data
+            const complexData = [
+                { pattern: 'Basic Tracking', time_ns: 75 },
+                { pattern: 'Rc<RefCell<T>>', time_ns: 189 },
+                { pattern: 'Arc<Mutex<T>>', time_ns: 245 },
+                { pattern: 'Complex Nested', time_ns: 312 }
+            ];
+
+            // Create complex pattern chart
+            createBarChart('complex-pattern-chart', complexData, 'Pattern Type', 'Time (ns)', 
+                d => d.pattern, d => d.time_ns, '#e74c3c');
+
+            // Zero-cost comparison data
+            const zeroCostData = [
+                { mode: 'Tracking Disabled', overhead_percent: 0 },
+                { mode: 'Tracking Enabled', overhead_percent: 0.08 }
+            ];
+
+            // Create zero-cost chart
+            createBarChart('zero-cost-chart', zeroCostData, 'Mode', 'Overhead (%)', 
+                d => d.mode, d => d.overhead_percent, '#27ae60');
+        });
+
+        function createChart(containerId, data, xLabel, yLabel, xAccessor, yAccessor, color) {
+            const container = d3.select(`#${containerId}`);
+            container.selectAll("*").remove();
+
+            const margin = { top: 20, right: 30, bottom: 60, left: 70 };
+            const width = 600 - margin.left - margin.right;
+            const height = 400 - margin.bottom - margin.top;
+
+            const svg = container.append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const xScale = d3.scaleLinear()
+                .domain(d3.extent(data, xAccessor))
+                .range([0, width]);
+
+            const yScale = d3.scaleLinear()
+                .domain([0, d3.max(data, yAccessor)])
+                .range([height, 0]);
+
+            const line = d3.line()
+                .x(d => xScale(xAccessor(d)))
+                .y(d => yScale(yAccessor(d)))
+                .curve(d3.curveLinear);
+
+            svg.append("path")
+                .datum(data)
+                .attr("fill", "none")
+                .attr("stroke", color)
+                .attr("stroke-width", 2)
+                .attr("d", line);
+
+            svg.selectAll(".dot")
+                .data(data)
+                .enter().append("circle")
+                .attr("class", "dot")
+                .attr("cx", d => xScale(xAccessor(d)))
+                .attr("cy", d => yScale(yAccessor(d)))
+                .attr("r", 4)
+                .attr("fill", color);
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(xScale));
+
+            svg.append("g")
+                .call(d3.axisLeft(yScale));
+
+            svg.append("text")
+                .attr("transform", `translate(${width/2}, ${height + 40})`)
+                .style("text-anchor", "middle")
+                .text(xLabel);
+
+            svg.append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 0 - margin.left + 20)
+                .attr("x", 0 - (height / 2))
+                .style("text-anchor", "middle")
+                .text(yLabel);
+        }
+
+        function createBarChart(containerId, data, xLabel, yLabel, xAccessor, yAccessor, color) {
+            const container = d3.select(`#${containerId}`);
+            container.selectAll("*").remove();
+
+            const margin = { top: 20, right: 30, bottom: 80, left: 70 };
+            const width = 500 - margin.left - margin.right;
+            const height = 300 - margin.bottom - margin.top;
+
+            const svg = container.append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const xScale = d3.scaleBand()
+                .domain(data.map(xAccessor))
+                .range([0, width])
+                .padding(0.1);
+
+            const yScale = d3.scaleLinear()
+                .domain([0, d3.max(data, yAccessor)])
+                .range([height, 0]);
+
+            svg.selectAll(".bar")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => xScale(xAccessor(d)))
+                .attr("width", xScale.bandwidth())
+                .attr("y", d => yScale(yAccessor(d)))
+                .attr("height", d => height - yScale(yAccessor(d)))
+                .attr("fill", color);
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(xScale))
+                .selectAll("text")
+                .style("text-anchor", "end")
+                .attr("dx", "-.8em")
+                .attr("dy", ".15em")
+                .attr("transform", "rotate(-45)");
+
+            svg.append("g")
+                .call(d3.axisLeft(yScale));
+
+            svg.append("text")
+                .attr("transform", `translate(${width/2}, ${height + 60})`)
+                .style("text-anchor", "middle")
+                .text(xLabel);
+
+            svg.append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 0 - margin.left + 20)
+                .attr("x", 0 - (height / 2))
+                .style("text-anchor", "middle")
+                .text(yLabel);
+        }
+    </script>
 </body>
 </html>
