@@ -3,6 +3,7 @@
 //! This module implements the OwnershipVisitor that transforms Rust code
 //! to inject runtime tracking calls.
 
+use crate::config::TraceConfig;
 use crate::smart_pointer::{detect_rc_clone, detect_smart_pointer_new, SmartPointerType};
 use std::collections::HashMap;
 use syn::{
@@ -34,11 +35,18 @@ pub struct OwnershipVisitor {
     current_stmt_index: usize,
     /// Statements to insert after current statement
     pending_inserts: Vec<(usize, Stmt)>,
+    /// Configuration for what to track
+    config: TraceConfig,
 }
 
 impl OwnershipVisitor {
-    /// Create a new visitor
+    /// Create a new visitor with default config
     pub fn new() -> Self {
+        Self::with_config(TraceConfig::standard())
+    }
+
+    /// Create a new visitor with custom config
+    pub fn with_config(config: TraceConfig) -> Self {
         Self {
             scope_depth: 0,
             var_ids: HashMap::new(),
@@ -46,6 +54,7 @@ impl OwnershipVisitor {
             scope_stack: vec![Vec::new()], // Start with root scope
             current_stmt_index: 0,
             pending_inserts: Vec::new(),
+            config,
         }
     }
 
@@ -490,7 +499,17 @@ impl OwnershipVisitor {
 
     /// Transform a let statement to inject track_new_with_id
     fn transform_local(&mut self, local: &mut Local) {
-        // Only transform if there's an initializer
+        // Only transform if there's an initializer and tracking is enabled
+        if local.init.is_none() {
+            return;
+        }
+
+        // Skip if ownership tracking is disabled
+        if !self.config.track_new && !self.config.track_move {
+            visit_mut::visit_local_mut(self, local);
+            return;
+        }
+
         if let Some(init) = &mut local.init {
             // Check if this is a complex pattern
             if Self::is_complex_pattern(&local.pat) {
@@ -513,58 +532,66 @@ impl OwnershipVisitor {
             let original_expr = &init.expr;
 
             // Check for smart pointer operations first
-            if let Some(sp_type) = detect_smart_pointer_new(original_expr) {
-                let new_expr = match sp_type {
-                    SmartPointerType::Rc => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
+            if self.config.track_smart_pointers {
+                if let Some(sp_type) = detect_smart_pointer_new(original_expr) {
+                    let new_expr = match sp_type {
+                        SmartPointerType::Rc => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
+                            }
                         }
-                    }
-                    SmartPointerType::Arc => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
+                        SmartPointerType::Arc => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
+                            }
                         }
-                    }
-                    SmartPointerType::RefCell => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_refcell_new(#var_name, std::cell::RefCell::new(#original_expr))
+                        SmartPointerType::RefCell => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_refcell_new(#var_name, std::cell::RefCell::new(#original_expr))
+                            }
                         }
-                    }
-                    SmartPointerType::Cell => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_cell_new(#var_name, std::cell::Cell::new(#original_expr))
+                        SmartPointerType::Cell => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_cell_new(#var_name, std::cell::Cell::new(#original_expr))
+                            }
                         }
-                    }
-                    _ => {
-                        // Box and others use regular tracking
-                        syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        _ => {
+                            // Box and others use regular tracking
+                            syn::parse_quote! {
+                                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                            }
                         }
-                    }
-                };
-                *init.expr = new_expr;
-            } else if let Some(sp_type) = detect_rc_clone(original_expr) {
-                // Extract source ID from Rc::clone(&x) or Arc::clone(&x)
-                let source_id = self.extract_clone_source_id(original_expr);
-                let new_expr = match sp_type {
-                    SmartPointerType::Rc => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(sp_type) = detect_rc_clone(original_expr) {
+                    // Extract source ID from Rc::clone(&x) or Arc::clone(&x)
+                    let source_id = self.extract_clone_source_id(original_expr);
+                    let new_expr = match sp_type {
+                        SmartPointerType::Rc => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                            }
                         }
-                    }
-                    SmartPointerType::Arc => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                        SmartPointerType::Arc => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                            }
                         }
-                    }
-                    _ => {
-                        syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        _ => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                            }
                         }
-                    }
-                };
-                *init.expr = new_expr;
-            } else if Self::is_potential_move(original_expr) {
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                }
+            }
+
+            if self.config.track_move && Self::is_potential_move(original_expr) {
                 // Check if this is a potential move (assignment from another variable)
                 // Extract source variable name and ID
                 if let Expr::Path(path_expr) = original_expr.as_ref() {
@@ -583,20 +610,13 @@ impl OwnershipVisitor {
                             };
                             *init.expr = new_expr;
                         }
-                    } else {
-                        // Not a simple identifier - use helper function that extracts type
-                        let new_expr: Expr = syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        };
-                        *init.expr = new_expr;
+                        visit_mut::visit_local_mut(self, local);
+                        return;
                     }
-                } else {
-                    let new_expr: Expr = syn::parse_quote! {
-                        borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                    };
-                    *init.expr = new_expr;
                 }
-            } else {
+            }
+
+            if self.config.track_new {
                 // Regular variable creation - use helper function
                 let new_expr: Expr = syn::parse_quote! {
                     borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
@@ -626,6 +646,11 @@ impl OwnershipVisitor {
 
     /// Transform reference expressions to inject track_borrow_with_id
     fn transform_reference(&mut self, expr: &mut Expr, ref_expr: &ExprReference) {
+        // Skip if borrow tracking is disabled
+        if !self.config.track_borrow {
+            return;
+        }
+
         // Only track borrows of simple variables
         if !Self::is_variable_path(&ref_expr.expr) {
             return;
@@ -1365,91 +1390,117 @@ impl VisitMut for OwnershipVisitor {
         }
 
         // Handle async blocks before default traversal
-        if let Expr::Async(async_expr) = expr {
-            self.transform_async_block(async_expr);
-            return;
-        }
-
-        // Handle await expressions - need to transform before visiting base
-        if let Expr::Await(await_expr) = expr.clone() {
-            self.transform_await(expr, &await_expr);
-            return;
-        }
-
-        // Handle loops before default traversal
-        if let Expr::ForLoop(for_loop) = expr.clone() {
-            self.transform_for_loop(expr, &for_loop);
-            return;
-        }
-        if let Expr::While(while_loop) = expr.clone() {
-            self.transform_while_loop(expr, &while_loop);
-            return;
-        }
-        if let Expr::Loop(loop_expr) = expr.clone() {
-            self.transform_loop(expr, &loop_expr);
-            return;
-        }
-
-        // Handle try/? operator
-        if let Expr::Try(try_expr) = expr.clone() {
-            self.transform_try(expr, &try_expr);
-            return;
-        }
-
-        // Handle match expressions
-        if let Expr::Match(match_expr) = expr.clone() {
-            self.transform_match(expr, &match_expr);
-            return;
-        }
-
-        // Handle if expressions
-        if let Expr::If(if_expr) = expr.clone() {
-            self.transform_if(expr, &if_expr);
-            return;
-        }
-
-        // Handle return expressions
-        if let Expr::Return(return_expr) = expr.clone() {
-            self.transform_return(expr, &return_expr);
-            return;
-        }
-
-        // Phase 6: Handle break expressions
-        if let Expr::Break(break_expr) = expr.clone() {
-            self.transform_break(expr, &break_expr);
-            return;
-        }
-
-        // Phase 6: Handle continue expressions
-        if let Expr::Continue(continue_expr) = expr.clone() {
-            self.transform_continue(expr, &continue_expr);
-            return;
-        }
-
-        // Phase 6: Handle struct creation
-        if let Expr::Struct(struct_expr) = expr.clone() {
-            self.transform_struct(expr, &struct_expr);
-            return;
-        }
-
-        // Phase 6: Handle tuple creation (skip unit tuples)
-        if let Expr::Tuple(tuple_expr) = expr.clone() {
-            if !tuple_expr.elems.is_empty() {
-                self.transform_tuple(expr, &tuple_expr);
+        if self.config.track_async {
+            if let Expr::Async(async_expr) = expr {
+                self.transform_async_block(async_expr);
                 return;
             }
         }
 
+        // Handle await expressions - need to transform before visiting base
+        if self.config.track_async {
+            if let Expr::Await(await_expr) = expr.clone() {
+                self.transform_await(expr, &await_expr);
+                return;
+            }
+        }
+
+        // Handle loops before default traversal
+        if self.config.track_loops {
+            if let Expr::ForLoop(for_loop) = expr.clone() {
+                self.transform_for_loop(expr, &for_loop);
+                return;
+            }
+            if let Expr::While(while_loop) = expr.clone() {
+                self.transform_while_loop(expr, &while_loop);
+                return;
+            }
+            if let Expr::Loop(loop_expr) = expr.clone() {
+                self.transform_loop(expr, &loop_expr);
+                return;
+            }
+        }
+
+        // Handle try/? operator
+        if self.config.track_try {
+            if let Expr::Try(try_expr) = expr.clone() {
+                self.transform_try(expr, &try_expr);
+                return;
+            }
+        }
+
+        // Handle match expressions
+        if self.config.track_branches {
+            if let Expr::Match(match_expr) = expr.clone() {
+                self.transform_match(expr, &match_expr);
+                return;
+            }
+        }
+
+        // Handle if expressions
+        if self.config.track_branches {
+            if let Expr::If(if_expr) = expr.clone() {
+                self.transform_if(expr, &if_expr);
+                return;
+            }
+        }
+
+        // Handle return expressions
+        if self.config.track_control_flow {
+            if let Expr::Return(return_expr) = expr.clone() {
+                self.transform_return(expr, &return_expr);
+                return;
+            }
+        }
+
+        // Phase 6: Handle break expressions
+        if self.config.track_control_flow {
+            if let Expr::Break(break_expr) = expr.clone() {
+                self.transform_break(expr, &break_expr);
+                return;
+            }
+        }
+
+        // Phase 6: Handle continue expressions
+        if self.config.track_control_flow {
+            if let Expr::Continue(continue_expr) = expr.clone() {
+                self.transform_continue(expr, &continue_expr);
+                return;
+            }
+        }
+
+        // Phase 6: Handle struct creation
+        if self.config.track_expressions {
+            if let Expr::Struct(struct_expr) = expr.clone() {
+                self.transform_struct(expr, &struct_expr);
+                return;
+            }
+        }
+
+        // Phase 6: Handle tuple creation (skip unit tuples)
+        if self.config.track_expressions {
+            if let Expr::Tuple(tuple_expr) = expr.clone() {
+                if !tuple_expr.elems.is_empty() {
+                    self.transform_tuple(expr, &tuple_expr);
+                    return;
+                }
+            }
+        }
+
         // Phase 6: Handle range expressions
-        if let Expr::Range(range_expr) = expr.clone() {
-            self.transform_range(expr, &range_expr);
-            return;
+        if self.config.track_expressions {
+            if let Expr::Range(range_expr) = expr.clone() {
+                self.transform_range(expr, &range_expr);
+                return;
+            }
         }
 
         // Phase 6: Handle array creation
-        if let Expr::Array(array_expr) = expr.clone() {
-            self.transform_array(expr, &array_expr);
-            return;
+        if self.config.track_expressions {
+            if let Expr::Array(array_expr) = expr.clone() {
+                self.transform_array(expr, &array_expr);
+                return;
+            }
         }
 
         // Handle method calls - check for RefCell/Cell methods first
@@ -1457,88 +1508,94 @@ impl VisitMut for OwnershipVisitor {
             let method_name = method_call.method.to_string();
             
             // Check for clone
-            if method_name == "clone" {
+            if self.config.track_methods && method_name == "clone" {
                 let mc = method_call.clone();
                 self.transform_clone(expr, &mc);
                 return;
             }
 
             // Check for lock methods (Mutex/RwLock)
-            match method_name.as_str() {
-                "lock" | "try_lock" => {
-                    let mc = method_call.clone();
-                    self.transform_lock(expr, &mc, "mutex");
-                    return;
-                }
-                "read" | "try_read" => {
-                    let mc = method_call.clone();
-                    self.transform_lock(expr, &mc, "rwlock_read");
-                    return;
-                }
-                "write" | "try_write" => {
-                    let mc = method_call.clone();
-                    self.transform_lock(expr, &mc, "rwlock_write");
-                    return;
-                }
-                _ => {}
-            }
-
-            // Check for unwrap methods
-            match method_name.as_str() {
-                "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" => {
-                    let mc = method_call.clone();
-                    self.transform_unwrap(expr, &mc);
-                    return;
-                }
-                _ => {}
-            }
-            
-            // Check for RefCell/Cell specific methods that need wrapping
-            if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
-                let location = Self::location_tokens(method_call.method.span());
-                let borrow_id = format!("borrow_{}", self.gen_id());
-                let receiver_id = format!("refcell_{}", receiver_name);
-                let receiver = method_call.receiver.clone();
-                
+            if self.config.track_methods {
                 match method_name.as_str() {
-                    "borrow" => {
-                        // Transform cell.borrow() -> track_refcell_borrow(id, cell_id, loc, cell.borrow())
-                        *expr = syn::parse_quote! {
-                            borrowscope_runtime::track_refcell_borrow(#borrow_id, #receiver_id, #location, #receiver.borrow())
-                        };
+                    "lock" | "try_lock" => {
+                        let mc = method_call.clone();
+                        self.transform_lock(expr, &mc, "mutex");
                         return;
                     }
-                    "borrow_mut" => {
-                        // Transform cell.borrow_mut() -> track_refcell_borrow_mut(id, cell_id, loc, cell.borrow_mut())
-                        *expr = syn::parse_quote! {
-                            borrowscope_runtime::track_refcell_borrow_mut(#borrow_id, #receiver_id, #location, #receiver.borrow_mut())
-                        };
+                    "read" | "try_read" => {
+                        let mc = method_call.clone();
+                        self.transform_lock(expr, &mc, "rwlock_read");
                         return;
                     }
-                    "get" => {
-                        // Transform cell.get() -> track_cell_get(cell_id, loc, cell.get())
-                        let cell_id = format!("cell_{}", receiver_name);
-                        *expr = syn::parse_quote! {
-                            borrowscope_runtime::track_cell_get(#cell_id, #location, #receiver.get())
-                        };
-                        return;
-                    }
-                    "set" => {
-                        // Transform cell.set(v) -> { track_cell_set(cell_id, loc); cell.set(v) }
-                        let cell_id = format!("cell_{}", receiver_name);
-                        // Visit arguments first
-                        let args: Vec<_> = method_call.args.iter().cloned().collect();
-                        if let Some(arg) = args.first() {
-                            *expr = syn::parse_quote! {
-                                {
-                                    borrowscope_runtime::track_cell_set(#cell_id, #location);
-                                    #receiver.set(#arg)
-                                }
-                            };
-                        }
+                    "write" | "try_write" => {
+                        let mc = method_call.clone();
+                        self.transform_lock(expr, &mc, "rwlock_write");
                         return;
                     }
                     _ => {}
+                }
+            }
+
+            // Check for unwrap methods
+            if self.config.track_methods {
+                match method_name.as_str() {
+                    "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" => {
+                        let mc = method_call.clone();
+                        self.transform_unwrap(expr, &mc);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            
+            // Check for RefCell/Cell specific methods that need wrapping
+            if self.config.track_smart_pointers {
+                if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                    let location = Self::location_tokens(method_call.method.span());
+                    let borrow_id = format!("borrow_{}", self.gen_id());
+                    let receiver_id = format!("refcell_{}", receiver_name);
+                    let receiver = method_call.receiver.clone();
+                    
+                    match method_name.as_str() {
+                        "borrow" => {
+                            // Transform cell.borrow() -> track_refcell_borrow(id, cell_id, loc, cell.borrow())
+                            *expr = syn::parse_quote! {
+                                borrowscope_runtime::track_refcell_borrow(#borrow_id, #receiver_id, #location, #receiver.borrow())
+                            };
+                            return;
+                        }
+                        "borrow_mut" => {
+                            // Transform cell.borrow_mut() -> track_refcell_borrow_mut(id, cell_id, loc, cell.borrow_mut())
+                            *expr = syn::parse_quote! {
+                                borrowscope_runtime::track_refcell_borrow_mut(#borrow_id, #receiver_id, #location, #receiver.borrow_mut())
+                            };
+                            return;
+                        }
+                        "get" => {
+                            // Transform cell.get() -> track_cell_get(cell_id, loc, cell.get())
+                            let cell_id = format!("cell_{}", receiver_name);
+                            *expr = syn::parse_quote! {
+                                borrowscope_runtime::track_cell_get(#cell_id, #location, #receiver.get())
+                            };
+                            return;
+                        }
+                        "set" => {
+                            // Transform cell.set(v) -> { track_cell_set(cell_id, loc); cell.set(v) }
+                            let cell_id = format!("cell_{}", receiver_name);
+                            // Visit arguments first
+                            let args: Vec<_> = method_call.args.iter().cloned().collect();
+                            if let Some(arg) = args.first() {
+                                *expr = syn::parse_quote! {
+                                    {
+                                        borrowscope_runtime::track_cell_set(#cell_id, #location);
+                                        #receiver.set(#arg)
+                                    }
+                                };
+                            }
+                            return;
+                        }
+                        _ => {}
+                    }
                 }
             }
             
@@ -1578,24 +1635,30 @@ impl VisitMut for OwnershipVisitor {
         }
 
         // Transform unsafe blocks
-        if let Expr::Unsafe(unsafe_expr) = expr {
-            self.transform_unsafe_block(unsafe_expr);
+        if self.config.track_unsafe {
+            if let Expr::Unsafe(unsafe_expr) = expr {
+                self.transform_unsafe_block(unsafe_expr);
+            }
         }
 
         // Transform raw pointer casts (takes precedence over general cast tracking)
         if let Expr::Cast(cast_expr) = expr.clone() {
             // Check if it's a pointer cast - those are handled specially
             if matches!(cast_expr.ty.as_ref(), syn::Type::Ptr(_)) {
-                self.transform_ptr_cast(expr, &cast_expr);
-            } else {
+                if self.config.track_unsafe {
+                    self.transform_ptr_cast(expr, &cast_expr);
+                }
+            } else if self.config.track_expressions {
                 // Non-pointer casts - Phase 6 tracking
                 self.transform_cast(expr, &cast_expr);
             }
         }
 
         // Transform transmute calls
-        if let Expr::Call(call_expr) = expr.clone() {
-            self.transform_call_expr(expr, &call_expr);
+        if self.config.track_unsafe {
+            if let Expr::Call(call_expr) = expr.clone() {
+                self.transform_call_expr(expr, &call_expr);
+            }
         }
 
         // Note: The following cannot be detected without type information:

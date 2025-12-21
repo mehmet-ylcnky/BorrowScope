@@ -2,10 +2,21 @@
 //!
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
 //! Rust code to track ownership and borrowing operations at runtime.
+//!
+//! # Attribute Options
+//!
+//! ```ignore
+//! #[trace_borrow]                           // default: standard tracking
+//! #[trace_borrow(skip = "loops,branches")]  // skip specific features
+//! #[trace_borrow(only = "ownership")]       // only new/move/drop/borrow
+//! #[trace_borrow(verbose)]                  // enable all including noisy features
+//! #[trace_borrow(quiet)]                    // minimal tracking (ownership only)
+//! ```
 
 mod best_practices;
 mod borrow_detection;
 mod codegen;
+mod config;
 mod examples;
 mod formatting;
 mod generic_handler;
@@ -67,17 +78,28 @@ fn validate_function(func: &ItemFn) {
 ///     let y = &x;
 /// }
 /// ```
+///
+/// # Options
+/// ```ignore
+/// #[trace_borrow(quiet)]                    // ownership only
+/// #[trace_borrow(verbose)]                  // all tracking
+/// #[trace_borrow(skip = "loops,branches")]  // skip specific features
+/// #[trace_borrow(only = "ownership")]       // only specified features
+/// ```
 #[proc_macro_attribute]
 #[proc_macro_error]
-pub fn trace_borrow(_attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn trace_borrow(attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse attribute arguments
+    let args = parse_macro_input!(attr as config::TraceArgs);
+
     // Parse the input as a function
     let mut input_fn = parse_macro_input!(item as ItemFn);
 
     // Validate the function
     validate_function(&input_fn);
 
-    // Transform the function body using OwnershipVisitor
-    let mut visitor = OwnershipVisitor::new();
+    // Transform the function body using OwnershipVisitor with config
+    let mut visitor = OwnershipVisitor::with_config(args.config);
     visitor.visit_item_fn_mut(&mut input_fn);
 
     // Generate output
