@@ -1,17 +1,104 @@
-//! BorrowScope Procedural Macros
+//! # BorrowScope Procedural Macros
 //!
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
 //! Rust code to track ownership and borrowing operations at runtime.
 //!
-//! # Attribute Options
+//! ## Quick Start
 //!
 //! ```ignore
-//! #[trace_borrow]                           // default: standard tracking
-//! #[trace_borrow(skip = "loops,branches")]  // skip specific features
-//! #[trace_borrow(only = "ownership")]       // only new/move/drop/borrow
-//! #[trace_borrow(verbose)]                  // enable all including noisy features
-//! #[trace_borrow(quiet)]                    // minimal tracking (ownership only)
+//! use borrowscope_macro::trace_borrow;
+//! use borrowscope_runtime::*;
+//!
+//! #[trace_borrow]
+//! fn example() {
+//!     let x = String::from("hello");  // New event
+//!     let y = &x;                      // Borrow event
+//!     let z = x;                       // Move event
+//! }                                    // Drop events
+//!
+//! fn main() {
+//!     reset();
+//!     example();
+//!     println!("{:?}", get_events());
+//! }
 //! ```
+//!
+//! ## Attribute Options
+//!
+//! | Attribute | Description |
+//! |-----------|-------------|
+//! | `#[trace_borrow]` | Default: all standard tracking enabled |
+//! | `#[trace_borrow(quiet)]` | Ownership only (new, move, drop, borrow) |
+//! | `#[trace_borrow(verbose)]` | All tracking including noisy features |
+//! | `#[trace_borrow(skip = "loops,branches")]` | Skip specific feature groups |
+//! | `#[trace_borrow(only = "ownership")]` | Enable only specified feature groups |
+//!
+//! ## Feature Groups
+//!
+//! | Group | Description |
+//! |-------|-------------|
+//! | `ownership` | Variable creation, moves, drops, borrows |
+//! | `smart_pointers` | Rc, Arc, RefCell, Cell operations |
+//! | `loops` | for, while, loop tracking |
+//! | `branches` | if/else, match tracking |
+//! | `control_flow` | break, continue, return |
+//! | `try` | ? operator |
+//! | `methods` | clone, lock, unwrap |
+//! | `async` | async blocks, await |
+//! | `unsafe` | unsafe blocks, raw pointers, transmute |
+//! | `expressions` | struct, tuple, array, range, cast |
+//! | `functions` | Function entry/exit (disabled by default) |
+//!
+//! ## Tracked Operations
+//!
+//! ### Basic Ownership
+//! - `let x = value;` → `New` event
+//! - `let y = &x;` → `Borrow` event
+//! - `let y = &mut x;` → `Borrow` event (mutable)
+//! - `let y = x;` (move) → `Move` event
+//! - Scope exit → `Drop` event
+//!
+//! ### Smart Pointers
+//! - `Rc::new(v)` → `RcNew` event
+//! - `Rc::clone(&rc)` → `RcClone` event
+//! - `Arc::new(v)` → `ArcNew` event
+//! - `Arc::clone(&arc)` → `ArcClone` event
+//!
+//! ### Interior Mutability
+//! - `RefCell::new(v)` → `RefCellNew` event
+//! - `refcell.borrow()` → `RefCellBorrow` event
+//! - `Cell::new(v)` → `CellNew` event
+//! - `cell.get()/set()` → `CellGet`/`CellSet` events
+//!
+//! ### Control Flow
+//! - `for/while/loop` → `LoopEnter`, `LoopIteration`, `LoopExit`
+//! - `match` → `MatchEnter`, `MatchArm`, `MatchExit`
+//! - `if/else` → `Branch`
+//! - `return/break/continue` → `Return`/`Break`/`Continue`
+//! - `expr?` → `Try`
+//!
+//! ### Unsafe Operations
+//! - `unsafe { }` → `UnsafeBlockEnter`/`Exit`
+//! - Raw pointers → `RawPtrCreated`, `RawPtrDeref`
+//! - `transmute` → `Transmute`
+//!
+//! ### Async
+//! - `async { }` → `AsyncBlockEnter`/`Exit`
+//! - `.await` → `AwaitStart`/`End`
+//!
+//! ### Expressions
+//! - Struct/Tuple/Array literals → `StructCreate`/`TupleCreate`/`ArrayCreate`
+//! - Ranges → `Range`
+//! - Casts → `TypeCast`
+//! - Closures → `ClosureCreate`
+//!
+//! ### Methods
+//! - `.clone()` → `Clone`
+//! - `.lock()` → `Lock`
+//! - `.unwrap()` → `Unwrap`
+//!
+//! ### Functions (opt-in)
+//! - Entry/exit → `FnEnter`/`FnExit`
 
 mod best_practices;
 mod borrow_detection;

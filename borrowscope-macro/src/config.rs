@@ -1,6 +1,23 @@
-//! Configuration for trace_borrow attribute
+//! Configuration for trace_borrow attribute.
 //!
-//! Supports various tracking modes and feature toggles.
+//! This module provides [`TraceConfig`] for controlling which operations are tracked
+//! and [`TraceArgs`] for parsing attribute arguments.
+//!
+//! # Feature Groups
+//!
+//! | Group | Config Field | Description |
+//! |-------|--------------|-------------|
+//! | `ownership` | `track_new`, `track_move`, `track_drop`, `track_borrow` | Basic ownership |
+//! | `smart_pointers` | `track_smart_pointers` | Rc, Arc, RefCell, Cell |
+//! | `loops` | `track_loops` | for, while, loop |
+//! | `branches` | `track_branches` | if/else, match |
+//! | `control_flow` | `track_control_flow` | break, continue, return |
+//! | `try` | `track_try` | ? operator |
+//! | `methods` | `track_methods` | clone, lock, unwrap |
+//! | `async` | `track_async` | async blocks, await |
+//! | `unsafe` | `track_unsafe` | unsafe blocks, pointers |
+//! | `expressions` | `track_expressions` | struct, tuple, array, range, cast |
+//! | `functions` | `track_functions` | Function entry/exit |
 
 use syn::{
     parse::{Parse, ParseStream},
