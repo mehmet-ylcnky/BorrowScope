@@ -742,6 +742,66 @@ impl OwnershipVisitor {
             // Note: FFI calls and unsafe fn calls cannot be detected without type information
         }
     }
+
+    /// Transform async block expressions
+    fn transform_async_block(&mut self, async_expr: &mut syn::ExprAsync) {
+        let block_id = self.gen_id();
+        let location = Self::location_tokens(async_expr.async_token.span);
+
+        // Visit the inner block first
+        self.visit_block_mut(&mut async_expr.block);
+
+        // Wrap the block content with tracking
+        let inner_stmts = &async_expr.block.stmts;
+        async_expr.block = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_async_block_enter(#block_id, #location);
+                let __async_result = { #(#inner_stmts)* };
+                borrowscope_runtime::track_async_block_exit(#block_id, #location);
+                __async_result
+            }
+        };
+    }
+
+    /// Transform await expressions
+    fn transform_await(&mut self, expr: &mut Expr, await_expr: &syn::ExprAwait) {
+        let await_id = self.gen_id();
+        let location = Self::location_tokens(await_expr.await_token.span);
+        let base = &await_expr.base;
+        let future_name = Self::extract_future_name(base);
+
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_await_start(#await_id, #future_name, #location);
+                let __await_result = #base.await;
+                borrowscope_runtime::track_await_end(#await_id, #location);
+                __await_result
+            }
+        };
+    }
+
+    /// Extract a name for the future being awaited
+    fn extract_future_name(expr: &Expr) -> String {
+        match expr {
+            Expr::Path(path) => quote::quote!(#path).to_string().replace(' ', ""),
+            Expr::Call(call) => {
+                if let Expr::Path(path) = call.func.as_ref() {
+                    quote::quote!(#path).to_string().replace(' ', "")
+                } else {
+                    "future".to_string()
+                }
+            }
+            Expr::MethodCall(method) => method.method.to_string(),
+            Expr::Field(field) => {
+                if let syn::Member::Named(ident) = &field.member {
+                    ident.to_string()
+                } else {
+                    "future".to_string()
+                }
+            }
+            _ => "future".to_string(),
+        }
+    }
 }
 
 impl Default for OwnershipVisitor {
@@ -833,6 +893,18 @@ impl VisitMut for OwnershipVisitor {
         // Handle closures before default traversal
         if let Expr::Closure(closure) = expr {
             self.transform_closure(closure);
+            return;
+        }
+
+        // Handle async blocks before default traversal
+        if let Expr::Async(async_expr) = expr {
+            self.transform_async_block(async_expr);
+            return;
+        }
+
+        // Handle await expressions - need to transform before visiting base
+        if let Expr::Await(await_expr) = expr.clone() {
+            self.transform_await(expr, &await_expr);
             return;
         }
 
@@ -1196,5 +1268,66 @@ mod tests {
 
         let output = expr.to_token_stream().to_string();
         assert!(output.contains("track_transmute"));
+    }
+
+    #[test]
+    fn test_async_block_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            async { 42 }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_async_block_enter"));
+        assert!(output.contains("track_async_block_exit"));
+    }
+
+    #[test]
+    fn test_async_move_block_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            async move { x + 1 }
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_async_block_enter"));
+        assert!(output.contains("track_async_block_exit"));
+    }
+
+    #[test]
+    fn test_await_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            my_future.await
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_await_start"));
+        assert!(output.contains("track_await_end"));
+        assert!(output.contains("my_future"));
+    }
+
+    #[test]
+    fn test_await_method_call_transformation() {
+        let mut visitor = OwnershipVisitor::new();
+
+        let mut expr: Expr = parse_quote! {
+            fetch_data().await
+        };
+
+        visitor.visit_expr_mut(&mut expr);
+
+        let output = expr.to_token_stream().to_string();
+        assert!(output.contains("track_await_start"));
+        assert!(output.contains("fetch_data"));
     }
 }

@@ -678,6 +678,51 @@ impl Tracker {
         });
     }
 
+    /// Record async block entry
+    pub fn record_async_block_enter(&mut self, block_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::AsyncBlockEnter {
+            timestamp,
+            block_id: block_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record async block exit
+    pub fn record_async_block_exit(&mut self, block_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::AsyncBlockExit {
+            timestamp,
+            block_id: block_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record await expression start
+    pub fn record_await_start(&mut self, await_id: usize, future_name: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::AwaitStart {
+            timestamp,
+            await_id: await_id.to_string(),
+            future_name: future_name.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    /// Record await expression end
+    pub fn record_await_end(&mut self, await_id: usize, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::AwaitEnd {
+            timestamp,
+            await_id: await_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -2190,6 +2235,88 @@ pub fn track_union_field_access(
     {
         let mut tracker = TRACKER.lock();
         tracker.record_union_field_access(union_name, field_name, location);
+    }
+}
+
+/// Track async block entry.
+///
+/// Records an `AsyncBlockEnter` event. Use this when entering an async block.
+///
+/// # Arguments
+///
+/// * `block_id` - Unique identifier for this async block
+/// * `location` - Source location (e.g., "file.rs:42")
+#[inline(always)]
+pub fn track_async_block_enter(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_async_block_enter(block_id, location);
+    }
+}
+
+/// Track async block exit.
+///
+/// Records an `AsyncBlockExit` event. Use this when exiting an async block.
+///
+/// # Arguments
+///
+/// * `block_id` - Identifier matching the corresponding `track_async_block_enter`
+/// * `location` - Source location
+#[inline(always)]
+pub fn track_async_block_exit(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_async_block_exit(block_id, location);
+    }
+}
+
+/// Track await expression start.
+///
+/// Records an `AwaitStart` event. Use this before awaiting a future.
+///
+/// # Arguments
+///
+/// * `await_id` - Unique identifier for this await point
+/// * `future_name` - Name or description of the future being awaited
+/// * `location` - Source location
+#[inline(always)]
+pub fn track_await_start(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] await_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] future_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_await_start(await_id, future_name, location);
+    }
+}
+
+/// Track await expression completion.
+///
+/// Records an `AwaitEnd` event. Use this after a future completes.
+///
+/// # Arguments
+///
+/// * `await_id` - Identifier matching the corresponding `track_await_start`
+/// * `location` - Source location
+#[inline(always)]
+pub fn track_await_end(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] await_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_await_end(await_id, location);
     }
 }
 

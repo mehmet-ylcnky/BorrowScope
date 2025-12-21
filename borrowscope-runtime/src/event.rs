@@ -222,6 +222,35 @@ pub enum Event {
         field_name: String,
         location: String,
     },
+
+    /// Async block entered
+    AsyncBlockEnter {
+        timestamp: u64,
+        block_id: String,
+        location: String,
+    },
+
+    /// Async block exited
+    AsyncBlockExit {
+        timestamp: u64,
+        block_id: String,
+        location: String,
+    },
+
+    /// Await expression started
+    AwaitStart {
+        timestamp: u64,
+        await_id: String,
+        future_name: String,
+        location: String,
+    },
+
+    /// Await expression completed
+    AwaitEnd {
+        timestamp: u64,
+        await_id: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -252,7 +281,11 @@ impl Event {
             | Event::UnsafeFnCall { timestamp, .. }
             | Event::FfiCall { timestamp, .. }
             | Event::Transmute { timestamp, .. }
-            | Event::UnionFieldAccess { timestamp, .. } => *timestamp,
+            | Event::UnionFieldAccess { timestamp, .. }
+            | Event::AsyncBlockEnter { timestamp, .. }
+            | Event::AsyncBlockExit { timestamp, .. }
+            | Event::AwaitStart { timestamp, .. }
+            | Event::AwaitEnd { timestamp, .. } => *timestamp,
         }
     }
 
@@ -286,7 +319,11 @@ impl Event {
             | Event::UnsafeFnCall { .. }
             | Event::FfiCall { .. }
             | Event::Transmute { .. }
-            | Event::UnionFieldAccess { .. } => None,
+            | Event::UnionFieldAccess { .. }
+            | Event::AsyncBlockEnter { .. }
+            | Event::AsyncBlockExit { .. }
+            | Event::AwaitStart { .. }
+            | Event::AwaitEnd { .. } => None,
         }
     }
 
