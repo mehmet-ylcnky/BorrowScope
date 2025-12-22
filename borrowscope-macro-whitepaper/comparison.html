@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comparison - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="comparison">
+<h2 id="comparative-analysis">7. Comparative Analysis</h2>
+<h3 id="evaluation-criteria">7.1 Evaluation Criteria</h3>
+<p>Selecting among the architectural solutions requires evaluating them
+against criteria that matter for real-world adoption. Different projects
+have different constraints—some prioritize accuracy above all else,
+others cannot accept nightly Rust dependencies, still others need
+minimal user friction. Understanding the trade-offs along multiple
+dimensions enables informed decision-making.</p>
+<p>Accuracy measures how completely and correctly the solution detects
+the patterns of interest. A solution with 100% accuracy correctly
+identifies every FFI call, union access, static reference, and
+type-dependent method, with no false positives or false negatives. Lower
+accuracy means some patterns are missed or misclassified. For
+instrumentation tools, accuracy directly impacts the usefulness of the
+output: incorrect tracking misleads users and undermines trust in the
+tool.</p>
+<p>Stability refers to whether the solution works on stable Rust or
+requires nightly compiler features. Stable Rust provides strong
+compatibility guarantees—code that compiles today will compile tomorrow.
+Nightly Rust offers access to unstable features but comes with the risk
+of breaking changes between compiler versions. Many organizations
+restrict production code to stable Rust, making nightly dependencies a
+significant barrier to adoption.</p>
+<p>Complexity encompasses both implementation effort and ongoing
+maintenance burden. A simple solution can be built quickly and
+maintained by a small team. A complex solution requires significant
+upfront investment and ongoing work to keep pace with compiler changes,
+dependency updates, and evolving requirements. Complexity also affects
+the ability of external contributors to understand and improve the
+codebase.</p>
+<p>User experience considers what users must do to benefit from the
+solution. The ideal experience is transparent: users add a dependency,
+apply an attribute, and receive correct instrumentation. Less ideal
+experiences require additional steps: running separate tools, writing
+configuration files, maintaining annotations, or switching to nightly
+Rust. User experience directly impacts adoption—tools that require
+significant effort see limited use regardless of their technical
+merits.</p>
+<p>Integration evaluates how the solution fits into existing development
+workflows. Solutions that work with standard <code>cargo build</code>
+integrate seamlessly. Solutions requiring custom commands, build script
+modifications, or separate analysis passes disrupt established
+workflows. Integration also considers compatibility with other tools:
+IDEs, CI systems, code coverage tools, and the broader Rust
+ecosystem.</p>
+<h3 id="solution-comparison-matrix">7.2 Solution Comparison Matrix</h3>
+<p>The following matrix summarizes how each solution performs against
+the evaluation criteria:</p>
+<div class="ecosystem-table">
+<table>
+<thead>
+<tr><th>Solution</th><th>Accuracy</th><th>Stable?</th><th>Complexity</th><th>User Effort</th><th>Integration</th></tr>
+</thead>
+<tbody>
+<tr><td>Rustc Driver</td><td>100%</td><td>No</td><td>High</td><td>Low</td><td>Custom cmd</td></tr>
+<tr><td>Two-Phase</td><td>100%</td><td>No</td><td>High</td><td>Low</td><td>Custom cmd</td></tr>
+<tr><td>rust-analyzer</td><td>95%</td><td>Yes</td><td>High</td><td>Medium</td><td>Separate</td></tr>
+<tr><td>RTK</td><td>100%</td><td>No</td><td>Medium</td><td>Medium</td><td>Separate</td></tr>
+<tr><td>Annotations</td><td>Manual</td><td>Yes</td><td>Low</td><td>High</td><td>Native</td></tr>
+<tr><td>Heuristics</td><td>~70%</td><td>Yes</td><td>Low</td><td>None</td><td>Native</td></tr>
+</tbody>
+</table>
+</div>
+<p>The rustc driver and two-phase approaches achieve perfect accuracy
+because they operate with full type information from the compiler. Every
+semantic question has a definitive answer. The cost is high
+implementation complexity and a nightly Rust requirement. Users benefit
+from low effort—once the tool is set up, instrumentation is
+automatic—but must accept a non-standard build command.</p>
+<p>The rust-analyzer approach trades some accuracy for stable Rust
+compatibility. rust-analyzer’s analysis is excellent but not identical
+to rustc’s; edge cases involving complex macros, unusual type inference,
+or cutting-edge language features may produce different results. The
+implementation complexity remains high due to rust-analyzer’s
+sophisticated APIs and setup requirements. Users face medium effort: the
+tool works separately from compilation, requiring additional steps to
+integrate results.</p>
+<p>RTK offers a middle ground with full accuracy through rustc wrapping
+but lower complexity than building a complete compiler driver. The Lua
+scripting interface provides flexibility without requiring deep compiler
+knowledge. However, it still requires nightly Rust and operates as a
+separate tool rather than integrating into the standard build.</p>
+<p>Annotation-based disambiguation works on stable Rust with low
+implementation complexity. The accuracy is “manual”—it is exactly as
+accurate as the annotations users provide. This shifts effort to users,
+who must identify and maintain lists of FFI functions, unions, and
+statics. For projects with limited use of these patterns, the burden is
+manageable; for projects with extensive FFI or many unions, it becomes
+onerous.</p>
+<p>Enhanced heuristics require no user effort and work on stable Rust
+with minimal implementation complexity. The trade-off is accuracy:
+heuristics capture common patterns but miss edge cases and produce
+occasional false results. The approximately 70% accuracy figure is
+illustrative rather than precise—actual accuracy depends heavily on the
+codebase’s characteristics and coding conventions.</p>
+<p>No solution dominates across all criteria. Projects must choose based
+on their priorities: accuracy-critical applications may accept nightly
+Rust and custom tooling; broad-adoption tools may prefer stable Rust
+with acknowledged limitations; pragmatic projects may combine heuristics
+with annotations to balance effort and coverage.</p>
+<h3 id="the-nightly-question">7.3 The Nightly Question</h3>
+<p>The most powerful solutions—rustc driver, two-phase architecture, and
+RTK—all require nightly Rust due to their dependence on compiler
+internals. This raises a practical question: is nightly Rust acceptable
+for a tool like BorrowScope? The answer depends on understanding what
+“nightly” means in practice and who the tool’s users are.</p>
+<p>The <code>rustc_private</code> feature gate, required to access
+compiler internals, is explicitly unstable. The Rust project makes no
+guarantees about API stability between compiler versions. Functions may
+be renamed, types restructured, or entire modules reorganized. A tool
+built against one nightly version may fail to compile against the next.
+This instability is real and requires ongoing maintenance to track
+compiler changes.</p>
+<p>However, the practical situation is more nuanced than the official
+stability guarantees suggest. Clippy, Rust’s official linter, depends on
+rustc internals and ships with every Rust installation. Miri, the
+undefined behavior detector, similarly uses compiler internals. rustfmt
+accesses internal representations for formatting decisions. These tools
+are maintained by the Rust project and updated alongside the compiler,
+but they demonstrate that production-quality tools can be built on
+unstable foundations.</p>
+<p>The pattern these tools follow is instructive: they pin to specific
+compiler versions and update deliberately. Clippy is tested against each
+nightly and updated when internal APIs change. The maintenance burden is
+real but manageable for actively developed projects. External tools like
+cargo-expand, cargo-audit, and various static analyzers follow similar
+patterns, accepting the maintenance cost in exchange for capabilities
+that stable APIs cannot provide.</p>
+<p>For BorrowScope, the nightly question intersects with the project’s
+goals. If the primary audience is learners exploring Rust’s ownership
+model, requiring nightly Rust creates friction that may discourage
+adoption. Students following tutorials expect <code>cargo build</code>
+to work; asking them to install nightly and use custom commands adds
+complexity to an already challenging learning experience. If the
+audience is experienced developers debugging production systems, nightly
+Rust is a smaller barrier—these users are accustomed to specialized
+tooling and can manage compiler version requirements.</p>
+<p>The trade-off is ultimately between power and accessibility.
+Nightly-dependent solutions provide complete accuracy and automatic
+detection of all semantic patterns. Stable-Rust solutions sacrifice some
+capability but reach a broader audience with lower friction. A project
+can choose one path or, as we will discuss, pursue a phased approach
+that offers stable-Rust functionality today while building toward
+nightly-powered features for users who want them.</p>
+<h3 id="the-95-argument">7.4 The 95% Argument</h3>
+<p>A counterpoint to pursuing complete accuracy is recognizing that most
+Rust code does not heavily exercise the patterns that require type
+information. FFI calls appear primarily in projects that wrap C
+libraries or interact with system APIs—a meaningful but minority use
+case. Unions are rare in idiomatic Rust, appearing mainly in low-level
+code that manipulates memory representations directly. Static variables,
+while more common, are still far less frequent than local variables and
+function parameters. For the majority of Rust code, the patterns that
+proc macros can detect syntactically cover the vast majority of
+ownership events.</p>
+<p>This observation suggests that a 95% solution on stable Rust may
+deliver more value than a 100% solution requiring nightly. The
+additional 5% of accuracy comes at substantial cost: nightly Rust
+dependency, custom build commands, implementation complexity, and
+ongoing maintenance. If most users never encounter the patterns in that
+5%, they pay these costs for no benefit. Meanwhile, users who would
+benefit from the stable-Rust solution are excluded by the nightly
+requirement.</p>
+<p>The principle at work is that perfect is the enemy of good. A tool
+that works for everyone with minor limitations may have greater impact
+than a tool that works perfectly for a subset of users willing to accept
+its constraints. BorrowScope’s mission is to make Rust’s ownership model
+visible and understandable. For a learner writing their first programs
+with <code>Rc</code> and <code>RefCell</code>, complete FFI tracking is
+irrelevant—they are not using FFI. For a developer debugging a reference
+counting issue in application code, union field tracking adds
+nothing—they have no unions. The features they need work today, on
+stable Rust, with a simple attribute.</p>
+<p>This argument does not dismiss the value of complete accuracy.
+Projects that do use FFI extensively, that do manipulate unions, that do
+rely on static variables deserve accurate tracking for these patterns.
+The argument is about prioritization and audience. Shipping a useful
+tool to a broad audience today, with clear documentation of its
+limitations, may serve the community better than delaying until a
+perfect solution is ready.</p>
+<p>Clear documentation becomes essential in this approach. Users must
+understand what the tool can and cannot detect. Documentation should
+explicitly list the patterns that require type information, explain why
+they cannot be detected automatically, and describe the annotation
+system for users who need coverage of these patterns. Transparency about
+limitations builds trust; users who understand the boundaries can work
+within them effectively.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

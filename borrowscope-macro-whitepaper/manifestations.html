@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manifestations - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="manifestations">
+<h2 id="concrete-manifestations-of-the-problem">5. Concrete
+Manifestations of the Problem</h2>
+<p>The type information barrier manifests in specific, concrete ways
+when building instrumentation tools. This section examines four
+categories of patterns that BorrowScope’s macro cannot reliably detect,
+demonstrating with code examples how syntactically identical constructs
+carry fundamentally different semantic meanings.</p>
+<h3 id="ffi-function-detection">5.1 FFI Function Detection</h3>
+<p>Foreign Function Interface calls represent one of Rust’s most
+significant safety boundaries. When Rust code calls a function declared
+in an <code>extern</code> block, it crosses into territory where Rust’s
+safety guarantees no longer apply. The foreign function might
+dereference invalid pointers, cause data races, or exhibit undefined
+behavior that Rust’s type system cannot prevent. For BorrowScope,
+tracking these boundary crossings is valuable: they represent moments
+where ownership and borrowing semantics become the programmer’s
+responsibility rather than the compiler’s enforcement.</p>
+<p>The challenge is that FFI calls look exactly like regular function
+calls at the syntactic level:</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">extern</span> <span class="rust-string">"C"</span> {
+    <span class="rust-keyword">fn</span> <span class="rust-function">external_func</span>(ptr: *<span class="rust-keyword">mut</span> i32);
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">regular_func</span>(ptr: *<span class="rust-keyword">mut</span> i32) {
+    <span class="rust-comment">// Safe Rust implementation</span>
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">process</span>(ptr: *<span class="rust-keyword">mut</span> i32) {
+    external_func(ptr);  <span class="rust-comment">// FFI call - crosses safety boundary</span>
+    regular_func(ptr);   <span class="rust-comment">// Regular call - stays within Rust's guarantees</span>
+}</pre>
+</div>
+parenthesized arguments. The token sequence for
+<code>external_func(ptr)</code> is indistinguishable from
+<code>regular_func(ptr)</code>. A procedural macro examining the
+<code>process</code> function sees two call expressions with the same
+structure. Nothing in the tokens indicates that
+<code>external_func</code> was declared in an <code>extern "C"</code>
+block while <code>regular_func</code> was defined as a normal Rust
+function.</p>
+<p>To distinguish these cases, the macro would need to resolve the
+identifier <code>external_func</code> to its declaration, examine that
+declaration’s context, and determine whether it carries foreign linkage.
+This requires name resolution—knowing which definition each identifier
+refers to—and access to the declaration site’s attributes. Both are
+unavailable during macro expansion.</p>
+<p>The situation becomes more complex with real-world patterns. FFI
+functions might be re-exported through wrapper modules, aliased with
+<code>use</code> statements, or called through function pointers. A
+function pointer of type <code>extern "C" fn(...)</code> carries its
+foreign calling convention in its type, but the macro cannot see types.
+The macro might attempt heuristics—perhaps functions with certain naming
+patterns or in certain modules are likely FFI—but such heuristics are
+unreliable and will produce both false positives and false
+negatives.</p>
+<p>For BorrowScope, this means <code>track_ffi_call</code> cannot be
+automatically inserted. Users who want FFI boundary tracking must either
+manually instrument their code or provide explicit annotations
+indicating which functions are foreign.</p>
+<h3 id="union-field-access">5.2 Union Field Access</h3>
+<p>Unions in Rust provide a mechanism for reinterpreting memory,
+allowing the same bytes to be viewed as different types depending on
+which field is accessed. Unlike structs, where each field occupies
+distinct memory, union fields overlap completely. Reading a union field
+interprets the raw bits according to that field’s type, regardless of
+which field was most recently written. This operation is inherently
+unsafe—the programmer must ensure that the bits constitute a valid value
+for the accessed type—and represents a point where Rust’s type safety
+relies on programmer discipline rather than compiler enforcement.</p>
+<p>For ownership tracking, union field access deserves distinct
+treatment. When code reads <code>u.int_val</code> from a union, it is
+not accessing a value that was stored as an <code>i32</code>; it is
+reinterpreting whatever bits happen to be in the union’s memory as an
+<code>i32</code>. This differs fundamentally from struct field access,
+where <code>s.x</code> retrieves a value that was stored as the field’s
+declared type. BorrowScope’s <code>track_union_field_access</code>
+function exists to capture these reinterpretation events, but the macro
+cannot determine when to call it.</p>
+<p>The syntactic problem is stark:</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">union</span> MyUnion {
+    int_val: i32,
+    float_val: f32,
+}
+
+<span class="rust-keyword">struct</span> MyStruct {
+    x: i32,
+    y: i32,
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">access</span>(u: MyUnion, s: MyStruct) {
+    <span class="rust-keyword">let</span> a = u.int_val;   <span class="rust-comment">// Union field access - reinterprets bits</span>
+    <span class="rust-keyword">let</span> b = s.x;         <span class="rust-comment">// Struct field access - retrieves stored value</span>
+}</pre>
+</div>
+<p>Both <code>u.int_val</code> and <code>s.x</code> parse to the same
+syntactic form: a field access expression with a base and a field
+identifier. The tokens are structurally identical. Nothing in the syntax
+distinguishes a union field access from a struct field access; the
+distinction exists only in the types involved.</p>
+<p>Determining whether a field access targets a union requires knowing
+the type of the base expression. If <code>u</code> has type
+<code>MyUnion</code>, and <code>MyUnion</code> is declared as a union,
+then <code>u.int_val</code> is a union field access. If <code>s</code>
+has type <code>MyStruct</code>, and <code>MyStruct</code> is declared as
+a struct, then <code>s.x</code> is a struct field access. Both pieces of
+information—the type of the expression and the nature of that type’s
+declaration—require semantic analysis that occurs after macro
+expansion.</p>
+<p>The macro might attempt to track variable declarations and remember
+that <code>u</code> was declared with type <code>MyUnion</code>. But
+this approach fails in numerous scenarios: when the union value comes
+from a function return, when it is accessed through a reference, when
+the type is aliased, when the variable is a field of another struct, or
+when generic code operates on union types. The syntactic context simply
+does not contain enough information to reliably identify union field
+access.</p>
+<h3 id="static-variable-access">5.3 Static Variable Access</h3>
+<p>Static variables occupy a unique position in Rust’s memory model.
+Unlike local variables that live on the stack and are created and
+destroyed with each function invocation, statics persist for the entire
+duration of the program. They have a fixed memory address, can be
+accessed from any point in the code, and—when declared as
+<code>static mut</code>—introduce the possibility of data races that
+Rust’s ownership system normally prevents. Even immutable statics, when
+they contain interior mutability through types like
+<code>AtomicU32</code> or <code>Mutex&lt;T&gt;</code>, represent shared
+global state that multiple threads might access concurrently.</p>
+<p>Tracking static variable access provides valuable insight into a
+program’s use of global state. For debugging and analysis, knowing when
+code reads from or writes to statics helps identify potential sources of
+unexpected behavior, thread-safety issues, or hidden dependencies
+between distant parts of a codebase. BorrowScope’s runtime includes
+<code>track_static_access</code> and <code>track_static_init</code>
+functions for this purpose, but the macro cannot reliably determine when
+an identifier refers to a static.</p>
+<p>The syntactic indistinguishability is complete:</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">use</span> std::sync::atomic::{AtomicU32, Ordering};
+
+<span class="rust-keyword">static</span> COUNTER: AtomicU32 = AtomicU32::new(0);
+
+<span class="rust-keyword">fn</span> <span class="rust-function">increment</span>() {
+    <span class="rust-keyword">let</span> local_counter = AtomicU32::new(0);
+    
+    COUNTER.fetch_add(1, Ordering::SeqCst);       <span class="rust-comment">// Static variable access</span>
+    local_counter.fetch_add(1, Ordering::SeqCst); <span class="rust-comment">// Local variable access</span>
+}</pre>
+</div>
+<code>local_counter.fetch_add(1, Ordering::SeqCst)</code> have identical
+structure: an identifier, a dot, a method name, and arguments. The macro
+cannot distinguish them without knowing that <code>COUNTER</code> was
+declared with the <code>static</code> keyword while
+<code>local_counter</code> was declared with <code>let</code>.</p>
+<p>One might suggest using naming conventions as a heuristic. Rust
+convention recommends <code>SCREAMING_SNAKE_CASE</code> for statics and
+constants, while local variables use <code>snake_case</code>. A macro
+could check whether an identifier is all uppercase and assume it refers
+to a static. However, this heuristic is unreliable in both directions.
+Programmers might use uppercase names for local variables in certain
+contexts, and statics imported from external crates might be renamed
+with <code>use ... as</code> to follow different conventions. Constants
+declared with <code>const</code> also use uppercase naming but have
+different semantics than statics. A heuristic based on naming would
+produce both false positives and false negatives, undermining the
+accuracy that instrumentation tools require.</p>
+<p>The fundamental issue remains: determining whether an identifier
+refers to a static requires resolving that identifier to its declaration
+and examining whether that declaration uses the <code>static</code>
+keyword. This is name resolution, unavailable during macro
+expansion.</p>
+<h3 id="type-dependent-method-behavior">5.4 Type-Dependent Method
+Behavior</h3>
+<p>Some method names carry fundamentally different semantics depending
+on the type they are called on. The <code>clone</code> method provides
+the clearest example: calling <code>.clone()</code> on an
+<code>Rc&lt;T&gt;</code> increments a reference count and returns a new
+handle to the same allocation; calling <code>.clone()</code> on an
+<code>Arc&lt;T&gt;</code> performs an atomic increment suitable for
+concurrent access; calling <code>.clone()</code> on a
+<code>Vec&lt;T&gt;</code> allocates new memory and copies all elements.
+These operations have vastly different performance characteristics and
+ownership implications, yet they share identical syntax.</p>
+<p>For BorrowScope, distinguishing these cases enables more informative
+tracking. An <code>Rc::clone</code> represents the creation of a new
+shared owner, incrementing the strong count. An <code>Arc::clone</code>
+represents the same semantic operation but with thread-safe atomics. A
+regular clone might perform deep copying, shallow copying, or something
+else entirely depending on the type’s <code>Clone</code> implementation.
+Emitting <code>track_rc_clone</code> versus <code>track_arc_clone</code>
+versus <code>track_clone</code> provides users with precise information
+about what kind of operation occurred.</p>
+<p>The syntactic uniformity defeats pattern matching:</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">use</span> std::rc::Rc;
+<span class="rust-keyword">use</span> std::sync::Arc;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>&lt;T: Clone&gt;(rc: Rc&lt;i32&gt;, arc: Arc&lt;i32&gt;, vec: Vec&lt;i32&gt;, generic: T) {
+    <span class="rust-keyword">let</span> a = rc.clone();      <span class="rust-comment">// Rc clone - reference count increment</span>
+    <span class="rust-keyword">let</span> b = arc.clone();     <span class="rust-comment">// Arc clone - atomic reference count increment</span>
+    <span class="rust-keyword">let</span> c = vec.clone();     <span class="rust-comment">// Vec clone - deep copy of elements</span>
+    <span class="rust-keyword">let</span> d = generic.clone(); <span class="rust-comment">// Unknown - depends on what T is</span>
+}</pre>
+</div>
+four method calls to <code>clone</code> and cannot distinguish them.
+Determining the appropriate tracking call requires knowing the type of
+each receiver expression: <code>Rc&lt;i32&gt;</code>,
+<code>Arc&lt;i32&gt;</code>, <code>Vec&lt;i32&gt;</code>, and
+<code>T</code> respectively.</p>
+<p>BorrowScope’s macro employs a partial workaround for this specific
+case. When it sees a variable initialized with
+<code>Rc::new(...)</code>, it records that variable as holding an
+<code>Rc</code>. When that variable later appears as the receiver of a
+<code>.clone()</code> call, the macro can emit
+<code>track_rc_clone</code>. This syntactic tracking works for simple
+cases but fails when the <code>Rc</code> comes from a function return,
+is stored in a struct field, passes through a generic function, or is
+accessed through a reference. The macro’s knowledge is limited to what
+it can observe syntactically within the function body.</p>
+<p>Generic code presents the most challenging case. When the receiver
+has a generic type <code>T</code>, the macro cannot know what concrete
+type will be substituted at each call site. The same generic function
+might be instantiated with <code>Rc&lt;String&gt;</code>,
+<code>Arc&lt;Vec&lt;u8&gt;&gt;</code>, and
+<code>HashMap&lt;K, V&gt;</code> in different parts of the program. Each
+instantiation should ideally receive different tracking, but the macro
+transforms the generic function once, before any instantiation occurs.
+It must emit code that works for all possible type substitutions, which
+means it cannot emit type-specific tracking calls.</p>
+<h3 id="summary-the-pattern">5.5 Summary: The Pattern</h3>
+<p>A common theme emerges from these examples: constructs that are
+syntactically identical carry semantically different meanings, and
+distinguishing them requires type information that procedural macros
+cannot access. The macro sees tokens arranged in patterns; it needs to
+know what those tokens represent in the program’s semantic model.</p>
+<div class="ecosystem-table">
+<table>
+<thead>
+<tr><th>What We See (Syntax)</th><th>What We Need (Type)</th><th>Why It Matters</th></tr>
+</thead>
+<tbody>
+<tr><td><code>func(args)</code></td><td>Is func extern?</td><td>FFI boundary track</td></tr>
+<tr><td><code>expr.field</code></td><td>Is expr a union?</td><td>Unsafe reinterpret</td></tr>
+<tr><td><code>IDENT</code></td><td>Is IDENT static?</td><td>Global state track</td></tr>
+<tr><td><code>expr.clone()</code></td><td>Type of expr?</td><td>Rc vs Arc vs Copy</td></tr>
+</tbody>
+</table>
+</div>
+<p>In each case, the syntactic form provides no distinguishing
+information. A function call is a function call; a field access is a
+field access; an identifier is an identifier; a method call is a method
+call. The semantic distinctions—foreign versus native, union versus
+struct, static versus local, reference-counted versus deep-copied—exist
+only in the type system, accessible only after type checking
+completes.</p>
+<p>This is not a limitation that clever macro engineering can overcome.
+No amount of sophisticated pattern matching, context tracking, or
+heuristic analysis within a procedural macro will reliably solve these
+problems. The information simply does not exist at macro expansion time.
+The tokens have been parsed, but their meaning has not been determined.
+The macro operates in a pre-semantic world where syntax is all that
+exists.</p>
+<p>Recognizing this boundary is essential for tooling authors.
+Attempting to solve these problems within the procedural macro model
+leads to fragile heuristics, incomplete coverage, and subtle bugs. The
+correct response is to acknowledge the limitation and either accept
+reduced functionality, require user annotations to supply the missing
+information, or adopt an entirely different architectural approach that
+operates after type checking. The following section examines these
+alternative architectures in detail.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

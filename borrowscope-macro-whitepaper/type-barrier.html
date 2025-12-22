@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Type Barrier - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="type-barrier">
+<h2 id="the-type-information-barrier">4. The Type Information
+Barrier</h2>
+<h3 id="the-fundamental-constraint">4.1 The Fundamental Constraint</h3>
+<p>The inability of procedural macros to access type information is not
+a bug, an oversight, or a missing API awaiting implementation. It is a
+fundamental architectural constraint that emerges from the structure of
+the compilation pipeline itself. Understanding this distinction is
+crucial: no amount of clever workarounds within the procedural macro
+system will overcome it, because the limitation is not in the macro API
+but in the temporal ordering of compilation phases.</p>
+<p>Procedural macros are designed for syntactic transformation. Their
+contract with the compiler is simple: receive tokens, produce tokens.
+The compiler provides no mechanism for macros to query semantic
+information because, at the time macros execute, semantic information
+does not exist. The compiler has not yet resolved names, inferred types,
+or checked trait bounds. Providing type information to macros would
+require running the type checker before macro expansion—but macro
+expansion can produce new code that itself requires type checking,
+creating a circular dependency. The compiler would need to type-check
+code to expand macros that produce code that needs type-checking, an
+infinite regress that the current architecture avoids by strictly
+ordering these phases.</p>
+<p>Some developers, upon encountering this limitation, search for
+nightly features or unstable APIs that might provide access to type
+information. This search is fruitless. While Rust’s nightly compiler
+offers many unstable features, none of them change the fundamental
+compilation order. The <code>proc_macro</code> crate’s API, whether
+stable or unstable, operates on token streams because that is what
+exists at macro expansion time. There is no hidden
+<code>proc_macro::get_type_of()</code> function waiting to be
+stabilized, no feature flag that unlocks semantic queries. The Rust
+forum’s documentation is unambiguous on this point: “No, macros do not
+have access to type information.”</p>
+<p>This constraint applies equally to all forms of procedural macros.
+Derive macros, which generate trait implementations based on type
+definitions, might seem to have type information since they receive the
+definition of a struct or enum. However, they receive the
+<em>syntactic</em> definition—the tokens that define the type—not the
+<em>semantic</em> type as understood by the type checker. A derive macro
+can see that a struct has a field of type <code>MyAlias</code>, but it
+cannot resolve that alias to discover the underlying type. It can see
+that a field’s type is <code>T</code> where <code>T</code> is a generic
+parameter, but it cannot know what concrete types will be substituted
+for <code>T</code> at instantiation sites. The apparent access to “type
+information” in derive macros is actually access to type
+<em>syntax</em>, a crucial distinction.</p>
+<h3 id="why-this-design-exists">4.2 Why This Design Exists</h3>
+<p>The separation between syntactic macro expansion and semantic
+analysis is not an arbitrary limitation but a deliberate design choice
+with sound engineering rationale. Several principles motivate this
+architecture, each contributing to the reliability and performance of
+the Rust compilation model.</p>
+<p>Separation of concerns provides the foundational justification.
+Macros handle syntax; the compiler handles semantics. This division
+creates clear boundaries of responsibility. Macro authors need only
+understand token manipulation, not the intricacies of Rust’s type
+system. Compiler developers can evolve the type system without breaking
+existing macros. The interface between these components—the token
+stream—is simple, stable, and well-defined. Mixing syntactic
+transformation with semantic queries would blur these boundaries,
+creating complex interdependencies that would be difficult to reason
+about and maintain.</p>
+<p>Performance considerations reinforce this separation. Type checking
+is computationally expensive, involving constraint solving, trait
+resolution, and lifetime inference across potentially large codebases.
+Macros, by contrast, should be fast. A derive macro that generates a few
+hundred lines of code should complete in milliseconds, not seconds. If
+macros could query type information, they might trigger expensive
+type-checking operations, potentially repeatedly, as the compiler
+iterates to a fixed point. The current design ensures that macro
+expansion is a fast, local operation that scales linearly with the
+amount of macro-annotated code, independent of the complexity of the
+surrounding type context.</p>
+<p>Determinism is another critical property. A procedural macro should
+produce the same output given the same input, regardless of what other
+code exists in the project. If macros could query types, their output
+might change based on type definitions in distant modules, trait
+implementations added by dependencies, or type inference decisions
+affected by seemingly unrelated code. This would make macro behavior
+unpredictable and debugging difficult. The current design guarantees
+that a macro’s output depends only on its input tokens, enabling
+reproducible builds and straightforward reasoning about macro
+behavior.</p>
+<p>Hygiene, while primarily associated with name binding in declarative
+macros, relates to a broader principle of isolation. Macros should
+operate in a controlled environment where their effects are predictable
+and contained. Allowing semantic queries would let macros observe and
+potentially depend on arbitrary aspects of the compilation context,
+breaking this isolation. A macro that behaves differently based on
+whether a particular trait is implemented somewhere in the dependency
+graph would be difficult to test, document, and maintain.</p>
+<p>Finally, this design aligns with how macro systems work in most
+programming languages. C preprocessor macros operate on tokens. Lisp
+macros operate on S-expressions. Template metaprogramming in C++
+operates on syntactic constructs. While each system has different
+capabilities, the pattern of syntactic transformation preceding semantic
+analysis is nearly universal. Rust’s design follows established
+practice, benefiting from decades of experience with macro systems while
+avoiding known pitfalls of tighter coupling between macros and type
+systems.</p>
+<h3 id="the-syn-crate-powerful-but-syntactic">4.3 The syn Crate:
+Powerful but Syntactic</h3>
+<p>The <code>syn</code> crate has become the de facto standard for
+parsing in Rust procedural macros, and for good reason. It transforms
+raw token streams into richly structured abstract syntax trees,
+providing types that mirror Rust’s grammar: <code>Expr</code> for
+expressions, <code>Item</code> for top-level items, <code>Type</code>
+for type annotations, <code>Pat</code> for patterns, and dozens of
+specialized variants for each syntactic construct. Working with
+<code>syn</code> is dramatically more ergonomic than manipulating tokens
+directly, and its design enables sophisticated syntactic analysis and
+transformation. However, the power of <code>syn</code> can create a
+misleading impression about what information is actually available.</p>
+<p>Every type in <code>syn</code> represents syntax, not semantics. When
+<code>syn</code> parses a type annotation and produces a
+<code>syn::Type</code>, that value represents <em>what the programmer
+wrote</em>, not <em>what type the expression has</em>. If the source
+code contains <code>let x: MyType = ...</code>, the macro receives a
+<code>syn::Type</code> that says “the user wrote <code>MyType</code>.”
+Whether <code>MyType</code> is a struct, an enum, a union, a trait
+object, or a type alias pointing to something else entirely is unknown.
+The macro cannot resolve <code>MyType</code> to its definition because
+name resolution has not occurred. It cannot expand type aliases because
+that requires knowing what the alias refers to. It sees the surface
+syntax and nothing more.</p>
+<p>This distinction becomes concrete when examining what
+<code>syn</code> can and cannot tell you. Consider a field access
+expression <code>data.value</code>. Parsing this with <code>syn</code>
+yields an <code>ExprField</code> containing a base expression
+(<code>data</code>) and a field identifier (<code>value</code>). The
+macro can inspect the syntax of the base expression—perhaps it is an
+identifier, perhaps a more complex expression—but it cannot determine
+the type of that expression. Is <code>data</code> a struct where
+<code>.value</code> accesses a field safely? Is it a union where
+<code>.value</code> reinterprets bits unsafely? Is it a type that
+implements <code>Deref</code> where <code>.value</code> first
+dereferences and then accesses a field? The syntax is identical in all
+cases; only the type distinguishes them.</p>
+<p>Similarly, <code>syn</code> can parse a function call expression and
+tell you the syntactic path being called. If the code says
+<code>external_func(ptr)</code>, the macro sees a call to something
+named <code>external_func</code>. But <code>syn</code> cannot tell you
+whether <code>external_func</code> was declared in an
+<code>extern "C"</code> block, imported from another module, defined
+locally, or is actually a function pointer stored in a variable. The
+identifier <code>external_func</code> is just a name; its meaning
+depends on name resolution and the surrounding context.</p>
+<p>The <code>syn</code> crate excels at what it is designed for: parsing
+Rust syntax into manipulable structures. Macro authors should use it
+extensively. But they must understand its boundaries. When documentation
+or intuition suggests that <code>syn::Type</code> provides “type
+information,” remember that it provides type <em>syntax</em>—the textual
+representation of a type as written in source code, not the resolved,
+fully-qualified, semantically-meaningful type that the compiler will
+eventually compute. The gap between these two concepts is precisely the
+type information barrier.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

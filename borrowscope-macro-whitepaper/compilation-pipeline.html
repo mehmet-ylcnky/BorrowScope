@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compilation Pipeline - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="compilation-pipeline">
+<h2 id="understanding-rusts-compilation-pipeline">3. Understanding
+Rust’s Compilation Pipeline</h2>
+<h3 id="the-compilation-phases">3.1 The Compilation Phases</h3>
+<p>To understand why procedural macros cannot access type information,
+we must examine Rust’s compilation pipeline and the strict ordering of
+its phases. The compiler processes source code through a sequence of
+transformations, each building upon the results of the previous stage.
+Information that does not exist at a given phase simply cannot be
+accessed by code running at that phase, regardless of how useful it
+might be.</p>
+<div class="code-block">
+<pre class="rust-code">┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+│  Source  │───▶│  Lexer/  │───▶│  Macro   │───▶│   Name   │───▶│   Type   │───▶│   MIR    │
+│   Code   │    │  Parser  │    │ Expansion│    │Resolution│    │ Checking │    │ Codegen  │
+└──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
+                     │               │                               │
+                     ▼               ▼                               ▼
+                  Tokens         TokenStream                    Full Type Info
+                                (proc macros                    (HIR, THIR, MIR)
+                                 run HERE)</pre>
+</div>
+<p>The pipeline begins with lexical analysis, where the source code text
+is broken into tokens—the fundamental units of syntax like identifiers,
+keywords, operators, and literals. The parser then organizes these
+tokens into a tree structure representing the grammatical structure of
+the code. At this point, the compiler understands syntax but nothing
+about meaning: it knows that <code>foo.bar</code> is a field access
+expression, but not what <code>foo</code> refers to or whether
+<code>bar</code> is a valid field.</p>
+<p>Macro expansion occurs next, and this is where procedural macros
+execute. The compiler identifies macro invocations, calls the
+corresponding macro implementations with token streams representing the
+macro input, and splices the resulting token streams back into the
+source. Critically, this happens before the compiler has resolved what
+any identifier refers to. When a procedural macro runs, the compiler has
+not yet determined whether an identifier names a local variable, a
+function parameter, a static, a function in another module, or a type
+alias. The macro receives tokens and produces tokens; it operates in a
+semantic vacuum.</p>
+<p>Only after all macros have been expanded does name resolution occur.
+This phase connects each use of an identifier to its definition,
+building a map of what every name in the program refers to. Following
+name resolution, type checking infers and validates the types of all
+expressions, ensuring that operations are applied to compatible types
+and that trait bounds are satisfied. The result is a fully typed
+intermediate representation—the High-level IR (HIR) and subsequently the
+Mid-level IR (MIR)—where every expression carries its resolved type and
+every identifier is linked to its definition.</p>
+<p>The ordering is immutable: macros run before name resolution, name
+resolution runs before type checking. By the time type information
+exists, procedural macros have already completed their execution and
+their output has been integrated into the source. There is no mechanism
+for a macro to “wait” for type information or to “call back” into later
+compilation phases. The architecture enforces a clean separation where
+macros transform syntax and the compiler analyzes semantics, never the
+reverse.</p>
+<h3 id="what-procedural-macros-receive">3.2 What Procedural Macros
+Receive</h3>
+<p>A procedural macro’s interface to the code it transforms is the
+<code>TokenStream</code> type from the <code>proc_macro</code> crate.
+This type represents a sequence of tokens—the raw lexical elements that
+make up Rust source code. A token might be an identifier like
+<code>foo</code>, a keyword like <code>let</code>, a punctuation mark
+like <code>.</code> or <code>::</code>, a literal like <code>42</code>
+or <code>"hello"</code>, or a delimited group like <code>(...)</code> or
+<code>{...}</code>. The token stream preserves the syntactic structure
+of the input but carries no information about what that syntax
+means.</p>
+<p>When a procedural macro receives <code>value.clone()</code> as input,
+it receives a sequence of tokens: an identifier token
+<code>value</code>, a punctuation token <code>.</code>, an identifier
+token <code>clone</code>, and a group token containing empty
+parentheses. The macro can inspect these tokens, rearrange them, add new
+tokens, or remove existing ones. What it cannot do is ask questions like
+“what type is <code>value</code>?” or “which <code>clone</code> method
+will this call resolve to?” Those questions require information that
+does not exist in the token stream and will not exist until compilation
+phases that run after the macro completes.</p>
+<p>Most procedural macros use the <code>syn</code> crate to parse token
+streams into structured abstract syntax trees. This provides a much more
+ergonomic interface than working with raw tokens: instead of manually
+matching token patterns, macro authors work with types like
+<code>syn::Expr</code>, <code>syn::ItemFn</code>, and
+<code>syn::Type</code> that represent the grammatical structure of Rust
+code. The <code>syn</code> crate is powerful and well-designed, enabling
+sophisticated syntactic analysis and transformation. However, it is
+essential to understand that <code>syn</code> provides
+<em>syntactic</em> abstraction, not <em>semantic</em> information. A
+<code>syn::Type</code> represents what the programmer wrote as a type
+annotation—the tokens <code>Rc&lt;String&gt;</code> parsed into a
+structured form—not the resolved type that the compiler will eventually
+compute. If the programmer wrote <code>MyAlias</code> where
+<code>type MyAlias = Rc&lt;String&gt;</code>, the macro sees
+<code>MyAlias</code>, not <code>Rc&lt;String&gt;</code>.</p>
+<p>This limitation extends to all forms of semantic information.
+Procedural macros cannot resolve imports to determine what module a name
+comes from. They cannot follow type aliases to their underlying types.
+They cannot determine which trait implementation a method call will
+dispatch to. They cannot know the concrete types that will be
+substituted for generic parameters. They cannot distinguish between
+identifiers that happen to share a name but refer to different
+definitions in different scopes. All of these require name resolution
+and type checking—phases that have not yet occurred.</p>
+<p>The design is intentional. Procedural macros are meant to be fast,
+deterministic, and isolated. They should produce the same output given
+the same input, regardless of what other code exists in the project.
+Allowing macros to query type information would create dependencies on
+the broader compilation context, potentially causing macro output to
+change based on seemingly unrelated code modifications. It would also
+require running type checking during macro expansion, dramatically
+increasing compilation complexity and time. The current design trades
+semantic power for simplicity, speed, and predictability—a trade-off
+that serves most macro use cases well but creates fundamental barriers
+for tools that need semantic understanding.</p>
+<h3 id="when-type-information-becomes-available">3.3 When Type
+Information Becomes Available</h3>
+<p>Type information emerges gradually through the later compilation
+phases, each stage adding more semantic detail to the program
+representation. Understanding when this information becomes
+available—and why it arrives too late for procedural macros—clarifies
+the fundamental nature of the barrier.</p>
+<p>Name resolution is the first phase to add semantic meaning to syntax.
+During this phase, the compiler builds a map connecting each use of an
+identifier to its definition. After name resolution completes, the
+compiler knows that the <code>foo</code> in <code>foo.bar()</code>
+refers to a specific local variable declared three lines earlier, or a
+function parameter, or a static variable defined in another module. It
+knows whether a path like <code>std::rc::Rc</code> refers to the
+standard library’s reference-counted pointer type or a user-defined type
+that shadows it. This information is captured in the High-level
+Intermediate Representation (HIR), which augments the abstract syntax
+tree with definition identifiers that link uses to definitions.</p>
+<p>Type checking follows name resolution, inferring types for
+expressions that lack explicit annotations and verifying that all
+operations are type-safe. After type checking, every expression in the
+program has an associated type. The compiler knows that
+<code>value</code> has type <code>Rc&lt;String&gt;</code>, that
+<code>value.clone()</code> returns <code>Rc&lt;String&gt;</code>, and
+that this clone call dispatches to the <code>Clone</code> implementation
+for <code>Rc&lt;T&gt;</code>. It knows whether a field access targets a
+struct or a union, whether a function call invokes a Rust function or a
+foreign function, and whether an identifier refers to a local variable
+or a static. This fully-typed representation is available in the Typed
+High-level IR (THIR) and the Mid-level IR (MIR).</p>
+<p>The MIR deserves particular attention because it makes explicit many
+operations that are implicit in source code. Drop calls, which in source
+code happen invisibly when values go out of scope, become explicit
+<code>drop()</code> operations in MIR. Move semantics, which source code
+expresses through binding patterns and assignments, become explicit move
+operations. The MIR represents the program as a control flow graph with
+basic blocks and explicit control transfers, making it ideal for
+analysis and transformation. Tools like Miri (Rust’s interpreter for
+detecting undefined behavior) and the borrow checker itself operate on
+MIR precisely because it provides complete semantic information in an
+analyzable form.</p>
+<p>The critical point is temporal: by the time any of this information
+exists, procedural macros have long since completed. The macro ran
+during the macro expansion phase, produced its output tokens, and those
+tokens were integrated into the source before name resolution began. The
+macro’s code is no longer executing; it cannot be “called back” with
+type information. The output it produced is now simply part of the
+source code being compiled, indistinguishable from code the programmer
+wrote directly. If the macro needed to make a decision based on whether
+<code>value</code> is an <code>Rc</code> or an <code>Arc</code>, it had
+to make that decision without knowing—because at the time it ran, nobody
+knew.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

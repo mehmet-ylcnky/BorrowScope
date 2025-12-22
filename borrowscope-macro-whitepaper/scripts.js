@@ -836,13 +836,3 @@ window.getApiPseudo = function(fn) {
     eventName = eventName.charAt(0).toUpperCase() + eventName.slice(1);
     return codeMap[fn] || '#[cfg(feature = "track")]\n{\n    <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> tracker = TRACKER.lock();\n    tracker.record_' + fn.replace('track_', '') + '(...);\n}\nvalue';
 };
-
-
-// Collapsible ToC
-function toggleToc(element) {
-    var subsections = element.parentElement.querySelector('.toc-subsections');
-    if (subsections) {
-        subsections.classList.toggle('collapsed');
-        element.textContent = subsections.classList.contains('collapsed') ? '▶' : '▼';
-    }
-}

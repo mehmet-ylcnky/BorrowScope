@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glossary - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="glossary">
+<h2 id="appendix-a-glossary">Appendix A: Glossary</h2>
+<p><strong>AST (Abstract Syntax Tree)</strong>: A tree representation of
+the syntactic structure of source code, where each node represents a
+construct in the language grammar.</p>
+<p><strong>DefId (Definition Identifier)</strong>: A unique identifier
+in rustc that refers to a specific definition (function, type, static,
+etc.) in the crate being compiled.</p>
+<p><strong>HIR (High-level Intermediate Representation)</strong>:
+Rustc’s desugared AST that includes resolved names and is used for type
+checking. HIR preserves the structure of the source code while removing
+syntactic sugar.</p>
+<p><strong>MIR (Mid-level Intermediate Representation)</strong>: Rustc’s
+control-flow graph representation used for borrow checking,
+optimization, and code generation. MIR makes all operations explicit,
+including drops and moves.</p>
+<p><strong>Proc Macro (Procedural Macro)</strong>: A Rust macro
+implemented as a function that receives and produces token streams,
+enabling arbitrary code transformation at compile time.</p>
+<p><strong>THIR (Typed High-level Intermediate Representation)</strong>:
+An intermediate representation between HIR and MIR that includes full
+type information for all expressions.</p>
+<p><strong>TokenStream</strong>: The input and output type for
+procedural macros, representing a sequence of tokens (identifiers,
+literals, punctuation, and delimited groups).</p>
+<p><strong>TyCtxt (Type Context)</strong>: Rustc’s central data
+structure containing all type information for a crate, providing methods
+to query types, resolve definitions, and access semantic
+information.</p>
+<p><strong>Type Inference</strong>: The compiler’s process of
+determining the types of expressions that lack explicit type
+annotations, based on how values are used.</p>
+<p><strong>Name Resolution</strong>: The compiler phase that connects
+each use of an identifier to its definition, determining what each name
+in the program refers to.</p>
+
+        </div>
+    </div>
+</body>
+</html>

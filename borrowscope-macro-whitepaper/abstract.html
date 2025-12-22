@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abstract - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section abstract" id="abstract">
+            <h1>Abstract</h1>
+            <p>
+                This whitepaper examines a fundamental architectural constraint in Rust's compilation model that prevents procedural macros from accessing type information. Through the lens of the BorrowScope project—a runtime ownership tracking library—we explore why this limitation exists, demonstrate its practical implications with concrete examples, and evaluate multiple architectural approaches to overcome it.
+            </p>
+            <p>
+                Our analysis synthesizes insights from compiler internals, existing tooling patterns (Clippy, Miri, rust-analyzer), and practical engineering trade-offs to provide guidance for projects facing similar challenges. We present six architectural solutions ranging from custom rustc drivers to annotation-based disambiguation, each with distinct trade-offs between accuracy, stability, complexity, and user experience.
+            </p>
+            <p>
+                The recommended approach for BorrowScope adopts a pragmatic phased strategy: shipping a stable-Rust solution that handles 95% of patterns through syntactic analysis, with optional annotation support for edge cases, and a roadmap toward compiler integration for users requiring complete accuracy.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

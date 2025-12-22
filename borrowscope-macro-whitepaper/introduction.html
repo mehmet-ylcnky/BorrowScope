@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Introduction - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="introduction">
+<h2 id="introduction">1. Introduction</h2>
+<p>Rust’s procedural macro system stands as one of the language’s most
+powerful metaprogramming facilities. It enables developers to write code
+that generates code, transforming source at compile time to reduce
+boilerplate, enforce patterns, and build domain-specific abstractions.
+Frameworks like Serde, Tokio, and countless others rely on procedural
+macros to deliver ergonomic APIs that would otherwise require tedious
+manual implementation. Yet beneath this power lies a fundamental
+architectural constraint that every macro author eventually encounters:
+procedural macros operate purely at the syntactic level, with no access
+to type information.</p>
+<p>This limitation creates a tension between what macro authors can
+<em>see</em> and what they need to <em>know</em>. A procedural macro
+receives a stream of tokens representing the syntactic structure of
+code—identifiers, keywords, punctuation, literals—but it cannot
+determine what those tokens <em>mean</em> in the broader context of the
+program. When a macro encounters the expression
+<code>value.clone()</code>, it sees a method call on some receiver, but
+it cannot know whether <code>value</code> is an <code>Rc&lt;T&gt;</code>
+performing a reference count increment, an <code>Arc&lt;T&gt;</code>
+performing an atomic increment, or a <code>Vec&lt;T&gt;</code>
+performing a deep copy. The syntax is identical; the semantics are
+vastly different.</p>
+<p>For many macro use cases, this limitation poses no obstacle. Derive
+macros that generate trait implementations based on struct field names,
+attribute macros that wrap functions with logging or timing code, and
+declarative macros that expand shorthand syntax into verbose equivalents
+can all accomplish their goals with purely syntactic information.
+However, a class of tools exists for which this barrier becomes
+insurmountable: instrumentation and analysis tools that must make
+decisions based on the <em>types</em> of expressions, not merely their
+textual representation.</p>
+<p>The BorrowScope project confronts this challenge directly.
+BorrowScope is a runtime tracking library designed to make Rust’s
+ownership and borrowing system visible during program execution. Its
+runtime component provides functions to track ownership transfers,
+borrows, smart pointer operations, and other memory-related events. Its
+macro component, <code>borrowscope-macro</code>, aims to automatically
+instrument user code with these tracking calls, eliminating the need for
+manual annotation. The macro has successfully implemented tracking for
+dozens of patterns—<code>Rc</code> and <code>Arc</code> cloning,
+<code>RefCell</code> borrowing, mutex locking, channel operations—all
+detectable through syntactic pattern matching. Yet certain categories of
+events remain beyond its reach: FFI function calls, union field access,
+static variable access, and type-dependent method behavior. These
+require knowing the <em>types</em> involved, information that simply
+does not exist at macro expansion time.</p>
+<p>This whitepaper provides a comprehensive examination of the type
+information barrier in Rust procedural macros. We analyze why this
+limitation exists as a deliberate architectural decision rather than an
+oversight, demonstrate its practical implications through concrete code
+examples from the BorrowScope project, and evaluate multiple
+architectural approaches to overcome it. Our analysis draws on patterns
+from established tools—Clippy’s linting infrastructure, Miri’s
+interpreter, rust-analyzer’s semantic engine—that have solved similar
+problems through different means. The goal is not merely to document a
+problem, but to provide a roadmap for projects facing the same
+challenge, whether they are building instrumentation tools, static
+analyzers, code generators, or any system that requires semantic
+understanding of Rust code.</p>
+<p>The insights presented here extend beyond BorrowScope. Any project
+that attempts to automatically analyze or transform Rust code based on
+type information will encounter this barrier. By understanding its
+nature and the available solutions, tooling authors can make informed
+architectural decisions early in their projects, avoiding the
+frustration of discovering fundamental limitations after significant
+investment in a syntactic approach.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

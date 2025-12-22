@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solutions - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="solutions">
+<h2 id="architectural-solutions">6. Architectural Solutions</h2>
+<p>Having established that procedural macros cannot access type
+information, we now examine architectural approaches that can. Each
+solution involves moving semantic analysis to a compilation phase where
+type information exists, trading the simplicity of the proc macro model
+for the power of full semantic access.</p>
+<h3 id="solution-1-custom-rustc-driver-compiler-plugin">6.1 Solution 1:
+Custom Rustc Driver (Compiler Plugin)</h3>
+<p>The most powerful approach is to create a custom compiler driver that
+wraps <code>rustc</code> and hooks into the compilation pipeline after
+type checking completes. At this point, the compiler has built the
+High-level IR (HIR) and Mid-level IR (MIR), both of which carry complete
+type information. A custom driver can analyze this typed representation,
+identify the patterns that proc macros cannot detect, and either
+transform the code or emit metadata for runtime consumption.</p>
+<p>This is not a theoretical approach—it is how the Rust ecosystem’s
+most sophisticated analysis tools work. Clippy, Rust’s official linter,
+operates as a rustc driver that examines typed HIR to detect code
+patterns that suggest bugs or style issues. Miri, the interpreter for
+detecting undefined behavior, operates on MIR with full type information
+to simulate program execution. Sanitizers and coverage instrumentation
+tools similarly hook into the compiler after type checking to inject
+their analysis and transformation logic.</p>
+<div class="ecosystem-table">
+<h4>borrowscope-driver</h4>
+<table>
+<thead>
+<tr><th>Step</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>Parse (same as rustc)</td></tr>
+<tr><td>2</td><td>Macro Expansion (same as rustc)</td></tr>
+<tr><td>3</td><td>Name Resolution (same as rustc)</td></tr>
+<tr><td>4</td><td>Type Checking (same as rustc)</td></tr>
+<tr><td>5</td><td>★ <strong>YOUR CODE</strong>: Analyze HIR/MIR with full type info ★<br>
+  • <code>tcx.is_foreign_item(def_id)</code> → FFI detection<br>
+  • <code>adt_def.is_union()</code> → Union detection<br>
+  • <code>DefKind::Static</code> → Static detection</td></tr>
+<tr><td>6</td><td>Code Generation (same as rustc)</td></tr>
+</tbody>
+</table>
+</div>
+<p>The driver implements the <code>rustc_driver::Callbacks</code> trait,
+which provides hooks at various compilation stages. The
+<code>after_analysis</code> callback fires after type checking,
+providing access to <code>TyCtxt</code>—the type context that contains
+all type information for the entire crate. With <code>TyCtxt</code>, the
+driver can answer every question that proc macros cannot:</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-attribute">#![feature(rustc_private)]</span>
+
+<span class="rust-keyword">extern crate</span> rustc_driver;
+<span class="rust-keyword">extern crate</span> rustc_interface;
+<span class="rust-keyword">extern crate</span> rustc_middle;
+<span class="rust-keyword">extern crate</span> rustc_hir;
+
+<span class="rust-keyword">use</span> rustc_driver::{Callbacks, Compilation};
+<span class="rust-keyword">use</span> rustc_middle::ty::{TyCtxt, TyKind};
+<span class="rust-keyword">use</span> rustc_hir::def::DefKind;
+
+<span class="rust-keyword">struct</span> BorrowScopeCallbacks;
+
+<span class="rust-keyword">impl</span> Callbacks <span class="rust-keyword">for</span> BorrowScopeCallbacks {
+    <span class="rust-keyword">fn</span> <span class="rust-function">after_analysis</span>&lt;'tcx&gt;(
+        &amp;<span class="rust-keyword">mut</span> <span class="rust-keyword">self</span>,
+        compiler: &amp;rustc_interface::interface::Compiler,
+        queries: &amp;'tcx rustc_interface::Queries&lt;'tcx&gt;,
+    ) -&gt; Compilation {
+        queries.global_ctxt().unwrap().enter(|tcx| {
+            analyze_crate(tcx);
+        });
+        Compilation::Continue
+    }
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">analyze_crate</span>&lt;'tcx&gt;(tcx: TyCtxt&lt;'tcx&gt;) {
+    <span class="rust-keyword">for</span> item_id <span class="rust-keyword">in</span> tcx.hir().items() {
+        <span class="rust-keyword">let</span> item = tcx.hir().item(item_id);
+        <span class="rust-keyword">if let</span> rustc_hir::ItemKind::Fn(.., body_id) = item.kind {
+            analyze_function_body(tcx, body_id);
+        }
+    }
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">analyze_function_body</span>&lt;'tcx&gt;(tcx: TyCtxt&lt;'tcx&gt;, body_id: rustc_hir::BodyId) {
+    <span class="rust-keyword">let</span> body = tcx.hir().body(body_id);
+    <span class="rust-keyword">let</span> typeck = tcx.typeck(body.value.hir_id.owner.def_id);
+    
+    <span class="rust-comment">// Walk expressions and check types</span>
+    <span class="rust-keyword">for</span> expr <span class="rust-keyword">in</span> body.value.walk() {
+        <span class="rust-keyword">match</span> expr.kind {
+            <span class="rust-comment">// Detect FFI calls</span>
+            rustc_hir::ExprKind::Call(func, _) =&gt; {
+                <span class="rust-keyword">if let</span> Some(def_id) = get_callee_def_id(tcx, typeck, func) {
+                    <span class="rust-keyword">if</span> tcx.is_foreign_item(def_id) {
+                        <span class="rust-comment">// This is an FFI call!</span>
+                    }
+                }
+            }
+            <span class="rust-comment">// Detect union field access</span>
+            rustc_hir::ExprKind::Field(base, _) =&gt; {
+                <span class="rust-keyword">let</span> base_ty = typeck.expr_ty(base);
+                <span class="rust-keyword">if let</span> TyKind::Adt(adt_def, _) = base_ty.kind() {
+                    <span class="rust-keyword">if</span> adt_def.is_union() {
+                        <span class="rust-comment">// This is union field access!</span>
+                    }
+                }
+            }
+            <span class="rust-comment">// Detect static access</span>
+            rustc_hir::ExprKind::Path(qpath) =&gt; {
+                <span class="rust-keyword">let</span> res = typeck.qpath_res(&amp;qpath, expr.hir_id);
+                <span class="rust-keyword">if</span> <span class="rust-macro">matches!</span>(res, rustc_hir::def::Res::Def(DefKind::Static { .. }, _)) {
+                    <span class="rust-comment">// This is static variable access!</span>
+                }
+            }
+            _ =&gt; {}
+        }
+    }
+}</pre>
+</div>
+<p>The driver approach provides complete accuracy. Every question about
+types, definitions, and semantic properties has a definitive answer
+available through the compiler’s APIs. FFI detection becomes a simple
+call to <code>tcx.is_foreign_item()</code>. Union detection checks
+<code>adt_def.is_union()</code>. Static detection examines the
+<code>DefKind</code>. Generic instantiations are resolved to concrete
+types in MIR.</p>
+<p>The cost is significant complexity and a dependency on nightly Rust.
+The <code>rustc_private</code> feature gate, required to access compiler
+internals, is permanently unstable. Compiler internal APIs change
+between Rust versions, sometimes substantially, requiring ongoing
+maintenance to keep the driver compatible. Users must invoke the driver
+explicitly—typically through a cargo subcommand like
+<code>cargo borrowscope build</code>—rather than using standard
+<code>cargo build</code>. Despite these costs, this approach is proven
+in production: Clippy ships with every Rust installation and operates
+exactly this way.</p>
+<h3 id="solution-2-two-phase-architecture-marker-compiler">6.2 Solution
+2: Two-Phase Architecture (Marker + Compiler)</h3>
+<p>A refinement of the compiler driver approach separates the problem
+into two distinct phases, each handling what it does best. The
+procedural macro, operating at the syntactic level, marks potentially
+interesting code sites without making semantic decisions. A subsequent
+compiler pass, operating with full type information, examines these
+markers and emits the appropriate tracking calls based on actual types.
+This separation of concerns produces a cleaner architecture and allows
+the macro to remain simple while the compiler pass handles semantic
+complexity.</p>
+<p>The insight behind this approach is that the macro does not need to
+<em>decide</em> what tracking to emit—it only needs to <em>identify</em>
+locations where tracking might be needed. Every function call is
+potentially an FFI call. Every field access is potentially a union
+access. Every identifier is potentially a static. The macro can wrap all
+of these with lightweight markers that preserve the original code while
+adding metadata about the source location. The semantic classification
+happens later, when the information needed to make correct decisions
+actually exists.</p>
+<div class="code-block">
+<pre class="rust-code">Phase 1: Proc Macro (Syntax Only)
+┌─────────────────────────────────────────┐
+│ external_func(ptr);                     │
+│              ↓                          │
+│ borrowscope::__call_site!(              │
+│     external_func(ptr),                 │
+│     <span class="rust-macro">file!</span>(), <span class="rust-macro">line!</span>()                    │
+│ );                                      │
+└─────────────────────────────────────────┘
+
+Phase 2: Compiler Pass (Has Types)
+┌─────────────────────────────────────────┐
+│ Sees: __call_site!(external_func(ptr))  │
+│ Queries: tcx.is_foreign_item(def_id)    │
+│ Result: <span class="rust-keyword">true</span> → emit track_ffi_call      │
+└─────────────────────────────────────────┘</pre>
+</div>
+<p>In the first phase, the <code>#[trace_borrow]</code> macro transforms
+code by wrapping expressions in marker macros. A function call
+<code>external_func(ptr)</code> becomes
+<code>borrowscope::__call_site!(external_func(ptr), file!(), line!())</code>.
+A field access <code>u.value</code> becomes
+<code>borrowscope::__field_access!(u.value, file!(), line!())</code>.
+These marker macros are defined to simply evaluate to their first
+argument in normal compilation, adding no runtime overhead. Their
+purpose is to create recognizable patterns that the compiler pass can
+identify.</p>
+<p>In the second phase, a rustc driver analyzes the code after type
+checking. It looks for calls to the marker macros and examines the types
+of the expressions within them. When it finds
+<code>__call_site!(external_func(ptr), ...)</code>, it resolves
+<code>external_func</code> and checks whether it is a foreign item. If
+so, it can transform the code to include <code>track_ffi_call</code>, or
+it can emit metadata that the runtime consumes to classify the event
+correctly. The compiler pass has full access to <code>TyCtxt</code> and
+can make accurate semantic decisions.</p>
+<p>This architecture offers several advantages over a monolithic
+compiler driver. The proc macro remains simple and fast, doing only
+syntactic transformation without attempting semantic analysis. The
+compiler pass focuses purely on semantic classification, receiving
+pre-identified sites rather than searching the entire codebase. The
+separation makes each component easier to test, debug, and maintain.
+Users who want only syntactic tracking can use the macro alone; users
+who want full semantic accuracy can additionally run the compiler
+pass.</p>
+<p>The two-phase approach is the pattern used by sophisticated
+production tools. Coverage instrumentation, for example, often works
+this way: a source transformation marks potential coverage points, and a
+later pass determines which points are actually reachable and
+instruments them appropriately. Sanitizers similarly combine
+source-level markers with compiler-level analysis. The pattern is proven
+and scales to complex use cases.</p>
+<h3 id="solution-3-rust-analyzer-integration">6.3 Solution 3:
+rust-analyzer Integration</h3>
+<p>An alternative to compiler plugins is leveraging rust-analyzer, the
+Rust language server that powers IDE features like code completion,
+go-to-definition, and type hints. rust-analyzer performs its own
+semantic analysis of Rust code, building a representation that includes
+resolved names and inferred types. Its internal crates are published to
+crates.io under the <code>ra_ap_*</code> prefix, making this analysis
+available as a library that other tools can use.</p>
+<p>The appeal of rust-analyzer integration is that it works on stable
+Rust. Unlike rustc internals, which require the
+<code>rustc_private</code> feature and nightly compiler, rust-analyzer’s
+crates are regular dependencies that any project can use. The analysis
+is sophisticated—rust-analyzer provides accurate type inference, trait
+resolution, and macro expansion for the vast majority of Rust code. For
+tools that need semantic information but want to avoid nightly
+dependencies, this is an attractive option.</p>
+<p>Using rust-analyzer as a library involves setting up an analysis
+host, loading the project’s source files into a virtual filesystem, and
+querying the semantic database. The <code>ra_ap_hir</code> crate
+provides high-level access to semantic information, including types of
+expressions, definitions of names, and trait implementations. A tool
+could parse source files, identify expressions of interest, query their
+types through rust-analyzer’s APIs, and make decisions based on the
+results.</p>
+<p>However, this approach has significant limitations for
+instrumentation tools like BorrowScope. rust-analyzer operates
+separately from the actual compilation process. It analyzes code to
+provide IDE features, but it does not participate in producing the final
+binary. A tool using rust-analyzer can determine that a particular
+expression has a particular type, but it cannot easily inject code into
+the compilation based on that determination. The analysis and the
+compilation are disconnected.</p>
+<p>This makes rust-analyzer well-suited for validation and linting
+scenarios. A <code>cargo borrowscope check</code> command could use
+rust-analyzer to analyze instrumented code, identify places where the
+macro’s syntactic heuristics produced incorrect results, and report
+warnings or suggestions to the user. It could detect uninstrumented FFI
+calls, union accesses, or static references and recommend adding
+explicit annotations. This validation role complements the proc macro
+without requiring changes to the compilation process.</p>
+<p>The setup complexity is also substantial. rust-analyzer requires a
+compilation database describing the project structure, dependencies, and
+compiler flags. It maintains an incremental database that must be
+populated with source files. The APIs, while powerful, have a learning
+curve and are designed primarily for IDE use cases rather than batch
+analysis. For projects willing to invest in this infrastructure,
+rust-analyzer provides a stable-Rust path to semantic information, but
+the investment is considerable.</p>
+<h3 id="solution-4-external-type-query-tool-rtk">6.4 Solution 4:
+External Type Query Tool (RTK)</h3>
+<p>A recent addition to the Rust tooling ecosystem is RTK (Rust Type
+Kit), a tool designed specifically for querying type information from
+Rust codebases. RTK wraps rustc to perform semantic analysis, then
+exposes the results through a Lua scripting interface. Developers write
+Lua scripts that query for specific patterns—method calls matching a
+definition path, function calls to particular functions, trait
+implementations—and RTK returns fully resolved type information for each
+match.</p>
+<p>The design philosophy of RTK differs from compiler plugins. Rather
+than hooking into the compilation pipeline to transform code, RTK
+operates as a standalone analysis tool that produces output based on
+queries. A script might ask “find all calls to methods named
+<code>clone</code> where the receiver type is <code>Rc&lt;T&gt;</code>”
+and receive a list of matching call sites with full type information.
+The script can then generate code, produce reports, or emit metadata
+based on these results.</p>
+<p>For BorrowScope, RTK could enable a workflow where a Lua script
+queries the codebase for the patterns that proc macros cannot detect.
+The script might search for all function calls where the callee is a
+foreign item, all field accesses where the base type is a union, and all
+identifier expressions that resolve to static definitions. The results
+could be used to generate annotation suggestions, produce a
+supplementary instrumentation file, or validate that manual annotations
+are correct.</p>
+<p>RTK’s Lua interface provides access to rich type information. Queries
+return not just the locations of matches but the full type context:
+parameter types, return types, generic arguments, trait bounds. The tool
+automatically resolves type dependencies, so querying a function returns
+information about all types used in its signature. This makes it
+possible to generate accurate type-aware code from query results.</p>
+<p>The limitation is that RTK, like compiler plugins, requires nightly
+Rust. It wraps rustc and depends on compiler internals to perform its
+analysis. The workflow is also different from the seamless proc macro
+experience: users run RTK as a separate step, write Lua scripts to
+define their queries, and integrate the results into their build
+process. For projects already comfortable with nightly Rust and custom
+build tooling, RTK offers a scriptable approach to type queries. For
+projects seeking a simple, stable-Rust solution, it does not eliminate
+the fundamental constraints.</p>
+<h3 id="solution-5-annotation-based-disambiguation">6.5 Solution 5:
+Annotation-Based Disambiguation</h3>
+<p>A pragmatic alternative to compiler integration is accepting the proc
+macro’s limitations and providing a mechanism for users to supply the
+missing type information explicitly. Rather than attempting to infer
+whether a function is FFI or a type is a union, the macro can accept
+annotations that declare these facts. The user, who knows their code’s
+semantics, provides the information that the macro cannot determine.</p>
+<p>This approach introduces a supplementary attribute that accompanies
+<code>#[trace_borrow]</code>. The attribute accepts lists of identifiers
+categorized by their semantic nature: FFI functions, union types, static
+variables. When the macro encounters these identifiers in the function
+body, it applies the appropriate tracking based on the user’s
+declarations rather than attempting inference.</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-attribute">#[trace_borrow]</span>
+<span class="rust-attribute">#[borrowscope(</span>
+<span class="rust-attribute">    ffi = ["external_func", "c_api_call"],</span>
+<span class="rust-attribute">    unions = ["MyUnion", "DataUnion"],</span>
+<span class="rust-attribute">    statics = ["GLOBAL_COUNTER"]</span>
+<span class="rust-attribute">)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">instrumented_function</span>(u: MyUnion, ptr: *<span class="rust-keyword">mut</span> i32) {
+    external_func(ptr);      <span class="rust-comment">// Recognized as FFI → track_ffi_call</span>
+    <span class="rust-keyword">let</span> x = u.int_val;       <span class="rust-comment">// Recognized as union → track_union_field_access</span>
+    GLOBAL_COUNTER.inc();    <span class="rust-comment">// Recognized as static → track_static_access</span>
+}</pre>
+</div>
+function body, it checks each function call against the <code>ffi</code>
+list, each field access base against the <code>unions</code> list, and
+each identifier against the <code>statics</code> list. Matches trigger
+the specialized tracking calls; non-matches receive default
+handling.</p>
+<p>This solution works entirely on stable Rust with no external tooling.
+The proc macro remains a self-contained crate that users add as a
+dependency and invoke with attributes. No compiler plugins, no separate
+analysis passes, no nightly features. The implementation complexity is
+modest—parsing an additional attribute and maintaining lookup tables
+during transformation.</p>
+<p>The trade-off is user burden. Developers must know which functions in
+their code are FFI, which types are unions, and which variables are
+statics. They must maintain these annotations as code evolves: adding
+new FFI functions to the list, removing unions that are refactored into
+structs, updating static names when they change. Incorrect or outdated
+annotations produce incorrect tracking, and the macro cannot validate
+that the annotations are accurate. A function listed as FFI that is
+actually a regular Rust function will be tracked incorrectly.</p>
+<p>For many use cases, this trade-off is acceptable. Projects that use
+FFI typically have a clear boundary where foreign functions are called,
+often in dedicated modules. Union types are relatively rare in Rust code
+and tend to be well-known to developers working with them. Static
+variables are similarly uncommon and usually significant enough to be
+memorable. The annotation burden, while real, may be manageable for
+projects where these patterns appear in limited, well-understood
+locations.</p>
+<h3 id="solution-6-enhanced-heuristics">6.6 Solution 6: Enhanced
+Heuristics</h3>
+<p>Before abandoning the proc macro model entirely, it is worth
+exploring how far syntactic pattern matching can be pushed. While
+heuristics cannot achieve the accuracy of semantic analysis, they can
+improve coverage for common cases, reducing the gap between what the
+macro detects and what users expect. Enhanced heuristics serve as a
+supplement to other approaches, catching easy cases automatically while
+leaving edge cases for annotations or compiler-based solutions.</p>
+<p>One heuristic tracks <code>extern</code> blocks within the same file.
+When the macro processes a module, it can first scan for
+<code>extern "C"</code> blocks and collect the names of functions
+declared within them. Later, when transforming function bodies, calls to
+these names can be recognized as FFI calls. This works when the FFI
+declaration and the call site are in the same file—a common pattern in
+projects that wrap foreign libraries in dedicated modules. The
+limitation is that it fails for FFI functions imported from other
+modules or crates, where the macro never sees the <code>extern</code>
+block.</p>
+<p>Naming conventions provide another heuristic signal. Rust convention
+uses <code>SCREAMING_SNAKE_CASE</code> for statics and constants. An
+identifier written in all uppercase with underscores is likely—though
+not guaranteed—to be a static or constant rather than a local variable.
+The macro can check identifier casing and apply static tracking to
+uppercase names. This heuristic produces false positives when developers
+use uppercase names for local variables and false negatives when statics
+use unconventional naming, but it captures the common case with zero
+user effort.</p>
+<p>Contextual patterns offer additional signals. Union field access in
+Rust requires an <code>unsafe</code> block, so field accesses within
+unsafe blocks are more likely to target unions than those outside. The
+macro already tracks unsafe block boundaries for other purposes; it can
+use this context to apply union tracking heuristics. Similarly, certain
+method names or type paths that appear in the syntax—like
+<code>std::ffi::</code> prefixes—suggest FFI-related code even without
+full type resolution.</p>
+<p>The fundamental limitation of heuristics is their unreliability.
+Every heuristic has cases where it produces wrong results. Imports
+rename identifiers, breaking name-based detection. Type aliases hide the
+true nature of types. External crates define FFI functions, unions, and
+statics that the macro never sees. Generic code operates on types
+unknown until instantiation. A heuristic-based approach will always have
+gaps and errors that semantic analysis would avoid.</p>
+<p>For BorrowScope, enhanced heuristics represent a practical
+improvement within the existing architecture. They increase the
+percentage of cases handled correctly without requiring user annotations
+or external tools. Combined with clear documentation of their
+limitations and an annotation system for cases they miss, heuristics
+provide a reasonable baseline. They are not a complete solution, but
+they reduce the burden on users who want basic tracking without
+investing in compiler integration.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

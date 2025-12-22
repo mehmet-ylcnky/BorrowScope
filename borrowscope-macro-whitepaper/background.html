@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Background - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="background">
+<h2 id="background-the-borrowscope-project">2. Background: The
+BorrowScope Project</h2>
+<h3 id="project-overview">2.1 Project Overview</h3>
+<p>BorrowScope is a runtime tracking library that makes Rust’s ownership
+and borrowing system observable during program execution. Rust’s memory
+safety guarantees stem from its borrow checker, a compile-time analysis
+that enforces strict rules about how references and ownership flow
+through a program. While this system prevents entire categories of
+bugs—use-after-free, data races, dangling pointers—it operates
+invisibly. Developers see only the borrow checker’s error messages when
+rules are violated, never the successful ownership transfers and borrows
+that occur in working code. BorrowScope bridges this visibility gap by
+capturing these events as they happen at runtime, producing structured
+data that can be exported, visualized, or analyzed.</p>
+<p>The project consists of two primary components. The first,
+<code>borrowscope-runtime</code>, provides a comprehensive set of
+tracking functions that record ownership events. These functions cover
+the full spectrum of Rust’s memory model: basic ownership operations
+like variable creation, moves, and drops; borrowing operations for both
+shared and mutable references; smart pointer operations for
+<code>Rc</code>, <code>Arc</code>, <code>Box</code>, and
+<code>Weak</code>; interior mutability patterns with
+<code>RefCell</code>, <code>Cell</code>, <code>Mutex</code>, and
+<code>RwLock</code>; and advanced scenarios including raw pointer
+manipulation, unsafe blocks, and asynchronous boundaries. Each tracking
+function records an event with contextual information—variable names,
+source locations, timestamps—that together form a complete trace of
+ownership flow through the program.</p>
+<p>The second component, <code>borrowscope-macro</code>, provides
+automatic instrumentation through the <code>#[trace_borrow]</code>
+procedural macro. Rather than requiring developers to manually insert
+tracking calls throughout their code, this macro transforms annotated
+functions to inject the appropriate tracking automatically. When a
+developer writes a function and applies <code>#[trace_borrow]</code>,
+the macro analyzes the function body, identifies ownership-relevant
+operations, and wraps them with corresponding tracking calls. The result
+is instrumented code that behaves identically to the original but
+produces a detailed event stream capturing every ownership transfer,
+borrow, and drop.</p>
+<p>The motivation behind BorrowScope addresses a persistent challenge in
+the Rust ecosystem: the ownership system’s learning curve. Newcomers to
+Rust often struggle to build mental models of how ownership flows
+through their programs, particularly in complex scenarios involving
+smart pointers, interior mutability, or async code. Even experienced
+developers sometimes need to debug subtle ownership issues in production
+systems. By making the invisible visible, BorrowScope serves as both an
+educational tool for learners and a diagnostic tool for practitioners.
+The event data it produces can be exported to JSON for analysis, fed
+into visualization tools to render ownership graphs, or simply printed
+to understand what code is actually doing at runtime.</p>
+<h3 id="the-role-of-borrowscope-macro">2.2 The Role of
+borrowscope-macro</h3>
+<p>The <code>borrowscope-macro</code> crate exists to eliminate the
+friction of manual instrumentation. Without it, using BorrowScope would
+require developers to wrap every ownership operation with explicit
+tracking calls—a tedious and error-prone process that would discourage
+adoption and clutter code with instrumentation noise. The macro
+transforms this burden into a single annotation: apply
+<code>#[trace_borrow]</code> to a function, and the macro handles the
+rest.</p>
+<p>The transformation process operates through syntactic pattern
+matching. When the macro receives a function’s token stream, it parses
+it into an abstract syntax tree using the <code>syn</code> crate, then
+walks this tree looking for patterns that correspond to ownership
+events. A <code>let</code> binding with a <code>clone()</code> call on
+the right-hand side suggests a clone operation. A method call to
+<code>.borrow()</code> or <code>.borrow_mut()</code> indicates RefCell
+access. An expression wrapped in <code>Rc::new()</code> or
+<code>Arc::new()</code> signals smart pointer creation. For each
+recognized pattern, the macro wraps the expression with the appropriate
+tracking call from <code>borrowscope-runtime</code>, preserving the
+original semantics while adding observability.</p>
+<p>This approach has proven remarkably successful for the majority of
+ownership patterns. The macro currently detects and instruments
+approximately 35 different event types spanning the full range of common
+Rust idioms. Basic ownership tracking covers variable creation, moves
+between bindings, and scope-based drops. Smart pointer support includes
+<code>Rc</code> and <code>Arc</code> creation and cloning,
+<code>Box</code> operations, and <code>Weak</code> reference handling
+including upgrades and failed upgrades. Interior mutability tracking
+captures <code>RefCell</code> borrows, <code>Cell</code> get and set
+operations, and mutex and read-write lock acquisitions. Recent
+development has extended coverage to include <code>Cow::to_mut</code>
+for copy-on-write semantics, channel send and receive operations for
+concurrency patterns, thread join handle tracking, and closure creation
+with captured variable detection.</p>
+<p>The implementation represents a significant engineering effort. The
+macro maintains context as it traverses function bodies, tracking which
+variables hold which types of values based on their initialization
+patterns. When it sees <code>let rc = Rc::new(value)</code>, it records
+that <code>rc</code> is an Rc-typed variable; when it later encounters
+<code>rc.clone()</code>, it can emit <code>track_rc_clone</code> rather
+than a generic clone tracker. This propagation of type knowledge through
+syntactic analysis enables surprisingly accurate instrumentation for
+patterns that follow conventional Rust idioms.</p>
+<p>Yet despite this success, a gap remains. The
+<code>borrowscope-runtime</code> library provides tracking functions
+that the macro cannot automatically invoke because detecting when to use
+them requires information beyond syntax. Functions like
+<code>track_ffi_call</code>, <code>track_union_field_access</code>,
+<code>track_static_access</code>, and <code>track_static_init</code>
+exist in the runtime, ready to record these important events, but the
+macro has no reliable way to determine when code is calling an FFI
+function, accessing a union field, or reading from a static variable.
+These patterns look syntactically identical to their non-special
+counterparts, and distinguishing them requires knowing the
+<em>types</em> and <em>definitions</em> involved—information that
+procedural macros fundamentally cannot access.</p>
+<h3 id="the-instrumentation-gap">2.3 The Instrumentation Gap</h3>
+<p>The <code>borrowscope-runtime</code> library was designed with
+comprehensive coverage in mind. Its API includes tracking functions for
+scenarios that represent important boundaries in Rust’s safety model:
+<code>track_ffi_call</code> records when code crosses the foreign
+function interface boundary into C or other languages;
+<code>track_union_field_access</code> captures the inherently unsafe
+operation of reading from a union where type interpretation depends on
+programmer discipline rather than compiler enforcement;
+<code>track_static_access</code> and <code>track_static_init</code>
+monitor interactions with global state that persists across function
+calls and potentially across threads. These events matter because they
+represent points where Rust’s usual guarantees weaken or require
+additional programmer care.</p>
+<p>The macro, however, cannot reliably detect any of these patterns.
+Consider a function call expression like
+<code>process_data(buffer)</code>. From the macro’s perspective, this is
+simply an identifier followed by parenthesized arguments—syntactically
+indistinguishable from any other function call. Whether
+<code>process_data</code> was declared in an <code>extern "C"</code>
+block, making it an FFI call into foreign code, or defined as a normal
+Rust function cannot be determined from the call site’s syntax alone.
+The macro would need to resolve the identifier to its definition,
+examine that definition’s context, and determine whether it carries
+foreign linkage. This requires name resolution and access to the module
+structure—capabilities that exist only after macro expansion
+completes.</p>
+<p>The same problem manifests with union field access. When the macro
+encounters <code>data.value</code>, it sees a field access expression:
+some base expression, a dot, and a field name. Whether <code>data</code>
+is a struct, where field access is safe and well-defined, or a union,
+where field access reinterprets raw bits according to the accessed
+field’s type, depends entirely on the type of <code>data</code>. The
+syntax provides no indication. A struct field access and a union field
+access are lexically identical, differentiated only by the semantic
+category of the base expression’s type.</p>
+<p>Static variable access presents a similar challenge. An expression
+like <code>COUNTER.fetch_add(1, Ordering::SeqCst)</code> looks exactly
+like a method call on any other value. Whether <code>COUNTER</code>
+refers to a static variable with global lifetime and potential
+thread-safety implications, or a local variable that happens to use
+uppercase naming, cannot be determined syntactically. The macro sees an
+identifier; it cannot query whether that identifier was declared with
+the <code>static</code> keyword in some other part of the codebase.</p>
+<p>This creates what we term the “instrumentation gap”—a divergence
+between the runtime library’s capabilities and the macro’s ability to
+leverage them. Quantitatively, approximately six categories of tracking
+events fall into this gap: FFI function calls, union field access,
+static variable reads, static variable initialization, type-dependent
+clone behavior (distinguishing <code>Rc::clone</code> from
+<code>Arc::clone</code> from regular <code>Clone</code>), and transmute
+operations where the source and destination types matter. Together,
+these represent a meaningful subset of the ownership events that
+BorrowScope aims to capture, particularly for code that interacts with
+unsafe boundaries or global state. The gap is not merely an
+inconvenience; it represents a fundamental architectural mismatch
+between what the macro can observe and what the runtime can record.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

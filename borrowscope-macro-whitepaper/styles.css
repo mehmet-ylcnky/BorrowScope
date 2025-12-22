@@ -14,19 +14,6 @@
     --rust-function: #6f42c1;
 }
 
-.back-link {
-    display: inline-block;
-    margin-bottom: 1rem;
-    color: var(--secondary-color);
-    text-decoration: none;
-}
-.back-link:hover {
-    text-decoration: underline;
-}
-.back-link::before {
-    content: "← ";
-}
-
 * {
     margin: 0;
     padding: 0;
@@ -261,31 +248,6 @@ li {
 
 .toc a:hover {
     text-decoration: underline;
-}
-
-/* Collapsible ToC */
-.toc-toggle {
-    cursor: pointer;
-    user-select: none;
-    display: inline-block;
-    width: 1em;
-    margin-right: 0.3em;
-    font-size: 0.8em;
-    color: var(--secondary-color);
-}
-
-.toc-toggle:hover {
-    color: var(--primary-color);
-}
-
-.toc-subsections {
-    overflow: hidden;
-    transition: max-height 0.3s ease-out;
-    max-height: 500px;
-}
-
-.toc-subsections.collapsed {
-    max-height: 0;
 }
 
 .copy-btn {

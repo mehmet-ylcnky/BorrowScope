@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recommendation - BorrowScope Macro White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="recommendation">
+<h2 id="recommended-approach-for-borrowscope">8. Recommended Approach
+for BorrowScope</h2>
+<h3 id="phased-implementation-strategy">8.1 Phased Implementation
+Strategy</h3>
+<p>Given the trade-offs analyzed above, BorrowScope adopts a phased
+implementation strategy that delivers value incrementally while
+preserving the option for deeper integration in the future. Each phase
+is independently valuable, allowing the project to ship useful
+functionality without blocking on the completion of more ambitious
+features. Users benefit immediately from what exists today, and the
+project can respond to actual demand rather than speculating about what
+users might need.</p>
+<div class="code-block">
+<pre class="rust-code">Phase 1: Stable Foundation          Phase 2: Validation         Phase 3: Full Integration
+┌─────────────────────────┐        ┌──────────────────┐        ┌──────────────────────┐
+│ • Current macro (95%)   │        │ • cargo plugin   │        │ • rustc driver       │
+│ • Annotation attributes │   ──▶  │ • Type checking  │   ──▶  │ • MIR transformation │
+│ • Clear documentation   │        │ • Suggestions    │        │ • Zero annotations   │
+│ • Works on stable       │        │ • Nightly opt-in │        │ • Complete accuracy  │
+└─────────────────────────┘        └──────────────────┘        └──────────────────────┘</pre>
+</div>
+<p>Phase 1 represents the stable foundation, available today. The
+existing proc macro handles the vast majority of ownership patterns
+through syntactic analysis. An annotation system allows users to declare
+FFI functions, unions, and statics that the macro should track
+specially. Comprehensive documentation explains what the macro can and
+cannot detect, guiding users to annotations when needed. This phase
+works entirely on stable Rust with no external dependencies beyond the
+macro crate itself.</p>
+<p>Phase 2 introduces a validation tool that helps users identify gaps
+in their instrumentation. A <code>cargo borrowscope check</code>
+command, implemented as a cargo plugin using rustc driver APIs, analyzes
+instrumented code with full type information. It identifies FFI calls,
+union accesses, and static references that the macro did not instrument,
+either because they were not annotated or because heuristics missed
+them. The tool suggests annotations to add, helping users achieve
+complete coverage without manually auditing their code. This phase
+requires nightly Rust but is optional—users who do not need validation
+continue using the stable-Rust macro alone.</p>
+<p>Phase 3, pursued if demand warrants, provides full compiler
+integration. A rustc driver performs semantic analysis and emits
+perfectly accurate tracking calls without any user annotations. The
+macro becomes a thin wrapper that marks code for the driver to process.
+Users who opt into this workflow receive complete accuracy with zero
+manual effort, at the cost of nightly Rust and a custom build command.
+This phase represents the theoretical ideal but requires significant
+implementation effort and ongoing maintenance.</p>
+<p>The phased approach avoids the trap of blocking useful functionality
+on perfect functionality. Phase 1 ships today and serves the majority of
+users. Phase 2 addresses power users who need complete coverage. Phase 3
+remains an option if the community demonstrates sufficient demand. Each
+phase builds on the previous, and the project can pause at any phase if
+the cost-benefit analysis of further development becomes
+unfavorable.</p>
+<h3 id="phase-1-annotation-system-design">8.2 Phase 1: Annotation System
+Design</h3>
+<p>The annotation system provides a mechanism for users to supply type
+information that the macro cannot infer. The design prioritizes clarity,
+ease of use, and minimal interference with existing code. Users who do
+not need special tracking can ignore annotations entirely; users who do
+need them can add them incrementally as requirements arise.</p>
+<p>The annotation uses a helper attribute
+<code>#[borrowscope(...)]</code> that accompanies the existing
+<code>#[trace_borrow]</code> attribute. The helper attribute accepts
+named parameters identifying functions, types, and variables that
+require special handling:</p>
+<div class="code-block">
+<pre class="rust-code"><span class="rust-attribute">#[trace_borrow]</span>
+<span class="rust-attribute">#[borrowscope(</span>
+<span class="rust-attribute">    ffi = ["ffi_read", "ffi_write", "external_process"],</span>
+<span class="rust-attribute">    unions = ["RawData", "PackedValue"],</span>
+<span class="rust-attribute">    statics = ["GLOBAL_CONFIG", "SHARED_STATE"]</span>
+<span class="rust-attribute">)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>(raw: RawData, buffer: *<span class="rust-keyword">mut</span> u8) {
+    <span class="rust-keyword">let</span> config = GLOBAL_CONFIG.load(Ordering::Relaxed);
+    <span class="rust-keyword">let</span> value = <span class="rust-keyword">unsafe</span> { raw.as_int };
+    ffi_write(buffer, value);
+}</pre>
+</div>
+function, it wraps the call with <code>track_ffi_call</code>. The
+<code>unions</code> parameter lists type names whose field accesses
+should be treated as union accesses. When the macro sees a field access
+on a variable whose declared type matches a listed name, it emits
+<code>track_union_field_access</code>. The <code>statics</code>
+parameter lists variable names that should be treated as static
+accesses, triggering <code>track_static_access</code> when they
+appear.</p>
+<p>Implementation within the proc macro involves parsing the helper
+attribute before transforming the function body. The macro extracts the
+identifier lists into lookup sets. During the transformation walk, each
+relevant expression is checked against the appropriate set: function
+calls against <code>ffi</code>, field access base types against
+<code>unions</code>, and identifiers against <code>statics</code>.
+Matches trigger specialized tracking; non-matches receive default
+handling.</p>
+<p>The integration with <code>#[trace_borrow]</code> is straightforward.
+The main attribute macro checks for the presence of
+<code>#[borrowscope(...)]</code> among the function’s attributes, parses
+it if present, and uses the extracted information during transformation.
+If no helper attribute exists, the macro behaves exactly as before,
+maintaining backward compatibility.</p>
+<p>Documentation for the annotation system must cover several aspects.
+Users need to understand when annotations are necessary—the specific
+patterns that require type information. They need syntax reference
+showing the attribute format and accepted parameters. They need examples
+demonstrating common use cases: wrapping a C library, working with
+unions for serialization, tracking global configuration state. Finally,
+they need guidance on discovering what to annotate: how to identify FFI
+functions in their dependencies, how to find union types in their
+codebase, how to locate static variables that matter for their
+analysis.</p>
+<h3 id="phase-2-validation-tool-architecture">8.3 Phase 2: Validation
+Tool Architecture</h3>
+<p>The validation tool bridges the gap between the proc macro’s
+syntactic capabilities and the semantic accuracy users may require.
+Implemented as a cargo subcommand, <code>cargo borrowscope check</code>
+analyzes instrumented code using compiler APIs to identify patterns that
+the macro missed. Users who want assurance of complete coverage run this
+tool and receive actionable feedback about what annotations to add.</p>
+<p>The tool operates as a rustc driver that hooks into compilation after
+type checking. It walks the HIR of functions annotated with
+<code>#[trace_borrow]</code>, examining each expression with full type
+information available. For every function call, it checks whether the
+callee is a foreign item; for every field access, it checks whether the
+base type is a union; for every identifier, it checks whether it
+resolves to a static definition. When it finds patterns that require
+special tracking, it checks whether the corresponding annotation exists
+in the <code>#[borrowscope(...)]</code> attribute.</p>
+<p>Discrepancies between what the code contains and what the annotations
+declare produce diagnostic messages. A call to an FFI function not
+listed in the <code>ffi</code> annotation generates a warning with the
+function name and call location. A union field access on a type not
+listed in <code>unions</code> similarly produces a warning. The
+diagnostics are designed to be actionable: they tell users exactly what
+to add to their annotations to achieve complete coverage.</p>
+<p>The tool can operate in multiple modes. A basic mode reports all
+discrepancies as warnings, letting users decide which matter. A strict
+mode treats discrepancies as errors, useful for CI pipelines that
+enforce complete instrumentation. A suggestion mode outputs the
+annotations that would resolve all discrepancies, which users can copy
+into their code. An auto-fix mode, if feasible, directly modifies source
+files to add missing annotations.</p>
+<p>Because the validation tool requires nightly Rust and rustc
+internals, it is distributed separately from the main macro crate. Users
+who want only stable-Rust functionality never need to install it. Users
+who want validation install it as an additional tool and run it
+explicitly. This separation keeps the core experience simple while
+providing power users with the completeness guarantees they need.</p>
+<h3 id="phase-3-full-compiler-integration">8.4 Phase 3: Full Compiler
+Integration</h3>
+<p>Full compiler integration represents the theoretical endpoint where
+BorrowScope achieves complete accuracy with zero user annotations. This
+phase transforms the project from a proc macro with optional validation
+into a comprehensive instrumentation system that operates with full
+semantic knowledge. The decision to pursue this phase depends on
+demonstrated demand, available resources, and the cost-benefit analysis
+at the time.</p>
+<p>The architecture centers on a <code>borrowscope-driver</code> crate
+that wraps rustc and performs instrumentation during compilation. Unlike
+the validation tool that only analyzes code, the driver actively
+transforms it. After type checking completes, the driver walks the MIR
+representation, identifies all ownership-relevant operations with full
+type information, and injects the appropriate tracking calls. The output
+is instrumented code that captures every event accurately, regardless of
+whether it involves FFI, unions, statics, or complex generic
+instantiations.</p>
+<p>Integration with cargo follows the pattern established by tools like
+Clippy and Miri. Users invoke <code>cargo borrowscope build</code>
+instead of <code>cargo build</code>, which sets the
+<code>RUSTC_WRAPPER</code> environment variable to point to the
+BorrowScope driver. The driver receives compilation requests, performs
+its analysis and transformation, and delegates to the real rustc for
+code generation. From the user’s perspective, the build process is
+nearly identical to standard compilation, with the addition of
+instrumentation.</p>
+<p>Maintenance considerations weigh heavily on the decision to pursue
+this phase. Rustc internals change between versions, sometimes
+substantially. A driver that works with Rust 1.75 may require updates
+for Rust 1.76. The BorrowScope project would need to track compiler
+development, test against nightly builds, and release updates
+synchronized with Rust releases. This ongoing commitment requires
+dedicated maintainer effort and may not be sustainable for a small
+project.</p>
+<p>The trigger for pursuing Phase 3 should be clear evidence that users
+need it. If the annotation system proves sufficient for most users, and
+the validation tool catches the remaining cases, full compiler
+integration may be unnecessary complexity. If users consistently report
+that annotations are burdensome and validation is insufficient, the
+demand signal justifies the investment. The phased approach allows this
+decision to be made based on real-world feedback rather than
+speculation.</p>
+<hr />
+
+        </div>
+    </div>
+</body>
+</html>

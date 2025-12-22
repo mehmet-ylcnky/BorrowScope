@@ -27,18 +27,11 @@
             border: 1px solid #ddd;
             border-radius: 12px;
             padding: 2rem;
-            text-decoration: none;
-            transition: all 0.3s ease;
             text-align: left;
-        }
-        .paper:hover {
-            border-color: #1a1a2e;
-            transform: translateY(-4px);
-            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
         }
         .paper h2 { color: #1a1a2e; font-size: 1.5rem; margin-bottom: 0.5rem; }
         .paper h2 code { background: #e8f5e9; color: #2e7d32; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: 'Consolas', monospace; }
-        .paper p { color: #666; line-height: 1.6; }
+        .paper p { color: #666; line-height: 1.6; margin-bottom: 1rem; }
         .paper .tag {
             display: inline-block;
             background: #e8f5e9;
@@ -46,12 +39,58 @@
             padding: 0.25rem 0.75rem;
             border-radius: 20px;
             font-size: 0.8rem;
-            margin-top: 1rem;
         }
         .paper .tag.dev { background: #fff3e0; color: #e65100; }
         .paper .tag.roadmap { background: #f5f5f5; color: #888; }
-        .paper.placeholder { opacity: 0.7; cursor: default; }
-        .paper.placeholder:hover { transform: none; box-shadow: none; border-color: #ddd; }
+        .paper.placeholder { opacity: 0.7; }
+        
+        /* Article list styles */
+        .articles {
+            list-style: none;
+            margin-top: 1rem;
+            border-top: 1px solid #eee;
+            padding-top: 1rem;
+        }
+        .articles li {
+            margin-bottom: 0.5rem;
+        }
+        .articles li:last-child {
+            margin-bottom: 0;
+        }
+        .articles a {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background: #fafafa;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #1a1a2e;
+            transition: all 0.2s ease;
+        }
+        .articles a:hover {
+            background: #e8f5e9;
+            transform: translateX(4px);
+        }
+        .articles a::before {
+            content: "📄";
+            margin-right: 0.75rem;
+            font-size: 1.1rem;
+        }
+        .articles .article-title {
+            font-weight: 500;
+        }
+        .articles .article-desc {
+            font-size: 0.85rem;
+            color: #666;
+            margin-left: auto;
+            padding-left: 1rem;
+        }
+        .no-articles {
+            color: #999;
+            font-style: italic;
+            font-size: 0.9rem;
+            padding: 0.5rem 0;
+        }
     </style>
 </head>
 <body>
@@ -59,35 +98,55 @@
         <img src="logo.png" alt="BorrowScope Logo">
         <p class="subtitle">Technical White Papers & Documentation</p>
         <div class="papers">
-            <a href="borrowscope-runtime/" class="paper">
+            <div class="paper">
                 <h2><code>borrowscope-runtime</code></h2>
-                <p>A comprehensive technical whitepaper on runtime ownership tracking for Rust. Covers event-sourced architecture, zero-cost abstractions, and ownership graph construction.</p>
+                <p>Runtime ownership tracking library for Rust. Provides event-sourced architecture, zero-cost abstractions, and ownership graph construction.</p>
                 <span class="tag">v0.1.2</span>
-            </a>
-            <div class="paper placeholder">
+                <ul class="articles">
+                    <li>
+                        <a href="borrowscope-runtime/">
+                            <span class="article-title">Technical White Paper</span>
+                            <span class="article-desc">Architecture & Design</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="paper">
                 <h2><code>borrowscope-macro</code></h2>
-                <p>Procedural macro crate providing the <code>#[trace_ownership]</code> attribute for automatic instrumentation of Rust code to track ownership and borrowing operations at runtime.</p>
-                <span class="tag dev">Under Development</span>
+                <p>Procedural macro crate providing the <code>#[trace_borrow]</code> attribute for automatic instrumentation of Rust code to track ownership and borrowing operations at runtime.</p>
+                <span class="tag dev">In Development</span>
+                <ul class="articles">
+                    <li>
+                        <a href="borrowscope-macro-whitepaper/">
+                            <span class="article-title"><code>borrowscope-macro</code>: Rust's Type Information Barrier</span>
+                            <span class="article-desc">Limitations & Solutions</span>
+                        </a>
+                    </li>
+                </ul>
             </div>
             <div class="paper placeholder">
                 <h2><code>borrowscope-graph</code></h2>
                 <p>Graph data structures and algorithms for ownership visualization. Includes conflict detection, query builders, D3.js export, and timeline-based analysis of borrow relationships.</p>
                 <span class="tag roadmap">Future Roadmap</span>
+                <p class="no-articles">No articles yet</p>
             </div>
             <div class="paper placeholder">
                 <h2><code>borrowscope-memory</code></h2>
                 <p>Memory layout analysis and allocation tracking. Bridges logical ownership with physical memory usage—stack vs heap visualization, cache line analysis, and fragmentation detection.</p>
                 <span class="tag roadmap">Future Roadmap</span>
+                <p class="no-articles">No articles yet</p>
             </div>
             <div class="paper placeholder">
                 <h2><code>borrowscope-cli</code></h2>
                 <p>Command-line interface for analyzing and visualizing Rust ownership. Includes Cargo integration, Graphviz export, and an embedded web server for interactive exploration.</p>
                 <span class="tag roadmap">Future Roadmap</span>
+                <p class="no-articles">No articles yet</p>
             </div>
             <div class="paper placeholder">
                 <h2><code>borrowscope-web</code></h2>
                 <p>Web application and REST API for interactive ownership graph exploration. Built with Actix-web, featuring Swagger UI, real-time updates, and rich visualization components.</p>
                 <span class="tag roadmap">Future Roadmap</span>
+                <p class="no-articles">No articles yet</p>
             </div>
         </div>
     </div>
