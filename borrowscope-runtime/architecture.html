@@ -216,145 +216,38 @@
                 <p>
                     The event taxonomy represents the complete spectrum of Rust's ownership operations. Each event type
                     captures specific ownership semantics with sufficient metadata for accurate reconstruction of
-                    ownership relationships. The taxonomy is organized hierarchically into six major categories, each
-                    addressing distinct aspects of Rust's ownership model.
+                    ownership relationships. The taxonomy is organized hierarchically into <strong>15 major categories</strong>, each
+                    addressing distinct aspects of Rust's ownership model. Select a category and event below to view its details.
                 </p>
 
-                <div class="code-block">
-                    <pre class="rust-code"><span class="rust-comment">// Complete event taxonomy (simplified)</span>
-<span class="rust-keyword">use</span> serde::{<span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>};
-
-#[<span class="rust-function">derive</span>(<span class="rust-type">Debug</span>, <span class="rust-type">Clone</span>, <span class="rust-type">Serialize</span>, <span class="rust-type">Deserialize</span>)]
-#[<span class="rust-function">serde</span>(tag = <span class="rust-string">"type"</span>)]
-<span class="rust-keyword">pub</span> <span class="rust-keyword">enum</span> <span class="rust-type">Event</span> {
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-    <span class="rust-comment">// Category 1: Basic Ownership Operations</span>
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-
-    <span class="rust-comment">/// Variable creation (ownership begins)</span>
-    New {
-        timestamp: <span class="rust-type">u64</span>,
-        var_name: <span class="rust-type">String</span>,
-        var_id: <span class="rust-type">String</span>,
-        type_name: <span class="rust-type">String</span>,
-    },
-
-    <span class="rust-comment">/// Borrow creation (shared or mutable reference)</span>
-    Borrow {
-        timestamp: <span class="rust-type">u64</span>,
-        borrower_name: <span class="rust-type">String</span>,
-        borrower_id: <span class="rust-type">String</span>,
-        owner_id: <span class="rust-type">String</span>,
-        mutable: <span class="rust-type">bool</span>,
-    },
-
-    <span class="rust-comment">/// Ownership transfer (move semantics)</span>
-    Move {
-        timestamp: <span class="rust-type">u64</span>,
-        from_id: <span class="rust-type">String</span>,
-        to_name: <span class="rust-type">String</span>,
-        to_id: <span class="rust-type">String</span>,
-    },
-
-    <span class="rust-comment">/// Variable destruction (ownership ends)</span>
-    Drop {
-        timestamp: <span class="rust-type">u64</span>,
-        var_id: <span class="rust-type">String</span>,
-    },
-
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-    <span class="rust-comment">// Category 2: Smart Pointers (Reference Counting)</span>
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-
-    <span class="rust-comment">/// Rc&lt;T&gt; allocation</span>
-    RcNew {
-        timestamp: <span class="rust-type">u64</span>,
-        var_name: <span class="rust-type">String</span>,
-        var_id: <span class="rust-type">String</span>,
-        type_name: <span class="rust-type">String</span>,
-        strong_count: <span class="rust-type">usize</span>,  <span class="rust-comment">// Initially 1</span>
-        weak_count: <span class="rust-type">usize</span>,    <span class="rust-comment">// Initially 0</span>
-    },
-
-    <span class="rust-comment">/// Rc&lt;T&gt; clone (shared ownership)</span>
-    RcClone {
-        timestamp: <span class="rust-type">u64</span>,
-        var_name: <span class="rust-type">String</span>,
-        var_id: <span class="rust-type">String</span>,
-        source_id: <span class="rust-type">String</span>,
-        strong_count: <span class="rust-type">usize</span>,  <span class="rust-comment">// Incremented count</span>
-        weak_count: <span class="rust-type">usize</span>,
-    },
-
-    <span class="rust-comment">// Arc&lt;T&gt; variants (thread-safe reference counting)</span>
-    ArcNew { <span class="rust-comment">/* similar to RcNew */</span> },
-    ArcClone { <span class="rust-comment">/* similar to RcClone */</span> },
-
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-    <span class="rust-comment">// Category 3: Interior Mutability</span>
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-
-    <span class="rust-comment">/// RefCell&lt;T&gt; allocation</span>
-    RefCellNew {
-        timestamp: <span class="rust-type">u64</span>,
-        var_name: <span class="rust-type">String</span>,
-        var_id: <span class="rust-type">String</span>,
-        type_name: <span class="rust-type">String</span>,
-    },
-
-    <span class="rust-comment">/// RefCell borrow (runtime borrow checking)</span>
-    RefCellBorrow {
-        timestamp: <span class="rust-type">u64</span>,
-        borrow_id: <span class="rust-type">String</span>,
-        refcell_id: <span class="rust-type">String</span>,
-        is_mutable: <span class="rust-type">bool</span>,
-        location: <span class="rust-type">String</span>,  <span class="rust-comment">// file:line for debugging</span>
-    },
-
-    <span class="rust-comment">// Cell&lt;T&gt; variants (Copy types only)</span>
-    CellNew { <span class="rust-comment">/* ... */</span> },
-    CellGet { <span class="rust-comment">/* ... */</span> },
-    CellSet { <span class="rust-comment">/* ... */</span> },
-
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-    <span class="rust-comment">// Category 4: Unsafe Operations</span>
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-
-    <span class="rust-comment">/// Raw pointer creation</span>
-    RawPtrCreated {
-        timestamp: <span class="rust-type">u64</span>,
-        var_name: <span class="rust-type">String</span>,
-        var_id: <span class="rust-type">String</span>,
-        ptr_type: <span class="rust-type">String</span>,  <span class="rust-comment">// "*const T" or "*mut T"</span>
-        address: <span class="rust-type">usize</span>,     <span class="rust-comment">// Memory address</span>
-        location: <span class="rust-type">String</span>,
-    },
-
-    <span class="rust-comment">/// Unsafe block boundaries</span>
-    UnsafeBlockEnter {
-        timestamp: <span class="rust-type">u64</span>,
-        block_id: <span class="rust-type">String</span>,
-        location: <span class="rust-type">String</span>,
-    },
-
-    UnsafeBlockExit {
-        timestamp: <span class="rust-type">u64</span>,
-        block_id: <span class="rust-type">String</span>,
-        location: <span class="rust-type">String</span>,
-    },
-
-    <span class="rust-comment">// FFI and transmute operations</span>
-    FfiCall { <span class="rust-comment">/* ... */</span> },
-    Transmute { <span class="rust-comment">/* ... */</span> },
-
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-    <span class="rust-comment">// Category 5: Static and Const</span>
-    <span class="rust-comment">// ═══════════════════════════════════════════════════════</span>
-
-    StaticInit { <span class="rust-comment">/* ... */</span> },
-    StaticAccess { <span class="rust-comment">/* ... */</span> },
-    ConstEval { <span class="rust-comment">/* ... */</span> },
-}</pre>
+                <div class="event-explorer" style="margin: 1.5rem 0; padding: 1.5rem; background: linear-gradient(135deg, #fff7ed 0%, #f0fdf4 100%); border-radius: 12px; border: 1px solid #cbd5e1; box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: all 0.3s ease;">
+                    <h4 style="margin: 0 0 1rem 0; color: #475569;">🔍 Interactive Event Explorer</h4>
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                        <select id="category-select" onchange="window.updateEventDropdown(this.value)" style="padding: 0.5rem; border-radius: 6px; border: 1px solid #94a3b8; min-width: 250px; font-family: inherit; background: white;">
+                            <option value="">-- Select Category --</option>
+                            <option value="cat1">1. Basic Ownership Operations</option>
+                            <option value="cat2">2. Smart Pointers (Rc/Arc)</option>
+                            <option value="cat3">3. Interior Mutability (RefCell/Cell)</option>
+                            <option value="cat4">4. Unsafe Operations</option>
+                            <option value="cat5">5. Static and Const</option>
+                            <option value="cat6">6. Async/Await Operations</option>
+                            <option value="cat7">7. Box Tracking</option>
+                            <option value="cat8">8. Weak Reference Tracking</option>
+                            <option value="cat9">9. Pin Tracking</option>
+                            <option value="cat10">10. Cow Tracking</option>
+                            <option value="cat11">11. Thread & Channel Tracking</option>
+                            <option value="cat12">12. Lock Guard Tracking</option>
+                            <option value="cat13">13. OnceCell/OnceLock Tracking</option>
+                            <option value="cat14">14. MaybeUninit Tracking</option>
+                            <option value="cat15">15. Control Flow & Operations</option>
+                        </select>
+                        <select id="event-select" onchange="window.showEventDetails()" style="padding: 0.5rem; border-radius: 6px; border: 1px solid #94a3b8; min-width: 200px; font-family: inherit; background: white;" disabled>
+                            <option value="">-- Select Event --</option>
+                        </select>
+                    </div>
+                    <div id="event-details" class="code-block" style="display: none;">
+                        <pre class="rust-code" id="event-code"></pre>
+                    </div>
                 </div>
 
                 <h3>Event Design Principles</h3>

@@ -590,6 +590,148 @@
 }</pre>
                 </div>
             </div>
+
+            <div id="extended-tracking">
+                <h2>3.4 Extended Tracking Categories</h2>
+                
+                <p>
+                    The tracking system includes eight additional categories covering smart pointers, 
+                    concurrency primitives, and unsafe memory patterns. Each follows the same zero-cost 
+                    abstraction pattern established in the core implementation.
+                </p>
+
+                <h3>3.4.1 Box, Weak, Pin, and Cow Tracking</h3>
+                
+                <p>
+                    Beyond the reference-counted smart pointers (<code>Rc</code> and <code>Arc</code>), Rust provides several other smart pointer types with distinct ownership semantics. <code>Box&lt;T&gt;</code> represents unique ownership of heap-allocated data—the simplest form of heap allocation where exactly one owner exists at any time. Tracking Box operations is essential for understanding heap allocation patterns and identifying potential memory leaks or unnecessary allocations.
+                </p>
+
+                <p>
+                    <code>Weak&lt;T&gt;</code> references provide non-owning handles to reference-counted data, breaking potential reference cycles that would otherwise cause memory leaks. The <code>upgrade()</code> operation is particularly important to track because it can fail if the underlying data has been deallocated—a common source of bugs in complex data structures like graphs or caches. By recording upgrade success/failure, developers can identify patterns where weak references outlive their targets.
+                </p>
+
+                <p>
+                    <code>Pin&lt;T&gt;</code> guarantees that the pointed-to data will not be moved in memory, which is critical for self-referential structures and async/await implementations. Tracking Pin creation helps identify where immovability guarantees are established, essential for debugging async code and understanding Future implementations.
+                </p>
+
+                <p>
+                    <code>Cow&lt;T&gt;</code> (Clone-on-Write) enables efficient handling of data that is usually read but occasionally modified. The <code>to_mut()</code> operation is the critical transition point where borrowed data becomes owned through cloning. Tracking this transition reveals optimization opportunities—if <code>to_mut()</code> is called frequently, the code might benefit from owning the data upfront.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Box tracking - heap allocation lifecycle</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_box_new</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, value: <span class="rust-type">Box</span>&lt;T&gt;) -&gt; <span class="rust-type">Box</span>&lt;T&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_box_into_raw</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, ptr: *<span class="rust-keyword">mut</span> T) -&gt; *<span class="rust-keyword">mut</span> T
+<span class="rust-keyword">pub</span> <span class="rust-keyword">unsafe</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_box_from_raw</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, boxed: <span class="rust-type">Box</span>&lt;T&gt;) -&gt; <span class="rust-type">Box</span>&lt;T&gt;
+
+<span class="rust-comment">// Weak reference tracking - non-owning handles</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_weak_new</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, source: &<span class="rust-keyword">str</span>, weak: <span class="rust-type">Weak</span>&lt;T&gt;) -&gt; <span class="rust-type">Weak</span>&lt;T&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_weak_upgrade</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, source: &<span class="rust-keyword">str</span>, result: <span class="rust-type">Option</span>&lt;<span class="rust-type">Rc</span>&lt;T&gt;&gt;) -&gt; <span class="rust-type">Option</span>&lt;<span class="rust-type">Rc</span>&lt;T&gt;&gt;
+
+<span class="rust-comment">// Pin tracking - immovable data guarantees</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_pin_new</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, pinned: <span class="rust-type">Pin</span>&lt;<span class="rust-type">Box</span>&lt;T&gt;&gt;) -&gt; <span class="rust-type">Pin</span>&lt;<span class="rust-type">Box</span>&lt;T&gt;&gt;
+
+<span class="rust-comment">// Cow tracking - clone-on-write semantics</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_cow_to_mut</span>&lt;'a, T&gt;(name: &<span class="rust-keyword">str</span>, cow: &<span class="rust-keyword">mut</span> <span class="rust-type">Cow</span>&lt;'a, T&gt;) -&gt; &<span class="rust-keyword">mut</span> T</pre>
+                </div>
+
+                <h3>3.4.2 Thread, Channel, and Lock Guard Tracking</h3>
+                
+                <p>
+                    Rust's ownership system extends naturally to concurrent programming, where ownership transfer across thread boundaries is a fundamental operation. When a thread is spawned, any captured variables are moved into the new thread's ownership—a transfer that the borrow checker enforces at compile time but that remains invisible at runtime without explicit tracking.
+                </p>
+
+                <p>
+                    Thread tracking captures the lifecycle of spawned threads: creation records the thread ID and any associated name, while join tracking records when ownership of the thread's result returns to the spawning thread. This information is invaluable for understanding concurrent program structure and identifying threads that are spawned but never joined (potential resource leaks).
+                </p>
+
+                <p>
+                    Channels provide the primary mechanism for message passing between threads, and each <code>send()</code> operation represents an ownership transfer from sender to receiver. Tracking channel operations reveals communication patterns, helps identify bottlenecks where channels back up, and detects cases where receivers are dropped before senders finish (causing send failures). The success/failure status of receive operations is particularly important for understanding program termination conditions.
+                </p>
+
+                <p>
+                    Lock guards (<code>MutexGuard</code>, <code>RwLockReadGuard</code>, <code>RwLockWriteGuard</code>) represent temporary exclusive or shared access to protected data. Tracking guard acquisition and release enables analysis of lock hold times, detection of potential deadlock patterns (nested lock acquisition), and identification of contention hotspots. The RAII nature of guards means tracking integrates naturally with the existing drop-based tracking infrastructure.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Thread lifecycle tracking</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_thread_spawn</span>&lt;F, T&gt;(name: &<span class="rust-keyword">str</span>, handle: <span class="rust-type">JoinHandle</span>&lt;T&gt;) -&gt; <span class="rust-type">JoinHandle</span>&lt;T&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_thread_join</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, result: <span class="rust-type">Result</span>&lt;T&gt;) -&gt; <span class="rust-type">Result</span>&lt;T&gt;
+
+<span class="rust-comment">// Channel message passing - ownership transfer across threads</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_channel_send</span>&lt;T&gt;(sender: &<span class="rust-keyword">str</span>, result: <span class="rust-type">Result</span>&lt;(), <span class="rust-type">SendError</span>&lt;T&gt;&gt;) -&gt; <span class="rust-type">Result</span>&lt;...&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_channel_recv</span>&lt;T&gt;(receiver: &<span class="rust-keyword">str</span>, result: <span class="rust-type">Result</span>&lt;T, <span class="rust-type">RecvError</span>&gt;) -&gt; <span class="rust-type">Result</span>&lt;...&gt;
+
+<span class="rust-comment">// Lock guard RAII tracking - synchronization primitives</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_lock_guard_acquire</span>&lt;'a, T&gt;(guard: &<span class="rust-keyword">str</span>, lock: &<span class="rust-keyword">str</span>, g: <span class="rust-type">MutexGuard</span>&lt;T&gt;) -&gt; <span class="rust-type">MutexGuard</span>&lt;T&gt;</pre>
+                </div>
+
+                <h3>3.4.3 OnceCell/OnceLock and MaybeUninit Tracking</h3>
+                
+                <p>
+                    <code>OnceCell</code> and <code>OnceLock</code> provide lazy initialization patterns where a value is computed at most once and then cached for subsequent accesses. <code>OnceCell</code> is designed for single-threaded contexts, while <code>OnceLock</code> provides thread-safe initialization guarantees. These types are commonly used for global state, configuration values, and expensive computations that should only run once.
+                </p>
+
+                <p>
+                    Tracking OnceCell operations reveals initialization patterns: <code>set()</code> records whether initialization succeeded (fails if already initialized), while <code>get_or_init()</code> tracks whether the initialization closure was actually executed. This information helps identify redundant initialization attempts and understand the order in which lazy values are first accessed—critical for debugging initialization-order dependencies.
+                </p>
+
+                <p>
+                    <code>MaybeUninit&lt;T&gt;</code> represents potentially uninitialized memory and is the foundation for many unsafe optimizations and FFI interactions. Unlike other types, <code>MaybeUninit</code> does not run destructors and makes no assumptions about the validity of its contents. This makes it both powerful and dangerous—incorrect use leads to undefined behavior.
+                </p>
+
+                <p>
+                    Tracking MaybeUninit operations is essential for auditing unsafe code. The <code>uninit()</code> function creates uninitialized memory, <code>write()</code> initializes it, and <code>assume_init()</code> asserts that initialization is complete and transfers ownership to a properly typed value. By recording these transitions, developers can verify that every <code>assume_init()</code> call is preceded by proper initialization—a common source of undefined behavior when this invariant is violated.
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-comment">// Lazy initialization (OnceCell/OnceLock)</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_once_cell_new</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, cell: <span class="rust-type">OnceCell</span>&lt;T&gt;) -&gt; <span class="rust-type">OnceCell</span>&lt;T&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_once_cell_set</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, result: <span class="rust-type">Result</span>&lt;(), T&gt;) -&gt; <span class="rust-type">Result</span>&lt;(), T&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_once_cell_get_or_init</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, value: &T, was_init: <span class="rust-type">bool</span>) -&gt; &T
+
+<span class="rust-comment">// Unsafe uninitialized memory (MaybeUninit)</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_maybe_uninit_uninit</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, uninit: <span class="rust-type">MaybeUninit</span>&lt;T&gt;) -&gt; <span class="rust-type">MaybeUninit</span>&lt;T&gt;
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_maybe_uninit_write</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, ptr: &<span class="rust-keyword">mut</span> T) -&gt; &<span class="rust-keyword">mut</span> T
+<span class="rust-keyword">pub</span> <span class="rust-keyword">unsafe</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_maybe_uninit_assume_init</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, new: &<span class="rust-keyword">str</span>, val: T) -&gt; T</pre>
+                </div>
+
+                <h2>3.5 Tracking API Reference</h2>
+
+                <p>
+                    The <code>borrowscope-runtime</code> library provides <strong>106 tracking functions</strong> organized by category. Each function wraps a Rust operation, records the appropriate event, and returns the value unchanged—enabling transparent instrumentation with zero semantic impact.
+                </p>
+
+                <div style="margin: 1.5rem 0; padding: 1.5rem; background: linear-gradient(135deg, #fff7ed 0%, #f0fdf4 100%); border-radius: 12px; border: 1px solid #cbd5e1; box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: all 0.3s ease;">
+                    <h4 style="margin: 0 0 1rem 0; color: #475569;">📚 Interactive API Explorer</h4>
+                    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                        <select id="api-category-select" onchange="window.updateApiDropdown(this.value)" style="padding: 0.5rem; border-radius: 6px; border: 1px solid #94a3b8; min-width: 250px; font-family: inherit; background: white;">
+                            <option value="">-- Select Category --</option>
+                            <option value="api1">1. Basic Ownership (11)</option>
+                            <option value="api2">2. Smart Pointers - Rc/Arc (8)</option>
+                            <option value="api3">3. Interior Mutability (7)</option>
+                            <option value="api4">4. Unsafe Operations (9)</option>
+                            <option value="api5">5. Static and Const (3)</option>
+                            <option value="api6">6. Async/Await (4)</option>
+                            <option value="api7">7. Box Tracking (3)</option>
+                            <option value="api8">8. Weak References (6)</option>
+                            <option value="api9">9. Pin Tracking (2)</option>
+                            <option value="api10">10. Cow Tracking (3)</option>
+                            <option value="api11">11. Thread & Channel (6)</option>
+                            <option value="api12">12. Lock Guards (2)</option>
+                            <option value="api13">13. OnceCell/OnceLock (5)</option>
+                            <option value="api14">14. MaybeUninit (6)</option>
+                            <option value="api15">15. Control Flow (31)</option>
+                        </select>
+                        <select id="api-fn-select" onchange="window.showApiDetails()" style="padding: 0.5rem; border-radius: 6px; border: 1px solid #94a3b8; min-width: 280px; font-family: inherit; background: white;" disabled>
+                            <option value="">-- Select Function --</option>
+                        </select>
+                    </div>
+                    <div id="api-details" class="code-block" style="display: none;">
+                        <pre id="api-code" class="rust-code"></pre>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <script src="scripts.js"></script>
