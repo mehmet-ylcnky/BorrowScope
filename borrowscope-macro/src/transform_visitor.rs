@@ -5,10 +5,11 @@
 
 use crate::config::TraceConfig;
 use crate::smart_pointer::{
-    detect_box_pin, detect_concurrency_op, detect_cow_creation, detect_downgrade,
-    detect_maybe_uninit_method, detect_maybe_uninit_new, detect_once_cell_method,
-    detect_once_cell_new, detect_pin_operation, detect_rc_clone, detect_smart_pointer_new,
-    ConcurrencyOp, SmartPointerOp, SmartPointerType,
+    detect_box_pin, detect_box_raw_op, detect_concurrency_op, detect_cow_creation,
+    detect_cow_to_mut, detect_downgrade, detect_maybe_uninit_method, detect_maybe_uninit_new,
+    detect_once_cell_method, detect_once_cell_new, detect_pin_operation, detect_rc_clone,
+    detect_smart_pointer_new, detect_weak_upgrade, ConcurrencyOp, SmartPointerOp,
+    SmartPointerType,
 };
 use std::collections::{HashMap, HashSet};
 use syn::{
@@ -48,6 +49,20 @@ pub struct OwnershipVisitor {
     once_cell_vars: HashSet<String>,
     /// Variables that are MaybeUninit
     maybe_uninit_vars: HashSet<String>,
+    /// Variables that are Cow
+    cow_vars: HashSet<String>,
+    /// Variables that are Weak (Rc or Arc)
+    weak_vars: HashMap<String, SmartPointerType>,
+    /// Variables that are channel senders
+    sender_vars: HashSet<String>,
+    /// Variables that are channel receivers
+    receiver_vars: HashSet<String>,
+    /// Variables that are JoinHandles
+    join_handle_vars: HashSet<String>,
+    /// Variables that are Box (for into_raw tracking)
+    box_vars: HashSet<String>,
+    /// Variables that are lock guards (for drop tracking)
+    lock_guard_vars: HashMap<String, String>, // guard_name -> lock_type
 }
 
 impl OwnershipVisitor {
@@ -69,6 +84,13 @@ impl OwnershipVisitor {
             ref_vars: HashSet::new(),
             once_cell_vars: HashSet::new(),
             maybe_uninit_vars: HashSet::new(),
+            cow_vars: HashSet::new(),
+            weak_vars: HashMap::new(),
+            sender_vars: HashSet::new(),
+            receiver_vars: HashSet::new(),
+            join_handle_vars: HashSet::new(),
+            box_vars: HashSet::new(),
+            lock_guard_vars: HashMap::new(),
         }
     }
 
@@ -262,11 +284,14 @@ impl OwnershipVisitor {
                             };
                             *init.expr = new_expr;
 
-                            // Track the variables
+            // Track the variables
                             let tx_id = self.gen_id();
                             let rx_id = self.gen_id();
                             self.var_ids.insert(tx_name.clone(), tx_id);
                             self.var_ids.insert(rx_name.clone(), rx_id);
+                            // Track as sender/receiver for send/recv detection
+                            self.sender_vars.insert(tx_name.clone());
+                            self.receiver_vars.insert(rx_name.clone());
 
                             if let Some(current_scope) = self.scope_stack.last_mut() {
                                 current_scope.push(tx_name);
@@ -557,21 +582,39 @@ impl OwnershipVisitor {
     }
 
     /// Transform closure expression
-    fn transform_closure(&mut self, closure: &mut ExprClosure) {
+    fn transform_closure(&mut self, expr: &mut Expr, closure: &ExprClosure) {
+        let closure_id = self.gen_id();
+        let location = Self::location_tokens(closure.or1_token.span);
+        
+        // Determine capture mode
+        let capture_mode = if closure.capture.is_some() { "move" } else { "ref" };
+        
         // Extract captured variables
         let mut captured_vars = Vec::new();
         self.extract_captured_vars(&closure.body, &mut captured_vars);
-
-        // For move closures, the variables are moved into the closure
-        // This is tracked at the assignment level (let closure = move |x| ...)
-        // For non-move closures, variables are borrowed
-        // We don't transform the closure body itself to avoid complexity
-
-        // Just visit the closure body normally to handle any nested structures
-        self.visit_expr_mut(&mut closure.body);
-
-        // Note: We could add metadata tracking here for captured variables
-        // but for v1, we keep it simple and let the outer scope tracking handle it
+        
+        // Build capture tracking statements
+        let capture_stmts: Vec<proc_macro2::TokenStream> = captured_vars.iter().map(|var| {
+            let var_capture_mode = if closure.capture.is_some() { "move" } else { "borrow" };
+            quote::quote! {
+                borrowscope_runtime::track_closure_capture(#closure_id, #var, #var_capture_mode, #location);
+            }
+        }).collect();
+        
+        // Clone the closure for transformation
+        let mut new_closure = closure.clone();
+        
+        // Visit the closure body to transform nested expressions
+        self.visit_expr_mut(&mut new_closure.body);
+        
+        // Wrap the closure with tracking
+        *expr = syn::parse_quote! {
+            {
+                borrowscope_runtime::track_closure_create(#closure_id, #capture_mode, #location);
+                #(#capture_stmts)*
+                #new_closure
+            }
+        };
     }
 
     /// Check if expression is a potential move (simple variable path)
@@ -643,6 +686,8 @@ impl OwnershipVisitor {
                             }
                         }
                         SmartPointerType::Box => {
+                            // Track as Box variable for into_raw detection
+                            self.box_vars.insert(var_name.clone());
                             syn::parse_quote! {
                                 borrowscope_runtime::track_box_new(#var_name, #location, #original_expr)
                             }
@@ -688,6 +733,50 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
+                } else if let Some(op) = detect_box_raw_op(original_expr) {
+                    // Box::into_raw or Box::from_raw
+                    let new_expr: Expr = match op {
+                        SmartPointerOp::BoxIntoRaw => {
+                            // Extract the box being converted
+                            let box_name = self.extract_box_from_into_raw(original_expr);
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_box_into_raw(#box_name, #location, #original_expr)
+                            }
+                        },
+                        SmartPointerOp::BoxFromRaw => {
+                            // Track the new Box created from raw pointer
+                            self.box_vars.insert(var_name.clone());
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
+                            }
+                        },
+                        _ => syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        },
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                // Check for Box::from_raw inside unsafe block
+                } else if let Expr::Unsafe(unsafe_expr) = original_expr.as_ref() {
+                    // Check if the unsafe block contains a single Box::from_raw call
+                    if let Some(stmt) = unsafe_expr.block.stmts.last() {
+                        let inner_expr = match stmt {
+                            syn::Stmt::Expr(e, _) => Some(e),
+                            _ => None,
+                        };
+                        if let Some(inner) = inner_expr {
+                            if let Some(SmartPointerOp::BoxFromRaw) = detect_box_raw_op(inner) {
+                                self.box_vars.insert(var_name.clone());
+                                let new_expr: Expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
+                                };
+                                *init.expr = new_expr;
+                                visit_mut::visit_local_mut(self, local);
+                                return;
+                            }
+                        }
+                    }
                 } else if let Some(op) = detect_pin_operation(original_expr) {
                     let new_expr: Expr = match op {
                         SmartPointerOp::PinNew => syn::parse_quote! {
@@ -701,6 +790,8 @@ impl OwnershipVisitor {
                     visit_mut::visit_local_mut(self, local);
                     return;
                 } else if let Some(op) = detect_cow_creation(original_expr) {
+                    // Track this as a Cow variable for to_mut detection
+                    self.cow_vars.insert(var_name.clone());
                     let new_expr: Expr = match op {
                         SmartPointerOp::CowBorrowed => syn::parse_quote! {
                             borrowscope_runtime::track_cow_borrowed(#var_name, #location, #original_expr)
@@ -716,7 +807,8 @@ impl OwnershipVisitor {
                     visit_mut::visit_local_mut(self, local);
                     return;
                 } else if let Some(weak_type) = detect_downgrade(original_expr) {
-                    // Rc::downgrade or Arc::downgrade
+                    // Rc::downgrade or Arc::downgrade - track as Weak variable
+                    self.weak_vars.insert(var_name.clone(), weak_type);
                     let source_name = self.extract_downgrade_source(original_expr);
                     let new_expr: Expr = match weak_type {
                         SmartPointerType::WeakRc => syn::parse_quote! {
@@ -732,10 +824,63 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
+                // Check if assigning from a Weak clone (let weak2 = weak.clone())
+                } else if let Expr::MethodCall(method_call) = original_expr.as_ref() {
+                    let method_name = method_call.method.to_string();
+                    if method_name == "clone" {
+                        if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                            if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
+                                // This is a Weak clone - track the new variable as Weak too
+                                self.weak_vars.insert(var_name.clone(), weak_type);
+                                let weak_id = format!("weak_{}", receiver_name);
+                                let clone_id = format!("weak_clone_{}", self.gen_id());
+                                let receiver = &method_call.receiver;
+                                let new_expr: Expr = match weak_type {
+                                    SmartPointerType::WeakRc => syn::parse_quote! {
+                                        borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
+                                    },
+                                    SmartPointerType::WeakArc => syn::parse_quote! {
+                                        borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
+                                    },
+                                    _ => syn::parse_quote! {
+                                        borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                                    },
+                                };
+                                *init.expr = new_expr;
+                                visit_mut::visit_local_mut(self, local);
+                                return;
+                            }
+                        }
+                    }
+                    // Check if assigning from a Weak upgrade (let strong = weak.upgrade())
+                    if method_name == "upgrade" {
+                        if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                            if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
+                                let weak_id = format!("weak_{}", receiver_name);
+                                let receiver = &method_call.receiver;
+                                let new_expr: Expr = match weak_type {
+                                    SmartPointerType::WeakRc => syn::parse_quote! {
+                                        borrowscope_runtime::track_weak_upgrade(#weak_id, #location, #receiver.upgrade())
+                                    },
+                                    SmartPointerType::WeakArc => syn::parse_quote! {
+                                        borrowscope_runtime::track_weak_upgrade_sync(#weak_id, #location, #receiver.upgrade())
+                                    },
+                                    _ => syn::parse_quote! { #receiver.upgrade() },
+                                };
+                                *init.expr = new_expr;
+                                visit_mut::visit_local_mut(self, local);
+                                return;
+                            }
+                        }
+                    }
                 } else if let Some(op) = detect_concurrency_op(original_expr) {
                     let new_expr: Expr = match op {
-                        ConcurrencyOp::ThreadSpawn => syn::parse_quote! {
-                            borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
+                        ConcurrencyOp::ThreadSpawn => {
+                            // Track as JoinHandle for join() detection
+                            self.join_handle_vars.insert(var_name.clone());
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
+                            }
                         },
                         ConcurrencyOp::ChannelNew => {
                             // mpsc::channel returns a tuple, handle specially
@@ -855,6 +1000,20 @@ impl OwnershipVisitor {
         "unknown".to_string()
     }
 
+    /// Extract box variable name from Box::into_raw(box_var)
+    fn extract_box_from_into_raw(&self, expr: &Expr) -> String {
+        if let Expr::Call(call) = expr {
+            if let Some(arg) = call.args.first() {
+                if let Expr::Path(path) = arg {
+                    if let Some(ident) = path.path.get_ident() {
+                        return ident.to_string();
+                    }
+                }
+            }
+        }
+        "unknown".to_string()
+    }
+
     /// Transform reference expressions to inject track_borrow_with_id
     fn transform_reference(&mut self, expr: &mut Expr, ref_expr: &ExprReference) {
         // Skip if borrow tracking is disabled
@@ -915,6 +1074,10 @@ impl OwnershipVisitor {
     fn transform_unsafe_block(&mut self, unsafe_expr: &mut ExprUnsafe) {
         let block_id = self.gen_id();
         let location = Self::location_tokens(unsafe_expr.unsafe_token.span);
+        
+        // Visit the inner block first to transform any expressions inside
+        self.visit_block_mut(&mut unsafe_expr.block);
+        
         let inner_block = &unsafe_expr.block;
 
         // Replace block content with tracked version
@@ -1138,13 +1301,16 @@ impl OwnershipVisitor {
     /// Transform lock method calls (Mutex/RwLock)
     fn transform_lock(&mut self, expr: &mut Expr, method_call: &syn::ExprMethodCall, lock_type: &str) {
         let lock_id = self.gen_id();
+        let guard_id = format!("guard_{}", lock_id);
         let location = Self::location_tokens(method_call.method.span());
         let receiver = &method_call.receiver;
         let var_name = Self::extract_receiver_name(receiver).unwrap_or_else(|| "lock".to_string());
+        let lock_id_str = format!("lock_{}", var_name);
         let method = &method_call.method;
 
         *expr = syn::parse_quote! {
             {
+                borrowscope_runtime::track_lock_guard_acquire(#guard_id, #lock_id_str, #lock_type, #location);
                 borrowscope_runtime::track_lock(#lock_id, #lock_type, #var_name, #location);
                 #receiver.#method()
             }
@@ -1160,6 +1326,37 @@ impl OwnershipVisitor {
         let method_name = method_call.method.to_string();
         let method = &method_call.method;
         let args = &method_call.args;
+
+        // Check if receiver is a lock method call (e.g., mutex.lock().unwrap())
+        if let Expr::MethodCall(inner_method) = receiver.as_ref() {
+            let inner_method_name = inner_method.method.to_string();
+            let lock_type = match inner_method_name.as_str() {
+                "lock" | "try_lock" => Some("mutex"),
+                "read" | "try_read" => Some("rwlock_read"),
+                "write" | "try_write" => Some("rwlock_write"),
+                _ => None,
+            };
+            
+            if let Some(lock_type) = lock_type {
+                let lock_id = self.gen_id();
+                let guard_id = format!("guard_{}", lock_id);
+                let lock_var_name = Self::extract_receiver_name(&inner_method.receiver)
+                    .unwrap_or_else(|| "lock".to_string());
+                let lock_id_str = format!("lock_{}", lock_var_name);
+                let inner_receiver = &inner_method.receiver;
+                let inner_method_ident = &inner_method.method;
+                
+                *expr = syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_lock_guard_acquire(#guard_id, #lock_id_str, #lock_type, #location);
+                        borrowscope_runtime::track_lock(#lock_id, #lock_type, #lock_var_name, #location);
+                        borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
+                        #inner_receiver.#inner_method_ident().#method(#args)
+                    }
+                };
+                return;
+            }
+        }
 
         *expr = syn::parse_quote! {
             {
@@ -1232,7 +1429,11 @@ impl OwnershipVisitor {
     fn transform_if(&mut self, expr: &mut Expr, if_expr: &syn::ExprIf) {
         let branch_id = self.gen_id();
         let location = Self::location_tokens(if_expr.if_token.span);
-        let cond = &if_expr.cond;
+        
+        // Visit the condition first to transform any method calls (like weak.upgrade())
+        let mut cond = if_expr.cond.clone();
+        self.visit_expr_mut(&mut cond);
+        
         let then_branch = &if_expr.then_branch;
 
         let new_then: Block = syn::parse_quote! {
@@ -1642,8 +1843,8 @@ impl VisitMut for OwnershipVisitor {
 
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
         // Handle closures before default traversal
-        if let Expr::Closure(closure) = expr {
-            self.transform_closure(closure);
+        if let Expr::Closure(closure) = expr.clone() {
+            self.transform_closure(expr, &closure);
             return;
         }
 
@@ -1765,7 +1966,29 @@ impl VisitMut for OwnershipVisitor {
         if let Expr::MethodCall(method_call) = expr {
             let method_name = method_call.method.to_string();
             
-            // Check for clone
+            // Check for Weak::clone first (before generic clone handling)
+            if self.config.track_smart_pointers && method_name == "clone" {
+                if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                    if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
+                        let location = Self::location_tokens(method_call.method.span());
+                        let receiver = method_call.receiver.clone();
+                        let weak_id = format!("weak_{}", receiver_name);
+                        let clone_id = format!("weak_clone_{}", self.gen_id());
+                        *expr = match weak_type {
+                            SmartPointerType::WeakRc => syn::parse_quote! {
+                                borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
+                            },
+                            SmartPointerType::WeakArc => syn::parse_quote! {
+                                borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
+                            },
+                            _ => syn::parse_quote! { #receiver.clone() },
+                        };
+                        return;
+                    }
+                }
+            }
+            
+            // Check for generic clone
             if self.config.track_methods && method_name == "clone" {
                 let mc = method_call.clone();
                 self.transform_clone(expr, &mc);
@@ -1813,6 +2036,88 @@ impl VisitMut for OwnershipVisitor {
                         return;
                     }
                     _ => {}
+                }
+            }
+
+            // Check for Cow::to_mut, Weak::upgrade/clone, JoinHandle::join, channel send/recv
+            if self.config.track_smart_pointers {
+                if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                    let location = Self::location_tokens(method_call.method.span());
+                    let receiver = method_call.receiver.clone();
+
+                    // Cow::to_mut - track before the call, can't wrap &mut return
+                    if self.cow_vars.contains(&receiver_name) && method_name == "to_mut" {
+                        let cow_id = format!("cow_{}", receiver_name);
+                        // We can't easily wrap to_mut since it returns &mut T
+                        // Track that to_mut was called - assume it might clone (conservative)
+                        *expr = syn::parse_quote! {
+                            {
+                                borrowscope_runtime::track_cow_to_mut(#cow_id, true, #location);
+                                #receiver.to_mut()
+                            }
+                        };
+                        return;
+                    }
+
+                    // Weak::upgrade
+                    if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
+                        if method_name == "upgrade" {
+                            let weak_id = format!("weak_{}", receiver_name);
+                            *expr = match weak_type {
+                                SmartPointerType::WeakRc => syn::parse_quote! {
+                                    borrowscope_runtime::track_weak_upgrade(#weak_id, #location, #receiver.upgrade())
+                                },
+                                SmartPointerType::WeakArc => syn::parse_quote! {
+                                    borrowscope_runtime::track_weak_upgrade_sync(#weak_id, #location, #receiver.upgrade())
+                                },
+                                _ => syn::parse_quote! { #receiver.upgrade() },
+                            };
+                            return;
+                        }
+                        // Weak::clone is handled earlier in the method call processing
+                    }
+
+                    // JoinHandle::join
+                    if self.join_handle_vars.contains(&receiver_name) && method_name == "join" {
+                        let handle_id = format!("thread_{}", receiver_name);
+                        *expr = syn::parse_quote! {
+                            borrowscope_runtime::track_thread_join(#handle_id, #location, #receiver.join())
+                        };
+                        return;
+                    }
+
+                    // Sender::send
+                    if self.sender_vars.contains(&receiver_name) && method_name == "send" {
+                        let sender_id = format!("sender_{}", receiver_name);
+                        let args: Vec<_> = method_call.args.iter().cloned().collect();
+                        if let Some(arg) = args.first() {
+                            *expr = syn::parse_quote! {
+                                borrowscope_runtime::track_channel_send(#sender_id, #location, #receiver.send(#arg))
+                            };
+                            return;
+                        }
+                    }
+
+                    // Receiver::recv
+                    if self.receiver_vars.contains(&receiver_name) {
+                        match method_name.as_str() {
+                            "recv" => {
+                                let receiver_id = format!("receiver_{}", receiver_name);
+                                *expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_channel_recv(#receiver_id, #location, #receiver.recv())
+                                };
+                                return;
+                            }
+                            "try_recv" => {
+                                let receiver_id = format!("receiver_{}", receiver_name);
+                                *expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_channel_try_recv(#receiver_id, #location, #receiver.try_recv())
+                                };
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
             

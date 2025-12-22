@@ -1,4 +1,5 @@
 //! Tests for OnceCell and MaybeUninit macro transforms
+use serial_test::serial;
 
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
@@ -8,6 +9,7 @@ use borrowscope_runtime::*;
 // =============================================================================
 
 #[test]
+#[serial]
 fn test_once_cell_new_transform() {
     reset();
     
@@ -24,6 +26,7 @@ fn test_once_cell_new_transform() {
 }
 
 #[test]
+#[serial]
 fn test_once_lock_new_transform() {
     reset();
     
@@ -40,6 +43,7 @@ fn test_once_lock_new_transform() {
 }
 
 #[test]
+#[serial]
 fn test_once_cell_set_transform() {
     reset();
     
@@ -58,6 +62,7 @@ fn test_once_cell_set_transform() {
 }
 
 #[test]
+#[serial]
 fn test_once_cell_get_transform() {
     reset();
     
@@ -76,6 +81,7 @@ fn test_once_cell_get_transform() {
 }
 
 #[test]
+#[serial]
 fn test_once_cell_get_or_init_transform() {
     reset();
     
@@ -98,6 +104,7 @@ fn test_once_cell_get_or_init_transform() {
 // =============================================================================
 
 #[test]
+#[serial]
 fn test_maybe_uninit_uninit_transform() {
     reset();
     
@@ -114,6 +121,7 @@ fn test_maybe_uninit_uninit_transform() {
 }
 
 #[test]
+#[serial]
 fn test_maybe_uninit_new_transform() {
     reset();
     
@@ -130,6 +138,7 @@ fn test_maybe_uninit_new_transform() {
 }
 
 #[test]
+#[serial]
 fn test_maybe_uninit_write_transform() {
     reset();
     
@@ -148,6 +157,7 @@ fn test_maybe_uninit_write_transform() {
 }
 
 #[test]
+#[serial]
 fn test_maybe_uninit_assume_init_transform() {
     reset();
     
@@ -166,6 +176,7 @@ fn test_maybe_uninit_assume_init_transform() {
 }
 
 #[test]
+#[serial]
 fn test_maybe_uninit_assume_init_read_transform() {
     reset();
     
@@ -184,6 +195,7 @@ fn test_maybe_uninit_assume_init_read_transform() {
 }
 
 #[test]
+#[serial]
 fn test_maybe_uninit_assume_init_drop_transform() {
     reset();
     
@@ -206,6 +218,7 @@ fn test_maybe_uninit_assume_init_drop_transform() {
 // =============================================================================
 
 #[test]
+#[serial]
 fn test_once_cell_full_lifecycle() {
     reset();
     
@@ -227,6 +240,7 @@ fn test_once_cell_full_lifecycle() {
 }
 
 #[test]
+#[serial]
 fn test_maybe_uninit_full_lifecycle() {
     reset();
     
