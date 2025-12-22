@@ -7,12 +7,44 @@
 //!
 //! - **Basic ownership**: `New`, `Borrow`, `Move`, `Drop`
 //! - **Smart pointers**: `RcNew`, `RcClone`, `ArcNew`, `ArcClone`
+//! - **Box**: `BoxNew`, `BoxIntoRaw`, `BoxFromRaw`
+//! - **Weak references**: `WeakNew`, `WeakClone`, `WeakUpgrade`
+//! - **Pin**: `PinNew`, `PinIntoInner`
+//! - **Cow**: `CowBorrowed`, `CowOwned`, `CowToMut`
 //! - **Interior mutability**: `RefCellNew`, `RefCellBorrow`, `RefCellDrop`, `CellNew`, `CellGet`, `CellSet`
+//! - **OnceCell/OnceLock**: `OnceCellNew`, `OnceCellSet`, `OnceCellGet`, `OnceCellGetOrInit`
+//! - **MaybeUninit**: `MaybeUninitNew`, `MaybeUninitWrite`, `MaybeUninitAssumeInit`, `MaybeUninitAssumeInitRead`, `MaybeUninitAssumeInitDrop`
+//! - **Threads**: `ThreadSpawn`, `ThreadJoin`
+//! - **Channels**: `ChannelNew`, `ChannelSend`, `ChannelRecv`
+//! - **Lock guards**: `LockGuardNew`, `LockGuardDrop`
 //! - **Unsafe operations**: `RawPtrCreated`, `RawPtrDeref`, `UnsafeBlockEnter`, `UnsafeBlockExit`
 //!
 //! # Serialization
 //!
 //! All events serialize to JSON with a `type` tag for easy filtering.
+//!
+//! # Helper Methods
+//!
+//! Events provide helper methods for filtering by category:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//!
+//! reset();
+//! // ... tracking code ...
+//!
+//! for event in get_events() {
+//!     if event.is_box() { /* Box event */ }
+//!     if event.is_weak() { /* Weak reference event */ }
+//!     if event.is_pin() { /* Pin event */ }
+//!     if event.is_cow() { /* Cow event */ }
+//!     if event.is_thread() { /* Thread event */ }
+//!     if event.is_channel() { /* Channel event */ }
+//!     if event.is_once_cell() { /* OnceCell/OnceLock event */ }
+//!     if event.is_maybe_uninit() { /* MaybeUninit event */ }
+//!     if event.is_lock_guard() { /* Lock guard event */ }
+//! }
+//! ```
 
 use serde::{Deserialize, Serialize};
 
@@ -323,7 +355,7 @@ pub enum Event {
         location: String,
     },
 
-    /// Index access (arr[i])
+    /// Index access (arr\[i\])
     IndexAccess {
         timestamp: u64,
         access_id: String,

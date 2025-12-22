@@ -7,8 +7,10 @@
 //!
 //! The tracker records events for:
 //! - **Basic ownership**: variable creation, borrowing, moves, and drops
-//! - **Smart pointers**: `Rc` and `Arc` creation and cloning
-//! - **Interior mutability**: `RefCell` and `Cell` operations
+//! - **Smart pointers**: `Rc`, `Arc`, `Box`, `Weak`, `Pin`, `Cow`
+//! - **Interior mutability**: `RefCell`, `Cell`, `OnceCell`, `OnceLock`
+//! - **Uninitialized memory**: `MaybeUninit` operations
+//! - **Concurrency**: threads, channels, lock guards
 //! - **Unsafe code**: raw pointers, unsafe blocks, FFI calls, transmute
 //! - **Static/const**: static variable access and const evaluation
 //!

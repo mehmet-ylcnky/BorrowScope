@@ -3,8 +3,9 @@
 //!
 //! A runtime tracking library for visualizing Rust's ownership and borrowing system.
 //!
-//! This crate captures ownership transfers, borrows, and smart pointer operations
-//! as they happen at runtime, generating structured event data for analysis.
+//! This crate captures ownership transfers, borrows, smart pointer operations,
+//! concurrency primitives, and unsafe code as they happen at runtime, generating
+//! structured event data for analysis and visualization.
 //!
 //! # Quick Start
 //!
@@ -42,8 +43,8 @@
 //!
 //! # Modules
 //!
-//! - Core tracking functions (41 functions for all ownership patterns)
-//! - Event types and serialization
+//! - Core tracking functions (70+ functions for all ownership patterns)
+//! - Event types and serialization (45+ event types)
 //! - Ownership graph building and analysis
 //! - JSON export utilities
 //! - Lifetime analysis and timeline construction
@@ -55,8 +56,107 @@
 //! | Basic ownership | `track_new`, `track_borrow`, `track_borrow_mut`, `track_move`, `track_drop` |
 //! | RAII guards | `track_new_guard`, `track_borrow_guard`, `track_borrow_mut_guard` |
 //! | Smart pointers | `track_rc_new`, `track_rc_clone`, `track_arc_new`, `track_arc_clone` |
+//! | Box | `track_box_new`, `track_box_into_raw`, `track_box_from_raw` |
+//! | Weak references | `track_weak_new`, `track_weak_new_sync`, `track_weak_upgrade`, `track_weak_clone` |
+//! | Pin | `track_pin_new`, `track_pin_into_inner` |
+//! | Cow | `track_cow_borrowed`, `track_cow_owned`, `track_cow_to_mut` |
 //! | Interior mutability | `track_refcell_*`, `track_cell_*` |
+//! | OnceCell/OnceLock | `track_once_cell_new`, `track_once_lock_new`, `track_once_cell_set`, `track_once_cell_get` |
+//! | MaybeUninit | `track_maybe_uninit_uninit`, `track_maybe_uninit_new`, `track_maybe_uninit_write`, `track_maybe_uninit_assume_init` |
+//! | Threads | `track_thread_spawn`, `track_thread_join` |
+//! | Channels | `track_channel`, `track_channel_send`, `track_channel_recv` |
+//! | Lock guards | `track_lock_guard_acquire`, `track_lock_guard_drop` |
 //! | Unsafe code | `track_raw_ptr*`, `track_unsafe_*`, `track_ffi_call`, `track_transmute` |
+//!
+//! # Smart Pointer Tracking
+//!
+//! Track all standard library smart pointers:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//! use std::rc::Rc;
+//! use std::sync::Arc;
+//!
+//! reset();
+//!
+//! // Reference counting
+//! let rc = track_rc_new("rc", Rc::new(42));
+//! let rc2 = track_rc_clone("rc2", "rc", Rc::clone(&rc));
+//!
+//! // Atomic reference counting
+//! let arc = track_arc_new("arc", Arc::new(42));
+//!
+//! // Box heap allocation
+//! let boxed = track_box_new("boxed", "loc", Box::new(42));
+//! ```
+//!
+//! # Weak Reference Tracking
+//!
+//! Track weak references and upgrade attempts:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//! use std::rc::{Rc, Weak};
+//!
+//! reset();
+//!
+//! let rc = Rc::new(42);
+//! let weak = track_weak_new("weak", "rc", "loc", Rc::downgrade(&rc));
+//!
+//! // Track upgrade attempts
+//! if let Some(upgraded) = track_weak_upgrade("weak", "loc", weak.upgrade()) {
+//!     println!("Upgraded: {}", upgraded);
+//! }
+//! ```
+//!
+//! # Concurrency Tracking
+//!
+//! Track threads and channels:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//! use std::sync::mpsc;
+//!
+//! reset();
+//!
+//! // Track channel creation
+//! let (tx, rx) = mpsc::channel();
+//! let (tx, rx) = track_channel("chan", "loc", tx, rx);
+//!
+//! // Track send/receive
+//! let _ = track_channel_send("chan", "loc", tx.send(42));
+//! let received = track_channel_recv("chan", "loc", rx.recv());
+//! ```
+//!
+//! # OnceCell/OnceLock Tracking
+//!
+//! Track lazy initialization:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//! use std::cell::OnceCell;
+//!
+//! reset();
+//!
+//! let cell: OnceCell<i32> = track_once_cell_new("config", "loc", OnceCell::new());
+//! let _ = track_once_cell_set("config", "loc", cell.set(42));
+//! let value = track_once_cell_get("config", "loc", cell.get());
+//! ```
+//!
+//! # MaybeUninit Tracking
+//!
+//! Track uninitialized memory operations:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//! use std::mem::MaybeUninit;
+//!
+//! reset();
+//!
+//! let mut uninit: MaybeUninit<i32> = track_maybe_uninit_uninit("data", "loc", MaybeUninit::uninit());
+//! let written = track_maybe_uninit_write("data", "loc", uninit.write(42));
+//! let value = track_maybe_uninit_assume_init("data", "loc", unsafe { uninit.assume_init() });
+//! ```
 //!
 //! # RAII Guards
 //!
@@ -74,6 +174,27 @@
 //!
 //! let events = get_events();
 //! assert!(events.last().unwrap().is_drop());
+//! ```
+//!
+//! # Event Filtering
+//!
+//! Filter events by category using helper methods:
+//!
+//! ```rust
+//! use borrowscope_runtime::*;
+//!
+//! reset();
+//! // ... tracking code ...
+//!
+//! let events = get_events();
+//!
+//! // Filter by category
+//! let box_events: Vec<_> = events.iter().filter(|e| e.is_box()).collect();
+//! let weak_events: Vec<_> = events.iter().filter(|e| e.is_weak()).collect();
+//! let thread_events: Vec<_> = events.iter().filter(|e| e.is_thread()).collect();
+//! let channel_events: Vec<_> = events.iter().filter(|e| e.is_channel()).collect();
+//! let once_cell_events: Vec<_> = events.iter().filter(|e| e.is_once_cell()).collect();
+//! let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
 //! ```
 //!
 //! # Performance
