@@ -314,6 +314,14 @@ For operations that require type information, the only solutions would be:
 
 The current design prioritizes stability and usability on stable Rust, accepting these limitations in exchange for a tool that works reliably across the Rust ecosystem.
 
+### Manual Instrumentation for Undetectable Patterns
+
+For patterns that the macro cannot auto-detect (FFI calls, union field access, static variables), you can use the tracking functions from `borrowscope-runtime` directly. See:
+
+- **[Limitations Guide](docs/LIMITATIONS.md)** - Detailed documentation with code examples
+- **[Manual Tracking Example](examples/manual_tracking.rs)** - Complete runnable example demonstrating manual instrumentation
+- **[Type Information Barrier Whitepaper](../docs/whitepaper-type-information-challenge.md)** - Technical analysis of why these limitations exist
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](../LICENSE) for details.
