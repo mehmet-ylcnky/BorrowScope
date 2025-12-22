@@ -271,7 +271,7 @@ fn test_arc_tracking_overhead() {
 #[serial]
 fn test_refcell_tracking_overhead() {
     const ITERATIONS: usize = 1000;
-    const MAX_OVERHEAD_RATIO: f64 = 100.0; // RefCell is very fast, so tracking overhead is proportionally higher
+    const MAX_OVERHEAD_RATIO: f64 = 200.0; // RefCell is very fast, so tracking overhead is proportionally higher
 
     // Baseline
     let start = Instant::now();

@@ -206,6 +206,7 @@ impl TraceConfig {
                 "expressions" | "exprs" => self.track_expressions = false,
                 "smart_pointers" | "pointers" => self.track_smart_pointers = false,
                 "functions" | "fn" => self.track_functions = false,
+                "drop" | "drops" => self.track_drop = false,
                 _ => {} // ignore unknown
             }
         }

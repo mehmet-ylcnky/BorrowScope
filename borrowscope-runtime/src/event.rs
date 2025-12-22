@@ -507,6 +507,240 @@ pub enum Event {
         capture_mode: String,
         location: String,
     },
+
+    // =========================================================================
+    // Phase 9: Extended Smart Pointer & Concurrency Tracking
+    // =========================================================================
+
+    /// Weak::new or Rc::downgrade
+    WeakNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        source_id: String,
+        weak_count: usize,
+        location: String,
+    },
+
+    /// Weak::clone
+    WeakClone {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        source_id: String,
+        weak_count: usize,
+        location: String,
+    },
+
+    /// Weak::upgrade attempt
+    WeakUpgrade {
+        timestamp: u64,
+        weak_id: String,
+        success: bool,
+        location: String,
+    },
+
+    /// Box::new allocation
+    BoxNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        type_name: String,
+        location: String,
+    },
+
+    /// Box::into_raw
+    BoxIntoRaw {
+        timestamp: u64,
+        box_id: String,
+        location: String,
+    },
+
+    /// Box::from_raw
+    BoxFromRaw {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        location: String,
+    },
+
+    /// Mutex/RwLock guard acquired
+    LockGuardAcquire {
+        timestamp: u64,
+        guard_id: String,
+        lock_id: String,
+        lock_type: String,
+        location: String,
+    },
+
+    /// Mutex/RwLock guard dropped
+    LockGuardDrop {
+        timestamp: u64,
+        guard_id: String,
+        location: String,
+    },
+
+    /// Pin::new
+    PinNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        location: String,
+    },
+
+    /// Pin::into_inner
+    PinIntoInner {
+        timestamp: u64,
+        pin_id: String,
+        location: String,
+    },
+
+    /// Cow::Borrowed
+    CowBorrowed {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        location: String,
+    },
+
+    /// Cow::Owned
+    CowOwned {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        location: String,
+    },
+
+    /// Cow::to_mut (clone-on-write triggered)
+    CowToMut {
+        timestamp: u64,
+        cow_id: String,
+        cloned: bool,
+        location: String,
+    },
+
+    /// Thread spawn
+    ThreadSpawn {
+        timestamp: u64,
+        thread_id: String,
+        location: String,
+    },
+
+    /// Thread join
+    ThreadJoin {
+        timestamp: u64,
+        thread_id: String,
+        location: String,
+    },
+
+    /// Channel sender created
+    ChannelSenderNew {
+        timestamp: u64,
+        sender_id: String,
+        channel_id: String,
+        location: String,
+    },
+
+    /// Channel receiver created
+    ChannelReceiverNew {
+        timestamp: u64,
+        receiver_id: String,
+        channel_id: String,
+        location: String,
+    },
+
+    /// Channel send
+    ChannelSend {
+        timestamp: u64,
+        sender_id: String,
+        location: String,
+    },
+
+    /// Channel receive
+    ChannelRecv {
+        timestamp: u64,
+        receiver_id: String,
+        success: bool,
+        location: String,
+    },
+
+    // =========================================================================
+    // OnceCell / OnceLock Events
+    // =========================================================================
+
+    /// OnceCell::new or OnceLock::new
+    OnceCellNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        cell_type: String, // "OnceCell" or "OnceLock"
+        location: String,
+    },
+
+    /// OnceCell::set or OnceLock::set
+    OnceCellSet {
+        timestamp: u64,
+        cell_id: String,
+        success: bool,
+        location: String,
+    },
+
+    /// OnceCell::get or OnceLock::get
+    OnceCellGet {
+        timestamp: u64,
+        cell_id: String,
+        was_initialized: bool,
+        location: String,
+    },
+
+    /// OnceCell::get_or_init or OnceLock::get_or_init
+    OnceCellGetOrInit {
+        timestamp: u64,
+        cell_id: String,
+        was_initialized: bool,
+        location: String,
+    },
+
+    // =========================================================================
+    // MaybeUninit Events
+    // =========================================================================
+
+    /// MaybeUninit::uninit or MaybeUninit::new
+    MaybeUninitNew {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        initialized: bool,
+        location: String,
+    },
+
+    /// MaybeUninit::write
+    MaybeUninitWrite {
+        timestamp: u64,
+        var_id: String,
+        location: String,
+    },
+
+    /// MaybeUninit::assume_init (unsafe)
+    MaybeUninitAssumeInit {
+        timestamp: u64,
+        var_id: String,
+        location: String,
+    },
+
+    /// MaybeUninit::assume_init_read (unsafe)
+    MaybeUninitAssumeInitRead {
+        timestamp: u64,
+        var_id: String,
+        location: String,
+    },
+
+    /// MaybeUninit::assume_init_drop (unsafe)
+    MaybeUninitAssumeInitDrop {
+        timestamp: u64,
+        var_id: String,
+        location: String,
+    },
 }
 
 impl Event {
@@ -572,7 +806,35 @@ impl Event {
             | Event::RegionExit { timestamp, .. }
             | Event::FnEnter { timestamp, .. }
             | Event::FnExit { timestamp, .. }
-            | Event::ClosureCapture { timestamp, .. } => *timestamp,
+            | Event::ClosureCapture { timestamp, .. }
+            | Event::WeakNew { timestamp, .. }
+            | Event::WeakClone { timestamp, .. }
+            | Event::WeakUpgrade { timestamp, .. }
+            | Event::BoxNew { timestamp, .. }
+            | Event::BoxIntoRaw { timestamp, .. }
+            | Event::BoxFromRaw { timestamp, .. }
+            | Event::LockGuardAcquire { timestamp, .. }
+            | Event::LockGuardDrop { timestamp, .. }
+            | Event::PinNew { timestamp, .. }
+            | Event::PinIntoInner { timestamp, .. }
+            | Event::CowBorrowed { timestamp, .. }
+            | Event::CowOwned { timestamp, .. }
+            | Event::CowToMut { timestamp, .. }
+            | Event::ThreadSpawn { timestamp, .. }
+            | Event::ThreadJoin { timestamp, .. }
+            | Event::ChannelSenderNew { timestamp, .. }
+            | Event::ChannelReceiverNew { timestamp, .. }
+            | Event::ChannelSend { timestamp, .. }
+            | Event::ChannelRecv { timestamp, .. }
+            | Event::OnceCellNew { timestamp, .. }
+            | Event::OnceCellSet { timestamp, .. }
+            | Event::OnceCellGet { timestamp, .. }
+            | Event::OnceCellGetOrInit { timestamp, .. }
+            | Event::MaybeUninitNew { timestamp, .. }
+            | Event::MaybeUninitWrite { timestamp, .. }
+            | Event::MaybeUninitAssumeInit { timestamp, .. }
+            | Event::MaybeUninitAssumeInitRead { timestamp, .. }
+            | Event::MaybeUninitAssumeInitDrop { timestamp, .. } => *timestamp,
         }
     }
 
@@ -641,7 +903,35 @@ impl Event {
             | Event::RegionExit { .. }
             | Event::FnEnter { .. }
             | Event::FnExit { .. }
-            | Event::ClosureCapture { .. } => None,
+            | Event::ClosureCapture { .. }
+            | Event::WeakUpgrade { .. }
+            | Event::BoxIntoRaw { .. }
+            | Event::LockGuardAcquire { .. }
+            | Event::LockGuardDrop { .. }
+            | Event::PinIntoInner { .. }
+            | Event::CowToMut { .. }
+            | Event::ThreadSpawn { .. }
+            | Event::ThreadJoin { .. }
+            | Event::ChannelSend { .. }
+            | Event::ChannelRecv { .. }
+            | Event::OnceCellSet { .. }
+            | Event::OnceCellGet { .. }
+            | Event::OnceCellGetOrInit { .. }
+            | Event::MaybeUninitWrite { .. }
+            | Event::MaybeUninitAssumeInit { .. }
+            | Event::MaybeUninitAssumeInitRead { .. }
+            | Event::MaybeUninitAssumeInitDrop { .. } => None,
+            Event::WeakNew { var_name, .. }
+            | Event::WeakClone { var_name, .. }
+            | Event::BoxNew { var_name, .. }
+            | Event::BoxFromRaw { var_name, .. }
+            | Event::PinNew { var_name, .. }
+            | Event::CowBorrowed { var_name, .. }
+            | Event::CowOwned { var_name, .. }
+            | Event::OnceCellNew { var_name, .. }
+            | Event::MaybeUninitNew { var_name, .. } => Some(var_name),
+            Event::ChannelSenderNew { sender_id, .. } => Some(sender_id),
+            Event::ChannelReceiverNew { receiver_id, .. } => Some(receiver_id),
         }
     }
 
@@ -761,9 +1051,87 @@ impl Event {
             Event::RcNew { weak_count, .. }
             | Event::RcClone { weak_count, .. }
             | Event::ArcNew { weak_count, .. }
-            | Event::ArcClone { weak_count, .. } => Some(*weak_count),
+            | Event::ArcClone { weak_count, .. }
+            | Event::WeakNew { weak_count, .. }
+            | Event::WeakClone { weak_count, .. } => Some(*weak_count),
             _ => None,
         }
+    }
+
+    /// Check if this is a Weak reference event
+    pub fn is_weak(&self) -> bool {
+        matches!(
+            self,
+            Event::WeakNew { .. } | Event::WeakClone { .. } | Event::WeakUpgrade { .. }
+        )
+    }
+
+    /// Check if this is a Box event
+    pub fn is_box(&self) -> bool {
+        matches!(
+            self,
+            Event::BoxNew { .. } | Event::BoxIntoRaw { .. } | Event::BoxFromRaw { .. }
+        )
+    }
+
+    /// Check if this is a lock guard event
+    pub fn is_lock_guard(&self) -> bool {
+        matches!(
+            self,
+            Event::LockGuardAcquire { .. } | Event::LockGuardDrop { .. }
+        )
+    }
+
+    /// Check if this is a Pin event
+    pub fn is_pin(&self) -> bool {
+        matches!(self, Event::PinNew { .. } | Event::PinIntoInner { .. })
+    }
+
+    /// Check if this is a Cow event
+    pub fn is_cow(&self) -> bool {
+        matches!(
+            self,
+            Event::CowBorrowed { .. } | Event::CowOwned { .. } | Event::CowToMut { .. }
+        )
+    }
+
+    /// Check if this is a thread event
+    pub fn is_thread(&self) -> bool {
+        matches!(self, Event::ThreadSpawn { .. } | Event::ThreadJoin { .. })
+    }
+
+    /// Check if this is a channel event
+    pub fn is_channel(&self) -> bool {
+        matches!(
+            self,
+            Event::ChannelSenderNew { .. }
+                | Event::ChannelReceiverNew { .. }
+                | Event::ChannelSend { .. }
+                | Event::ChannelRecv { .. }
+        )
+    }
+
+    /// Check if this is a OnceCell/OnceLock event
+    pub fn is_once_cell(&self) -> bool {
+        matches!(
+            self,
+            Event::OnceCellNew { .. }
+                | Event::OnceCellSet { .. }
+                | Event::OnceCellGet { .. }
+                | Event::OnceCellGetOrInit { .. }
+        )
+    }
+
+    /// Check if this is a MaybeUninit event
+    pub fn is_maybe_uninit(&self) -> bool {
+        matches!(
+            self,
+            Event::MaybeUninitNew { .. }
+                | Event::MaybeUninitWrite { .. }
+                | Event::MaybeUninitAssumeInit { .. }
+                | Event::MaybeUninitAssumeInitRead { .. }
+                | Event::MaybeUninitAssumeInitDrop { .. }
+        )
     }
 }
 

@@ -1059,6 +1059,314 @@ impl Tracker {
         });
     }
 
+    // =========================================================================
+    // Phase 9: Extended Smart Pointer & Concurrency Record Methods
+    // =========================================================================
+
+    pub fn record_weak_new(&mut self, var_name: &str, source_id: &str, weak_count: usize, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::WeakNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            source_id: source_id.to_string(),
+            weak_count,
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_weak_clone(&mut self, var_name: &str, source_id: &str, weak_count: usize, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::WeakClone {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            source_id: source_id.to_string(),
+            weak_count,
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_weak_upgrade(&mut self, weak_id: &str, success: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::WeakUpgrade {
+            timestamp,
+            weak_id: weak_id.to_string(),
+            success,
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_box_new(&mut self, var_name: &str, type_name: &str, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::BoxNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            type_name: type_name.to_string(),
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_box_into_raw(&mut self, box_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::BoxIntoRaw {
+            timestamp,
+            box_id: box_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_box_from_raw(&mut self, var_name: &str, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::BoxFromRaw {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_lock_guard_acquire(&mut self, guard_id: &str, lock_id: &str, lock_type: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::LockGuardAcquire {
+            timestamp,
+            guard_id: guard_id.to_string(),
+            lock_id: lock_id.to_string(),
+            lock_type: lock_type.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_lock_guard_drop(&mut self, guard_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::LockGuardDrop {
+            timestamp,
+            guard_id: guard_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_pin_new(&mut self, var_name: &str, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::PinNew {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_pin_into_inner(&mut self, pin_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::PinIntoInner {
+            timestamp,
+            pin_id: pin_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_cow_borrowed(&mut self, var_name: &str, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::CowBorrowed {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_cow_owned(&mut self, var_name: &str, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(var_name);
+        self.events.push(Event::CowOwned {
+            timestamp,
+            var_name: var_name.to_string(),
+            var_id: var_id.clone(),
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_cow_to_mut(&mut self, cow_id: &str, cloned: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::CowToMut {
+            timestamp,
+            cow_id: cow_id.to_string(),
+            cloned,
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_thread_spawn(&mut self, thread_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ThreadSpawn {
+            timestamp,
+            thread_id: thread_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_thread_join(&mut self, thread_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ThreadJoin {
+            timestamp,
+            thread_id: thread_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_channel_sender_new(&mut self, sender_id: &str, channel_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ChannelSenderNew {
+            timestamp,
+            sender_id: sender_id.to_string(),
+            channel_id: channel_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_channel_receiver_new(&mut self, receiver_id: &str, channel_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ChannelReceiverNew {
+            timestamp,
+            receiver_id: receiver_id.to_string(),
+            channel_id: channel_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_channel_send(&mut self, sender_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ChannelSend {
+            timestamp,
+            sender_id: sender_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_channel_recv(&mut self, receiver_id: &str, success: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ChannelRecv {
+            timestamp,
+            receiver_id: receiver_id.to_string(),
+            success,
+            location: location.to_string(),
+        });
+    }
+
+    // =========================================================================
+    // OnceCell / OnceLock Record Methods
+    // =========================================================================
+
+    pub fn record_once_cell_new(&mut self, name: &str, cell_type: &str, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(name);
+        self.events.push(Event::OnceCellNew {
+            timestamp,
+            var_name: name.to_string(),
+            var_id: var_id.clone(),
+            cell_type: cell_type.to_string(),
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_once_cell_set(&mut self, cell_id: &str, success: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::OnceCellSet {
+            timestamp,
+            cell_id: cell_id.to_string(),
+            success,
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_once_cell_get(&mut self, cell_id: &str, was_initialized: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::OnceCellGet {
+            timestamp,
+            cell_id: cell_id.to_string(),
+            was_initialized,
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_once_cell_get_or_init(&mut self, cell_id: &str, was_initialized: bool, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::OnceCellGetOrInit {
+            timestamp,
+            cell_id: cell_id.to_string(),
+            was_initialized,
+            location: location.to_string(),
+        });
+    }
+
+    // =========================================================================
+    // MaybeUninit Record Methods
+    // =========================================================================
+
+    pub fn record_maybe_uninit_new(&mut self, name: &str, initialized: bool, location: &str) -> String {
+        let timestamp = Self::next_timestamp();
+        let var_id = self.next_var_id(name);
+        self.events.push(Event::MaybeUninitNew {
+            timestamp,
+            var_name: name.to_string(),
+            var_id: var_id.clone(),
+            initialized,
+            location: location.to_string(),
+        });
+        var_id
+    }
+
+    pub fn record_maybe_uninit_write(&mut self, var_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MaybeUninitWrite {
+            timestamp,
+            var_id: var_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_maybe_uninit_assume_init(&mut self, var_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MaybeUninitAssumeInit {
+            timestamp,
+            var_id: var_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_maybe_uninit_assume_init_read(&mut self, var_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MaybeUninitAssumeInitRead {
+            timestamp,
+            var_id: var_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
+    pub fn record_maybe_uninit_assume_init_drop(&mut self, var_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MaybeUninitAssumeInitDrop {
+            timestamp,
+            var_id: var_id.to_string(),
+            location: location.to_string(),
+        });
+    }
+
     /// Get all events
     pub fn events(&self) -> &[Event] {
         &self.events
@@ -3099,6 +3407,522 @@ pub fn track_closure_capture(
     {
         let mut tracker = TRACKER.lock();
         tracker.record_closure_capture(closure_id, var_name, capture_mode, location);
+    }
+}
+
+// =============================================================================
+// Phase 9: Extended Smart Pointer & Concurrency Tracking Functions
+// =============================================================================
+
+/// Track Weak::new or Rc::downgrade
+#[inline(always)]
+pub fn track_weak_new<T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::rc::Weak<T>,
+) -> std::rc::Weak<T> {
+    #[cfg(feature = "track")]
+    {
+        let weak_count = std::rc::Weak::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_weak_new(name, source_name, weak_count, location);
+    }
+    value
+}
+
+/// Track sync Weak::new or Arc::downgrade
+#[inline(always)]
+pub fn track_weak_new_sync<T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::sync::Weak<T>,
+) -> std::sync::Weak<T> {
+    #[cfg(feature = "track")]
+    {
+        let weak_count = std::sync::Weak::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_weak_new(name, source_name, weak_count, location);
+    }
+    value
+}
+
+/// Track Weak::clone
+#[inline(always)]
+pub fn track_weak_clone<T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::rc::Weak<T>,
+) -> std::rc::Weak<T> {
+    #[cfg(feature = "track")]
+    {
+        let weak_count = std::rc::Weak::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_weak_clone(name, source_name, weak_count, location);
+    }
+    value
+}
+
+/// Track sync Weak::clone
+#[inline(always)]
+pub fn track_weak_clone_sync<T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] source_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::sync::Weak<T>,
+) -> std::sync::Weak<T> {
+    #[cfg(feature = "track")]
+    {
+        let weak_count = std::sync::Weak::weak_count(&value);
+        let mut tracker = TRACKER.lock();
+        tracker.record_weak_clone(name, source_name, weak_count, location);
+    }
+    value
+}
+
+/// Track Weak::upgrade
+#[inline(always)]
+pub fn track_weak_upgrade<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] weak_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: Option<std::rc::Rc<T>>,
+) -> Option<std::rc::Rc<T>> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_weak_upgrade(weak_id, value.is_some(), location);
+    }
+    value
+}
+
+/// Track sync Weak::upgrade
+#[inline(always)]
+pub fn track_weak_upgrade_sync<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] weak_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: Option<std::sync::Arc<T>>,
+) -> Option<std::sync::Arc<T>> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_weak_upgrade(weak_id, value.is_some(), location);
+    }
+    value
+}
+
+/// Track Box::new
+#[inline(always)]
+pub fn track_box_new<T: ?Sized>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: Box<T>,
+) -> Box<T> {
+    #[cfg(feature = "track")]
+    {
+        let type_name = std::any::type_name::<T>();
+        let mut tracker = TRACKER.lock();
+        tracker.record_box_new(name, type_name, location);
+    }
+    value
+}
+
+/// Track Box::into_raw
+#[inline(always)]
+pub fn track_box_into_raw<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] box_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    ptr: *mut T,
+) -> *mut T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_box_into_raw(box_id, location);
+    }
+    ptr
+}
+
+/// Track Box::from_raw
+#[inline(always)]
+pub fn track_box_from_raw<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: Box<T>,
+) -> Box<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_box_from_raw(name, location);
+    }
+    value
+}
+
+/// Track lock guard acquisition
+#[inline(always)]
+pub fn track_lock_guard_acquire(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] guard_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] lock_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] lock_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_lock_guard_acquire(guard_id, lock_id, lock_type, location);
+    }
+}
+
+/// Track lock guard drop
+#[inline(always)]
+pub fn track_lock_guard_drop(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] guard_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_lock_guard_drop(guard_id, location);
+    }
+}
+
+/// Track Pin::new
+#[inline(always)]
+pub fn track_pin_new<P>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::pin::Pin<P>,
+) -> std::pin::Pin<P> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_pin_new(name, location);
+    }
+    value
+}
+
+/// Track Pin::into_inner
+#[inline(always)]
+pub fn track_pin_into_inner<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] pin_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_pin_into_inner(pin_id, location);
+    }
+    value
+}
+
+/// Track Cow::Borrowed
+#[inline(always)]
+pub fn track_cow_borrowed<'a, B: ?Sized + ToOwned>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::borrow::Cow<'a, B>,
+) -> std::borrow::Cow<'a, B> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_cow_borrowed(name, location);
+    }
+    value
+}
+
+/// Track Cow::Owned
+#[inline(always)]
+pub fn track_cow_owned<'a, B: ?Sized + ToOwned>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::borrow::Cow<'a, B>,
+) -> std::borrow::Cow<'a, B> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_cow_owned(name, location);
+    }
+    value
+}
+
+/// Track Cow::to_mut (clone-on-write)
+#[inline(always)]
+pub fn track_cow_to_mut(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cow_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cloned: bool,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_cow_to_mut(cow_id, cloned, location);
+    }
+}
+
+/// Track thread spawn
+#[inline(always)]
+pub fn track_thread_spawn<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] thread_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    handle: std::thread::JoinHandle<T>,
+) -> std::thread::JoinHandle<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_thread_spawn(thread_id, location);
+    }
+    handle
+}
+
+/// Track thread join
+#[inline(always)]
+pub fn track_thread_join<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] thread_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    result: std::thread::Result<T>,
+) -> std::thread::Result<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_thread_join(thread_id, location);
+    }
+    result
+}
+
+/// Track channel creation (returns both sender and receiver)
+#[inline(always)]
+pub fn track_channel<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] channel_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    sender: std::sync::mpsc::Sender<T>,
+    receiver: std::sync::mpsc::Receiver<T>,
+) -> (std::sync::mpsc::Sender<T>, std::sync::mpsc::Receiver<T>) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_channel_sender_new(&format!("{}_tx", channel_id), channel_id, location);
+        tracker.record_channel_receiver_new(&format!("{}_rx", channel_id), channel_id, location);
+    }
+    (sender, receiver)
+}
+
+/// Track channel send
+#[inline(always)]
+pub fn track_channel_send<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] sender_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    result: Result<(), std::sync::mpsc::SendError<T>>,
+) -> Result<(), std::sync::mpsc::SendError<T>> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_channel_send(sender_id, location);
+    }
+    result
+}
+
+/// Track channel receive
+#[inline(always)]
+pub fn track_channel_recv<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] receiver_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    result: Result<T, std::sync::mpsc::RecvError>,
+) -> Result<T, std::sync::mpsc::RecvError> {
+    #[cfg(feature = "track")]
+    {
+        let success = result.is_ok();
+        let mut tracker = TRACKER.lock();
+        tracker.record_channel_recv(receiver_id, success, location);
+    }
+    result
+}
+
+/// Track channel try_recv
+#[inline(always)]
+pub fn track_channel_try_recv<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] receiver_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    result: Result<T, std::sync::mpsc::TryRecvError>,
+) -> Result<T, std::sync::mpsc::TryRecvError> {
+    #[cfg(feature = "track")]
+    {
+        let success = result.is_ok();
+        let mut tracker = TRACKER.lock();
+        tracker.record_channel_recv(receiver_id, success, location);
+    }
+    result
+}
+
+// =============================================================================
+// Phase 10: OnceCell / OnceLock Tracking Functions
+// =============================================================================
+
+/// Track OnceCell::new
+#[inline(always)]
+pub fn track_once_cell_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::cell::OnceCell<T>,
+) -> std::cell::OnceCell<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_once_cell_new(name, "OnceCell", location);
+    }
+    value
+}
+
+/// Track OnceLock::new
+#[inline(always)]
+pub fn track_once_lock_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::sync::OnceLock<T>,
+) -> std::sync::OnceLock<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_once_cell_new(name, "OnceLock", location);
+    }
+    value
+}
+
+/// Track OnceCell::set
+#[inline(always)]
+pub fn track_once_cell_set<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    result: Result<(), T>,
+) -> Result<(), T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_once_cell_set(cell_id, result.is_ok(), location);
+    }
+    result
+}
+
+/// Track OnceCell::get
+#[inline(always)]
+pub fn track_once_cell_get<'a, T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: Option<&'a T>,
+) -> Option<&'a T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_once_cell_get(cell_id, value.is_some(), location);
+    }
+    value
+}
+
+/// Track OnceCell::get_or_init
+#[inline(always)]
+pub fn track_once_cell_get_or_init<'a, T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] cell_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] was_initialized: bool,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: &'a T,
+) -> &'a T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_once_cell_get_or_init(cell_id, was_initialized, location);
+    }
+    value
+}
+
+// =============================================================================
+// Phase 11: MaybeUninit Tracking Functions
+// =============================================================================
+
+/// Track MaybeUninit::uninit
+#[inline(always)]
+pub fn track_maybe_uninit_uninit<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::mem::MaybeUninit<T>,
+) -> std::mem::MaybeUninit<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_maybe_uninit_new(name, false, location);
+    }
+    value
+}
+
+/// Track MaybeUninit::new (initialized)
+#[inline(always)]
+pub fn track_maybe_uninit_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: std::mem::MaybeUninit<T>,
+) -> std::mem::MaybeUninit<T> {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_maybe_uninit_new(name, true, location);
+    }
+    value
+}
+
+/// Track MaybeUninit::write
+#[inline(always)]
+pub fn track_maybe_uninit_write<'a, T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: &'a mut T,
+) -> &'a mut T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_maybe_uninit_write(var_id, location);
+    }
+    value
+}
+
+/// Track MaybeUninit::assume_init (unsafe)
+#[inline(always)]
+pub fn track_maybe_uninit_assume_init<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_maybe_uninit_assume_init(var_id, location);
+    }
+    value
+}
+
+/// Track MaybeUninit::assume_init_read (unsafe)
+#[inline(always)]
+pub fn track_maybe_uninit_assume_init_read<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_maybe_uninit_assume_init_read(var_id, location);
+    }
+    value
+}
+
+/// Track MaybeUninit::assume_init_drop (unsafe)
+#[inline(always)]
+pub fn track_maybe_uninit_assume_init_drop(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] var_id: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_maybe_uninit_assume_init_drop(var_id, location);
     }
 }
 

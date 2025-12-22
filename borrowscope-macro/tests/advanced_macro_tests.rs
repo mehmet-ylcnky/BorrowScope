@@ -253,8 +253,8 @@ fn test_macro_with_box() {
     let events = get_events();
     assert!(!events.is_empty());
 
-    // Should track Box allocation
-    assert!(events.iter().any(|e| e.is_new()));
+    // Should track Box allocation (BoxNew event)
+    assert!(events.iter().any(|e| e.is_box()));
 }
 
 #[test]

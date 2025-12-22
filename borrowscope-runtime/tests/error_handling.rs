@@ -147,7 +147,7 @@ fn test_error_from_serde() {
 #[test]
 #[serial]
 fn test_result_propagation() {
-    fn export_and_read(path: &std::path::Path) -> Result<String> {
+    fn export_and_read(path: &std::path::Path) -> Result<String, Box<dyn std::error::Error>> {
         let events = get_events();
         let graph = build_graph(&events);
         let export = ExportData::new(graph, events);

@@ -4,8 +4,13 @@
 //! to inject runtime tracking calls.
 
 use crate::config::TraceConfig;
-use crate::smart_pointer::{detect_rc_clone, detect_smart_pointer_new, SmartPointerType};
-use std::collections::HashMap;
+use crate::smart_pointer::{
+    detect_box_pin, detect_concurrency_op, detect_cow_creation, detect_downgrade,
+    detect_maybe_uninit_method, detect_maybe_uninit_new, detect_once_cell_method,
+    detect_once_cell_new, detect_pin_operation, detect_rc_clone, detect_smart_pointer_new,
+    ConcurrencyOp, SmartPointerOp, SmartPointerType,
+};
+use std::collections::{HashMap, HashSet};
 use syn::{
     spanned::Spanned,
     visit_mut::{self, VisitMut},
@@ -37,6 +42,12 @@ pub struct OwnershipVisitor {
     pending_inserts: Vec<(usize, Stmt)>,
     /// Configuration for what to track
     config: TraceConfig,
+    /// Variables that are references (to avoid double-borrowing in method calls)
+    ref_vars: HashSet<String>,
+    /// Variables that are OnceCell/OnceLock
+    once_cell_vars: HashSet<String>,
+    /// Variables that are MaybeUninit
+    maybe_uninit_vars: HashSet<String>,
 }
 
 impl OwnershipVisitor {
@@ -55,6 +66,9 @@ impl OwnershipVisitor {
             current_stmt_index: 0,
             pending_inserts: Vec::new(),
             config,
+            ref_vars: HashSet::new(),
+            once_cell_vars: HashSet::new(),
+            maybe_uninit_vars: HashSet::new(),
         }
     }
 
@@ -223,11 +237,50 @@ impl OwnershipVisitor {
     /// Transform complex pattern into temp + destructuring
     fn transform_complex_pattern(&mut self, local: &mut Local) {
         if let Some(init) = &mut local.init {
-            let temp_name = format!("__pattern_temp_{}", self.next_id);
-            let temp_ident: Ident = syn::parse_str(&temp_name).unwrap();
-
             let original_expr = init.expr.clone();
             let original_pat = local.pat.clone();
+
+            // Special handling for mpsc::channel() which returns (Sender, Receiver)
+            if self.config.track_smart_pointers {
+                if let Some(ConcurrencyOp::ChannelNew) = detect_concurrency_op(&original_expr) {
+                    // For tuple pattern like (tx, rx), extract the names
+                    if let Pat::Tuple(tuple_pat) = &original_pat {
+                        if tuple_pat.elems.len() == 2 {
+                            let tx_name = Self::extract_pattern_name(&tuple_pat.elems[0]);
+                            let rx_name = Self::extract_pattern_name(&tuple_pat.elems[1]);
+                            let location = Self::location_tokens(local.pat.span());
+                            let channel_id = format!("{}_{}", tx_name, rx_name);
+
+                            // Transform to: let (tx, rx) = { let (__tx, __rx) = channel(); track_channel(...) }
+                            let new_expr: Expr = syn::parse_quote! {
+                                {
+                                    let (__borrowscope_tx, __borrowscope_rx) = #original_expr;
+                                    let __borrowscope_tx_id = format!("{}_tx", #channel_id);
+                                    let __borrowscope_rx_id = format!("{}_rx", #channel_id);
+                                    borrowscope_runtime::track_channel(#channel_id, #location, __borrowscope_tx, __borrowscope_rx)
+                                }
+                            };
+                            *init.expr = new_expr;
+
+                            // Track the variables
+                            let tx_id = self.gen_id();
+                            let rx_id = self.gen_id();
+                            self.var_ids.insert(tx_name.clone(), tx_id);
+                            self.var_ids.insert(rx_name.clone(), rx_id);
+
+                            if let Some(current_scope) = self.scope_stack.last_mut() {
+                                current_scope.push(tx_name);
+                                current_scope.push(rx_name);
+                            }
+
+                            return;
+                        }
+                    }
+                }
+            }
+
+            let temp_name = format!("__pattern_temp_{}", self.next_id);
+            let temp_ident: Ident = syn::parse_str(&temp_name).unwrap();
 
             // Replace with temporary variable
             let temp_expr: Expr = syn::parse_quote! {
@@ -290,6 +343,10 @@ impl OwnershipVisitor {
             || method_name.starts_with("insert")
             || method_name.starts_with("remove")
             || method_name.starts_with("append")
+            || method_name.starts_with("add")
+            || method_name.starts_with("set")
+            || method_name.starts_with("update")
+            || method_name.starts_with("modify")
             || matches!(
                 method_name,
                 "clear"
@@ -350,6 +407,21 @@ impl OwnershipVisitor {
         }
 
         let method_name = method_call.method.to_string();
+        
+        // Skip wrapping for methods that return guards/borrows - wrapping creates
+        // temporaries that cause lifetime issues (e.g., if let Ok(g) = mutex.try_lock())
+        let guard_methods = [
+            "lock", "try_lock", "read", "try_read", "write", "try_write",
+            "borrow", "borrow_mut", "get_mut",
+        ];
+        if guard_methods.contains(&method_name.as_str()) {
+            self.visit_expr_mut(&mut method_call.receiver);
+            for arg in &mut method_call.args {
+                self.visit_expr_mut(arg);
+            }
+            return;
+        }
+        
         let borrow_type = Self::infer_self_borrow_type(&method_name);
 
         // For consuming methods, just visit normally (move tracking happens at assignment level)
@@ -362,7 +434,17 @@ impl OwnershipVisitor {
         }
 
         // Extract receiver name for tracking
-        if Self::extract_receiver_name(&method_call.receiver).is_some() {
+        if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+            // Skip wrapping if receiver is already a reference variable
+            // (e.g., let r = &mut data; r.push(4) - r is already &mut)
+            if self.ref_vars.contains(&receiver_name) {
+                // Just visit arguments, don't wrap the receiver
+                for arg in &mut method_call.args {
+                    self.visit_expr_mut(arg);
+                }
+                return;
+            }
+
             let receiver_expr = method_call.receiver.clone();
 
             // Wrap receiver with appropriate borrow tracking
@@ -521,6 +603,11 @@ impl OwnershipVisitor {
             let var_id = self.gen_id();
             let location = Self::location_tokens(local.pat.span());
 
+            // Check if the initializer is a reference expression and mark the variable
+            if matches!(init.expr.as_ref(), Expr::Reference(_)) {
+                self.ref_vars.insert(var_name.clone());
+            }
+
             // Store variable ID for later reference
             self.var_ids.insert(var_name.clone(), var_id);
 
@@ -547,16 +634,21 @@ impl OwnershipVisitor {
                         }
                         SmartPointerType::RefCell => {
                             syn::parse_quote! {
-                                borrowscope_runtime::track_refcell_new(#var_name, std::cell::RefCell::new(#original_expr))
+                                borrowscope_runtime::track_refcell_new(#var_name, #original_expr)
                             }
                         }
                         SmartPointerType::Cell => {
                             syn::parse_quote! {
-                                borrowscope_runtime::track_cell_new(#var_name, std::cell::Cell::new(#original_expr))
+                                borrowscope_runtime::track_cell_new(#var_name, #original_expr)
+                            }
+                        }
+                        SmartPointerType::Box => {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_box_new(#var_name, #location, #original_expr)
                             }
                         }
                         _ => {
-                            // Box and others use regular tracking
+                            // Others use regular tracking
                             syn::parse_quote! {
                                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
                             }
@@ -584,6 +676,111 @@ impl OwnershipVisitor {
                                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
                             }
                         }
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if detect_box_pin(original_expr) {
+                    // Box::pin -> track_pin_new
+                    let new_expr: Expr = syn::parse_quote! {
+                        borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(op) = detect_pin_operation(original_expr) {
+                    let new_expr: Expr = match op {
+                        SmartPointerOp::PinNew => syn::parse_quote! {
+                            borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
+                        },
+                        _ => syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        },
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(op) = detect_cow_creation(original_expr) {
+                    let new_expr: Expr = match op {
+                        SmartPointerOp::CowBorrowed => syn::parse_quote! {
+                            borrowscope_runtime::track_cow_borrowed(#var_name, #location, #original_expr)
+                        },
+                        SmartPointerOp::CowOwned => syn::parse_quote! {
+                            borrowscope_runtime::track_cow_owned(#var_name, #location, #original_expr)
+                        },
+                        _ => syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        },
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(weak_type) = detect_downgrade(original_expr) {
+                    // Rc::downgrade or Arc::downgrade
+                    let source_name = self.extract_downgrade_source(original_expr);
+                    let new_expr: Expr = match weak_type {
+                        SmartPointerType::WeakRc => syn::parse_quote! {
+                            borrowscope_runtime::track_weak_new(#var_name, #source_name, #location, #original_expr)
+                        },
+                        SmartPointerType::WeakArc => syn::parse_quote! {
+                            borrowscope_runtime::track_weak_new_sync(#var_name, #source_name, #location, #original_expr)
+                        },
+                        _ => syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        },
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(op) = detect_concurrency_op(original_expr) {
+                    let new_expr: Expr = match op {
+                        ConcurrencyOp::ThreadSpawn => syn::parse_quote! {
+                            borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
+                        },
+                        ConcurrencyOp::ChannelNew => {
+                            // mpsc::channel returns a tuple, handle specially
+                            syn::parse_quote! {
+                                {
+                                    let (__tx, __rx) = #original_expr;
+                                    borrowscope_runtime::track_channel(#var_name, #location, __tx, __rx)
+                                }
+                            }
+                        },
+                        _ => syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        },
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(is_sync) = detect_once_cell_new(original_expr) {
+                    // OnceCell::new or OnceLock::new - register the variable
+                    self.once_cell_vars.insert(var_name.clone());
+                    let new_expr: Expr = if is_sync {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_once_lock_new(#var_name, #location, #original_expr)
+                        }
+                    } else {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
+                        }
+                    };
+                    *init.expr = new_expr;
+                    visit_mut::visit_local_mut(self, local);
+                    return;
+                } else if let Some(op) = detect_maybe_uninit_new(original_expr) {
+                    // MaybeUninit::uninit or MaybeUninit::new - register the variable
+                    self.maybe_uninit_vars.insert(var_name.clone());
+                    let new_expr: Expr = match op {
+                        SmartPointerOp::MaybeUninitUninit => syn::parse_quote! {
+                            borrowscope_runtime::track_maybe_uninit_uninit(#var_name, #location, #original_expr)
+                        },
+                        SmartPointerOp::MaybeUninitNew => syn::parse_quote! {
+                            borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
+                        },
+                        _ => syn::parse_quote! {
+                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                        },
                     };
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
@@ -642,6 +839,20 @@ impl OwnershipVisitor {
             }
         }
         0
+    }
+
+    /// Extract source variable name from Rc::downgrade(&x) or Arc::downgrade(&x)
+    fn extract_downgrade_source(&self, expr: &Expr) -> String {
+        if let Expr::Call(call) = expr {
+            if let Some(Expr::Reference(ref_expr)) = call.args.first() {
+                if let Expr::Path(path) = ref_expr.expr.as_ref() {
+                    if let Some(ident) = path.path.get_ident() {
+                        return ident.to_string();
+                    }
+                }
+            }
+        }
+        "unknown".to_string()
     }
 
     /// Transform reference expressions to inject track_borrow_with_id
@@ -837,12 +1048,13 @@ impl OwnershipVisitor {
         let pat = &for_loop.pat;
         let iter_expr = &for_loop.expr;
         let body = &for_loop.body;
+        let label = &for_loop.label;
 
         *expr = syn::parse_quote! {
             {
                 borrowscope_runtime::track_loop_enter(#loop_id, "for", #location);
                 let mut __iter_count = 0usize;
-                for #pat in #iter_expr {
+                #label for #pat in #iter_expr {
                     borrowscope_runtime::track_loop_iteration(#loop_id, __iter_count, #location);
                     __iter_count += 1;
                     #body
@@ -858,12 +1070,13 @@ impl OwnershipVisitor {
         let location = Self::location_tokens(while_loop.while_token.span);
         let cond = &while_loop.cond;
         let body = &while_loop.body;
+        let label = &while_loop.label;
 
         *expr = syn::parse_quote! {
             {
                 borrowscope_runtime::track_loop_enter(#loop_id, "while", #location);
                 let mut __iter_count = 0usize;
-                while #cond {
+                #label while #cond {
                     borrowscope_runtime::track_loop_iteration(#loop_id, __iter_count, #location);
                     __iter_count += 1;
                     #body
@@ -878,12 +1091,13 @@ impl OwnershipVisitor {
         let loop_id = self.gen_id();
         let location = Self::location_tokens(loop_expr.loop_token.span);
         let body = &loop_expr.body;
+        let label = &loop_expr.label;
 
         *expr = syn::parse_quote! {
             {
                 borrowscope_runtime::track_loop_enter(#loop_id, "loop", #location);
                 let mut __iter_count = 0usize;
-                loop {
+                #label loop {
                     borrowscope_runtime::track_loop_iteration(#loop_id, __iter_count, #location);
                     __iter_count += 1;
                     #body
@@ -1284,9 +1498,9 @@ impl OwnershipVisitor {
     fn transform_cast(&mut self, expr: &mut Expr, cast_expr: &syn::ExprCast) {
         let cast_id = self.gen_id();
         let location = Self::location_tokens(cast_expr.as_token.span);
-        let to_type = quote::quote!(#cast_expr.ty).to_string();
-        let inner = &cast_expr.expr;
         let ty = &cast_expr.ty;
+        let to_type = quote::quote!(#ty).to_string();
+        let inner = &cast_expr.expr;
 
         *expr = syn::parse_quote! {
             {
@@ -1371,35 +1585,37 @@ impl VisitMut for OwnershipVisitor {
             block.stmts.insert(idx, stmt);
         }
 
-        // Pop scope and insert drops in LIFO order
+        // Pop scope and insert drops in LIFO order (only if track_drop is enabled)
         if let Some(scope_vars) = self.scope_stack.pop() {
-            // Check if the last statement is an expression without semicolon (implicit return)
-            let has_trailing_expr = block
-                .stmts
-                .last()
-                .map(|stmt| matches!(stmt, Stmt::Expr(_, None)))
-                .unwrap_or(false);
+            if self.config.track_drop && !scope_vars.is_empty() {
+                // Check if the last statement is an expression without semicolon (implicit return)
+                let has_trailing_expr = block
+                    .stmts
+                    .last()
+                    .map(|stmt| matches!(stmt, Stmt::Expr(_, None)))
+                    .unwrap_or(false);
 
-            if has_trailing_expr && !scope_vars.is_empty() {
-                // Insert drops before the last expression
-                let last_stmt = block.stmts.pop();
-                for var_name in scope_vars.into_iter().rev() {
-                    let drop_stmt: Stmt = syn::parse_quote! {
-                        borrowscope_runtime::track_drop(#var_name);
-                    };
-                    block.stmts.push(drop_stmt);
-                }
-                // Re-add the last expression
-                if let Some(stmt) = last_stmt {
-                    block.stmts.push(stmt);
-                }
-            } else {
-                // No trailing expression, just append drops
-                for var_name in scope_vars.into_iter().rev() {
-                    let drop_stmt: Stmt = syn::parse_quote! {
-                        borrowscope_runtime::track_drop(#var_name);
-                    };
-                    block.stmts.push(drop_stmt);
+                if has_trailing_expr {
+                    // Insert drops before the last expression
+                    let last_stmt = block.stmts.pop();
+                    for var_name in scope_vars.into_iter().rev() {
+                        let drop_stmt: Stmt = syn::parse_quote! {
+                            borrowscope_runtime::track_drop(#var_name);
+                        };
+                        block.stmts.push(drop_stmt);
+                    }
+                    // Re-add the last expression
+                    if let Some(stmt) = last_stmt {
+                        block.stmts.push(stmt);
+                    }
+                } else {
+                    // No trailing expression, just append drops
+                    for var_name in scope_vars.into_iter().rev() {
+                        let drop_stmt: Stmt = syn::parse_quote! {
+                            borrowscope_runtime::track_drop(#var_name);
+                        };
+                        block.stmts.push(drop_stmt);
+                    }
                 }
             }
         }
@@ -1557,24 +1773,34 @@ impl VisitMut for OwnershipVisitor {
             }
 
             // Check for lock methods (Mutex/RwLock)
+            // Note: try_lock/try_read/try_write are skipped because wrapping them
+            // causes lifetime issues when used in if-let patterns
+            // Also skip if receiver is a known MaybeUninit (which has its own write method)
             if self.config.track_methods {
-                match method_name.as_str() {
-                    "lock" | "try_lock" => {
-                        let mc = method_call.clone();
-                        self.transform_lock(expr, &mc, "mutex");
-                        return;
+                let receiver_name = Self::extract_receiver_name(&method_call.receiver);
+                let is_maybe_uninit = receiver_name.as_ref()
+                    .map(|n| self.maybe_uninit_vars.contains(n))
+                    .unwrap_or(false);
+                
+                if !is_maybe_uninit {
+                    match method_name.as_str() {
+                        "lock" => {
+                            let mc = method_call.clone();
+                            self.transform_lock(expr, &mc, "mutex");
+                            return;
+                        }
+                        "read" => {
+                            let mc = method_call.clone();
+                            self.transform_lock(expr, &mc, "rwlock_read");
+                            return;
+                        }
+                        "write" => {
+                            let mc = method_call.clone();
+                            self.transform_lock(expr, &mc, "rwlock_write");
+                            return;
+                        }
+                        _ => {}
                     }
-                    "read" | "try_read" => {
-                        let mc = method_call.clone();
-                        self.transform_lock(expr, &mc, "rwlock_read");
-                        return;
-                    }
-                    "write" | "try_write" => {
-                        let mc = method_call.clone();
-                        self.transform_lock(expr, &mc, "rwlock_write");
-                        return;
-                    }
-                    _ => {}
                 }
             }
 
@@ -1613,30 +1839,115 @@ impl VisitMut for OwnershipVisitor {
                             };
                             return;
                         }
-                        "get" => {
-                            // Transform cell.get() -> track_cell_get(cell_id, loc, cell.get())
-                            let cell_id = format!("cell_{}", receiver_name);
-                            *expr = syn::parse_quote! {
-                                borrowscope_runtime::track_cell_get(#cell_id, #location, #receiver.get())
-                            };
-                            return;
-                        }
-                        "set" => {
-                            // Transform cell.set(v) -> { track_cell_set(cell_id, loc); cell.set(v) }
-                            let cell_id = format!("cell_{}", receiver_name);
-                            // Visit arguments first
-                            let args: Vec<_> = method_call.args.iter().cloned().collect();
-                            if let Some(arg) = args.first() {
-                                *expr = syn::parse_quote! {
-                                    {
-                                        borrowscope_runtime::track_cell_set(#cell_id, #location);
-                                        #receiver.set(#arg)
-                                    }
-                                };
-                            }
-                            return;
-                        }
                         _ => {}
+                    }
+                    
+                    // Check for OnceCell/OnceLock methods (only if receiver is known OnceCell)
+                    if self.once_cell_vars.contains(&receiver_name) {
+                        if let Some(op) = detect_once_cell_method(&Expr::MethodCall(method_call.clone())) {
+                            let cell_id = format!("once_{}", receiver_name);
+                            match op {
+                                SmartPointerOp::OnceCellSet => {
+                                    let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                    if let Some(arg) = args.first() {
+                                        *expr = syn::parse_quote! {
+                                            borrowscope_runtime::track_once_cell_set(#cell_id, #location, #receiver.set(#arg))
+                                        };
+                                    }
+                                    return;
+                                }
+                                SmartPointerOp::OnceCellGet => {
+                                    *expr = syn::parse_quote! {
+                                        borrowscope_runtime::track_once_cell_get(#cell_id, #location, #receiver.get())
+                                    };
+                                    return;
+                                }
+                                SmartPointerOp::OnceCellGetOrInit => {
+                                    let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                    if let Some(init_fn) = args.first() {
+                                        *expr = syn::parse_quote! {
+                                            {
+                                                let __was_init = #receiver.get().is_some();
+                                                let __result = #receiver.get_or_init(#init_fn);
+                                                borrowscope_runtime::track_once_cell_get_or_init(#cell_id, __was_init, #location, __result)
+                                            }
+                                        };
+                                    }
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    
+                    // Check for MaybeUninit methods (only if receiver is known MaybeUninit)
+                    if self.maybe_uninit_vars.contains(&receiver_name) {
+                        if let Some(op) = detect_maybe_uninit_method(&Expr::MethodCall(method_call.clone())) {
+                            let uninit_id = format!("uninit_{}", receiver_name);
+                            match op {
+                                SmartPointerOp::MaybeUninitWrite => {
+                                    let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                    if let Some(arg) = args.first() {
+                                        *expr = syn::parse_quote! {
+                                            borrowscope_runtime::track_maybe_uninit_write(#uninit_id, #location, #receiver.write(#arg))
+                                        };
+                                    }
+                                    return;
+                                }
+                                SmartPointerOp::MaybeUninitAssumeInit => {
+                                    *expr = syn::parse_quote! {
+                                        borrowscope_runtime::track_maybe_uninit_assume_init(#uninit_id, #location, #receiver.assume_init())
+                                    };
+                                    return;
+                                }
+                                SmartPointerOp::MaybeUninitAssumeInitRead => {
+                                    *expr = syn::parse_quote! {
+                                        borrowscope_runtime::track_maybe_uninit_assume_init_read(#uninit_id, #location, #receiver.assume_init_read())
+                                    };
+                                    return;
+                                }
+                                SmartPointerOp::MaybeUninitAssumeInitDrop => {
+                                    *expr = syn::parse_quote! {
+                                        {
+                                            #receiver.assume_init_drop();
+                                            borrowscope_runtime::track_maybe_uninit_assume_init_drop(#uninit_id, #location)
+                                        }
+                                    };
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    
+                    // Cell get/set methods (only for non-OnceCell variables)
+                    if !self.once_cell_vars.contains(&receiver_name) {
+                        match method_name.as_str() {
+                            "get" => {
+                                // Transform cell.get() -> track_cell_get(cell_id, loc, cell.get())
+                                let cell_id = format!("cell_{}", receiver_name);
+                                *expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_cell_get(#cell_id, #location, #receiver.get())
+                                };
+                                return;
+                            }
+                            "set" => {
+                                // Transform cell.set(v) -> { track_cell_set(cell_id, loc); cell.set(v) }
+                                let cell_id = format!("cell_{}", receiver_name);
+                                // Visit arguments first
+                                let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                if let Some(arg) = args.first() {
+                                    *expr = syn::parse_quote! {
+                                        {
+                                            borrowscope_runtime::track_cell_set(#cell_id, #location);
+                                            #receiver.set(#arg)
+                                        }
+                                    };
+                                }
+                                return;
+                            }
+                            _ => {}
+                        }
                     }
                 }
             }
@@ -1668,6 +1979,45 @@ impl VisitMut for OwnershipVisitor {
         //     return;
         // }
 
+        // Handle non-pointer casts BEFORE visiting nested expressions
+        // This prevents issues with chained casts like `n as u8 as char`
+        if self.config.track_expressions {
+            if let Expr::Cast(cast_expr) = expr {
+                // Skip pointer casts - they're handled separately for unsafe tracking
+                if !matches!(cast_expr.ty.as_ref(), syn::Type::Ptr(_)) {
+                    let cast_id = self.gen_id();
+                    let span = cast_expr.as_token.span;
+                    let location = Self::location_tokens(span);
+                    let ty = cast_expr.ty.clone();
+                    let to_type_str = quote::quote!(#ty).to_string();
+                    
+                    // First, recursively visit the inner expression
+                    self.visit_expr_mut(&mut cast_expr.expr);
+                    
+                    // Get the transformed inner expression
+                    let transformed_inner = cast_expr.expr.clone();
+                    
+                    // If the inner expression is a block (from a previous cast transformation),
+                    // we need to wrap it in parentheses for the cast to be valid
+                    let cast_expr_final: Expr = if matches!(*transformed_inner, Expr::Block(_)) {
+                        syn::parse_quote! { (#transformed_inner) as #ty }
+                    } else {
+                        syn::parse_quote! { #transformed_inner as #ty }
+                    };
+                    
+                    *expr = syn::parse_quote! {
+                        {
+                            borrowscope_runtime::track_type_cast(#cast_id, #to_type_str, #location);
+                            #cast_expr_final
+                        }
+                    };
+                    
+                    // Don't visit nested expressions again - we've already handled them
+                    return;
+                }
+            }
+        }
+
         // First recursively visit nested expressions
         visit_mut::visit_expr_mut(self, expr);
 
@@ -1683,16 +2033,12 @@ impl VisitMut for OwnershipVisitor {
             }
         }
 
-        // Transform raw pointer casts (takes precedence over general cast tracking)
-        if let Expr::Cast(cast_expr) = expr.clone() {
-            // Check if it's a pointer cast - those are handled specially
-            if matches!(cast_expr.ty.as_ref(), syn::Type::Ptr(_)) {
-                if self.config.track_unsafe {
+        // Transform pointer casts (for unsafe tracking)
+        if self.config.track_unsafe {
+            if let Expr::Cast(cast_expr) = expr.clone() {
+                if matches!(cast_expr.ty.as_ref(), syn::Type::Ptr(_)) {
                     self.transform_ptr_cast(expr, &cast_expr);
                 }
-            } else if self.config.track_expressions {
-                // Non-pointer casts - Phase 6 tracking
-                self.transform_cast(expr, &cast_expr);
             }
         }
 

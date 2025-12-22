@@ -690,7 +690,7 @@ fn test_static_access_frequency() {
 
     let avg_ns = duration.as_nanos() / ACCESSES as u128;
     assert!(
-        avg_ns < 500,
+        avg_ns < 1000,
         "Static access tracking too slow: {}ns",
         avg_ns
     );

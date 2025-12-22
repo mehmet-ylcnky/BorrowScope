@@ -237,8 +237,10 @@ pub fn track_borrow_mut_guard<'a, T: ?Sized>(
 mod tests {
     use super::*;
     use crate::{get_events, reset};
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_track_guard_auto_drop() {
         reset();
         {
@@ -251,6 +253,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_track_guard_deref() {
         reset();
         let x = track_new_guard("x", vec![1, 2, 3]);
@@ -259,6 +262,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_track_guard_deref_mut() {
         reset();
         let mut x = track_new_guard("x", vec![1, 2, 3]);
@@ -267,6 +271,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_into_inner_no_drop() {
         reset();
         let x = track_new_guard("x", 42);
@@ -276,6 +281,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_borrow_guard() {
         reset();
         let data = track_new_guard("data", 42);
@@ -287,6 +293,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_borrow_mut_guard() {
         reset();
         let mut data = track_new_guard("data", vec![1]);

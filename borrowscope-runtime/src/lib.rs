@@ -92,7 +92,7 @@ mod tracker;
 #[cfg(test)]
 mod test_utils;
 
-pub use error::{Error, Result};
+pub use error::{BorrowScopeResult, Error};
 pub use event::Event;
 pub use export::{ExportData, ExportEdge, ExportMetadata};
 pub use graph::{build_graph, GraphStats, OwnershipGraph, Relationship, Variable};
@@ -107,19 +107,27 @@ pub use tracker::{
     print_summary, reset, track_arc_clone, track_arc_clone_with_id, track_arc_new,
     track_arc_new_with_id, track_array_create, track_async_block_enter, track_async_block_exit,
     track_await_end, track_await_start, track_binary_op, track_borrow, track_borrow_mut,
-    track_borrow_mut_with_id, track_borrow_with_id, track_branch, track_break, track_call,
-    track_cell_get, track_cell_new, track_cell_set, track_clone, track_closure_capture,
-    track_closure_create, track_const_eval, track_continue, track_deref, track_drop,
-    track_drop_batch, track_drop_with_id, track_ffi_call, track_field_access, track_fn_enter,
-    track_fn_exit, track_index_access, track_let_else, track_lock, track_loop_enter,
-    track_loop_exit, track_loop_iteration, track_match_arm, track_match_enter, track_match_exit,
-    track_move, track_move_with_id, track_new, track_new_with_id, track_range, track_raw_ptr,
+    track_borrow_mut_with_id, track_borrow_with_id, track_box_from_raw, track_box_into_raw,
+    track_box_new, track_branch, track_break, track_call, track_cell_get, track_cell_new,
+    track_cell_set, track_channel, track_channel_recv, track_channel_send, track_channel_try_recv,
+    track_clone, track_closure_capture, track_closure_create, track_const_eval, track_continue,
+    track_cow_borrowed, track_cow_owned, track_cow_to_mut, track_deref, track_drop, track_drop_batch,
+    track_drop_with_id, track_ffi_call, track_field_access, track_fn_enter, track_fn_exit,
+    track_index_access, track_let_else, track_lock, track_lock_guard_acquire, track_lock_guard_drop,
+    track_loop_enter, track_loop_exit, track_loop_iteration, track_match_arm, track_match_enter,
+    track_match_exit, track_maybe_uninit_assume_init, track_maybe_uninit_assume_init_drop,
+    track_maybe_uninit_assume_init_read, track_maybe_uninit_new, track_maybe_uninit_uninit,
+    track_maybe_uninit_write, track_move, track_move_with_id, track_new, track_new_with_id,
+    track_once_cell_get, track_once_cell_get_or_init, track_once_cell_new, track_once_cell_set,
+    track_once_lock_new, track_pin_into_inner, track_pin_new, track_range, track_raw_ptr,
     track_raw_ptr_deref, track_raw_ptr_mut, track_rc_clone, track_rc_clone_with_id, track_rc_new,
     track_rc_new_with_id, track_refcell_borrow, track_refcell_borrow_mut, track_refcell_drop,
     track_refcell_new, track_region_enter, track_region_exit, track_return, track_static_access,
-    track_static_init, track_struct_create, track_transmute, track_try, track_tuple_create,
-    track_type_cast, track_union_field_access, track_unsafe_block_enter, track_unsafe_block_exit,
-    track_unsafe_fn_call, track_unwrap, TrackingSummary,
+    track_static_init, track_struct_create, track_thread_join, track_thread_spawn, track_transmute,
+    track_try, track_tuple_create, track_type_cast, track_union_field_access,
+    track_unsafe_block_enter, track_unsafe_block_exit, track_unsafe_fn_call, track_unwrap,
+    track_weak_clone, track_weak_clone_sync, track_weak_new, track_weak_new_sync, track_weak_upgrade,
+    track_weak_upgrade_sync, TrackingSummary,
 };
 
 /// Convenience macro for RefCell borrow tracking with auto file:line capture
@@ -153,7 +161,7 @@ pub fn get_graph() -> OwnershipGraph {
 }
 
 /// Export current tracking data to JSON file
-pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> Result<()> {
+pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> BorrowScopeResult<()> {
     let events = get_events();
     let graph = build_graph(&events);
     let export = ExportData::new(graph, events);

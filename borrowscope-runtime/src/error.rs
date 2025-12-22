@@ -54,8 +54,8 @@ impl From<io::Error> for Error {
     }
 }
 
-/// Result type alias
-pub type Result<T> = std::result::Result<T, Error>;
+/// Result type alias for BorrowScope operations
+pub type BorrowScopeResult<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {
