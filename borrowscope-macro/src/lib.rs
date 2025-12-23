@@ -3,7 +3,7 @@
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
 //! Rust code to track ownership and borrowing operations at runtime.
 //!
-//! # Quick Start
+//! ## Quick Start
 //!
 //! ```ignore
 //! use borrowscope_macro::trace_borrow;
@@ -23,167 +23,253 @@
 //! }
 //! ```
 //!
-//! # Attribute Options
+//! ## Attribute Options
+//!
+//! ### Presets
 //!
 //! | Attribute | Description |
 //! |-----------|-------------|
-//! | `#[trace_borrow]` | Default: all standard tracking enabled |
+//! | `#[trace_borrow]` | Standard tracking (recommended) |
 //! | `#[trace_borrow(quiet)]` | Ownership only (new, move, drop, borrow) |
 //! | `#[trace_borrow(verbose)]` | All tracking including noisy features |
+//!
+//! ### Feature Selection
+//!
+//! | Attribute | Description |
+//! |-----------|-------------|
 //! | `#[trace_borrow(skip = "loops,branches")]` | Skip specific feature groups |
 //! | `#[trace_borrow(only = "ownership")]` | Enable only specified feature groups |
 //!
-//! # Feature Groups
+//! ### Filtering & Sampling (Performance)
+//!
+//! | Attribute | Description |
+//! |-----------|-------------|
+//! | `#[trace_borrow(filter = "data*")]` | Only track variables matching glob pattern |
+//! | `#[trace_borrow(sample = 0.1)]` | Track ~10% of operations (probabilistic) |
+//!
+//! ### Conditional Compilation
+//!
+//! | Attribute | Description |
+//! |-----------|-------------|
+//! | `#[trace_borrow(debug_only)]` | Only track in debug builds |
+//! | `#[trace_borrow(release_only)]` | Only track in release builds |
+//! | `#[trace_borrow(feature = "tracing")]` | Only track when cargo feature enabled |
+//!
+//! ## Feature Groups
 //!
 //! Use these group names with `skip` or `only` options:
 //!
-//! | Group | Aliases | Description | Events Generated |
-//! |-------|---------|-------------|------------------|
-//! | `ownership` | - | Variable creation, moves, drops, borrows | `New`, `Move`, `Drop`, `Borrow` |
-//! | `smart_pointers` | `pointers` | Rc, Arc, RefCell, Cell operations | `RcNew`, `RcClone`, `ArcNew`, `ArcClone`, `RefCellNew`, `RefCellBorrow`, `CellNew`, `CellGet`, `CellSet` |
-//! | `loops` | - | for, while, loop tracking | `LoopEnter`, `LoopIteration`, `LoopExit` |
-//! | `branches` | - | if/else, match tracking | `Branch`, `MatchEnter`, `MatchArm`, `MatchExit` |
-//! | `control_flow` | `control` | break, continue, return | `Break`, `Continue`, `Return` |
-//! | `try` | - | ? operator | `Try` |
-//! | `methods` | - | clone, lock, unwrap | `Clone`, `Lock`, `Unwrap` |
-//! | `async` | - | async blocks, await | `AsyncBlockEnter`, `AsyncBlockExit`, `AwaitStart`, `AwaitEnd` |
-//! | `unsafe` | - | unsafe blocks, raw pointers, transmute | `UnsafeBlockEnter`, `UnsafeBlockExit`, `RawPtrCreated`, `RawPtrDeref`, `Transmute` |
-//! | `expressions` | `exprs` | struct, tuple, array, range, cast | `StructCreate`, `TupleCreate`, `ArrayCreate`, `Range`, `TypeCast`, `ClosureCreate` |
-//! | `functions` | `fn` | Function entry/exit (disabled by default) | `FnEnter`, `FnExit` |
+//! | Group | Aliases | Description |
+//! |-------|---------|-------------|
+//! | `ownership` | - | Variable creation, moves, drops, borrows |
+//! | `smart_pointers` | `pointers` | Rc, Arc, RefCell, Cell operations |
+//! | `loops` | - | for, while, loop tracking |
+//! | `branches` | - | if/else, match tracking |
+//! | `control_flow` | `control` | break, continue, return |
+//! | `try` | - | ? operator |
+//! | `methods` | - | clone, lock, unwrap |
+//! | `async` | - | async blocks, await |
+//! | `unsafe` | - | unsafe blocks, raw pointers, transmute |
+//! | `expressions` | `exprs` | struct, tuple, array, range, cast |
+//! | `functions` | `fn` | Function entry/exit (disabled by default) |
 //!
-//! # Tracked Operations
+//! ## Filtering
 //!
-//! ## Basic Ownership (`ownership` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `let x = value;` | `track_new()` | `New` |
-//! | `let y = &x;` | `track_borrow()` | `Borrow` |
-//! | `let y = &mut x;` | `track_borrow_mut()` | `Borrow` (mutable) |
-//! | `let y = x;` (move) | `track_move()` | `Move` |
-//! | Scope exit | `track_drop()` | `Drop` |
-//!
-//! ## Smart Pointers (`smart_pointers` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `Rc::new(v)` | `track_rc_new()` | `RcNew` |
-//! | `Rc::clone(&rc)` | `track_rc_clone()` | `RcClone` |
-//! | `Arc::new(v)` | `track_arc_new()` | `ArcNew` |
-//! | `Arc::clone(&arc)` | `track_arc_clone()` | `ArcClone` |
-//! | `RefCell::new(v)` | `track_refcell_new()` | `RefCellNew` |
-//! | `refcell.borrow()` | `track_refcell_borrow()` | `RefCellBorrow` |
-//! | `refcell.borrow_mut()` | `track_refcell_borrow_mut()` | `RefCellBorrow` |
-//! | `Cell::new(v)` | `track_cell_new()` | `CellNew` |
-//! | `cell.get()` | `track_cell_get()` | `CellGet` |
-//! | `cell.set(v)` | `track_cell_set()` | `CellSet` |
-//!
-//! ## Loops (`loops` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `for x in iter { }` | `track_loop_enter()` | `LoopEnter` |
-//! | Each iteration | `track_loop_iteration()` | `LoopIteration` |
-//! | Loop end | `track_loop_exit()` | `LoopExit` |
-//! | `while cond { }` | Same as for | Same |
-//! | `loop { }` | Same as for | Same |
-//!
-//! ## Branches (`branches` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `if cond { }` | `track_branch()` | `Branch` |
-//! | `if cond { } else { }` | `track_branch()` | `Branch` |
-//! | `match expr { }` | `track_match_enter()` | `MatchEnter` |
-//! | Match arm taken | `track_match_arm()` | `MatchArm` |
-//! | Match end | `track_match_exit()` | `MatchExit` |
-//!
-//! ## Control Flow (`control_flow` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `break;` | `track_break()` | `Break` |
-//! | `break 'label;` | `track_break()` | `Break` (with label) |
-//! | `continue;` | `track_continue()` | `Continue` |
-//! | `return expr;` | `track_return()` | `Return` |
-//!
-//! ## Try Operator (`try` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `expr?` | `track_try()` | `Try` |
-//!
-//! ## Methods (`methods` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `.clone()` | `track_clone()` | `Clone` |
-//! | `.lock()` / `.read()` / `.write()` | `track_lock()` | `Lock` |
-//! | `.unwrap()` / `.expect()` | `track_unwrap()` | `Unwrap` |
-//!
-//! ## Async (`async` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `async { }` | `track_async_block_enter()` | `AsyncBlockEnter` |
-//! | Async block end | `track_async_block_exit()` | `AsyncBlockExit` |
-//! | `.await` start | `track_await_start()` | `AwaitStart` |
-//! | `.await` end | `track_await_end()` | `AwaitEnd` |
-//!
-//! ## Unsafe (`unsafe` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `unsafe { }` | `track_unsafe_block_enter()` | `UnsafeBlockEnter` |
-//! | Unsafe block end | `track_unsafe_block_exit()` | `UnsafeBlockExit` |
-//! | `&raw const x` | `track_raw_ptr()` | `RawPtrCreated` |
-//! | `*ptr` | `track_raw_ptr_deref()` | `RawPtrDeref` |
-//! | `transmute()` | `track_transmute()` | `Transmute` |
-//!
-//! ## Expressions (`expressions` group)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | `Point { x, y }` | `track_struct_create()` | `StructCreate` |
-//! | `(a, b, c)` | `track_tuple_create()` | `TupleCreate` |
-//! | `[1, 2, 3]` | `track_array_create()` | `ArrayCreate` |
-//! | `0..10` / `0..=10` | `track_range()` | `Range` |
-//! | `x as i64` | `track_type_cast()` | `TypeCast` |
-//! | `\|\| expr` / `move \|\| expr` | `track_closure_create()` | `ClosureCreate` |
-//!
-//! ## Functions (`functions` group, disabled by default)
-//!
-//! | Code Pattern | Runtime Function | Event |
-//! |--------------|------------------|-------|
-//! | Function entry | `track_fn_enter()` | `FnEnter` |
-//! | Function exit | `track_fn_exit()` | `FnExit` |
-//!
-//! # Configuration Examples
+//! Filter which variables are tracked using glob patterns:
 //!
 //! ```ignore
-//! // Track only ownership operations
-//! #[trace_borrow(only = "ownership")]
-//! fn minimal_tracking() { }
-//!
-//! // Track ownership + function boundaries
-//! #[trace_borrow(only = "ownership,functions")]
-//! fn with_fn_tracking() { }
-//!
-//! // Skip noisy loop and branch tracking
-//! #[trace_borrow(skip = "loops,branches")]
-//! fn cleaner_output() { }
-//!
-//! // Quiet mode - same as only = "ownership"
-//! #[trace_borrow(quiet)]
-//! fn quiet_mode() { }
+//! #[trace_borrow(filter = "data*")]      // Track vars starting with "data"
+//! #[trace_borrow(filter = "*_count")]    // Track vars ending with "_count"
+//! #[trace_borrow(filter = "user_?")]     // Track user_1, user_2, etc.
 //! ```
 //!
-//! # Limitations
+//! **Pattern syntax:**
+//! - `*` matches zero or more characters
+//! - `?` matches exactly one character
 //!
-//! - Cannot be used on `const fn` (tracking requires runtime)
-//! - Cannot be used on `extern` functions
-//! - Async functions work but may not capture all ownership across await points
-//! - Unsafe functions work but tracking cannot verify safety invariants
+//! **Note:** Filtering is applied at compile-time. No tracking code is generated
+//! for variables that don't match the pattern, resulting in zero overhead.
+//!
+//! ## Sampling
+//!
+//! Reduce tracking overhead by only recording a percentage of operations:
+//!
+//! ```ignore
+//! #[trace_borrow(sample = 0.1)]   // Track ~10% of operations
+//! #[trace_borrow(sample = 0.5)]   // Track ~50% of operations
+//! #[trace_borrow(sample = 1.0)]   // Track 100% (same as no sampling)
+//! ```
+//!
+//! **Use cases:**
+//! - High-frequency loops where full tracking is too expensive
+//! - Production monitoring with minimal overhead
+//! - Statistical analysis where sampling is acceptable
+//!
+//! **Note:** Sampling uses a fast PRNG (xorshift64) for minimal overhead.
+//! The decision is made at runtime for each tracking call.
+//!
+//! ## Conditional Compilation
+//!
+//! Control when tracking code is included:
+//!
+//! ```ignore
+//! // Only in debug builds (recommended for development)
+//! #[trace_borrow(debug_only)]
+//! fn dev_function() { }
+//!
+//! // Only in release builds (for production monitoring)
+//! #[trace_borrow(release_only)]
+//! fn prod_function() { }
+//!
+//! // Only when cargo feature is enabled
+//! #[trace_borrow(feature = "tracing")]
+//! fn optional_tracing() { }
+//! ```
+//!
+//! **Generated code:**
+//! - `debug_only` → `#[cfg(debug_assertions)]`
+//! - `release_only` → `#[cfg(not(debug_assertions))]`
+//! - `feature = "x"` → `#[cfg(feature = "x")]`
+//!
+//! ## Combining Options
+//!
+//! Multiple options can be combined:
+//!
+//! ```ignore
+//! // Debug-only, quiet mode
+//! #[trace_borrow(debug_only, quiet)]
+//!
+//! // Filter + sampling for high-performance tracking
+//! #[trace_borrow(filter = "user*", sample = 0.1)]
+//!
+//! // Feature-gated with specific groups
+//! #[trace_borrow(feature = "trace", only = "ownership,smart_pointers")]
+//!
+//! // Skip noisy features, debug only
+//! #[trace_borrow(debug_only, skip = "loops,branches,expressions")]
+//! ```
+//!
+//! ## Tracked Operations
+//!
+//! ### Basic Ownership (`ownership` group)
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `let x = value;` | `New` |
+//! | `let y = &x;` | `Borrow` |
+//! | `let y = &mut x;` | `Borrow` (mutable) |
+//! | `let y = x;` (move) | `Move` |
+//! | Scope exit | `Drop` |
+//!
+//! ### Smart Pointers (`smart_pointers` group)
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `Rc::new(v)` | `RcNew` |
+//! | `Rc::clone(&rc)` | `RcClone` |
+//! | `Arc::new(v)` | `ArcNew` |
+//! | `Arc::clone(&arc)` | `ArcClone` |
+//! | `RefCell::new(v)` | `RefCellNew` |
+//! | `refcell.borrow()` | `RefCellBorrow` |
+//! | `refcell.borrow_mut()` | `RefCellBorrow` (mutable) |
+//! | `Cell::new(v)` | `CellNew` |
+//! | `cell.get()` | `CellGet` |
+//! | `cell.set(v)` | `CellSet` |
+//!
+//! ### Loops (`loops` group)
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `for`/`while`/`loop` entry | `LoopEnter` |
+//! | Each iteration | `LoopIteration` |
+//! | Loop end | `LoopExit` |
+//!
+//! ### Branches (`branches` group)
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `if`/`else` | `Branch` |
+//! | `match` entry | `MatchEnter` |
+//! | Match arm taken | `MatchArm` |
+//! | Match end | `MatchExit` |
+//!
+//! ### Control Flow (`control_flow` group)
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `break` | `Break` |
+//! | `continue` | `Continue` |
+//! | `return` | `Return` |
+//!
+//! ### Other Groups
+//!
+//! | Group | Code Patterns | Events |
+//! |-------|---------------|--------|
+//! | `try` | `expr?` | `Try` |
+//! | `methods` | `.clone()`, `.lock()`, `.unwrap()` | `Clone`, `Lock`, `Unwrap` |
+//! | `async` | `async { }`, `.await` | `AsyncBlockEnter/Exit`, `AwaitStart/End` |
+//! | `unsafe` | `unsafe { }`, `*ptr`, `transmute` | `UnsafeBlockEnter/Exit`, `RawPtrDeref`, `Transmute` |
+//! | `expressions` | structs, tuples, arrays, ranges, casts | `StructCreate`, `TupleCreate`, etc. |
+//! | `functions` | fn entry/exit | `FnEnter`, `FnExit` |
+//!
+//! ## Performance Tips
+//!
+//! 1. **Use `quiet` mode** for minimal overhead when you only need ownership tracking
+//! 2. **Use `filter`** to track only relevant variables (zero overhead for non-matching)
+//! 3. **Use `sample`** for high-frequency code paths
+//! 4. **Use `debug_only`** to eliminate all overhead in release builds
+//! 5. **Use `skip`** to disable noisy features like loops and branches
+//!
+//! ```ignore
+//! // Minimal overhead configuration
+//! #[trace_borrow(debug_only, quiet, filter = "important_*")]
+//! fn performance_critical() { }
+//! ```
+//!
+//! ## Common Patterns
+//!
+//! ```ignore
+//! // Development: full tracking, debug only
+//! #[trace_borrow(debug_only)]
+//! fn dev_function() { }
+//!
+//! // Learning: ownership only, cleaner output
+//! #[trace_borrow(quiet)]
+//! fn learning_example() { }
+//!
+//! // Production monitoring: sampled, feature-gated
+//! #[trace_borrow(feature = "monitoring", sample = 0.01)]
+//! fn production_function() { }
+//!
+//! // Debugging specific variables
+//! #[trace_borrow(filter = "suspect_*", verbose)]
+//! fn debug_specific() { }
+//! ```
+//!
+//! ## Limitations
+//!
+//! - **const fn**: Cannot be used (tracking requires runtime)
+//! - **extern fn**: Cannot be used (only Rust ABI supported)
+//! - **async fn**: Works but may not capture all ownership across await points
+//! - **unsafe fn**: Works but tracking cannot verify safety invariants
+//! - **Macros**: Variables created inside macro expansions may not be tracked
+//!
+//! ## Troubleshooting
+//!
+//! **No events recorded:**
+//! - Ensure `borrowscope_runtime` has `features = ["track"]` enabled
+//! - Call `reset()` before the traced function
+//! - Check if `debug_only` is set but running in release mode
+//!
+//! **Too many events:**
+//! - Use `quiet` mode or `only = "ownership"`
+//! - Use `skip = "loops,branches"` to reduce noise
+//! - Use `filter` to track specific variables
+//!
+//! **Performance issues:**
+//! - Use `sample = 0.1` or lower for high-frequency code
+//! - Use `debug_only` to disable in release builds
+//! - Use `filter` to reduce tracked variables
 
 mod best_practices;
 mod borrow_detection;

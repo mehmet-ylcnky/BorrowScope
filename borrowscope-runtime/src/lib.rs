@@ -7,7 +7,7 @@
 //! concurrency primitives, and unsafe code as they happen at runtime, generating
 //! structured event data for analysis and visualization.
 //!
-//! # Quick Start
+//! ## Quick Start
 //!
 //! ```rust
 //! use borrowscope_runtime::*;
@@ -31,7 +31,7 @@
 //! println!("{}", serde_json::to_string_pretty(&events).unwrap());
 //! ```
 //!
-//! # Feature Flags
+//! ## Feature Flags
 //!
 //! - `track` - Enables runtime tracking. Without this feature, all tracking
 //!   functions compile to no-ops with zero overhead.
@@ -41,124 +41,206 @@
 //! borrowscope-runtime = { version = "0.1", features = ["track"] }
 //! ```
 //!
-//! # Modules
+//! ## Tracking Functions by Category
 //!
-//! - Core tracking functions (70+ functions for all ownership patterns)
-//! - Event types and serialization (45+ event types)
-//! - Ownership graph building and analysis
-//! - JSON export utilities
-//! - Lifetime analysis and timeline construction
+//! ### Basic Ownership
 //!
-//! # Tracking Categories
+//! Core ownership tracking for variables, borrows, moves, and drops.
 //!
-//! | Category | Functions |
-//! |----------|-----------|
-//! | Basic ownership | `track_new`, `track_borrow`, `track_borrow_mut`, `track_move`, `track_drop` |
-//! | RAII guards | `track_new_guard`, `track_borrow_guard`, `track_borrow_mut_guard` |
-//! | Smart pointers | `track_rc_new`, `track_rc_clone`, `track_arc_new`, `track_arc_clone` |
-//! | Box | `track_box_new`, `track_box_into_raw`, `track_box_from_raw` |
-//! | Weak references | `track_weak_new`, `track_weak_new_sync`, `track_weak_upgrade`, `track_weak_clone` |
-//! | Pin | `track_pin_new`, `track_pin_into_inner` |
-//! | Cow | `track_cow_borrowed`, `track_cow_owned`, `track_cow_to_mut` |
-//! | Interior mutability | `track_refcell_*`, `track_cell_*` |
-//! | OnceCell/OnceLock | `track_once_cell_new`, `track_once_lock_new`, `track_once_cell_set`, `track_once_cell_get` |
-//! | MaybeUninit | `track_maybe_uninit_uninit`, `track_maybe_uninit_new`, `track_maybe_uninit_write`, `track_maybe_uninit_assume_init` |
-//! | Threads | `track_thread_spawn`, `track_thread_join` |
-//! | Channels | `track_channel`, `track_channel_send`, `track_channel_recv` |
-//! | Lock guards | `track_lock_guard_acquire`, `track_lock_guard_drop` |
-//! | Unsafe code | `track_raw_ptr*`, `track_unsafe_*`, `track_ffi_call`, `track_transmute` |
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_new`] | Track variable creation |
+//! | [`track_new_with_id`] | Track creation with explicit ID and location |
+//! | [`track_borrow`] | Track immutable borrow (`&T`) |
+//! | [`track_borrow_with_id`] | Track immutable borrow with explicit IDs |
+//! | [`track_borrow_mut`] | Track mutable borrow (`&mut T`) |
+//! | [`track_borrow_mut_with_id`] | Track mutable borrow with explicit IDs |
+//! | [`track_move`] | Track ownership transfer |
+//! | [`track_move_with_id`] | Track move with explicit IDs |
+//! | [`track_drop`] | Track variable going out of scope |
+//! | [`track_drop_with_id`] | Track drop with explicit ID |
+//! | [`track_drop_batch`] | Track multiple drops efficiently |
 //!
-//! # Smart Pointer Tracking
+//! ### Smart Pointers
 //!
-//! Track all standard library smart pointers:
+//! Track reference-counted and heap-allocated smart pointers.
 //!
-//! ```rust
-//! use borrowscope_runtime::*;
-//! use std::rc::Rc;
-//! use std::sync::Arc;
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_rc_new`] | Track `Rc::new` |
+//! | [`track_rc_clone`] | Track `Rc::clone` |
+//! | [`track_arc_new`] | Track `Arc::new` |
+//! | [`track_arc_clone`] | Track `Arc::clone` |
+//! | [`track_weak_new`] | Track `Rc::downgrade` |
+//! | [`track_weak_new_sync`] | Track `Arc::downgrade` |
+//! | [`track_weak_clone`] | Track `Weak::clone` (Rc) |
+//! | [`track_weak_clone_sync`] | Track `Weak::clone` (Arc) |
+//! | [`track_weak_upgrade`] | Track `Weak::upgrade` (Rc) |
+//! | [`track_weak_upgrade_sync`] | Track `Weak::upgrade` (Arc) |
+//! | [`track_box_new`] | Track `Box::new` |
+//! | [`track_box_into_raw`] | Track `Box::into_raw` |
+//! | [`track_box_from_raw`] | Track `Box::from_raw` |
+//! | [`track_pin_new`] | Track `Pin::new` |
+//! | [`track_pin_into_inner`] | Track `Pin::into_inner` |
+//! | [`track_cow_borrowed`] | Track `Cow::Borrowed` |
+//! | [`track_cow_owned`] | Track `Cow::Owned` |
+//! | [`track_cow_to_mut`] | Track `Cow::to_mut` |
 //!
-//! reset();
+//! ### Interior Mutability
 //!
-//! // Reference counting
-//! let rc = track_rc_new("rc", Rc::new(42));
-//! let rc2 = track_rc_clone("rc2", "rc", Rc::clone(&rc));
+//! Track runtime borrow checking and cell types.
 //!
-//! // Atomic reference counting
-//! let arc = track_arc_new("arc", Arc::new(42));
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_refcell_new`] | Track `RefCell::new` |
+//! | [`track_refcell_borrow`] | Track `RefCell::borrow` |
+//! | [`track_refcell_borrow_mut`] | Track `RefCell::borrow_mut` |
+//! | [`track_refcell_drop`] | Track `Ref`/`RefMut` guard drop |
+//! | [`track_cell_new`] | Track `Cell::new` |
+//! | [`track_cell_get`] | Track `Cell::get` |
+//! | [`track_cell_set`] | Track `Cell::set` |
+//! | [`track_once_cell_new`] | Track `OnceCell::new` |
+//! | [`track_once_lock_new`] | Track `OnceLock::new` |
+//! | [`track_once_cell_set`] | Track `OnceCell::set` |
+//! | [`track_once_cell_get`] | Track `OnceCell::get` |
+//! | [`track_once_cell_get_or_init`] | Track `OnceCell::get_or_init` |
+//! | [`track_maybe_uninit_uninit`] | Track `MaybeUninit::uninit` |
+//! | [`track_maybe_uninit_new`] | Track `MaybeUninit::new` |
+//! | [`track_maybe_uninit_write`] | Track `MaybeUninit::write` |
+//! | [`track_maybe_uninit_assume_init`] | Track `MaybeUninit::assume_init` |
+//! | [`track_maybe_uninit_assume_init_read`] | Track `MaybeUninit::assume_init_read` |
+//! | [`track_maybe_uninit_assume_init_drop`] | Track `MaybeUninit::assume_init_drop` |
 //!
-//! // Box heap allocation
-//! let boxed = track_box_new("boxed", "loc", Box::new(42));
-//! ```
+//! ### Unsafe Code
 //!
-//! # Weak Reference Tracking
+//! Track unsafe operations, raw pointers, and FFI.
 //!
-//! Track weak references and upgrade attempts:
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_raw_ptr`] | Track `*const T` creation |
+//! | [`track_raw_ptr_mut`] | Track `*mut T` creation |
+//! | [`track_raw_ptr_deref`] | Track raw pointer dereference |
+//! | [`track_unsafe_block_enter`] | Track entering `unsafe` block |
+//! | [`track_unsafe_block_exit`] | Track exiting `unsafe` block |
+//! | [`track_unsafe_fn_call`] | Track unsafe function call |
+//! | [`track_ffi_call`] | Track FFI function call |
+//! | [`track_transmute`] | Track `std::mem::transmute` |
+//! | [`track_union_field_access`] | Track union field access |
 //!
-//! ```rust
-//! use borrowscope_runtime::*;
-//! use std::rc::{Rc, Weak};
+//! ### Concurrency
 //!
-//! reset();
+//! Track threads, channels, and synchronization primitives.
 //!
-//! let rc = Rc::new(42);
-//! let weak = track_weak_new("weak", "rc", "loc", Rc::downgrade(&rc));
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_thread_spawn`] | Track `thread::spawn` |
+//! | [`track_thread_join`] | Track `JoinHandle::join` |
+//! | [`track_channel`] | Track `mpsc::channel` creation |
+//! | [`track_channel_send`] | Track `Sender::send` |
+//! | [`track_channel_recv`] | Track `Receiver::recv` |
+//! | [`track_channel_try_recv`] | Track `Receiver::try_recv` |
+//! | [`track_lock`] | Track lock acquisition |
+//! | [`track_lock_guard_acquire`] | Track lock guard creation |
+//! | [`track_lock_guard_drop`] | Track lock guard drop |
 //!
-//! // Track upgrade attempts
-//! if let Some(upgraded) = track_weak_upgrade("weak", "loc", weak.upgrade()) {
-//!     println!("Upgraded: {}", upgraded);
-//! }
-//! ```
+//! ### Async/Await
 //!
-//! # Concurrency Tracking
+//! Track async blocks and await points.
 //!
-//! Track threads and channels:
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_async_block_enter`] | Track entering async block |
+//! | [`track_async_block_exit`] | Track exiting async block |
+//! | [`track_await_start`] | Track await expression start |
+//! | [`track_await_end`] | Track await expression completion |
 //!
-//! ```rust
-//! use borrowscope_runtime::*;
-//! use std::sync::mpsc;
+//! ### Control Flow
 //!
-//! reset();
+//! Track loops, matches, branches, and function boundaries.
 //!
-//! // Track channel creation
-//! let (tx, rx) = mpsc::channel();
-//! let (tx, rx) = track_channel("chan", "loc", tx, rx);
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_loop_enter`] | Track loop entry |
+//! | [`track_loop_iteration`] | Track loop iteration |
+//! | [`track_loop_exit`] | Track loop exit |
+//! | [`track_match_enter`] | Track match expression entry |
+//! | [`track_match_arm`] | Track match arm taken |
+//! | [`track_match_exit`] | Track match expression exit |
+//! | [`track_branch`] | Track if/else branch |
+//! | [`track_return`] | Track return statement |
+//! | [`track_try`] | Track `?` operator |
+//! | [`track_break`] | Track break statement |
+//! | [`track_continue`] | Track continue statement |
+//! | [`track_fn_enter`] | Track function entry |
+//! | [`track_fn_exit`] | Track function exit |
+//! | [`track_region_enter`] | Track scope/region entry |
+//! | [`track_region_exit`] | Track scope/region exit |
 //!
-//! // Track send/receive
-//! let _ = track_channel_send("chan", "loc", tx.send(42));
-//! let received = track_channel_recv("chan", "loc", rx.recv());
-//! ```
+//! ### Expressions
 //!
-//! # OnceCell/OnceLock Tracking
+//! Track various expression types and operations.
 //!
-//! Track lazy initialization:
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_index_access`] | Track array/slice indexing |
+//! | [`track_field_access`] | Track struct field access |
+//! | [`track_call`] | Track function/method call |
+//! | [`track_unwrap`] | Track `unwrap`/`expect` calls |
+//! | [`track_clone`] | Track `clone` calls |
+//! | [`track_deref`] | Track dereference operations |
+//! | [`track_closure_create`] | Track closure creation |
+//! | [`track_closure_capture`] | Track closure variable capture |
+//! | [`track_struct_create`] | Track struct instantiation |
+//! | [`track_tuple_create`] | Track tuple creation |
+//! | [`track_array_create`] | Track array creation |
+//! | [`track_let_else`] | Track let-else patterns |
+//! | [`track_range`] | Track range expressions |
+//! | [`track_binary_op`] | Track binary operations |
+//! | [`track_type_cast`] | Track type casts (`as`) |
 //!
-//! ```rust
-//! use borrowscope_runtime::*;
-//! use std::cell::OnceCell;
+//! ### Static/Const
 //!
-//! reset();
+//! Track static variables and const evaluation.
 //!
-//! let cell: OnceCell<i32> = track_once_cell_new("config", "loc", OnceCell::new());
-//! let _ = track_once_cell_set("config", "loc", cell.set(42));
-//! let value = track_once_cell_get("config", "loc", cell.get());
-//! ```
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`track_static_init`] | Track static variable initialization |
+//! | [`track_static_access`] | Track static variable access |
+//! | [`track_const_eval`] | Track const evaluation |
 //!
-//! # MaybeUninit Tracking
+//! ### Sampling
 //!
-//! Track uninitialized memory operations:
+//! Probabilistic tracking for reduced overhead.
 //!
-//! ```rust
-//! use borrowscope_runtime::*;
-//! use std::mem::MaybeUninit;
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`should_sample`] | Check if call should be sampled |
+//! | [`track_new_sampled`] | Track creation with sampling |
+//! | [`track_new_with_id_sampled`] | Track creation with ID and sampling |
+//! | [`track_borrow_sampled`] | Track borrow with sampling |
+//! | [`track_borrow_mut_sampled`] | Track mutable borrow with sampling |
+//! | [`track_drop_sampled`] | Track drop with sampling |
+//! | [`track_move_sampled`] | Track move with sampling |
 //!
-//! reset();
+//! ### Query Functions
 //!
-//! let mut uninit: MaybeUninit<i32> = track_maybe_uninit_uninit("data", "loc", MaybeUninit::uninit());
-//! let written = track_maybe_uninit_write("data", "loc", uninit.write(42));
-//! let value = track_maybe_uninit_assume_init("data", "loc", unsafe { uninit.assume_init() });
-//! ```
+//! Filter and summarize tracked events.
 //!
-//! # RAII Guards
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`get_events`] | Get all recorded events |
+//! | [`get_events_filtered`] | Get events matching predicate |
+//! | [`get_new_events`] | Get all `New` events |
+//! | [`get_borrow_events`] | Get all `Borrow` events |
+//! | [`get_drop_events`] | Get all `Drop` events |
+//! | [`get_move_events`] | Get all `Move` events |
+//! | [`get_events_for_var`] | Get events for specific variable |
+//! | [`get_event_counts`] | Get (new, borrow, move, drop) counts |
+//! | [`get_summary`] | Get [`TrackingSummary`] statistics |
+//! | [`print_summary`] | Print summary to stdout |
+//! | [`reset`] | Clear all recorded events |
+//!
+//! ## RAII Guards
 //!
 //! For automatic drop tracking, use the guard variants:
 //!
@@ -176,28 +258,7 @@
 //! assert!(events.last().unwrap().is_drop());
 //! ```
 //!
-//! # Event Filtering
-//!
-//! Filter events by category using helper methods:
-//!
-//! ```rust
-//! use borrowscope_runtime::*;
-//!
-//! reset();
-//! // ... tracking code ...
-//!
-//! let events = get_events();
-//!
-//! // Filter by category
-//! let box_events: Vec<_> = events.iter().filter(|e| e.is_box()).collect();
-//! let weak_events: Vec<_> = events.iter().filter(|e| e.is_weak()).collect();
-//! let thread_events: Vec<_> = events.iter().filter(|e| e.is_thread()).collect();
-//! let channel_events: Vec<_> = events.iter().filter(|e| e.is_channel()).collect();
-//! let once_cell_events: Vec<_> = events.iter().filter(|e| e.is_once_cell()).collect();
-//! let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
-//! ```
-//!
-//! # Performance
+//! ## Performance
 //!
 //! - With `track` feature: ~75-80ns per tracking call
 //! - Without `track` feature: zero overhead (compiled away)

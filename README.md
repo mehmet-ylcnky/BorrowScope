@@ -32,11 +32,14 @@ Available on [crates.io](https://crates.io/crates/borrowscope-runtime). Add to y
 ```toml
 [dependencies]
 borrowscope-runtime = { version = "0.1", features = ["track"] }
+borrowscope-macro = "0.1"  # Optional: for automatic instrumentation
 ```
 
 The `track` feature enables runtime tracking. Without it, all tracking functions compile to no-ops with zero overhead.
 
 ## Quick Start
+
+### Manual Tracking
 
 ```rust
 use borrowscope_runtime::*;
@@ -58,13 +61,31 @@ fn main() {
 }
 ```
 
+### Automatic Instrumentation (Macro)
+
+```rust
+use borrowscope_macro::trace_borrow;
+use borrowscope_runtime::*;
+
+#[trace_borrow]
+fn example() {
+    let data = vec![1, 2, 3];  // Automatically tracked
+    let r = &data;              // Borrow tracked
+    println!("{:?}", r);
+}                               // Drops tracked
+
+fn main() {
+    reset();
+    example();
+    print_summary();
+}
+```
+
 Output:
-```json
-[
-  { "type": "New", "name": "data", "timestamp": 1234567890 },
-  { "type": "Borrow", "name": "r1", "source": "data", "timestamp": 1234567891 },
-  { "type": "Borrow", "name": "r2", "source": "data", "timestamp": 1234567892 }
-]
+```
+=== BorrowScope Summary ===
+Variables: 1 created, 1 dropped
+Borrows: 1 immutable, 0 mutable
 ```
 
 ## Tracking Functions
@@ -121,6 +142,44 @@ Output:
 
 All functions have `_with_id` variants that accept a custom identifier for correlation.
 
+## Automatic Instrumentation (borrowscope-macro)
+
+The `#[trace_borrow]` attribute macro automatically instruments functions:
+
+```rust
+use borrowscope_macro::trace_borrow;
+
+#[trace_borrow]                              // Standard tracking
+#[trace_borrow(quiet)]                       // Ownership only
+#[trace_borrow(skip = "loops,branches")]     // Skip noisy features
+#[trace_borrow(debug_only)]                  // Only in debug builds
+```
+
+### Filtering & Sampling
+
+For performance-sensitive code, use filtering and sampling:
+
+```rust
+// Only track variables matching pattern (* = any chars, ? = single char)
+#[trace_borrow(filter = "user_*")]
+fn track_specific_vars() {
+    let user_data = vec![1, 2, 3];  // Tracked
+    let temp = 42;                   // NOT tracked (doesn't match)
+}
+
+// Probabilistic sampling - track ~10% of operations
+#[trace_borrow(sample = 0.1)]
+fn high_frequency_function() {
+    // Reduces overhead in hot paths
+}
+
+// Combine for maximum control
+#[trace_borrow(debug_only, filter = "important_*", sample = 0.5)]
+fn production_ready() { }
+```
+
+See [borrowscope-macro examples](borrowscope-macro/examples/) for more.
+
 ## Example Projects
 
 The `examples/` directory contains standalone projects demonstrating different aspects of BorrowScope:
@@ -146,11 +205,18 @@ cargo run
 BorrowScope/
 ├── borrowscope-runtime/     # Core tracking library
 │   ├── src/
-│   │   ├── tracker.rs      # 41 tracking functions
+│   │   ├── tracker.rs      # 125+ tracking functions
 │   │   ├── event.rs        # Event types and serialization
 │   │   ├── graph.rs        # Graph data structures
 │   │   └── export.rs       # JSON export utilities
-│   └── tests/              # 555 tests
+│   └── tests/              # 290+ tests
+│
+├── borrowscope-macro/       # Procedural macro for automatic instrumentation
+│   ├── src/
+│   │   ├── lib.rs          # #[trace_borrow] attribute macro
+│   │   ├── config.rs       # Configuration parsing
+│   │   └── transform_visitor.rs  # AST transformation
+│   └── tests/              # 300+ tests
 │
 └── examples/               # Standalone example projects
     ├── ownership-patterns/
@@ -185,7 +251,6 @@ cargo test -p borrowscope-runtime --features track --test integration_tests
 
 Future development will add:
 
-- **borrowscope-macro** - Procedural macros for automatic instrumentation
 - **borrowscope-graph** - Graph algorithms for ownership analysis
 - **borrowscope-cli** - Command-line tool for analyzing Rust projects
 - **borrowscope-ui** - Interactive visualization application
