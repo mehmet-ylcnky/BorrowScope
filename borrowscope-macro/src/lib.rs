@@ -192,6 +192,7 @@ mod config;
 mod examples;
 mod formatting;
 mod generic_handler;
+mod diagnostics;
 mod hygiene;
 mod optimized_transform;
 mod parser;
@@ -355,6 +356,9 @@ pub fn trace_borrow(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut visitor = OwnershipVisitor::with_config(args.config.clone());
     visitor.visit_item_fn_mut(&mut transformed_fn);
 
+    // Collect warnings
+    let warnings = visitor.take_warnings();
+
     // Generate output based on conditional mode
     let output = if args.config.conditional_mode.is_conditional() {
         // Generate both versions with cfg attributes
@@ -370,6 +374,8 @@ pub fn trace_borrow(attr: TokenStream, item: TokenStream) -> TokenStream {
         };
 
         quote! {
+            #(#warnings)*
+
             #cfg_tokens
             #transformed_fn
 
@@ -379,6 +385,8 @@ pub fn trace_borrow(attr: TokenStream, item: TokenStream) -> TokenStream {
     } else {
         // Always instrument
         quote! {
+            #(#warnings)*
+
             #transformed_fn
         }
     };

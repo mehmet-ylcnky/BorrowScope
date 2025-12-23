@@ -63,6 +63,8 @@ pub struct OwnershipVisitor {
     box_vars: HashSet<String>,
     /// Variables that are lock guards (for drop tracking)
     lock_guard_vars: HashMap<String, String>, // guard_name -> lock_type
+    /// Collected warnings to include in output
+    warnings: Vec<proc_macro2::TokenStream>,
 }
 
 impl OwnershipVisitor {
@@ -91,7 +93,18 @@ impl OwnershipVisitor {
             join_handle_vars: HashSet::new(),
             box_vars: HashSet::new(),
             lock_guard_vars: HashMap::new(),
+            warnings: Vec::new(),
         }
+    }
+
+    /// Get collected warnings
+    pub fn take_warnings(&mut self) -> Vec<proc_macro2::TokenStream> {
+        std::mem::take(&mut self.warnings)
+    }
+
+    /// Add a warning
+    fn add_warning(&mut self, warning: proc_macro2::TokenStream) {
+        self.warnings.push(warning);
     }
 
     /// Generate next unique ID
@@ -1121,15 +1134,25 @@ impl OwnershipVisitor {
 
             // Check for transmute (reliably detectable by name)
             if path_str.contains("transmute") {
-                let location = Self::location_tokens(
-                    path.path
-                        .segments
-                        .last()
-                        .map(|s| s.ident.span())
-                        .unwrap_or_else(proc_macro2::Span::call_site),
-                );
+                let span = path
+                    .path
+                    .segments
+                    .last()
+                    .map(|s| s.ident.span())
+                    .unwrap_or_else(proc_macro2::Span::call_site);
+                let location = Self::location_tokens(span);
                 let args = &call_expr.args;
                 let func = &call_expr.func;
+
+                // Add warning about transmute type info
+                if self.config.warn_ambiguous {
+                    let warning = crate::diagnostics::create_ambiguous_warning(
+                        crate::diagnostics::AmbiguousPattern::Transmute,
+                        "transmute",
+                        span,
+                    );
+                    self.add_warning(warning);
+                }
 
                 *expr = syn::parse_quote! {
                     {
@@ -1137,8 +1160,29 @@ impl OwnershipVisitor {
                         #func(#args)
                     }
                 };
+                return;
             }
-            // Note: FFI calls and unsafe fn calls cannot be detected without type information
+
+            // Check for potential FFI calls
+            if self.config.warn_ambiguous {
+                // Extract function name from path
+                if let Some(last_segment) = path.path.segments.last() {
+                    let fn_name = last_segment.ident.to_string();
+
+                    // Skip if it's a known FFI function (user declared)
+                    if !self.config.known_ffi.iter().any(|f| f == &fn_name) {
+                        // Check if it looks like FFI
+                        if crate::diagnostics::looks_like_ffi(&fn_name) {
+                            let warning = crate::diagnostics::create_ambiguous_warning(
+                                crate::diagnostics::AmbiguousPattern::PossibleFfi,
+                                &fn_name,
+                                last_segment.ident.span(),
+                            );
+                            self.add_warning(warning);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -2351,6 +2395,51 @@ impl VisitMut for OwnershipVisitor {
         if self.config.track_unsafe {
             if let Expr::Call(call_expr) = expr.clone() {
                 self.transform_call_expr(expr, &call_expr);
+            }
+        }
+
+        // Warn about potential static variable access
+        if self.config.warn_ambiguous {
+            if let Expr::Path(path_expr) = expr {
+                if let Some(ident) = path_expr.path.get_ident() {
+                    let name = ident.to_string();
+                    // Skip if it's a known static (user declared)
+                    if !self.config.known_statics.iter().any(|s| s == &name) {
+                        // Check if it looks like a static (SCREAMING_SNAKE_CASE)
+                        if crate::diagnostics::looks_like_static(&name) {
+                            let warning = crate::diagnostics::create_ambiguous_warning(
+                                crate::diagnostics::AmbiguousPattern::PossibleStatic,
+                                &name,
+                                ident.span(),
+                            );
+                            self.add_warning(warning);
+                        }
+                    }
+                }
+            }
+
+            // Warn about potential union field access
+            if let Expr::Field(field_expr) = expr {
+                // Try to get the base type name
+                if let Expr::Path(base_path) = field_expr.base.as_ref() {
+                    if let Some(ident) = base_path.path.get_ident() {
+                        let base_name = ident.to_string();
+                        // Skip if it's a known union (user declared)
+                        if !self.config.known_unions.iter().any(|u| u == &base_name) {
+                            // Check if it looks like a union
+                            if crate::diagnostics::looks_like_union(&base_name) {
+                                if let syn::Member::Named(field_ident) = &field_expr.member {
+                                    let warning = crate::diagnostics::create_ambiguous_warning(
+                                        crate::diagnostics::AmbiguousPattern::PossibleUnion,
+                                        &base_name,
+                                        field_ident.span(),
+                                    );
+                                    self.add_warning(warning);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -75,24 +75,41 @@ fn combined() { ... }
 
 ### 3. Better Error Messages
 
-**Status**: Partial  
+**Status**: ✅ Complete  
 **Complexity**: Medium  
 **Impact**: High - Developer experience
 
-Improve compile-time diagnostics:
+Compile-time warnings for ambiguous patterns:
 
 ```rust
-#[trace_borrow]
+#[trace_borrow(warn)]
 fn example() {
-    unknown_func(ptr);  // Warning: Cannot determine if FFI call
-                        // Hint: Use #[trace_borrow(ffi = ["unknown_func"])]
+    c_read(ptr);        // Warning: cannot determine if this is an FFI call
+                        // Hint: use #[trace_borrow(ffi = ["c_read"])] to track as FFI
+
+    let x = GLOBAL_VAR; // Warning: cannot determine if this is a static variable
+                        // Hint: use #[trace_borrow(statics = ["GLOBAL_VAR"])]
+}
+
+// Suppress warnings for known patterns
+#[trace_borrow(warn, ffi = ["c_read"], statics = ["GLOBAL_VAR"])]
+fn with_declarations() {
+    c_read(ptr);        // No warning - declared as known FFI
+    let x = GLOBAL_VAR; // No warning - declared as known static
 }
 ```
 
 **Tasks**:
-- [ ] Emit warnings for ambiguous patterns
-- [ ] Provide actionable hints
-- [ ] Use proper span locations for errors
+- [x] Add `warn` / `warn_ambiguous` attribute option
+- [x] Add `ffi = [...]`, `unions = [...]`, `statics = [...]` for known patterns
+- [x] Emit warnings for potential FFI calls (c_*, malloc, etc.)
+- [x] Emit warnings for potential static variables (SCREAMING_SNAKE_CASE)
+- [x] Emit warnings for potential union field access
+- [x] Emit warnings for transmute (type info unavailable)
+- [x] Use `proc-macro-warning` crate for stable Rust support
+- [x] Proper span locations for all warnings
+- [x] Add example: `examples/better_error_messages.rs`
+- [x] Add unit tests for diagnostics module
 
 ---
 

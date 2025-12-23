@@ -174,6 +174,21 @@ pub struct TraceConfig {
     /// - `ReleaseOnly`: Only compile in release builds
     /// - `Feature(name)`: Only compile when cargo feature is enabled
     pub conditional_mode: ConditionalMode,
+
+    /// Emit warnings for ambiguous patterns.
+    ///
+    /// When enabled, the macro will emit compile-time warnings for patterns
+    /// that cannot be fully analyzed due to the type information barrier.
+    pub warn_ambiguous: bool,
+
+    /// Known FFI function names (won't warn about these).
+    pub known_ffi: Vec<String>,
+
+    /// Known union type names (won't warn about these).
+    pub known_unions: Vec<String>,
+
+    /// Known static variable names (won't warn about these).
+    pub known_statics: Vec<String>,
 }
 
 impl TraceConfig {
@@ -197,6 +212,10 @@ impl TraceConfig {
             track_expressions: true,
             track_functions: false,
             conditional_mode: ConditionalMode::Always,
+            warn_ambiguous: false,
+            known_ffi: Vec::new(),
+            known_unions: Vec::new(),
+            known_statics: Vec::new(),
         }
     }
 
@@ -224,6 +243,10 @@ impl TraceConfig {
             track_expressions: false,
             track_functions: false,
             conditional_mode: ConditionalMode::Always,
+            warn_ambiguous: false,
+            known_ffi: Vec::new(),
+            known_unions: Vec::new(),
+            known_statics: Vec::new(),
         }
     }
 
@@ -291,8 +314,13 @@ impl TraceConfig {
     /// - `smart_pointers` or `pointers` - Enable Rc/Arc/RefCell/Cell
     /// - `functions` or `fn` - Enable function entry/exit
     pub fn only(&mut self, features: &str) {
-        // Preserve conditional_mode
+        // Preserve settings that shouldn't be reset
         let mode = self.conditional_mode.clone();
+        let warn = self.warn_ambiguous;
+        let ffi = std::mem::take(&mut self.known_ffi);
+        let unions = std::mem::take(&mut self.known_unions);
+        let statics = std::mem::take(&mut self.known_statics);
+
         // Start with nothing
         *self = Self {
             track_new: false,
@@ -310,6 +338,10 @@ impl TraceConfig {
             track_expressions: false,
             track_functions: false,
             conditional_mode: mode,
+            warn_ambiguous: warn,
+            known_ffi: ffi,
+            known_unions: unions,
+            known_statics: statics,
         };
 
         for feature in features.split(',').map(|s| s.trim()) {
@@ -376,6 +408,10 @@ impl Parse for TraceArgs {
                 TraceArg::DebugOnly => config.conditional_mode = ConditionalMode::DebugOnly,
                 TraceArg::ReleaseOnly => config.conditional_mode = ConditionalMode::ReleaseOnly,
                 TraceArg::Feature(name) => config.conditional_mode = ConditionalMode::Feature(name),
+                TraceArg::WarnAmbiguous => config.warn_ambiguous = true,
+                TraceArg::Ffi(names) => config.known_ffi.extend(names),
+                TraceArg::Unions(names) => config.known_unions.extend(names),
+                TraceArg::Statics(names) => config.known_statics.extend(names),
             }
         }
 
@@ -391,6 +427,10 @@ enum TraceArg {
     DebugOnly,
     ReleaseOnly,
     Feature(String),
+    WarnAmbiguous,
+    Ffi(Vec<String>),
+    Unions(Vec<String>),
+    Statics(Vec<String>),
 }
 
 impl Parse for TraceArg {
@@ -436,12 +476,40 @@ impl Parse for TraceArg {
                 let value: LitStr = input.parse()?;
                 Ok(TraceArg::Feature(value.value()))
             }
+            "warn" | "warn_ambiguous" => Ok(TraceArg::WarnAmbiguous),
+            "ffi" => {
+                input.parse::<Token![=]>()?;
+                let names = parse_string_list(input)?;
+                Ok(TraceArg::Ffi(names))
+            }
+            "unions" => {
+                input.parse::<Token![=]>()?;
+                let names = parse_string_list(input)?;
+                Ok(TraceArg::Unions(names))
+            }
+            "statics" => {
+                input.parse::<Token![=]>()?;
+                let names = parse_string_list(input)?;
+                Ok(TraceArg::Statics(names))
+            }
             _ => Err(syn::Error::new(
                 ident.span(),
-                format!("unknown attribute argument: {}. Expected one of: verbose, quiet, debug_only, release_only, skip, only, feature", name),
+                format!(
+                    "unknown attribute argument: {}. Expected one of: verbose, quiet, \
+                     debug_only, release_only, skip, only, feature, warn, ffi, unions, statics",
+                    name
+                ),
             )),
         }
     }
+}
+
+/// Parse a list of strings in bracket syntax: ["a", "b", "c"]
+fn parse_string_list(input: ParseStream) -> syn::Result<Vec<String>> {
+    let content;
+    syn::bracketed!(content in input);
+    let items: Punctuated<LitStr, Token![,]> = Punctuated::parse_terminated(&content)?;
+    Ok(items.iter().map(|s| s.value()).collect())
 }
 
 #[cfg(test)]
