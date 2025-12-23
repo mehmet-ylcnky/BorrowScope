@@ -19,6 +19,14 @@
 //! | `expressions` | `track_expressions` | struct, tuple, array, range, cast |
 //! | `functions` | `track_functions` | Function entry/exit |
 //!
+//! # Conditional Compilation
+//!
+//! | Option | Description |
+//! |--------|-------------|
+//! | `debug_only` | Only instrument in debug builds (`#[cfg(debug_assertions)]`) |
+//! | `release_only` | Only instrument in release builds (`#[cfg(not(debug_assertions))]`) |
+//! | `feature = "name"` | Only instrument when cargo feature is enabled |
+//!
 //! # Usage
 //!
 //! ```ignore
@@ -27,6 +35,8 @@
 //! #[trace_borrow(verbose)]                  // all features
 //! #[trace_borrow(skip = "loops,branches")]  // skip specific groups
 //! #[trace_borrow(only = "ownership")]       // only specific groups
+//! #[trace_borrow(debug_only)]               // only in debug builds
+//! #[trace_borrow(feature = "tracing")]      // only when feature enabled
 //! ```
 
 use syn::{
@@ -34,6 +44,42 @@ use syn::{
     punctuated::Punctuated,
     Ident, LitStr, Token,
 };
+
+/// Conditional compilation mode for tracking code.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum ConditionalMode {
+    /// Always generate tracking code (default)
+    #[default]
+    Always,
+    /// Only generate tracking code in debug builds
+    DebugOnly,
+    /// Only generate tracking code in release builds
+    ReleaseOnly,
+    /// Only generate tracking code when a specific feature is enabled
+    Feature(String),
+}
+
+impl ConditionalMode {
+    /// Generate the cfg attribute tokens for this mode.
+    /// Returns None for Always mode (no cfg needed).
+    pub fn cfg_tokens(&self) -> Option<proc_macro2::TokenStream> {
+        use quote::quote;
+        match self {
+            ConditionalMode::Always => None,
+            ConditionalMode::DebugOnly => Some(quote! { #[cfg(debug_assertions)] }),
+            ConditionalMode::ReleaseOnly => Some(quote! { #[cfg(not(debug_assertions))] }),
+            ConditionalMode::Feature(name) => {
+                let feature_name = syn::LitStr::new(name, proc_macro2::Span::call_site());
+                Some(quote! { #[cfg(feature = #feature_name)] })
+            }
+        }
+    }
+
+    /// Check if this mode requires conditional compilation.
+    pub fn is_conditional(&self) -> bool {
+        !matches!(self, ConditionalMode::Always)
+    }
+}
 
 /// Configuration for what operations to track.
 ///
@@ -119,6 +165,15 @@ pub struct TraceConfig {
     ///
     /// Generates `FnEnter` and `FnExit` events. Disabled by default.
     pub track_functions: bool,
+
+    /// Conditional compilation mode.
+    ///
+    /// Controls when tracking code is compiled:
+    /// - `Always` (default): Always compile tracking code
+    /// - `DebugOnly`: Only compile in debug builds
+    /// - `ReleaseOnly`: Only compile in release builds
+    /// - `Feature(name)`: Only compile when cargo feature is enabled
+    pub conditional_mode: ConditionalMode,
 }
 
 impl TraceConfig {
@@ -141,6 +196,7 @@ impl TraceConfig {
             track_unsafe: true,
             track_expressions: true,
             track_functions: false,
+            conditional_mode: ConditionalMode::Always,
         }
     }
 
@@ -167,6 +223,7 @@ impl TraceConfig {
             track_unsafe: false,
             track_expressions: false,
             track_functions: false,
+            conditional_mode: ConditionalMode::Always,
         }
     }
 
@@ -234,6 +291,8 @@ impl TraceConfig {
     /// - `smart_pointers` or `pointers` - Enable Rc/Arc/RefCell/Cell
     /// - `functions` or `fn` - Enable function entry/exit
     pub fn only(&mut self, features: &str) {
+        // Preserve conditional_mode
+        let mode = self.conditional_mode.clone();
         // Start with nothing
         *self = Self {
             track_new: false,
@@ -250,6 +309,7 @@ impl TraceConfig {
             track_unsafe: false,
             track_expressions: false,
             track_functions: false,
+            conditional_mode: mode,
         };
 
         for feature in features.split(',').map(|s| s.trim()) {
@@ -313,6 +373,9 @@ impl Parse for TraceArgs {
                 TraceArg::Quiet => config = TraceConfig::quiet(),
                 TraceArg::Skip(features) => config.skip(&features),
                 TraceArg::Only(features) => config.only(&features),
+                TraceArg::DebugOnly => config.conditional_mode = ConditionalMode::DebugOnly,
+                TraceArg::ReleaseOnly => config.conditional_mode = ConditionalMode::ReleaseOnly,
+                TraceArg::Feature(name) => config.conditional_mode = ConditionalMode::Feature(name),
             }
         }
 
@@ -325,6 +388,9 @@ enum TraceArg {
     Quiet,
     Skip(String),
     Only(String),
+    DebugOnly,
+    ReleaseOnly,
+    Feature(String),
 }
 
 impl Parse for TraceArg {
@@ -335,19 +401,44 @@ impl Parse for TraceArg {
         match name.as_str() {
             "verbose" => Ok(TraceArg::Verbose),
             "quiet" => Ok(TraceArg::Quiet),
+            "debug_only" => Ok(TraceArg::DebugOnly),
+            "release_only" => Ok(TraceArg::ReleaseOnly),
             "skip" => {
-                input.parse::<Token![=]>()?;
-                let value: LitStr = input.parse()?;
-                Ok(TraceArg::Skip(value.value()))
+                // Support both skip = "..." and skip(...)
+                if input.peek(Token![=]) {
+                    input.parse::<Token![=]>()?;
+                    let value: LitStr = input.parse()?;
+                    Ok(TraceArg::Skip(value.value()))
+                } else {
+                    let content;
+                    syn::parenthesized!(content in input);
+                    let items: Punctuated<Ident, Token![,]> = Punctuated::parse_terminated(&content)?;
+                    let value = items.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ");
+                    Ok(TraceArg::Skip(value))
+                }
             }
             "only" => {
+                // Support both only = "..." and only(...)
+                if input.peek(Token![=]) {
+                    input.parse::<Token![=]>()?;
+                    let value: LitStr = input.parse()?;
+                    Ok(TraceArg::Only(value.value()))
+                } else {
+                    let content;
+                    syn::parenthesized!(content in input);
+                    let items: Punctuated<Ident, Token![,]> = Punctuated::parse_terminated(&content)?;
+                    let value = items.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ");
+                    Ok(TraceArg::Only(value))
+                }
+            }
+            "feature" => {
                 input.parse::<Token![=]>()?;
                 let value: LitStr = input.parse()?;
-                Ok(TraceArg::Only(value.value()))
+                Ok(TraceArg::Feature(value.value()))
             }
             _ => Err(syn::Error::new(
                 ident.span(),
-                format!("unknown attribute argument: {}", name),
+                format!("unknown attribute argument: {}. Expected one of: verbose, quiet, debug_only, release_only, skip, only, feature", name),
             )),
         }
     }
@@ -363,6 +454,7 @@ mod tests {
         assert!(config.track_new);
         assert!(config.track_loops);
         assert!(config.track_branches);
+        assert_eq!(config.conditional_mode, ConditionalMode::Always);
     }
 
     #[test]
@@ -371,6 +463,7 @@ mod tests {
         assert!(config.track_new);
         assert!(!config.track_loops);
         assert!(!config.track_branches);
+        assert_eq!(config.conditional_mode, ConditionalMode::Always);
     }
 
     #[test]
@@ -392,5 +485,44 @@ mod tests {
         assert!(config.track_borrow);
         assert!(!config.track_loops);
         assert!(!config.track_branches);
+    }
+
+    #[test]
+    fn test_conditional_mode_debug_only() {
+        let mut config = TraceConfig::standard();
+        config.conditional_mode = ConditionalMode::DebugOnly;
+        assert!(config.conditional_mode.is_conditional());
+        assert!(config.conditional_mode.cfg_tokens().is_some());
+    }
+
+    #[test]
+    fn test_conditional_mode_release_only() {
+        let mut config = TraceConfig::standard();
+        config.conditional_mode = ConditionalMode::ReleaseOnly;
+        assert!(config.conditional_mode.is_conditional());
+        assert!(config.conditional_mode.cfg_tokens().is_some());
+    }
+
+    #[test]
+    fn test_conditional_mode_feature() {
+        let mut config = TraceConfig::standard();
+        config.conditional_mode = ConditionalMode::Feature("tracing".to_string());
+        assert!(config.conditional_mode.is_conditional());
+        assert!(config.conditional_mode.cfg_tokens().is_some());
+    }
+
+    #[test]
+    fn test_conditional_mode_always() {
+        let config = TraceConfig::standard();
+        assert!(!config.conditional_mode.is_conditional());
+        assert!(config.conditional_mode.cfg_tokens().is_none());
+    }
+
+    #[test]
+    fn test_only_preserves_conditional_mode() {
+        let mut config = TraceConfig::standard();
+        config.conditional_mode = ConditionalMode::DebugOnly;
+        config.only("ownership");
+        assert_eq!(config.conditional_mode, ConditionalMode::DebugOnly);
     }
 }

@@ -323,6 +323,14 @@ fn validate_function(func: &ItemFn) {
 /// | `expressions` | `exprs` | struct, tuple, array, range, cast |
 /// | `functions` | `fn` | Function entry/exit (off by default) |
 ///
+/// # Conditional Compilation
+///
+/// | Option | Description |
+/// |--------|-------------|
+/// | `debug_only` | Only instrument in debug builds |
+/// | `release_only` | Only instrument in release builds |
+/// | `feature = "name"` | Only instrument when cargo feature is enabled |
+///
 /// # Limitations
 ///
 /// - Cannot be used on `const fn` (tracking requires runtime)
@@ -335,18 +343,44 @@ pub fn trace_borrow(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as config::TraceArgs);
 
     // Parse the input as a function
-    let mut input_fn = parse_macro_input!(item as ItemFn);
+    let input_fn = parse_macro_input!(item as ItemFn);
 
     // Validate the function
     validate_function(&input_fn);
 
-    // Transform the function body using OwnershipVisitor with config
-    let mut visitor = OwnershipVisitor::with_config(args.config);
-    visitor.visit_item_fn_mut(&mut input_fn);
+    // Clone for transformation
+    let mut transformed_fn = input_fn.clone();
 
-    // Generate output
-    let output = quote! {
-        #input_fn
+    // Transform the function body using OwnershipVisitor with config
+    let mut visitor = OwnershipVisitor::with_config(args.config.clone());
+    visitor.visit_item_fn_mut(&mut transformed_fn);
+
+    // Generate output based on conditional mode
+    let output = if args.config.conditional_mode.is_conditional() {
+        // Generate both versions with cfg attributes
+        let cfg_tokens = args.config.conditional_mode.cfg_tokens().unwrap();
+        let neg_cfg_tokens = match &args.config.conditional_mode {
+            config::ConditionalMode::DebugOnly => quote! { #[cfg(not(debug_assertions))] },
+            config::ConditionalMode::ReleaseOnly => quote! { #[cfg(debug_assertions)] },
+            config::ConditionalMode::Feature(name) => {
+                let feature_name = syn::LitStr::new(name, proc_macro2::Span::call_site());
+                quote! { #[cfg(not(feature = #feature_name))] }
+            }
+            config::ConditionalMode::Always => unreachable!(),
+        };
+
+        quote! {
+            #cfg_tokens
+            #transformed_fn
+
+            #neg_cfg_tokens
+            #input_fn
+        }
+    } else {
+        // Always instrument
+        quote! {
+            #transformed_fn
+        }
     };
 
     output.into()
@@ -466,5 +500,27 @@ mod tests {
         let output = quote! { #func }.to_string();
 
         assert!(output.contains("pub fn example"));
+    }
+
+    #[test]
+    fn test_conditional_mode_cfg_tokens() {
+        use config::ConditionalMode;
+
+        // debug_only
+        let mode = ConditionalMode::DebugOnly;
+        let tokens = mode.cfg_tokens().unwrap().to_string();
+        assert!(tokens.contains("debug_assertions"));
+
+        // release_only
+        let mode = ConditionalMode::ReleaseOnly;
+        let tokens = mode.cfg_tokens().unwrap().to_string();
+        assert!(tokens.contains("not"));
+        assert!(tokens.contains("debug_assertions"));
+
+        // feature
+        let mode = ConditionalMode::Feature("tracing".to_string());
+        let tokens = mode.cfg_tokens().unwrap().to_string();
+        assert!(tokens.contains("feature"));
+        assert!(tokens.contains("tracing"));
     }
 }
