@@ -446,6 +446,7 @@ impl Parse for TraceArgs {
     }
 }
 
+#[derive(Debug)]
 enum TraceArg {
     Verbose,
     Quiet,
@@ -524,12 +525,49 @@ impl Parse for TraceArg {
             "filter" => {
                 input.parse::<Token![=]>()?;
                 let value: LitStr = input.parse()?;
-                Ok(TraceArg::Filter(value.value()))
+                let pattern = value.value();
+                
+                // Validate filter pattern
+                if pattern.is_empty() {
+                    return Err(syn::Error::new(
+                        value.span(),
+                        "filter pattern cannot be empty"
+                    ));
+                }
+                
+                // Check for invalid characters (only alphanumeric, _, *, ? allowed)
+                for ch in pattern.chars() {
+                    if !ch.is_alphanumeric() && ch != '_' && ch != '*' && ch != '?' {
+                        return Err(syn::Error::new(
+                            value.span(),
+                            format!(
+                                "invalid character '{}' in filter pattern. \
+                                 Only alphanumeric, '_', '*', and '?' are allowed",
+                                ch
+                            )
+                        ));
+                    }
+                }
+                
+                Ok(TraceArg::Filter(pattern))
             }
             "sample" => {
                 input.parse::<Token![=]>()?;
                 let value: syn::LitFloat = input.parse()?;
-                Ok(TraceArg::Sample(value.base10_parse()?))
+                let rate: f64 = value.base10_parse()?;
+                
+                // Validate sample rate range
+                if rate < 0.0 || rate > 1.0 {
+                    return Err(syn::Error::new(
+                        value.span(),
+                        format!(
+                            "sample rate must be between 0.0 and 1.0, got {}",
+                            rate
+                        )
+                    ));
+                }
+                
+                Ok(TraceArg::Sample(rate))
             }
             _ => Err(syn::Error::new(
                 ident.span(),
@@ -655,5 +693,56 @@ mod tests {
         config.only("ownership");
         assert_eq!(config.filter_pattern, Some("user*".to_string()));
         assert_eq!(config.sample_rate, Some(0.5));
+    }
+
+    #[test]
+    fn test_filter_pattern_validation_valid() {
+        // Valid patterns should parse
+        let valid = ["data*", "*_count", "user_?", "abc123", "a*b?c"];
+        for pattern in valid {
+            let input = format!("filter = \"{}\"", pattern);
+            let result: syn::Result<TraceArg> = syn::parse_str(&input);
+            assert!(result.is_ok(), "Pattern '{}' should be valid", pattern);
+        }
+    }
+
+    #[test]
+    fn test_filter_pattern_validation_empty() {
+        let result: syn::Result<TraceArg> = syn::parse_str("filter = \"\"");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cannot be empty"));
+    }
+
+    #[test]
+    fn test_filter_pattern_validation_invalid_chars() {
+        let invalid = ["data-name", "user.name", "path/to", "a@b", "x#y"];
+        for pattern in invalid {
+            let input = format!("filter = \"{}\"", pattern);
+            let result: syn::Result<TraceArg> = syn::parse_str(&input);
+            assert!(result.is_err(), "Pattern '{}' should be invalid", pattern);
+            assert!(result.unwrap_err().to_string().contains("invalid character"));
+        }
+    }
+
+    #[test]
+    fn test_sample_rate_validation_valid() {
+        // Note: syn requires explicit float syntax (with decimal point)
+        let valid = ["0.0", "0.1", "0.5", "1.0"];
+        for rate in valid {
+            let input = format!("sample = {}", rate);
+            let result: syn::Result<TraceArg> = syn::parse_str(&input);
+            assert!(result.is_ok(), "Rate {} should be valid", rate);
+        }
+    }
+
+    #[test]
+    fn test_sample_rate_validation_out_of_range() {
+        let invalid = ["-0.1", "1.1", "2.0", "-1.0"];
+        for rate in invalid {
+            let input = format!("sample = {}", rate);
+            let result: syn::Result<TraceArg> = syn::parse_str(&input);
+            assert!(result.is_err(), "Rate {} should be invalid", rate);
+            assert!(result.unwrap_err().to_string().contains("between 0.0 and 1.0"));
+        }
     }
 }
