@@ -11,6 +11,7 @@ use crate::smart_pointer::{
     detect_smart_pointer_new, detect_weak_upgrade, ConcurrencyOp, SmartPointerOp,
     SmartPointerType,
 };
+use quote::quote;
 use std::collections::{HashMap, HashSet};
 use syn::{
     spanned::Spanned,
@@ -132,6 +133,77 @@ impl OwnershipVisitor {
         }
     }
 
+    /// Check if variable name matches the filter pattern
+    /// Supports glob-style patterns: * matches any chars, ? matches single char
+    fn matches_filter(&self, var_name: &str) -> bool {
+        match &self.config.filter_pattern {
+            None => true, // No filter = track everything
+            Some(pattern) => {
+                // Parse filter: "name:pattern" or just "pattern"
+                let pattern = if let Some((_prefix, pat)) = pattern.split_once(':') {
+                    pat
+                } else {
+                    pattern.as_str()
+                };
+                Self::glob_match(pattern, var_name)
+            }
+        }
+    }
+
+    /// Simple glob matching: * = any chars, ? = single char
+    fn glob_match(pattern: &str, text: &str) -> bool {
+        let mut p_chars = pattern.chars().peekable();
+        let mut t_chars = text.chars().peekable();
+
+        while let Some(p) = p_chars.next() {
+            match p {
+                '*' => {
+                    // * matches zero or more characters
+                    if p_chars.peek().is_none() {
+                        return true; // Trailing * matches everything
+                    }
+                    // Try matching rest of pattern at each position
+                    let rest: String = p_chars.collect();
+                    let mut remaining: String = t_chars.collect();
+                    while !remaining.is_empty() {
+                        if Self::glob_match(&rest, &remaining) {
+                            return true;
+                        }
+                        remaining = remaining.chars().skip(1).collect();
+                    }
+                    return Self::glob_match(&rest, "");
+                }
+                '?' => {
+                    // ? matches exactly one character
+                    if t_chars.next().is_none() {
+                        return false;
+                    }
+                }
+                c => {
+                    // Literal character must match
+                    if t_chars.next() != Some(c) {
+                        return false;
+                    }
+                }
+            }
+        }
+        t_chars.next().is_none() // Pattern consumed, text should be too
+    }
+
+    /// Wrap tracking call with sampling check if sample rate is set
+    fn wrap_with_sampling(&self, tracking_call: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+        match self.config.sample_rate {
+            None => tracking_call,
+            Some(rate) => {
+                quote! {
+                    if borrowscope_runtime::should_sample(#rate) {
+                        #tracking_call
+                    }
+                }
+            }
+        }
+    }
+
     /// Extract borrowed variable ID from expression
     #[allow(dead_code)]
     fn extract_borrowed_id(&self, expr: &Expr) -> usize {
@@ -199,7 +271,7 @@ impl OwnershipVisitor {
                     new_indices.push(idx);
 
                     if let Some(var_name) = Self::get_simple_ident(elem_pat) {
-                        // Simple binding - generate track_new
+                        // Simple binding - generate track_new if it matches filter
                         let access_expr = Self::build_access_expr(source, &new_indices, fields);
 
                         self.var_ids.insert(var_name.clone(), self.next_id);
@@ -207,8 +279,14 @@ impl OwnershipVisitor {
                             current_scope.push(var_name.clone());
                         }
 
-                        let stmt: Stmt = syn::parse_quote! {
-                            let #elem_pat = borrowscope_runtime::track_new(#var_name, #access_expr);
+                        let stmt: Stmt = if self.matches_filter(&var_name) {
+                            syn::parse_quote! {
+                                let #elem_pat = borrowscope_runtime::track_new(#var_name, #access_expr);
+                            }
+                        } else {
+                            syn::parse_quote! {
+                                let #elem_pat = #access_expr;
+                            }
                         };
 
                         stmts.push(stmt);
@@ -246,8 +324,14 @@ impl OwnershipVisitor {
                         }
 
                         let pat = &field.pat;
-                        let stmt: Stmt = syn::parse_quote! {
-                            let #pat = borrowscope_runtime::track_new(#var_name, #access_expr);
+                        let stmt: Stmt = if self.matches_filter(&var_name) {
+                            syn::parse_quote! {
+                                let #pat = borrowscope_runtime::track_new(#var_name, #access_expr);
+                            }
+                        } else {
+                            syn::parse_quote! {
+                                let #pat = #access_expr;
+                            }
                         };
 
                         stmts.push(stmt);
@@ -656,6 +740,13 @@ impl OwnershipVisitor {
             }
 
             let var_name = Self::extract_pattern_name(&local.pat);
+            
+            // Skip if variable doesn't match filter
+            if !self.matches_filter(&var_name) {
+                visit_mut::visit_local_mut(self, local);
+                return;
+            }
+            
             let var_id = self.gen_id();
             let location = Self::location_tokens(local.pat.span());
 
@@ -973,8 +1064,15 @@ impl OwnershipVisitor {
 
             if self.config.track_new {
                 // Regular variable creation - use helper function
-                let new_expr: Expr = syn::parse_quote! {
-                    borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                // Use sampled version if sample_rate is set
+                let new_expr: Expr = if let Some(rate) = self.config.sample_rate {
+                    syn::parse_quote! {
+                        borrowscope_runtime::track_new_with_id_sampled(#var_id, #var_name, #location, #original_expr, #rate)
+                    }
+                } else {
+                    syn::parse_quote! {
+                        borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                    }
                 };
                 *init.expr = new_expr;
             }
@@ -1840,12 +1938,20 @@ impl VisitMut for OwnershipVisitor {
                     .map(|stmt| matches!(stmt, Stmt::Expr(_, None)))
                     .unwrap_or(false);
 
+                let sample_rate = self.config.sample_rate;
+
                 if has_trailing_expr {
                     // Insert drops before the last expression
                     let last_stmt = block.stmts.pop();
                     for var_name in scope_vars.into_iter().rev() {
-                        let drop_stmt: Stmt = syn::parse_quote! {
-                            borrowscope_runtime::track_drop(#var_name);
+                        let drop_stmt: Stmt = if let Some(rate) = sample_rate {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_drop_sampled(#var_name, #rate);
+                            }
+                        } else {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_drop(#var_name);
+                            }
                         };
                         block.stmts.push(drop_stmt);
                     }
@@ -1856,8 +1962,14 @@ impl VisitMut for OwnershipVisitor {
                 } else {
                     // No trailing expression, just append drops
                     for var_name in scope_vars.into_iter().rev() {
-                        let drop_stmt: Stmt = syn::parse_quote! {
-                            borrowscope_runtime::track_drop(#var_name);
+                        let drop_stmt: Stmt = if let Some(rate) = sample_rate {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_drop_sampled(#var_name, #rate);
+                            }
+                        } else {
+                            syn::parse_quote! {
+                                borrowscope_runtime::track_drop(#var_name);
+                            }
                         };
                         block.stmts.push(drop_stmt);
                     }
@@ -3089,5 +3201,133 @@ mod tests {
 
         let output = expr.to_token_stream().to_string();
         assert!(output.contains("track_type_cast"));
+    }
+
+    #[test]
+    fn test_glob_match_exact() {
+        assert!(OwnershipVisitor::glob_match("hello", "hello"));
+        assert!(!OwnershipVisitor::glob_match("hello", "world"));
+    }
+
+    #[test]
+    fn test_glob_match_star_suffix() {
+        assert!(OwnershipVisitor::glob_match("data*", "data"));
+        assert!(OwnershipVisitor::glob_match("data*", "data_input"));
+        assert!(OwnershipVisitor::glob_match("data*", "database"));
+        assert!(!OwnershipVisitor::glob_match("data*", "mydata"));
+    }
+
+    #[test]
+    fn test_glob_match_star_prefix() {
+        assert!(OwnershipVisitor::glob_match("*_count", "item_count"));
+        assert!(OwnershipVisitor::glob_match("*_count", "user_count"));
+        assert!(OwnershipVisitor::glob_match("*_count", "_count"));
+        assert!(!OwnershipVisitor::glob_match("*_count", "count"));
+    }
+
+    #[test]
+    fn test_glob_match_star_middle() {
+        assert!(OwnershipVisitor::glob_match("user*data", "userdata"));
+        assert!(OwnershipVisitor::glob_match("user*data", "user_data"));
+        assert!(OwnershipVisitor::glob_match("user*data", "user123data"));
+        assert!(!OwnershipVisitor::glob_match("user*data", "userdat"));
+    }
+
+    #[test]
+    fn test_glob_match_question_mark() {
+        assert!(OwnershipVisitor::glob_match("x?", "x1"));
+        assert!(OwnershipVisitor::glob_match("x?", "xa"));
+        assert!(!OwnershipVisitor::glob_match("x?", "x"));
+        assert!(!OwnershipVisitor::glob_match("x?", "x12"));
+    }
+
+    #[test]
+    fn test_glob_match_combined() {
+        assert!(OwnershipVisitor::glob_match("*_?", "data_1"));
+        assert!(OwnershipVisitor::glob_match("*_?", "x_a"));
+        assert!(!OwnershipVisitor::glob_match("*_?", "data_12"));
+    }
+
+    #[test]
+    fn test_matches_filter_no_filter() {
+        let visitor = OwnershipVisitor::new();
+        assert!(visitor.matches_filter("anything"));
+        assert!(visitor.matches_filter("data"));
+        assert!(visitor.matches_filter("x"));
+    }
+
+    #[test]
+    fn test_matches_filter_with_pattern() {
+        let mut config = TraceConfig::standard();
+        config.filter_pattern = Some("data*".to_string());
+        let visitor = OwnershipVisitor::with_config(config);
+        
+        assert!(visitor.matches_filter("data"));
+        assert!(visitor.matches_filter("data_input"));
+        assert!(!visitor.matches_filter("temp"));
+        assert!(!visitor.matches_filter("mydata"));
+    }
+
+    #[test]
+    fn test_matches_filter_with_prefix() {
+        let mut config = TraceConfig::standard();
+        config.filter_pattern = Some("name:user*".to_string());
+        let visitor = OwnershipVisitor::with_config(config);
+        
+        assert!(visitor.matches_filter("user_id"));
+        assert!(visitor.matches_filter("username"));
+        assert!(!visitor.matches_filter("admin"));
+    }
+
+    #[test]
+    fn test_filter_skips_non_matching_vars() {
+        let mut config = TraceConfig::standard();
+        config.filter_pattern = Some("data*".to_string());
+        let mut visitor = OwnershipVisitor::with_config(config);
+
+        let mut stmt: Stmt = parse_quote! {
+            let temp = 42;
+        };
+
+        visitor.visit_stmt_mut(&mut stmt);
+
+        let output = stmt.to_token_stream().to_string();
+        // Should NOT contain track_new because "temp" doesn't match "data*"
+        assert!(!output.contains("track_new"), "temp should not be tracked with filter 'data*'");
+    }
+
+    #[test]
+    fn test_filter_tracks_matching_vars() {
+        let mut config = TraceConfig::standard();
+        config.filter_pattern = Some("data*".to_string());
+        let mut visitor = OwnershipVisitor::with_config(config);
+
+        let mut stmt: Stmt = parse_quote! {
+            let data_input = 42;
+        };
+
+        visitor.visit_stmt_mut(&mut stmt);
+
+        let output = stmt.to_token_stream().to_string();
+        // Should contain track_new because "data_input" matches "data*"
+        assert!(output.contains("track_new"), "data_input should be tracked with filter 'data*'");
+    }
+
+    #[test]
+    fn test_sample_rate_generates_sampled_call() {
+        let mut config = TraceConfig::standard();
+        config.sample_rate = Some(0.1);
+        let mut visitor = OwnershipVisitor::with_config(config);
+
+        let mut stmt: Stmt = parse_quote! {
+            let x = 42;
+        };
+
+        visitor.visit_stmt_mut(&mut stmt);
+
+        let output = stmt.to_token_stream().to_string();
+        // Should use sampled version
+        assert!(output.contains("track_new_with_id_sampled"), "Should use sampled tracking");
+        assert!(output.contains("0.1"), "Should include sample rate");
     }
 }

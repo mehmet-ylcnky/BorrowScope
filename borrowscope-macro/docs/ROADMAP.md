@@ -156,20 +156,29 @@ let closure = move || {
 
 ### 6. Filter & Sampling
 
-**Status**: Not started  
+**Status**: ✅ Complete  
 **Complexity**: Low  
 **Impact**: Medium - Performance in production
 
 ```rust
-#[trace_borrow(filter = "name:data*")]  // Only track vars starting with "data"
-#[trace_borrow(sample = 0.01)]          // Track 1% of calls (random)
+#[trace_borrow(filter = "data*")]       // Only track vars matching pattern
+#[trace_borrow(filter = "*_count")]     // Glob patterns: * = any chars, ? = single char
+#[trace_borrow(sample = 0.1)]           // Track 10% of calls (probabilistic)
+#[trace_borrow(debug_only, filter = "user*")]  // Combine with other options
 ```
 
 **Tasks**:
-- [ ] Add filter pattern to config
-- [ ] Add sample rate to config
-- [ ] Generate conditional tracking based on filter
-- [ ] Generate random sampling logic
+- [x] Add `filter_pattern` field to `TraceConfig`
+- [x] Add `sample_rate` field to `TraceConfig`
+- [x] Parse `filter = "pattern"` and `sample = 0.1` in `TraceArgs`
+- [x] Implement glob matching (`*` and `?` wildcards)
+- [x] Skip tracking for variables not matching filter
+- [x] Add `should_sample()` function to runtime
+- [x] Add `track_new_sampled()`, `track_drop_sampled()`, etc. to runtime
+- [x] Generate sampled tracking calls when sample rate is set
+- [x] Add tests for sampling in borrowscope-runtime
+- [x] Add example: `examples/sampling.rs` in borrowscope-runtime
+- [x] Add example: `examples/filter_sampling.rs` in borrowscope-macro
 
 ### 7. Integration with `tracing` Crate
 

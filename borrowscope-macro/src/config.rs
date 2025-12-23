@@ -189,6 +189,23 @@ pub struct TraceConfig {
 
     /// Known static variable names (won't warn about these).
     pub known_statics: Vec<String>,
+
+    /// Filter pattern for variable names.
+    ///
+    /// Only track variables matching this pattern. Supports:
+    /// - `name:prefix*` - Variables starting with prefix
+    /// - `name:*suffix` - Variables ending with suffix
+    /// - `name:*contains*` - Variables containing substring
+    /// - `name:exact` - Exact match
+    pub filter_pattern: Option<String>,
+
+    /// Sample rate for tracking (0.0 to 1.0).
+    ///
+    /// When set, only a random percentage of tracking calls are executed.
+    /// - `1.0` (default): Track all calls
+    /// - `0.5`: Track ~50% of calls
+    /// - `0.01`: Track ~1% of calls
+    pub sample_rate: Option<f64>,
 }
 
 impl TraceConfig {
@@ -216,6 +233,8 @@ impl TraceConfig {
             known_ffi: Vec::new(),
             known_unions: Vec::new(),
             known_statics: Vec::new(),
+            filter_pattern: None,
+            sample_rate: None,
         }
     }
 
@@ -247,6 +266,8 @@ impl TraceConfig {
             known_ffi: Vec::new(),
             known_unions: Vec::new(),
             known_statics: Vec::new(),
+            filter_pattern: None,
+            sample_rate: None,
         }
     }
 
@@ -320,6 +341,8 @@ impl TraceConfig {
         let ffi = std::mem::take(&mut self.known_ffi);
         let unions = std::mem::take(&mut self.known_unions);
         let statics = std::mem::take(&mut self.known_statics);
+        let filter = self.filter_pattern.take();
+        let sample = self.sample_rate.take();
 
         // Start with nothing
         *self = Self {
@@ -342,6 +365,8 @@ impl TraceConfig {
             known_ffi: ffi,
             known_unions: unions,
             known_statics: statics,
+            filter_pattern: filter,
+            sample_rate: sample,
         };
 
         for feature in features.split(',').map(|s| s.trim()) {
@@ -412,6 +437,8 @@ impl Parse for TraceArgs {
                 TraceArg::Ffi(names) => config.known_ffi.extend(names),
                 TraceArg::Unions(names) => config.known_unions.extend(names),
                 TraceArg::Statics(names) => config.known_statics.extend(names),
+                TraceArg::Filter(pattern) => config.filter_pattern = Some(pattern),
+                TraceArg::Sample(rate) => config.sample_rate = Some(rate),
             }
         }
 
@@ -431,6 +458,8 @@ enum TraceArg {
     Ffi(Vec<String>),
     Unions(Vec<String>),
     Statics(Vec<String>),
+    Filter(String),
+    Sample(f64),
 }
 
 impl Parse for TraceArg {
@@ -492,11 +521,21 @@ impl Parse for TraceArg {
                 let names = parse_string_list(input)?;
                 Ok(TraceArg::Statics(names))
             }
+            "filter" => {
+                input.parse::<Token![=]>()?;
+                let value: LitStr = input.parse()?;
+                Ok(TraceArg::Filter(value.value()))
+            }
+            "sample" => {
+                input.parse::<Token![=]>()?;
+                let value: syn::LitFloat = input.parse()?;
+                Ok(TraceArg::Sample(value.base10_parse()?))
+            }
             _ => Err(syn::Error::new(
                 ident.span(),
                 format!(
                     "unknown attribute argument: {}. Expected one of: verbose, quiet, \
-                     debug_only, release_only, skip, only, feature, warn, ffi, unions, statics",
+                     debug_only, release_only, skip, only, feature, warn, ffi, unions, statics, filter, sample",
                     name
                 ),
             )),
@@ -592,5 +631,29 @@ mod tests {
         config.conditional_mode = ConditionalMode::DebugOnly;
         config.only("ownership");
         assert_eq!(config.conditional_mode, ConditionalMode::DebugOnly);
+    }
+
+    #[test]
+    fn test_filter_pattern() {
+        let mut config = TraceConfig::standard();
+        config.filter_pattern = Some("data*".to_string());
+        assert_eq!(config.filter_pattern, Some("data*".to_string()));
+    }
+
+    #[test]
+    fn test_sample_rate() {
+        let mut config = TraceConfig::standard();
+        config.sample_rate = Some(0.1);
+        assert_eq!(config.sample_rate, Some(0.1));
+    }
+
+    #[test]
+    fn test_only_preserves_filter_and_sample() {
+        let mut config = TraceConfig::standard();
+        config.filter_pattern = Some("user*".to_string());
+        config.sample_rate = Some(0.5);
+        config.only("ownership");
+        assert_eq!(config.filter_pattern, Some("user*".to_string()));
+        assert_eq!(config.sample_rate, Some(0.5));
     }
 }
