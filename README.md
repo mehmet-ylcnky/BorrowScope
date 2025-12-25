@@ -255,6 +255,22 @@ Future development will add:
 - **borrowscope-cli** - Command-line tool for analyzing Rust projects
 - **borrowscope-ui** - Interactive visualization application
 
+## Related Work
+
+BorrowScope joins a growing ecosystem of tools and resources aimed at making Rust's ownership system more understandable. Here are some notable projects and articles in this space:
+
+| Project | Description |
+|---------|-------------|
+| [Aquascope](https://github.com/cognitive-engineering-lab/aquascope) | Interactive visualizations of Rust at compile-time and runtime. Developed by Brown University's Cognitive Engineering Lab, it shows permission changes (read/write/own) on variables and visualizes how the borrow checker reasons about code. Powers the visualizations in "The Rust Book Experiment." |
+| [Boris](https://github.com/ChristianSchott/boris) | A standalone ownership and borrowing visualizer that renders interactive diagrams showing memory layout, ownership transfers, and borrow scopes. Designed to help beginners understand Rust's memory model through visual exploration. |
+| [Flowistry](https://github.com/willcrichton/flowistry) | A VSCode extension using information flow analysis to help developers understand Rust programs. Highlights which code can affect other code, providing a "focus mode" to filter out irrelevant parts when debugging or comprehending complex codebases. |
+| [REVIS](https://github.com/weirane/vscode-revis) | A VSCode extension that visualizes lifetime-related Rust compiler errors. Draws lifetime spans directly in the editor to help developers understand and fix borrow checker errors, particularly useful for learning lifetime concepts. |
+| [Graphical Depiction of Ownership](https://rufflewind.com/2017-02-15/rust-move-copy-borrow) | A visual guide by Phil Ruffwind depicting move, copy, and borrow semantics through annotated diagrams. Shows how values flow between variables and how borrows create temporary access without transferring ownership. |
+| [Think Spatially to Grok Lifetimes](https://www.justanotherdot.com/posts/think-spatially-to-grok-lifetimes.html) | An article presenting a mental model for understanding lifetimes by thinking of programs as nested spaces. Values exist within scopes, and borrows create "bridges" between spaces that must not outlive their source. |
+| [Rust Lifetime Visualization Ideas](https://blog.adamant-lang.org/2019/rust-lifetime-visualization-ideas/) | A design exploration of how IDEs could visualize lifetimes inline with code. Proposes compact notations and color-coding schemes that could be integrated into editors without disrupting the coding experience. |
+
+BorrowScope differs from these tools by focusing on runtime event capture rather than static analysis or compile-time visualization. This makes it useful for understanding actual execution behavior, especially in complex scenarios involving smart pointers, interior mutability, or async code.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

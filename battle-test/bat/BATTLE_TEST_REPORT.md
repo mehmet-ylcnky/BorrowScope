@@ -31,7 +31,7 @@
 
 ---
 
-## Error Log
+## Phase 2: Error Log
 
 ### ERR-007: Type mismatch with &'static str parameter
 
@@ -307,7 +307,7 @@ Skip `#[trace_borrow]` on methods that access struct fields via `self`.
 
 ---
 
-## Progress Log
+## Phase 3: Compilation Results
 
 ### src/error.rs (3 functions)
 | Function | Status | Notes |

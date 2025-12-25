@@ -5,6 +5,8 @@
 **Stars:** ~23k  
 **Description:** A smarter cd command, inspired by z and autojump  
 
+**Note:** "Pass" means the macro transformation compiles without errors. Full runtime verification is blocked by any compilation failures.
+
 ---
 
 ## Phase 1: Reconnaissance
@@ -23,7 +25,7 @@
 
 ---
 
-## Error Log
+## Phase 2: Error Log
 
 ### ERR-004: Tracking calls inserted into const context
 
@@ -421,7 +423,7 @@ Skip `#[trace_borrow]` on functions with `&mut temporary().method()` patterns.
 
 ---
 
-## Progress Log
+## Phase 3: Compilation Results
 
 ### src/config.rs (6 functions)
 | Function | Status | Notes |

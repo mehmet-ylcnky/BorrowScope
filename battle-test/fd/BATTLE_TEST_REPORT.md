@@ -29,36 +29,247 @@
 
 ---
 
-## Error Log
+## Phase 2: Error Log
 
 ### ERR-002: Tuple Destructuring Pattern
-**Error:** `E0425: cannot find value in this scope` + `E0308: mismatched types`
-**Cause:** Macro transforms tuple patterns into single temporary but fails to extract individual elements.
-**fd Example:** `Check::parse` - `let (s, equality) = match s { ... }` breaks both variable bindings.
 
-### ERR-003: Mutable Borrow Conflicts
-**Error:** `E0596: cannot borrow data in a '&' reference as mutable`
-**Cause:** Macro transformation attempts to create mutable tracking state for functions that only have immutable access.
-**fd Examples:** `CommandBuilder::new_command`, `OwnerFilter::from_string`, `print_completions`, `BatchSender::send`, `ReceiverBuffer::stream`, `WorkerState::build_walker`
+**Location:**
+- File: `src/filter/owner.rs`
+- Line: 103
+- Function: `Check::parse`
 
-### ERR-008: impl Into/Trait Bounds Fail
-**Error:** `E0277: the trait bound is not satisfied`
-**Cause:** Macro transformation changes types in ways that break trait implementations like `From`/`Into`.
-**fd Example:** `TimeFilter::from_str` - `.into()` conversions fail after macro transformation.
+**Error Message:**
+```
+error[E0425]: cannot find value `equality` in this scope
+   --> src/filter/owner.rs:103:16
+    |
+103 |             if equality {
+    |                ^^^^^^^^ not found in this scope
+```
 
-### ERR-009: Self-Consuming / Move Semantics
-**Error:** `E0507: cannot move out of a shared reference` or `E0277: trait bound not satisfied`
-**Cause:** Functions that consume `self` or return owned values from references cannot be tracked without changing ownership semantics.
-**fd Examples:** `exit`, `augment_args`, `spawn_senders`
+**Category:** Pattern Transformation Issue
+**Severity:** Critical
+**Component:** borrowscope-macro
+**Frequency:** Common (any function with tuple destructuring)
 
-### ERR-010: Range/Method Indexing Fails
-**Error:** `E0061: this method takes N argument but M arguments were supplied`
-**Cause:** Macro transformation breaks `.get()` or similar method calls with range arguments.
-**fd Example:** `SizeFilter::parse_opt` - `captures.get(1)` call broken by macro.
+**Minimal Reproducer:**
+```rust
+#[trace_borrow]
+fn parse(input: &str) -> (String, bool) {
+    let (s, flag) = match input {
+        x if x.starts_with("!") => (&x[1..], true),
+        x => (x, false),
+    };
+    (s.to_string(), flag)  // Error: cannot find value `s`
+}
+```
+
+**Root Cause:**
+Macro transforms tuple patterns into single temporary but fails to extract individual elements. `let (s, equality) = match s { ... }` breaks both variable bindings.
+
+**Proposed Solution:**
+- File: `borrowscope-macro/src/transform_visitor.rs`
+- Change: When encountering tuple patterns, either skip tracking or destructure after tracking the whole tuple.
+
+**New Feature Required:** Yes
+- Proper tuple pattern handling in borrowscope-macro
+
+**Workaround:**
+Skip `#[trace_borrow]` on functions with tuple destructuring patterns.
 
 ---
 
-## Progress Log
+### ERR-003: Mutable Borrow Conflicts
+
+**Location:**
+- File: `src/exec/mod.rs` (line 178), `src/filter/owner.rs` (line 29), `src/walk.rs` (lines 107, 277, 363), `src/main.rs` (line 114)
+- Functions: `CommandBuilder::new_command`, `OwnerFilter::from_string`, `BatchSender::send`, `ReceiverBuffer::stream`, `WorkerState::build_walker`, `print_completions`
+
+**Error Message:**
+```
+error[E0596]: cannot borrow data in a `&` reference as mutable
+   --> src/exec/mod.rs:178:5
+    |
+178 |     #[trace_borrow]
+    |     ^^^^^^^^^^^^^^^ cannot borrow as mutable
+```
+
+**Category:** Borrow Transformation Issue
+**Severity:** Critical
+**Component:** borrowscope-macro
+**Frequency:** Very Common (any function with mutable method chains)
+
+**Minimal Reproducer:**
+```rust
+#[trace_borrow]
+fn example() {
+    let mut cmd = Command::new("ls");
+    cmd.args(["--help"]);  // Error: cannot borrow as mutable
+}
+```
+
+**Root Cause:**
+Macro wraps receiver with `track_borrow("method_borrow", &cmd)` which returns `&T`, but method requires `&mut self`.
+
+**Proposed Solution:**
+- File: `borrowscope-macro/src/transform_visitor.rs`
+- Change: Use `track_borrow_mut` for mutable receivers, or skip method call tracking entirely.
+
+**New Feature Required:** Yes
+- Mutability-aware method call transformation
+
+**Workaround:**
+Skip `#[trace_borrow]` on functions with mutable method chains.
+
+---
+
+### ERR-008: impl Into/Trait Bounds Fail
+
+**Location:**
+- File: `src/filter/time.rs` (line 15), `src/exit_codes.rs` (line 34)
+- Functions: `TimeFilter::from_str`, `ExitCode::exit`
+
+**Error Message:**
+```
+error[E0277]: the trait bound `DateTime<Local>: From<&DateTime<FixedOffset>>` is not satisfied
+  --> src/filter/time.rs:15:5
+   |
+15 |     #[trace_borrow]
+   |     ^^^^^^^^^^^^^^^ the trait `From<&DateTime<FixedOffset>>` is not implemented
+...
+22 |                     .map(|dt| dt.into())
+   |                                  ---- required by a bound introduced by this call
+```
+
+**Category:** Generic Parameter Transformation Issue
+**Severity:** Critical
+**Component:** borrowscope-macro
+**Frequency:** Common (any function with `.into()` calls on tracked values)
+
+**Minimal Reproducer:**
+```rust
+#[trace_borrow]
+pub fn new(s: impl Into<String>) -> Self {
+    let s = s.into();  // Error: trait bound not satisfied
+    Self { value: s }
+}
+```
+
+**Root Cause:**
+Macro wraps `impl Into<String>` parameters with tracking calls, changing the type to a tracked reference which no longer implements `Into<String>`.
+
+**Proposed Solution:**
+- File: `borrowscope-macro/src/transform_visitor.rs`
+- Change: Skip tracking for parameters with `impl Trait` types.
+
+**New Feature Required:** Yes
+- impl Trait parameter handling
+
+**Workaround:**
+Skip `#[trace_borrow]` on functions with `impl Into<T>` or similar `impl Trait` parameters.
+
+---
+
+### ERR-009: Self-Consuming / Move Semantics
+
+**Location:**
+- File: `src/cli.rs` (line 814), `src/walk.rs` (line 466), `src/dir_entry.rs` (line 147)
+- Functions: `augment_args`, `spawn_senders`, `Colorable::file_name`
+
+**Error Message:**
+```
+error[E0507]: cannot move out of a shared reference
+   --> src/cli.rs:814:5
+    |
+814 |     #[trace_borrow]
+    |     ^^^^^^^^^^^^^^^ move occurs because value has type `clap::Command`, which does not implement the `Copy` trait
+
+error[E0308]: mismatched types
+   --> src/dir_entry.rs:147:5
+    |
+147 |     #[trace_borrow]
+    |     ^^^^^^^^^^^^^^^ expected `OsString`, found `&OsStr`
+```
+
+**Category:** Ownership Transformation Issue
+**Severity:** Critical
+**Component:** borrowscope-macro
+**Frequency:** Common (any function with `self` parameter or owned return types)
+
+**Minimal Reproducer:**
+```rust
+#[trace_borrow]
+pub fn with_name(self, name: &str) -> Self {
+    self  // Error: cannot move out of shared reference
+}
+```
+
+**Root Cause:**
+Macro transforms `self` by wrapping with tracking calls that create references. Function can no longer return `Self` because it only has a borrowed reference.
+
+**Proposed Solution:**
+- File: `borrowscope-macro/src/transform_visitor.rs`
+- Change: Detect self-consuming functions and skip tracking or use `track_move`.
+
+**New Feature Required:** Yes
+- Self-consuming function detection
+
+**Workaround:**
+Skip `#[trace_borrow]` on functions that consume `self` (builder patterns, transformation methods).
+
+---
+
+### ERR-010: Range/Method Indexing Fails
+
+**Location:**
+- File: `src/filter/size.rs`
+- Line: 36
+- Function: `SizeFilter::parse_opt`
+
+**Error Message:**
+```
+error[E0061]: this method takes 1 argument but 0 arguments were supplied
+    --> src/filter/size.rs:36:5
+     |
+36   |     #[trace_borrow]
+     |     ^^^^^^^^^^^^^^^ argument #1 of type `usize` is missing
+     |
+note: method defined here
+    --> regex/src/regex/string.rs:1650:12
+     |
+1650 |     pub fn get(&self, i: usize) -> Option<Match<'h>> {
+     |            ^^^
+```
+
+**Category:** Method Call Transformation Issue
+**Severity:** Critical
+**Component:** borrowscope-macro
+**Frequency:** Uncommon (functions using `.get(index)` on captures)
+
+**Minimal Reproducer:**
+```rust
+#[trace_borrow]
+fn parse(input: &[u8]) -> Option<&[u8]> {
+    input.get(0..4)  // Error: argument missing
+}
+```
+
+**Root Cause:**
+Macro transforms the receiver and wraps it with tracking calls. The range argument `0..4` is not properly passed through, resulting in `.get()` with no arguments.
+
+**Proposed Solution:**
+- File: `borrowscope-macro/src/transform_visitor.rs`
+- Change: Preserve method call arguments when transforming expressions with range literals.
+
+**New Feature Required:** Yes
+- Range expression preservation in method calls
+
+**Workaround:**
+Skip `#[trace_borrow]` on functions that use `.get(range)` or similar range-indexed method calls.
+
+---
+
+## Phase 3: Compilation Results
 
 ### src/cli.rs (17 functions)
 
@@ -106,7 +317,7 @@
 | `partial_cmp` | ✅ Pass | - | PartialOrd |
 | `cmp` | ✅ Pass | - | Ord |
 | `Colorable::path` | ✅ Pass | - | trait impl |
-| `Colorable::file_name` | ❌ Fail | ERR-009 | E0308 type mismatch |
+| `Colorable::file_name` | ❌ Fail | ERR-009 | E0308 expected OsString, found &OsStr |
 | `Colorable::file_type` | ✅ Pass | - | trait impl |
 | `Colorable::metadata` | ✅ Pass | - | trait impl |
 
@@ -122,7 +333,7 @@
 |----------|--------|-------|-------|
 | `From::from` | ✅ Pass | - | - |
 | `is_error` | ✅ Pass | - | - |
-| `exit` | ❌ Fail | ERR-009 | self-consuming, E0277 |
+| `exit` | ❌ Fail | ERR-008 | E0277 trait From not implemented |
 | `merge_exitcodes` | ✅ Pass | - | impl IntoIterator works |
 
 ### src/filesystem.rs (10 functions)
@@ -214,7 +425,7 @@
 | `WorkerState::build_walker` | ❌ Fail | ERR-003 | E0596 cannot borrow as mutable |
 | `WorkerState::receive` | ✅ Pass | - | - |
 | `WorkerState::spawn_senders` | ❌ Fail | ERR-009 | E0507 move out of shared ref |
-| `WorkerState::scan` | ❌ Fail | ERR-003 | E0425 scope variable not found |
+| `WorkerState::scan` | ❌ Fail | ERR-003 | E0596 cannot borrow as mutable |
 | `scan` | ✅ Pass | - | - |
 
 ### src/exec/mod.rs (16 functions)
