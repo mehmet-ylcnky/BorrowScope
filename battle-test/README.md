@@ -13,8 +13,9 @@ Validate BorrowScope's compatibility with production Rust code by instrumenting 
 | 1 | [zoxide](https://github.com/ajeetdsouza/zoxide) | 23k | ✅ Complete | 67% (66/99) | [Report](zoxide/BATTLE_TEST_REPORT.md) |
 | 2 | [bat](https://github.com/sharkdp/bat) | 50k | ✅ Complete | 92% (297/323) | [Report](bat/BATTLE_TEST_REPORT.md) |
 | 3 | [fd](https://github.com/sharkdp/fd) | 35k | ✅ Complete | 90% (123/137) | [Report](fd/BATTLE_TEST_REPORT.md) |
-| 4 | [ripgrep](https://github.com/BurntSushi/ripgrep) | 49k | ⏳ Planned | - | - |
-| 5 | [axum](https://github.com/tokio-rs/axum) | 20k | ⏳ Planned | - | - |
+| 4 | [ripgrep](https://github.com/BurntSushi/ripgrep) | 49k | ✅ Complete | 99.4% (2640/2657) | [Report](ripgrep/BATTLE_TEST_REPORT.md) |
+| 5 | [tokio](https://github.com/tokio-rs/tokio) | 27k | ✅ Complete | 49% (148/303 files) | [Report](tokio/BATTLE_TEST_REPORT.md) |
+| 6 | [axum](https://github.com/tokio-rs/axum) | 20k | ⏳ Planned | - | - |
 | 6 | [serde](https://github.com/serde-rs/serde) | 9k | ⏳ Planned | - | - |
 | 7 | [actix-web](https://github.com/actix/actix-web) | 22k | ⏳ Planned | - | - |
 | 8 | [polars](https://github.com/pola-rs/polars) | 30k | ⏳ Planned | - | - |
@@ -64,9 +65,11 @@ Validate BorrowScope's compatibility with production Rust code by instrumenting 
 | ERR-006 | Temporary dropped | Tracking extends temporary lifetime requirements | E0716 | Critical |
 | ERR-007 | &'static str mismatch | Macro doesn't preserve &'static lifetime on params | E0308 | Critical |
 | ERR-008 | impl Into<T> fails | Macro breaks impl Trait parameter types | E0277/E0282 | Critical |
-| ERR-009 | Self-consuming functions | Macro wraps self in borrow, breaks ownership transfer | E0507/E0515 | Critical |
+| ERR-009 | Self-consuming functions | Macro wraps self in borrow, breaks ownership transfer | E0507/E0515/E0308 | Critical |
 | ERR-010 | Range indexing fails | Macro breaks .get(range) method calls | E0061 | Critical |
 | ERR-011 | Struct field access fails | Macro changes self type, breaks field access | E0609 | Critical |
+| ERR-012 | Trait impl methods | Macro changes method signature, breaks trait conformance | E0407/E0599 | Critical |
+| ERR-013 | Lifetime param mismatch | Macro creates temporaries that don't satisfy impl<'a> lifetimes | E0597 | Critical |
 
 ## Methodology
 
@@ -97,23 +100,26 @@ Validate BorrowScope's compatibility with production Rust code by instrumenting 
 
 ## Compatibility Matrix
 
-| Pattern | zoxide | bat | fd | ripgrep | axum |
-|---------|--------|-----|----|---------| -----|
-| Basic ownership | ✅ | ✅ | ✅ | | |
-| Iterators | ✅ | ✅ | ✅ | | |
-| Smart pointers | ➖ | ✅ | ➖ | | |
-| Interior mutability | ➖ | ➖ | ➖ | | |
-| Async/await | ➖ | ➖ | ➖ | | |
-| Closures | ✅ | ✅ | ✅ | | |
-| Generics | ✅ | ✅ | ✅ | | |
-| Lifetimes | ⚠️ | ⚠️ | ⚠️ | | |
-| Unsafe | ➖ | ➖ | ➖ | | |
-| Mutable method chains | ❌ | ❌ | ❌ | | |
-| Tuple destructuring | ❌ | ➖ | ❌ | | |
-| Const expressions | ❌ | ➖ | ➖ | | |
-| impl Into/AsRef params | ➖ | ❌ | ❌ | | |
-| Builder patterns | ➖ | ❌ | ➖ | | |
-| Range indexing | ➖ | ❌ | ❌ | | |
+| Pattern | zoxide | bat | fd | ripgrep | tokio |
+|---------|--------|-----|----|---------| ------|
+| Basic ownership | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Iterators | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Smart pointers | ➖ | ✅ | ➖ | ➖ | ✅ |
+| Interior mutability | ➖ | ➖ | ➖ | ➖ | ✅ |
+| Async/await | ➖ | ➖ | ➖ | ➖ | ✅ |
+| Closures | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Generics | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Lifetimes | ⚠️ | ⚠️ | ⚠️ | ✅ | ⚠️ |
+| Unsafe | ➖ | ➖ | ➖ | ➖ | ✅ |
+| Mutable method chains | ❌ | ❌ | ❌ | ⚠️ | ❌ |
+| Tuple destructuring | ❌ | ➖ | ❌ | ⚠️ | ➖ |
+| Const expressions | ❌ | ➖ | ➖ | ➖ | ➖ |
+| impl Into/AsRef params | ➖ | ❌ | ❌ | ✅ | ✅ |
+| Builder patterns | ➖ | ❌ | ➖ | ✅ | ✅ |
+| Range indexing | ➖ | ❌ | ❌ | ✅ | ⚠️ |
+| Trait implementations | ➖ | ➖ | ➖ | ❌ | ✅ |
+| Pin<&mut Self> | ➖ | ➖ | ➖ | ➖ | ❌ |
+| Futures/async traits | ➖ | ➖ | ➖ | ➖ | ✅ |
 
 Legend: ✅ Works | ⚠️ Partial | ❌ Fails | ➖ N/A
 
@@ -137,6 +143,22 @@ Legend: ✅ Works | ⚠️ Partial | ❌ Fails | ➖ N/A
 - Most failures due to ERR-003 (mutable borrows) and ERR-009 (self-consuming)
 - Files with 100% pass rate: error.rs, config.rs, filetypes.rs, filesystem.rs, output.rs, regex_helper.rs, exec/command.rs, exec/input.rs, exec/job.rs, exec/token.rs
 - Note: Tested on v9.0.0 (latest requires Rust 1.90, system has 1.87)
+
+### ripgrep (Complete)
+- **2,657 functions tested** across 71 files in 9 crates
+- **2,640 pass (99.4%)**, 17 fail
+- 21 compilation errors, but only 17 unique functions affected (some cascading)
+- Most failures due to ERR-012 (trait impl methods) in crates/matcher
+- **68 out of 71 files with 100% pass rate**
+- Highest pass rate of all tested projects
+
+### tokio (Complete)
+- **303 files tested** with 3,784 functions
+- **148 files pass (49%)**, 155 fail
+- **Lowest pass rate** of all tested projects
+- Most failures due to ERR-009 (self-consuming methods like guard.map()) and ERR-003 (mutable method chains)
+- Async primitives heavily use self-consuming patterns that break with current macro
+- Simple async patterns (spawn, yield, basic futures) work correctly
 
 ---
 
