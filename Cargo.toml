@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "borrowscope-runtime",
     "borrowscope-macro",
-    "borrowscope-lsp",
+    "borrowscope-lsp", "borrowscope-analyzer",
 ]
 exclude = [
     "examples/ownership-patterns",
