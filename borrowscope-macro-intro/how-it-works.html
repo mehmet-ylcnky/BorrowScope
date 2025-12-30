@@ -15,15 +15,80 @@
             
             <p>
                 The <code>#[trace_borrow]</code> attribute is an attribute procedural macro that 
-                transforms function definitions. When applied to a function, it:
+                transforms function definitions at compile time. When the Rust compiler encounters 
+                this attribute, it invokes the macro with the function's token stream before any 
+                type checking occurs. The macro then performs a four-stage transformation: it 
+                <strong>parses</strong> the raw tokens into a structured Abstract Syntax Tree (AST) 
+                using the <code>syn</code> crate, <strong>walks</strong> the function body to identify 
+                ownership-relevant operations like variable bindings and borrow expressions, 
+                <strong>generates</strong> tracking calls for each identified operation, and finally 
+                <strong>emits</strong> the transformed function as new tokens using the <code>quote</code> 
+                crate.
             </p>
 
-            <ol>
-                <li>Parses the function's AST using <code>syn</code></li>
-                <li>Walks the function body to identify ownership operations</li>
-                <li>Generates tracking calls for each operation</li>
-                <li>Emits the transformed function using <code>quote</code></li>
-            </ol>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// The transformation pipeline</span>
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  <span class="rust-attribute">#[trace_borrow]</span>                                                          │
+│  <span class="rust-keyword">fn</span> example(x: String) { <span class="rust-keyword">let</span> y = &amp;x; }                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼  <span class="rust-comment">1. Parse with syn</span>
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  ItemFn {                                                                    │
+│    ident: "example",                                                         │
+│    inputs: [FnArg { ident: "x", ty: "String" }],                             │
+│    body: Block {                                                             │
+│      stmts: [                                                                │
+│        Local {                                                               │
+│          pat: Ident("y"),                                                    │
+│          init: Expr::Reference { mutability: None, expr: Path("x") }         │
+│        }                                                                     │
+│      ]                                                                       │
+│    }                                                                         │
+│  }                                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼  <span class="rust-comment">2. Walk AST &amp; identify operations</span>
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Operations detected:                                                        │
+│    • Parameter "x" takes ownership of String                                 │
+│    • Variable "y" borrows from "x" (immutable)                               │
+│    • Scope exit: drop "y", then drop "x"                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼  <span class="rust-comment">3. Generate tracking calls</span>
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  <span class="rust-keyword">fn</span> example(x: String) {                                                    │
+│    borrowscope_runtime::track_scope_enter("example");                        │
+│    borrowscope_runtime::track_ownership("x", "String", 1);                   │
+│    <span class="rust-keyword">let</span> y = {                                                                │
+│      <span class="rust-keyword">let</span> __tmp = &amp;x;                                                        │
+│      borrowscope_runtime::track_borrow("y", 2, "x", 1, Immutable);           │
+│      __tmp                                                                   │
+│    };                                                                        │
+│    borrowscope_runtime::track_drop("y", 2);                                  │
+│    borrowscope_runtime::track_drop("x", 1);                                  │
+│    borrowscope_runtime::track_scope_exit("example");                         │
+│  }                                                                           │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼  <span class="rust-comment">4. Emit as TokenStream</span>
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Compiler receives transformed tokens, continues with type checking...       │
+└──────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>
+                The AST produced by <code>syn</code> provides structured access to every syntactic 
+                element: function signatures with their parameters and return types, block statements 
+                containing local variable declarations, and expressions including references, method 
+                calls, and control flow. This structure allows the macro to traverse the function 
+                systematically, matching patterns like <code>Expr::Reference</code> for borrow 
+                expressions or <code>Local</code> for variable bindings, without resorting to 
+                fragile string manipulation.
+            </p>
 
             <div class="code-block">
 <pre class="rust-code"><span class="rust-comment">// Input to macro</span>
@@ -57,34 +122,83 @@
 
             <h4>Stage 1: Parsing</h4>
             <p>
-                The macro receives a <code>TokenStream</code> and converts it into a structured 
-                <code>ItemFn</code> AST containing the function signature, body, and attributes.
+                The macro receives a <code>TokenStream</code>—Rust's representation of source code as 
+                a sequence of tokens (identifiers, punctuation, literals, and delimiters). This raw 
+                stream contains no structural information; it's essentially the lexer's output. The 
+                <code>syn</code> crate transforms this flat sequence into a rich, typed Abstract Syntax 
+                Tree. For a function, this produces an <code>ItemFn</code> structure containing the 
+                function's visibility, name, generics, parameter list with types, return type, and 
+                most importantly, the function body as a <code>Block</code> of statements. Each statement 
+                is further decomposed: local bindings become <code>Local</code> nodes with patterns and 
+                initializers, expressions are categorized by kind (reference, method call, binary operation, 
+                etc.), and control flow structures expose their conditions and branches. This structured 
+                representation enables precise, type-safe traversal of the code.
             </p>
 
             <h4>Stage 2: Analysis</h4>
-            <p>The macro walks the AST to identify ownership-relevant patterns:</p>
-            <ul>
-                <li><code>let x = ...</code> — variable binding</li>
-                <li><code>&amp;x</code> or <code>&amp;mut x</code> — borrow expressions</li>
-                <li><code>func(x)</code> — function calls</li>
-                <li>Block boundaries — scope enter/exit</li>
-            </ul>
+            <p>
+                With the AST in hand, the macro performs a depth-first traversal of the function body 
+                using a custom <code>OwnershipVisitor</code>. This visitor maintains state as it walks: 
+                a mapping of variable names to unique tracking IDs, a scope stack for tracking which 
+                variables need to be dropped at each scope exit, and sets identifying special variable 
+                types (smart pointers, channels, lock guards). At each AST node, the visitor pattern-matches 
+                to identify ownership-relevant operations. A <code>Local</code> node with an initializer 
+                indicates a new variable binding—the visitor records it and assigns a tracking ID. An 
+                <code>Expr::Reference</code> signals a borrow, with the mutability field distinguishing 
+                shared from exclusive borrows. Method calls are inspected for ownership-transferring 
+                patterns like <code>.clone()</code>, <code>.lock()</code>, or <code>.into()</code>. 
+                Block boundaries trigger scope tracking, and the visitor maintains a stack to ensure 
+                drops are emitted in reverse declaration order when scopes exit.
+            </p>
 
             <h4>Stage 3: Code Generation</h4>
             <p>
-                For each operation, the macro generates tracking calls using <code>quote!</code> 
-                and inserts them at the correct position.
+                For each identified operation, the macro constructs tracking calls using the <code>quote!</code> 
+                macro, which provides a template syntax for generating Rust code. Variable names and IDs 
+                are interpolated into these templates to produce calls like 
+                <code>track_borrow("y", 2, "x", 1, BorrowKind::Immutable)</code>. The generated calls 
+                must be inserted at precise locations: ownership tracking immediately after a binding, 
+                borrow tracking wrapped around the reference expression (using a temporary to preserve 
+                evaluation order), and drop tracking at scope boundaries in reverse declaration order. 
+                The <code>quote!</code> output is a new <code>TokenStream</code> that the compiler 
+                receives in place of the original function, continuing compilation with the instrumented 
+                version as if the developer had written it by hand.
             </p>
 
             <h3 id="code-generation">3.3 Code Generation</h3>
 
+            <p>
+                The <code>quote!</code> macro provides a powerful templating system for generating Rust 
+                code. Within the template, the <code>#</code> prefix interpolates values from the macro's 
+                context—variable names, types, and computed IDs become part of the generated code. The 
+                <code>stringify!</code> macro converts identifiers to string literals at compile time, 
+                allowing variable names to be passed to tracking functions without runtime overhead. 
+                Below is a simplified example showing how a variable binding generates its tracking call:
+            </p>
+
             <div class="code-block">
 <pre class="rust-code"><span class="rust-comment">// Inside the procedural macro</span>
 <span class="rust-keyword">let</span> var_name = &amp;local.pat;
+<span class="rust-keyword">let</span> var_id = self.next_var_id();
 <span class="rust-keyword">let</span> tracking_call = <span class="rust-macro">quote!</span> {
-    borrowscope_runtime::track_ownership(stringify!(#var_name), OwnershipKind::Owned);
+    borrowscope_runtime::track_ownership(
+        stringify!(#var_name), 
+        #var_id,
+        OwnershipKind::Owned
+    );
 };</pre>
             </div>
+
+            <p>
+                The actual implementation is more sophisticated, handling pattern destructuring (where 
+                a single <code>let</code> may bind multiple variables), conditional tracking based on 
+                configuration flags, and careful placement to preserve the original code's semantics. 
+                For borrow expressions, the macro wraps the reference in a block that captures the 
+                value in a temporary, emits the tracking call, and then yields the temporary—ensuring 
+                the tracking happens at exactly the right moment without changing evaluation order or 
+                introducing additional borrows that could conflict with the original code's borrow checker 
+                constraints.
+            </p>
         </div>
     </div>
 </body>

@@ -14,23 +14,47 @@
             <h3>Current Status</h3>
 
             <p>
-                The macro is in active development. Current capabilities:
+                The macro has matured significantly from its initial prototype. What began as a 
+                simple proof-of-concept for tracking variable bindings has evolved into a comprehensive 
+                instrumentation system covering the full breadth of Rust's ownership model. The 
+                current implementation handles not just the basics—variables, borrows, and moves—but 
+                also the advanced patterns that make Rust unique: smart pointers with their reference 
+                counting and interior mutability, concurrency primitives with their cross-thread 
+                ownership transfers, and async/await with its complex capture semantics. The 
+                configuration system has grown to support over 30 options, enabling developers to 
+                tune instrumentation precisely for their needs.
             </p>
 
             <ul>
-                <li>✅ Basic <code>#[trace_borrow]</code> attribute</li>
-                <li>✅ Variable binding tracking</li>
-                <li>✅ Borrow expression detection</li>
-                <li>✅ Scope enter/exit tracking</li>
-                <li>✅ Integration with runtime</li>
+                <li><code>#[trace_borrow]</code> attribute with 30+ configuration options</li>
+                <li>Variable binding, borrow, and move tracking</li>
+                <li>Smart pointer tracking (Rc, Arc, RefCell, Cell, Weak, Pin, Cow, OnceCell, MaybeUninit)</li>
+                <li>Concurrency tracking (threads, mutexes, channels)</li>
+                <li>Control flow tracking (loops, branches, break/continue/return, ?)</li>
+                <li>Expression tracking (struct, tuple, array, range, cast)</li>
+                <li>Closure capture tracking</li>
+                <li>Async/await tracking</li>
+                <li>ID-based correlation (linking borrows to owners, clones to sources)</li>
+                <li>Variable filtering with glob patterns</li>
+                <li>Sampling support for reduced overhead</li>
+                <li>Conditional compilation modes</li>
+                <li>Diagnostic warnings for ambiguous patterns</li>
             </ul>
 
             <h3>Phased Development</h3>
 
             <p>
-                Following the strategy outlined in the 
-                <a href="../borrowscope-macro-whitepaper/#recommendation">Type Information Barrier</a> 
-                whitepaper:
+                Development follows a phased approach, prioritizing practical utility over theoretical 
+                completeness. <strong>Phase 1</strong> focused on achieving high coverage through 
+                enhanced heuristics and syntactic pattern matching—recognizing that perfect accuracy 
+                is impossible without type information, but that most real-world code follows patterns 
+                the macro can handle correctly. This phase is now complete, with the macro successfully 
+                tracking the vast majority of ownership operations in typical Rust programs. 
+                <strong>Phase 2</strong> will introduce validation tooling—a <code>cargo borrowscope check</code> 
+                command that analyzes instrumented code for potential issues before runtime, catching 
+                cases where the macro's heuristics may have failed. <strong>Phase 3</strong>, if demand 
+                warrants, would explore deeper compiler integration, potentially through stable hooks 
+                that could provide limited type information to procedural macros.
             </p>
 
             <div class="ecosystem-table">
@@ -41,8 +65,8 @@
                     <tbody>
                         <tr>
                             <td><strong>Phase 1</strong></td>
-                            <td>~95% coverage via enhanced heuristics + annotations</td>
-                            <td class="status-planned">In Progress</td>
+                            <td>High coverage via enhanced heuristics + annotations</td>
+                            <td class="status-complete">Complete</td>
                         </tr>
                         <tr>
                             <td><strong>Phase 2</strong></td>
@@ -51,7 +75,7 @@
                         </tr>
                         <tr>
                             <td><strong>Phase 3</strong></td>
-                            <td>Full compiler integration (if demand warrants)</td>
+                            <td>Compiler integration (if demand warrants)</td>
                             <td>Future</td>
                         </tr>
                     </tbody>
@@ -60,20 +84,30 @@
 
             <h3>Near-Term Priorities</h3>
 
-            <p>Based on <a href="../battle-test-whitepaper/#solutions">battle test analysis</a>:</p>
-
-            <ol>
-                <li><strong>ERR-003 fix:</strong> Conservative wrapping for mutable borrows</li>
-                <li><strong>ERR-012 fix:</strong> Detect and skip trait declarations</li>
-                <li><strong>Annotation system:</strong> <code>#[borrowscope(ffi=[...], unions=[...])]</code></li>
-                <li><strong>Tuple destructuring:</strong> Preserve pattern structure</li>
-            </ol>
+            <p>
+                The immediate roadmap focuses on tooling and usability improvements that will make 
+                ownership visualization more accessible and practical. <strong>Validation tooling</strong> 
+                is the top priority—a <code>cargo borrowscope check</code> command that performs 
+                static analysis on instrumented code, identifying patterns likely to produce incorrect 
+                traces and suggesting fixes or annotations. <strong>IDE integration</strong> will bring 
+                ownership visualization directly into the development workflow, showing borrow 
+                relationships and ownership transfers in real-time as developers write code. 
+                <strong>Performance profiling</strong> will identify hot paths in the tracking 
+                infrastructure, enabling targeted optimizations for high-throughput scenarios. Finally, 
+                expanded <strong>documentation</strong> with more examples, tutorials, and use-case 
+                guides will lower the barrier to adoption and help developers get the most from the 
+                tooling.
+            </p>
 
             <div class="highlight-box">
                 <h4>Contributing</h4>
                 <p>
-                    BorrowScope is open source. Contributions welcome at 
-                    <a href="https://github.com/mehmet-ylcnky/BorrowScope">github.com/mehmet-ylcnky/BorrowScope</a>.
+                    BorrowScope is open source and welcomes contributions of all kinds—bug reports, 
+                    feature requests, documentation improvements, and code contributions. Whether 
+                    you've found an edge case the macro doesn't handle, have ideas for new features, 
+                    or want to help improve the codebase, your input is valuable. Visit the repository 
+                    at <a href="https://github.com/mehmet-ylcnky/BorrowScope">github.com/mehmet-ylcnky/BorrowScope</a> 
+                    to get started.
                 </p>
             </div>
 

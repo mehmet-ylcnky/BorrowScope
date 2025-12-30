@@ -12,7 +12,7 @@
             <h2>1. Introduction</h2>
             
             <p>
-                The <a href="../borrowscope-runtime/">BorrowScope Runtime</a> whitepaper establishes 
+                The <a href="../borrowscope-runtime/"><code>borrowscope-runtime</code></a> whitepaper establishes 
                 the foundation for runtime ownership tracking in Rust. It defines an event taxonomy 
                 covering 88 event types across 15 categories, implements a thread-safe global tracker, 
                 and provides algorithms for constructing ownership graphs from event streams. The 
@@ -36,7 +36,10 @@
             </div>
 
             <p>
-                Consider instrumenting a simple function manually:
+                Consider instrumenting a simple function manually. Even a three-line function 
+                requires tracking: the parameter takes ownership, indexing creates a borrow, 
+                dereferencing copies the value, and both variables must be dropped at scope exit. 
+                The instrumented version below shows the tracking calls that would be needed:
             </p>
 
             <div class="code-block">
@@ -66,15 +69,15 @@
             </div>
 
             <p>
-                This manual approach has obvious problems:
+                This manual approach quickly becomes impractical. The process is <strong>tedious</strong>—every 
+                variable binding, borrow expression, and scope boundary requires an explicit tracking call. 
+                It's also <strong>error-prone</strong>: a single missing or misplaced call produces incorrect 
+                traces that misrepresent the actual ownership flow. Worse, the instrumentation is 
+                <strong>unmaintainable</strong>—any code change requires carefully updating the corresponding 
+                tracking calls, and forgetting to do so silently corrupts the output. Finally, the approach 
+                is <strong>invasive</strong>: the tracking code overwhelms the actual logic, making the 
+                instrumented function nearly unreadable.
             </p>
-
-            <ul>
-                <li><strong>Tedious:</strong> Every variable, borrow, and scope requires explicit tracking</li>
-                <li><strong>Error-prone:</strong> Missing or misplaced calls produce incorrect traces</li>
-                <li><strong>Unmaintainable:</strong> Code changes require updating instrumentation</li>
-                <li><strong>Invasive:</strong> Tracking code obscures the actual logic</li>
-            </ul>
 
             <div class="solution-statement">
                 <h3>The Solution: Automatic Instrumentation</h3>
@@ -91,13 +94,17 @@
     <span class="rust-keyword">let</span> first = &amp;data[0];
     <span class="rust-keyword">let</span> result = *first * 2;
     result
-}
-<span class="rust-comment">// Macro automatically generates all tracking calls!</span></pre>
+}</pre>
             </div>
 
             <p>
-                The macro bridges the gap between the runtime's tracking capabilities and practical 
-                usability, making ownership visualization accessible for real-world code.
+                With a single attribute, the macro analyzes the function body at compile time, identifies 
+                all ownership-relevant operations, and injects the appropriate tracking calls automatically. 
+                The original code remains clean and readable while the generated instrumentation captures 
+                every variable binding, borrow, copy, and drop. This bridges the gap between the runtime's 
+                powerful tracking capabilities and practical usability—developers simply annotate functions 
+                they want to trace, and the macro handles the rest, making ownership visualization accessible 
+                for real-world codebases without sacrificing code clarity.
             </p>
         </div>
     </div>

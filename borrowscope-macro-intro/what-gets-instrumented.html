@@ -13,27 +13,52 @@
 
             <h3 id="variable-bindings">4.1 Variable Bindings</h3>
             
-            <p>Every <code>let</code> statement is tracked:</p>
+            <p>
+                Every <code>let</code> statement represents the birth of a new owned value, and the macro 
+                captures each one. When a variable is bound, the macro records its name, infers the type 
+                from the initializer's syntax where possible, and assigns a unique tracking ID that will 
+                follow this value through its lifetime. This ID enables correlation—when the variable is 
+                later borrowed, moved, or dropped, the tracking system can link those events back to this 
+                original binding. The macro handles simple bindings, pattern destructuring, and bindings 
+                with type annotations uniformly:
+            </p>
 
             <div class="code-block">
-<pre class="rust-code"><span class="rust-keyword">let</span> x = String::from(<span class="rust-string">"hello"</span>);  <span class="rust-comment">// track_ownership("x", "String")</span>
-<span class="rust-keyword">let</span> y = 42;                       <span class="rust-comment">// track_ownership("y", "i32")</span>
-<span class="rust-keyword">let</span> z = vec![1, 2, 3];            <span class="rust-comment">// track_ownership("z", "Vec")</span></pre>
+<pre class="rust-code"><span class="rust-keyword">let</span> x = String::from(<span class="rust-string">"hello"</span>);  <span class="rust-comment">// track_ownership("x", "String", id=1)</span>
+<span class="rust-keyword">let</span> y = 42;                       <span class="rust-comment">// track_ownership("y", "i32", id=2)</span>
+<span class="rust-keyword">let</span> z = vec![1, 2, 3];            <span class="rust-comment">// track_ownership("z", "Vec", id=3)</span></pre>
             </div>
 
             <h3 id="borrows-and-moves">4.2 Borrows and Moves</h3>
 
-            <p>Reference creation and ownership transfers:</p>
+            <p>
+                Reference creation and ownership transfers are the heart of Rust's memory safety model, 
+                and the macro tracks both with precision. When a reference is created with <code>&amp;</code> 
+                or <code>&amp;mut</code>, the macro emits a borrow event that links the new reference to 
+                its source variable, recording whether the borrow is shared (immutable) or exclusive 
+                (mutable). When a value is moved—assigned to a new variable without <code>Copy</code>—the 
+                macro tracks the ownership transfer, marking the source as moved and the destination as 
+                the new owner. This creates a chain of custody that visualization tools can render as 
+                ownership flowing through the program:
+            </p>
 
             <div class="code-block">
-<pre class="rust-code"><span class="rust-keyword">let</span> r = &amp;x;           <span class="rust-comment">// track_borrow("r", "x", Immutable)</span>
-<span class="rust-keyword">let</span> m = &amp;<span class="rust-keyword">mut</span> x;       <span class="rust-comment">// track_borrow("m", "x", Mutable)</span>
-<span class="rust-keyword">let</span> owned = x;        <span class="rust-comment">// track_move("owned", "x")</span></pre>
+<pre class="rust-code"><span class="rust-keyword">let</span> r = &amp;x;           <span class="rust-comment">// track_borrow("r", id=4, from="x", id=1, Immutable)</span>
+<span class="rust-keyword">let</span> m = &amp;<span class="rust-keyword">mut</span> x;       <span class="rust-comment">// track_borrow("m", id=5, from="x", id=1, Mutable)</span>
+<span class="rust-keyword">let</span> owned = x;        <span class="rust-comment">// track_move("owned", id=6, from="x", id=1)</span></pre>
             </div>
 
             <h3 id="function-calls">4.3 Function Calls</h3>
 
-            <p>Function calls that may transfer or borrow values:</p>
+            <p>
+                Function calls are where ownership often changes hands, and the macro instruments these 
+                boundaries carefully. When a value is passed by value to a function, it's a move—the 
+                caller loses ownership and the function receives it. When passed by reference, it's a 
+                borrow that must end before the function returns. Return values represent new ownership 
+                flowing back to the caller. The macro cannot see inside the called function (unless it's 
+                also annotated), but it tracks the ownership events visible at the call site, providing 
+                a complete picture of how values flow into and out of function boundaries:
+            </p>
 
             <div class="code-block">
 <pre class="rust-code">consume(x);           <span class="rust-comment">// track_move to function parameter</span>
@@ -43,26 +68,212 @@ borrow(&amp;x);           <span class="rust-comment">// track_borrow for referen
 
             <h3 id="scope-and-drops">4.4 Scope and Drops</h3>
 
-            <p>Block boundaries and implicit drops:</p>
+            <p>
+                Rust's deterministic destruction is one of its defining features—values are dropped 
+                exactly when they go out of scope, in reverse declaration order. The macro tracks scope 
+                boundaries explicitly, emitting enter and exit events for each block. More importantly, 
+                it maintains a scope stack during transformation, recording which variables were declared 
+                in each scope. When a scope exits, the macro generates drop events for each variable in 
+                reverse order, mirroring the compiler's actual drop behavior. This enables visualization 
+                of the "cleanup" phase that's usually invisible, showing exactly when destructors run 
+                and resources are released:
+            </p>
 
             <div class="code-block">
 <pre class="rust-code">{                              <span class="rust-comment">// track_scope_enter("block")</span>
-    <span class="rust-keyword">let</span> temp = String::new();  <span class="rust-comment">// track_ownership("temp")</span>
-}                              <span class="rust-comment">// track_drop("temp"), track_scope_exit("block")</span></pre>
+    <span class="rust-keyword">let</span> temp = String::new();  <span class="rust-comment">// track_ownership("temp", id=7)</span>
+}                              <span class="rust-comment">// track_drop("temp", id=7), track_scope_exit("block")</span></pre>
+            </div>
+
+            <h3 id="smart-pointers">4.5 Smart Pointers</h3>
+
+            <p>
+                Rust's smart pointer ecosystem provides powerful abstractions for shared ownership and 
+                interior mutability, but these abstractions can obscure what's actually happening with 
+                ownership. The macro provides deep tracking for the entire smart pointer family, revealing 
+                the hidden complexity. For reference-counted types like <code>Rc&lt;T&gt;</code> and 
+                <code>Arc&lt;T&gt;</code>, it tracks creation, cloning (which increments the reference 
+                count), and downgrading to weak references. For interior mutability types like 
+                <code>RefCell&lt;T&gt;</code> and <code>Cell&lt;T&gt;</code>, it tracks the dynamic 
+                borrow checking that happens at runtime. Each clone is linked to its source, enabling 
+                visualization of how shared ownership spreads through a program:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Reference counting</span>
+<span class="rust-keyword">let</span> rc = Rc::new(data);       <span class="rust-comment">// track_rc_new</span>
+<span class="rust-keyword">let</span> rc2 = rc.clone();         <span class="rust-comment">// track_rc_clone (links to source)</span>
+<span class="rust-keyword">let</span> weak = Rc::downgrade(&amp;rc);<span class="rust-comment">// track_rc_downgrade</span>
+<span class="rust-keyword">let</span> upgraded = weak.upgrade();<span class="rust-comment">// track_weak_upgrade</span>
+
+<span class="rust-comment">// Interior mutability</span>
+<span class="rust-keyword">let</span> cell = RefCell::new(x);   <span class="rust-comment">// track_refcell_new</span>
+<span class="rust-keyword">let</span> guard = cell.borrow();    <span class="rust-comment">// track_refcell_borrow</span>
+<span class="rust-keyword">let</span> guard = cell.borrow_mut();<span class="rust-comment">// track_refcell_borrow_mut</span>
+
+<span class="rust-comment">// Thread-safe variants</span>
+<span class="rust-keyword">let</span> arc = Arc::new(data);     <span class="rust-comment">// track_arc_new</span>
+<span class="rust-keyword">let</span> arc2 = arc.clone();       <span class="rust-comment">// track_arc_clone</span></pre>
             </div>
 
             <div class="ecosystem-table">
                 <table>
                     <thead>
-                        <tr><th>Pattern</th><th>Tracking Call</th><th>Event Type</th></tr>
+                        <tr><th>Type</th><th>Operations Tracked</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><code>let x = value</code></td><td><code>track_ownership</code></td><td>VariableCreated</td></tr>
-                        <tr><td><code>&amp;x</code></td><td><code>track_borrow</code></td><td>BorrowCreated</td></tr>
-                        <tr><td><code>&amp;mut x</code></td><td><code>track_borrow</code></td><td>MutableBorrowCreated</td></tr>
-                        <tr><td><code>y = x</code> (move)</td><td><code>track_move</code></td><td>OwnershipTransferred</td></tr>
-                        <tr><td><code>{ ... }</code></td><td><code>track_scope_*</code></td><td>ScopeEnter/Exit</td></tr>
-                        <tr><td>scope exit</td><td><code>track_drop</code></td><td>VariableDropped</td></tr>
+                        <tr><td><code>Rc&lt;T&gt;</code></td><td>new, clone, downgrade, strong_count, weak_count</td></tr>
+                        <tr><td><code>Arc&lt;T&gt;</code></td><td>new, clone, downgrade, strong_count, weak_count</td></tr>
+                        <tr><td><code>Weak&lt;T&gt;</code></td><td>upgrade, clone</td></tr>
+                        <tr><td><code>RefCell&lt;T&gt;</code></td><td>new, borrow, borrow_mut, try_borrow, try_borrow_mut</td></tr>
+                        <tr><td><code>Cell&lt;T&gt;</code></td><td>new, get, set, replace, take</td></tr>
+                        <tr><td><code>Box&lt;T&gt;</code></td><td>new, into_raw, from_raw, leak</td></tr>
+                        <tr><td><code>Pin&lt;T&gt;</code></td><td>new, into_inner, as_ref, as_mut</td></tr>
+                        <tr><td><code>Cow&lt;T&gt;</code></td><td>to_mut, into_owned</td></tr>
+                        <tr><td><code>OnceCell&lt;T&gt;</code></td><td>new, get, set, get_or_init</td></tr>
+                        <tr><td><code>MaybeUninit&lt;T&gt;</code></td><td>new, uninit, assume_init, write</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 id="concurrency">4.6 Concurrency Primitives</h3>
+
+            <p>
+                Concurrent Rust code introduces ownership patterns that are notoriously difficult to 
+                reason about—threads take ownership of closures, mutexes guard shared data behind 
+                lock guards, and channels transfer ownership between threads. The macro tracks these 
+                patterns explicitly, making the invisible handoffs visible. Thread spawning captures 
+                which variables the closure takes ownership of; mutex locks show when exclusive access 
+                begins and ends; channel operations reveal ownership crossing thread boundaries. This 
+                is particularly valuable for debugging deadlocks and data races, as the event stream 
+                shows exactly when each thread acquired or released resources:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Thread management</span>
+<span class="rust-keyword">let</span> handle = thread::spawn(|| { });  <span class="rust-comment">// track_thread_spawn</span>
+handle.join().unwrap();               <span class="rust-comment">// track_thread_join</span>
+
+<span class="rust-comment">// Synchronization</span>
+<span class="rust-keyword">let</span> guard = mutex.lock().unwrap();   <span class="rust-comment">// track_mutex_lock</span>
+<span class="rust-keyword">let</span> guard = rwlock.read().unwrap();  <span class="rust-comment">// track_rwlock_read</span>
+<span class="rust-keyword">let</span> guard = rwlock.write().unwrap(); <span class="rust-comment">// track_rwlock_write</span>
+
+<span class="rust-comment">// Channels</span>
+tx.send(value).unwrap();              <span class="rust-comment">// track_channel_send</span>
+<span class="rust-keyword">let</span> received = rx.recv().unwrap();   <span class="rust-comment">// track_channel_recv</span></pre>
+            </div>
+
+            <h3 id="control-flow">4.7 Control Flow</h3>
+
+            <p>
+                Control flow structures affect when and whether ownership operations occur. A variable 
+                declared inside a loop is created and dropped on each iteration; a value moved in one 
+                branch of an <code>if</code> may still be available in the other. The macro tracks 
+                loop iterations, branch decisions, and early exits to provide context for the ownership 
+                events that occur within them. This is essential for understanding conditional ownership 
+                patterns—the visualization can show that a value was dropped early due to a <code>return</code>, 
+                or that a move only happened because a particular match arm was taken:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Loops</span>
+<span class="rust-keyword">for</span> item <span class="rust-keyword">in</span> collection { }  <span class="rust-comment">// track_loop_enter/exit, iteration tracking</span>
+<span class="rust-keyword">while</span> condition { }         <span class="rust-comment">// track_loop_enter/exit</span>
+
+<span class="rust-comment">// Branches</span>
+<span class="rust-keyword">if</span> condition { } <span class="rust-keyword">else</span> { }   <span class="rust-comment">// track_branch (which arm taken)</span>
+<span class="rust-keyword">match</span> value { ... }         <span class="rust-comment">// track_match_arm</span>
+
+<span class="rust-comment">// Control flow</span>
+<span class="rust-keyword">break</span>;                      <span class="rust-comment">// track_break</span>
+<span class="rust-keyword">continue</span>;                   <span class="rust-comment">// track_continue</span>
+<span class="rust-keyword">return</span> value;               <span class="rust-comment">// track_return</span>
+value?;                      <span class="rust-comment">// track_try (? operator)</span></pre>
+            </div>
+
+            <h3 id="expressions">4.8 Expressions</h3>
+
+            <p>
+                Compound expressions create new values from existing ones, and each has distinct 
+                ownership semantics. Struct literals take ownership of their field values; tuple 
+                and array expressions similarly consume their elements. Range expressions create 
+                iterator-like values; casts may copy or reinterpret data; index expressions borrow 
+                from collections. The macro tracks these expression types to show how values are 
+                assembled and transformed, completing the picture of data flow beyond simple 
+                variable-to-variable transfers:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Struct/tuple/array literals</span>
+Point { x: 1, y: 2 }         <span class="rust-comment">// track_struct_literal</span>
+(a, b, c)                    <span class="rust-comment">// track_tuple_expr</span>
+[1, 2, 3]                    <span class="rust-comment">// track_array_expr</span>
+
+<span class="rust-comment">// Other expressions</span>
+0..10                        <span class="rust-comment">// track_range_expr</span>
+value <span class="rust-keyword">as</span> u64                <span class="rust-comment">// track_cast_expr</span>
+array[index]                 <span class="rust-comment">// track_index_expr</span></pre>
+            </div>
+
+            <h3 id="closures">4.9 Closures</h3>
+
+            <p>
+                Closures in Rust capture variables from their environment, and the capture mode—by 
+                reference, by mutable reference, or by value—determines ownership behavior. The macro 
+                analyzes closure expressions to determine which variables are captured and how. A 
+                closure without <code>move</code> borrows by default, taking references to captured 
+                variables; a <code>move</code> closure takes ownership, transferring values into the 
+                closure's environment. This tracking is crucial for understanding why a variable 
+                becomes unavailable after a closure is created, or why a closure can outlive its 
+                creating scope:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">let</span> x = String::from(<span class="rust-string">"hello"</span>);
+
+<span class="rust-comment">// Borrow capture</span>
+<span class="rust-keyword">let</span> f = || println!(<span class="rust-string">"{}"</span>, x);  <span class="rust-comment">// track_closure(captures: [("x", Borrow)])</span>
+
+<span class="rust-comment">// Move capture</span>
+<span class="rust-keyword">let</span> f = <span class="rust-keyword">move</span> || x;            <span class="rust-comment">// track_closure(captures: [("x", Move)])</span></pre>
+            </div>
+
+            <h3 id="async">4.10 Async/Await</h3>
+
+            <p>
+                Asynchronous Rust introduces unique ownership challenges: async blocks capture variables 
+                like closures, and <code>.await</code> points are where the future may be suspended, 
+                potentially holding borrows across yield points. The macro tracks async block creation 
+                and each await point, enabling visualization of how ownership flows through asynchronous 
+                code. This is particularly valuable for diagnosing lifetime errors in async contexts, 
+                where the compiler's error messages can be cryptic and the actual ownership flow spans 
+                multiple suspension points:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">async</span> { computation }        <span class="rust-comment">// track_async_block</span>
+future.<span class="rust-keyword">await</span>                 <span class="rust-comment">// track_await</span></pre>
+            </div>
+
+            <h3>Summary Table</h3>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr><th>Category</th><th>Patterns</th><th>Event Types</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Variables</td><td><code>let x = value</code></td><td>VariableCreated</td></tr>
+                        <tr><td>Borrows</td><td><code>&amp;x</code>, <code>&amp;mut x</code></td><td>BorrowCreated, MutableBorrowCreated</td></tr>
+                        <tr><td>Moves</td><td><code>y = x</code></td><td>OwnershipTransferred</td></tr>
+                        <tr><td>Scopes</td><td><code>{ ... }</code></td><td>ScopeEnter, ScopeExit, VariableDropped</td></tr>
+                        <tr><td>Smart Pointers</td><td>Rc, Arc, RefCell, Cell, Box, Pin, Cow</td><td>~25 event types</td></tr>
+                        <tr><td>Concurrency</td><td>spawn, join, lock, send, recv</td><td>~12 event types</td></tr>
+                        <tr><td>Control Flow</td><td>loops, branches, break, continue, return, ?</td><td>~10 event types</td></tr>
+                        <tr><td>Expressions</td><td>struct, tuple, array, range, cast, index</td><td>~8 event types</td></tr>
+                        <tr><td>Closures</td><td>capture tracking</td><td>ClosureCreated</td></tr>
+                        <tr><td>Async</td><td>async blocks, await</td><td>AsyncBlockEnter, AwaitPoint</td></tr>
                     </tbody>
                 </table>
             </div>

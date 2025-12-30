@@ -12,8 +12,13 @@
             <h2>6. Integration with Runtime</h2>
 
             <p>
-                The macro and runtime form a complete system. Understanding their relationship 
-                clarifies how ownership tracking works end-to-end.
+                The macro and runtime form a complete system, each handling a distinct phase of 
+                ownership tracking. The macro operates at compile time, transforming source code 
+                to inject tracking calls. The runtime operates at execution time, receiving those 
+                calls and building data structures for analysis. Neither component is useful alone—the 
+                macro generates code that calls the runtime, and the runtime expects calls in the 
+                format the macro produces. Understanding their relationship clarifies how ownership 
+                tracking works end-to-end:
             </p>
 
             <div class="code-block">
@@ -43,12 +48,21 @@
 
             <h3>Event Flow</h3>
 
-            <ol>
-                <li><strong>Compile time:</strong> Macro transforms annotated functions</li>
-                <li><strong>Runtime:</strong> Transformed code emits events via runtime API</li>
-                <li><strong>Analysis:</strong> Runtime builds graphs from event stream</li>
-                <li><strong>Output:</strong> Graphs exported for visualization</li>
-            </ol>
+            <p>
+                The journey from annotated source code to ownership visualization spans four distinct 
+                phases. At <strong>compile time</strong>, the Rust compiler invokes the macro when it 
+                encounters the <code>#[trace_borrow]</code> attribute; the macro parses, analyzes, and 
+                transforms the function, emitting instrumented code that the compiler then type-checks 
+                and compiles normally. At <strong>runtime</strong>, when the instrumented function 
+                executes, each tracking call sends an event to the runtime's global tracker, which 
+                stores events in a thread-safe, lock-free buffer designed for minimal overhead. During 
+                <strong>analysis</strong>, the runtime processes the event stream to construct ownership 
+                graphs—data structures representing variables as nodes and ownership/borrow relationships 
+                as edges, with temporal information enabling queries at any point in execution history. 
+                Finally, for <strong>output</strong>, the runtime provides APIs to export graphs in 
+                various formats: JSON for custom tooling, DOT for Graphviz visualization, or direct 
+                integration with the BorrowScope web interface for interactive exploration.
+            </p>
 
             <div class="highlight-box">
                 <h4>Zero-Cost When Disabled</h4>
@@ -56,7 +70,10 @@
                     Both crates support conditional compilation. When the <code>tracking</code> 
                     feature is disabled, all tracking calls compile to no-ops, achieving true 
                     zero-cost abstraction as described in the 
-                    <a href="../borrowscope-runtime/">runtime whitepaper</a>.
+                    <a href="../borrowscope-runtime/"><code>borrowscope-runtime</code></a> whitepaper.
+                    This means you can leave <code>#[trace_borrow]</code> annotations in production 
+                    code and simply disable the feature for release builds—no code changes required, 
+                    no runtime overhead incurred.
                 </p>
             </div>
         </div>

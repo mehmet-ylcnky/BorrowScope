@@ -13,20 +13,45 @@
 
             <p>
                 The macro operates on <strong>syntax only</strong>—it cannot access type information. 
-                This fundamental constraint, explored in depth in the 
-                <a href="../borrowscope-macro-whitepaper/">Type Information Barrier</a> whitepaper, 
-                leads to specific limitations.
+                This is not a design flaw but a fundamental constraint of Rust's compilation model. 
+                Procedural macros execute early in the compilation pipeline, after lexing and parsing 
+                but before type checking, name resolution, and borrow checking. At this stage, the 
+                macro sees tokens organized into an Abstract Syntax Tree, but it has no knowledge of 
+                what types those tokens represent, which traits they implement, or how the borrow 
+                checker will analyze them. This constraint shapes everything the macro can and cannot do.
             </p>
 
             <div class="problem-statement">
                 <h3>The Core Constraint</h3>
                 <p>
                     Procedural macros execute <em>before</em> type checking in Rust's compilation 
-                    pipeline. The macro sees tokens and syntax, not types and semantics.
+                    pipeline. The macro sees tokens and syntax, not types and semantics. When the 
+                    macro encounters <code>let y = x;</code>, it cannot know whether this is a move 
+                    (ownership transfer) or a copy (value duplication)—that depends on whether the 
+                    type of <code>x</code> implements the <code>Copy</code> trait, information that 
+                    simply isn't available yet. The macro must make decisions based on syntactic 
+                    patterns and heuristics, which work correctly for most code but inevitably fail 
+                    for certain patterns.
                 </p>
             </div>
 
             <h3>What the Macro Cannot Detect</h3>
+
+            <p>
+                The type information barrier manifests in several specific limitations. The most 
+                fundamental is the <strong>move vs copy distinction</strong>: without knowing whether 
+                a type implements <code>Copy</code>, the macro cannot determine if an assignment 
+                transfers ownership or merely duplicates the value. It defaults to assuming moves 
+                for non-primitive types, which is correct for <code>String</code> and <code>Vec</code> 
+                but wrong for user-defined <code>Copy</code> types. <strong>FFI boundaries</strong> 
+                present another challenge—the macro cannot distinguish <code>extern "C"</code> functions 
+                from regular Rust functions, so ownership transfers across FFI boundaries may not be 
+                tracked correctly. <strong>Trait method resolution</strong> is impossible without type 
+                information; when the macro sees <code>x.clone()</code>, it cannot know which 
+                <code>Clone</code> implementation will be called or whether the method even exists. 
+                Finally, <strong>generic bounds</strong> can cause the macro's wrapping to break 
+                compilation—inserting a temporary variable may violate bounds that the macro cannot see.
+            </p>
 
             <div class="ecosystem-table">
                 <table>
@@ -58,33 +83,50 @@
                 </table>
             </div>
 
-            <h3>Empirical Results</h3>
+            <h3>Practical Implications</h3>
 
             <p>
-                The <a href="../battle-test-whitepaper/">Battle Test</a> whitepaper validates these 
-                limitations empirically. Testing across 14,562 functions in five production codebases:
+                These limitations do not render the macro useless—far from it. The vast majority of 
+                Rust code follows patterns that the macro handles correctly. Simple ownership transfers, 
+                explicit borrows with <code>&amp;</code> and <code>&amp;mut</code>, standard library 
+                smart pointers, and common control flow all work as expected. The problematic patterns 
+                tend to be concentrated in specific areas: FFI-heavy code, heavily generic libraries, 
+                and code that relies on <code>Copy</code> semantics for user-defined types. For 
+                educational use, debugging application logic, and visualizing ownership in typical 
+                Rust programs, the macro provides accurate and valuable insights despite these 
+                theoretical limitations.
             </p>
-
-            <ul>
-                <li><strong>80.5% pass rate</strong> — most patterns work correctly</li>
-                <li><strong>Six error categories</strong> — all trace to type information barrier</li>
-                <li><strong>Concentrated failures</strong> — two patterns cause 73% of errors</li>
-            </ul>
 
             <div class="solution-statement">
                 <h3>Mitigation Strategies</h3>
                 <p>
-                    The theoretical paper proposes solutions including annotation systems, 
-                    validation tools, and enhanced heuristics. The battle test data guides 
-                    prioritization of these fixes.
+                    Several approaches can mitigate these limitations. <strong>Annotation systems</strong> 
+                    allow developers to provide hints the macro cannot infer—marking types as 
+                    <code>Copy</code>, identifying FFI boundaries, or specifying trait implementations. 
+                    <strong>Validation tools</strong> can post-process the generated code to detect 
+                    likely errors before runtime. <strong>Enhanced heuristics</strong> can improve 
+                    accuracy for common patterns—for example, assuming primitive types are <code>Copy</code> 
+                    and well-known standard library types follow their documented semantics. The 
+                    diagnostic warning system already implemented in the macro represents a first step, 
+                    alerting developers to potentially problematic patterns at compile time.
                 </p>
             </div>
 
-            <h3>Further Reading</h3>
-            <ul>
-                <li><a href="../borrowscope-macro-whitepaper/">Type Information Barrier</a> — theoretical analysis</li>
-                <li><a href="../battle-test-whitepaper/">Battle Test Results</a> — empirical validation</li>
-            </ul>
+            <h3>Upcoming Research</h3>
+
+            <p>
+                Two companion whitepapers will explore these limitations in depth. The 
+                <em>Type Information Barrier</em> whitepaper (in progress) provides a theoretical 
+                analysis of the constraint, examining exactly what information procedural macros 
+                lack and why Rust's compilation model makes this unavoidable. It categorizes the 
+                failure modes, analyzes their frequency in typical code, and proposes solutions 
+                ranging from annotation systems to potential compiler extensions. The 
+                <em>Empirical Validation</em> whitepaper (planned) will test the macro against 
+                real-world Rust projects, measuring actual pass rates, cataloging error patterns, 
+                and validating the theoretical predictions with empirical data. Together, these 
+                papers will provide both the theoretical foundation and practical evidence needed 
+                to guide future development of the macro.
+            </p>
         </div>
     </div>
 </body>

@@ -13,7 +13,11 @@
 
             <h3 id="basic-usage">5.1 Basic Usage</h3>
 
-            <p>Add dependencies to <code>Cargo.toml</code>:</p>
+            <p>
+                Getting started with <code>borrowscope-macro</code> requires two dependencies: the 
+                macro crate that provides the <code>#[trace_borrow]</code> attribute, and the runtime 
+                crate that receives and stores the tracking events. Add both to your <code>Cargo.toml</code>:
+            </p>
 
             <div class="code-block">
 <pre class="rust-code">[dependencies]
@@ -21,7 +25,13 @@ borrowscope-macro = <span class="rust-string">"0.1"</span>
 borrowscope-runtime = <span class="rust-string">"0.1"</span></pre>
             </div>
 
-            <p>Annotate functions to trace:</p>
+            <p>
+                With the dependencies in place, annotate any function you want to trace with the 
+                <code>#[trace_borrow]</code> attribute. The macro transforms the function at compile 
+                time, injecting tracking calls that emit events to the runtime. The original function's 
+                behavior remains unchanged—it accepts the same arguments, returns the same values, and 
+                has the same side effects. The only addition is the ownership event stream:
+            </p>
 
             <div class="code-block">
 <pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_macro::trace_borrow;
@@ -33,7 +43,13 @@ borrowscope-runtime = <span class="rust-string">"0.1"</span></pre>
 }</pre>
             </div>
 
-            <p>Access the event stream:</p>
+            <p>
+                After executing traced functions, the runtime holds a buffer of ownership events that 
+                can be retrieved for analysis, visualization, or export. The <code>get_events()</code> 
+                function returns an iterator over all recorded events in chronological order. Each 
+                event contains the operation type, variable names, tracking IDs, timestamps, and 
+                contextual information like scope depth and source location:
+            </p>
 
             <div class="code-block">
 <pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_runtime::get_events;
@@ -49,33 +65,193 @@ borrowscope-runtime = <span class="rust-string">"0.1"</span></pre>
 
             <h3 id="configuration">5.2 Configuration Options</h3>
 
-            <p>The macro supports optional configuration:</p>
+            <p>
+                The macro supports extensive configuration via attribute arguments, allowing developers 
+                to tune the instrumentation for their specific needs. Whether you want minimal overhead 
+                for production profiling, comprehensive tracing for debugging, or something in between, 
+                the configuration system provides the flexibility to achieve it.
+            </p>
+
+            <h4>Presets</h4>
+            <p>
+                For common use cases, presets provide sensible defaults with a single argument. The 
+                <code>minimal</code> preset tracks only the essential ownership operations—creation, 
+                moves, and drops—producing a clean event stream focused on ownership transfer. The 
+                <code>standard</code> preset (the default) enables most features for general-purpose 
+                tracing. The <code>verbose</code> preset enables everything including function entry/exit 
+                events, while <code>debug</code> adds diagnostic warnings for ambiguous patterns:
+            </p>
 
             <div class="code-block">
-<pre class="rust-code"><span class="rust-comment">// Trace with custom scope name</span>
-<span class="rust-attribute">#[trace_borrow(name = "custom_scope")]</span>
-<span class="rust-keyword">fn</span> <span class="rust-function">my_function</span>() { }
+<pre class="rust-code"><span class="rust-attribute">#[trace_borrow(preset = "minimal")]</span>   <span class="rust-comment">// Only new/move/drop</span>
+<span class="rust-attribute">#[trace_borrow(preset = "standard")]</span>  <span class="rust-comment">// Default - most features</span>
+<span class="rust-attribute">#[trace_borrow(preset = "verbose")]</span>   <span class="rust-comment">// Everything including functions</span>
+<span class="rust-attribute">#[trace_borrow(preset = "debug")]</span>     <span class="rust-comment">// All features + diagnostics</span></pre>
+            </div>
 
-<span class="rust-comment">// Disable drop tracking (reduces noise)</span>
-<span class="rust-attribute">#[trace_borrow(track_drops = false)]</span>
-<span class="rust-keyword">fn</span> <span class="rust-function">my_function</span>() { }</pre>
+            <h4>Feature Flags</h4>
+            <p>
+                For fine-grained control, individual feature flags enable or disable specific categories 
+                of tracking. Each flag corresponds to a family of ownership operations, allowing you to 
+                focus on exactly what matters for your analysis. Disabling irrelevant features reduces 
+                both compile-time overhead (less generated code) and runtime overhead (fewer events):
+            </p>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr><th>Flag</th><th>Default</th><th>Description</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>track_new</code></td><td>true</td><td>Variable creation (<code>let x = ...</code>)</td></tr>
+                        <tr><td><code>track_move</code></td><td>true</td><td>Ownership transfers</td></tr>
+                        <tr><td><code>track_drop</code></td><td>true</td><td>Scope exit drops</td></tr>
+                        <tr><td><code>track_borrow</code></td><td>true</td><td><code>&amp;x</code> and <code>&amp;mut x</code></td></tr>
+                        <tr><td><code>track_smart_pointers</code></td><td>true</td><td>Rc, Arc, RefCell, Cell, Weak, Pin, Cow, etc.</td></tr>
+                        <tr><td><code>track_loops</code></td><td>true</td><td>for, while, loop</td></tr>
+                        <tr><td><code>track_branches</code></td><td>true</td><td>if/else, match</td></tr>
+                        <tr><td><code>track_control_flow</code></td><td>true</td><td>break, continue, return</td></tr>
+                        <tr><td><code>track_try</code></td><td>true</td><td>? operator</td></tr>
+                        <tr><td><code>track_methods</code></td><td>true</td><td>clone, lock, unwrap, etc.</td></tr>
+                        <tr><td><code>track_async</code></td><td>true</td><td>async blocks, await</td></tr>
+                        <tr><td><code>track_unsafe</code></td><td>true</td><td>unsafe blocks, raw pointers</td></tr>
+                        <tr><td><code>track_expressions</code></td><td>true</td><td>struct, tuple, array, range, cast</td></tr>
+                        <tr><td><code>track_functions</code></td><td><strong>false</strong></td><td>Function entry/exit</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>
+                Flags can be combined freely. For example, to focus exclusively on borrow tracking 
+                without the noise of loop iterations and branch decisions, disable those specific 
+                features. Conversely, enable <code>track_functions</code> when you need to see the 
+                call hierarchy alongside ownership events:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Disable specific features</span>
+<span class="rust-attribute">#[trace_borrow(track_loops = false, track_branches = false)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">focused_trace</span>() { }
+
+<span class="rust-comment">// Enable function entry/exit (off by default)</span>
+<span class="rust-attribute">#[trace_borrow(track_functions = true)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">with_function_events</span>() { }</pre>
+            </div>
+
+            <h4>Variable Filtering</h4>
+            <p>
+                When tracing complex functions, the event stream can become overwhelming. Variable 
+                filtering lets you focus on specific variables using glob patterns with <code>*</code> 
+                (matches any sequence) and <code>?</code> (matches single character) wildcards. The 
+                <code>include</code> pattern specifies which variables to track; the <code>exclude</code> 
+                pattern specifies which to ignore. When both are provided, a variable must match 
+                <code>include</code> and not match <code>exclude</code> to be tracked:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Only track variables starting with "data"</span>
+<span class="rust-attribute">#[trace_borrow(include = "data*")]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">filtered</span>() { }
+
+<span class="rust-comment">// Exclude temporary variables</span>
+<span class="rust-attribute">#[trace_borrow(exclude = "_*,tmp*")]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">no_temps</span>() { }
+
+<span class="rust-comment">// Combine include and exclude</span>
+<span class="rust-attribute">#[trace_borrow(include = "user*", exclude = "user_cache*")]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">precise_filter</span>() { }</pre>
+            </div>
+
+            <h4>Sampling</h4>
+            <p>
+                For performance-sensitive code or long-running analysis, sampling reduces overhead by 
+                tracking only a fraction of events. The <code>sample_rate</code> parameter accepts a 
+                value between 0.0 and 1.0, representing the probability that any given event will be 
+                recorded. For reproducible results—essential when debugging or comparing runs—provide 
+                a <code>sample_seed</code> to initialize the random number generator deterministically:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Track only 10% of events</span>
+<span class="rust-attribute">#[trace_borrow(sample_rate = 0.1)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">sampled</span>() { }
+
+<span class="rust-comment">// Reproducible sampling with seed</span>
+<span class="rust-attribute">#[trace_borrow(sample_rate = 0.5, sample_seed = 42)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">reproducible</span>() { }</pre>
+            </div>
+
+            <h4>Conditional Compilation</h4>
+            <p>
+                Tracing overhead, however small, may be unacceptable in production builds. Conditional 
+                compilation modes let you enable tracing only in specific contexts. The <code>debug_only</code> 
+                mode compiles tracking calls only in debug builds; <code>test_only</code> enables them 
+                only when running tests. For maximum flexibility, <code>feature_gate</code> ties tracing 
+                to a custom Cargo feature, letting users opt in explicitly:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Only trace in debug builds</span>
+<span class="rust-attribute">#[trace_borrow(debug_only)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">debug_trace</span>() { }
+
+<span class="rust-comment">// Only trace in tests</span>
+<span class="rust-attribute">#[trace_borrow(test_only)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">test_trace</span>() { }
+
+<span class="rust-comment">// Gate on custom feature</span>
+<span class="rust-attribute">#[trace_borrow(feature_gate = "tracing")]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">feature_gated</span>() { }</pre>
+            </div>
+
+            <h4>Diagnostics</h4>
+            <p>
+                The macro operates on syntax alone and cannot always determine the correct tracking 
+                for ambiguous patterns—FFI calls, unions, and certain generic contexts may produce 
+                incorrect or incomplete traces. Diagnostic options enable compile-time warnings when 
+                the macro encounters these patterns, alerting you to potential issues before runtime. 
+                The <code>warn_ambiguous</code> flag enables all warnings; specific flags like 
+                <code>warn_ffi</code> and <code>warn_unions</code> target particular categories:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Warn about patterns that may not track correctly</span>
+<span class="rust-attribute">#[trace_borrow(warn_ambiguous = true)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">with_warnings</span>() { }
+
+<span class="rust-comment">// Specific warning categories</span>
+<span class="rust-attribute">#[trace_borrow(warn_ffi = true, warn_unions = true)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">ffi_aware</span>() { }</pre>
             </div>
 
             <h3 id="output-interpretation">5.3 Output Interpretation</h3>
 
-            <p>Events are emitted in execution order:</p>
+            <p>
+                The runtime emits events in execution order, creating a chronological record of every 
+                ownership operation. Each event carries contextual information: the operation type, 
+                the variables involved, their tracking IDs for correlation, and a timestamp for 
+                ordering. The event stream below shows a typical function execution—scope entry, 
+                parameter ownership, a borrow for the method call, the drop at scope exit, and 
+                finally scope exit:
+            </p>
 
             <div class="code-block">
 <pre class="rust-code">ScopeEnter { name: <span class="rust-string">"my_function"</span>, timestamp: 1001 }
-VariableCreated { name: <span class="rust-string">"data"</span>, type: <span class="rust-string">"String"</span>, timestamp: 1002 }
-BorrowCreated { borrower: <span class="rust-string">"len"</span>, owner: <span class="rust-string">"data"</span>, kind: Immutable, timestamp: 1003 }
-VariableDropped { name: <span class="rust-string">"data"</span>, timestamp: 1004 }
+VariableCreated { name: <span class="rust-string">"data"</span>, type: <span class="rust-string">"String"</span>, id: 1, timestamp: 1002 }
+BorrowCreated { borrower: <span class="rust-string">"len"</span>, id: 2, owner: <span class="rust-string">"data"</span>, owner_id: 1, kind: Immutable, timestamp: 1003 }
+VariableDropped { name: <span class="rust-string">"data"</span>, id: 1, timestamp: 1004 }
 ScopeExit { name: <span class="rust-string">"my_function"</span>, timestamp: 1005 }</pre>
             </div>
 
             <p>
-                These events feed into the runtime's graph construction algorithms, enabling 
-                visualization of ownership relationships over time.
+                The tracking IDs enable correlation across events. When <code>BorrowCreated</code> 
+                references <code>owner_id: 1</code>, visualization tools can draw a line from the 
+                borrow back to the <code>VariableCreated</code> event with <code>id: 1</code>. This 
+                linking is what transforms a flat event stream into a rich ownership graph. The 
+                runtime's graph construction algorithms process these events to build data structures 
+                representing ownership relationships, borrow lifetimes, and scope hierarchies—enabling 
+                interactive visualization, conflict detection, and temporal queries like "what was 
+                borrowing this variable at timestamp X?"
             </p>
         </div>
     </div>

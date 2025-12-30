@@ -11,7 +11,7 @@
         <div class="abstract">
             <h1>Abstract</h1>
             <p>
-                The <a href="../borrowscope-runtime/">BorrowScope Runtime</a> provides comprehensive 
+                The <a href="../borrowscope-runtime/"><code>borrowscope-runtime</code></a> provides comprehensive 
                 tracking of Rust's ownership operations through an event-sourced architecture. However, 
                 manually instrumenting code with tracking calls is tedious, error-prone, and impractical 
                 for real-world codebases. This paper introduces <code>borrowscope-macro</code>, a 
@@ -29,8 +29,8 @@
                 This paper explains how the macro works, what patterns it instruments, and how to use it 
                 effectively. We also discuss the macro's <strong>fundamental limitations</strong> arising 
                 from Rust's compilation model—procedural macros operate on syntax before type information 
-                is available—and preview the solutions explored in the companion 
-                <a href="../borrowscope-macro-whitepaper/">Type Information Barrier</a> whitepaper.
+                is available—and preview the solutions explored in the upcoming 
+                <em>Type Information Barrier</em> whitepaper.
             </p>
             <p>
                 Together with the runtime library, <code>borrowscope-macro</code> enables practical 

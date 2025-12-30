@@ -29,26 +29,29 @@
             </div>
 
             <p>
-                Using this API manually requires understanding exactly when each ownership 
-                operation occurs—knowledge that typically only the compiler possesses:
-            </p>
-
-            <ul>
-                <li>When does a variable take ownership vs borrow?</li>
-                <li>When does a value move vs copy?</li>
-                <li>In what order do drops occur at scope exit?</li>
-                <li>Which temporaries are created and when do they drop?</li>
-            </ul>
-
-            <p>
-                Even expert Rust developers make mistakes when manually tracking these operations, 
-                and the resulting traces are unreliable.
+                Using this API manually requires understanding exactly when each ownership operation 
+                occurs—knowledge that typically only the compiler possesses. The developer must determine 
+                when a variable takes ownership versus merely borrowing, distinguish between moves and 
+                copies based on whether the type implements <code>Copy</code>, track the precise order 
+                in which variables are dropped at scope exit (reverse declaration order), and account 
+                for implicit temporaries that the compiler creates and destroys. Even expert Rust 
+                developers make mistakes when manually tracking these operations, and the resulting 
+                traces become unreliable—defeating the entire purpose of ownership visualization.
             </p>
 
             <h3 id="why-macros">2.2 Why Procedural Macros</h3>
 
             <p>
-                Rust offers several metaprogramming options. Why procedural macros?
+                Rust offers several metaprogramming options, each with distinct trade-offs. 
+                <strong>Declarative macros</strong> (<code>macro_rules!</code>) are simple and hygienic 
+                but operate on token patterns—they cannot analyze or transform function bodies in the 
+                structured way ownership tracking requires. <strong>Build scripts</strong> have full 
+                file access and can perform arbitrary code generation, but they run separately from 
+                compilation, require complex setup, and don't integrate naturally with Rust's module 
+                system. <strong>Compiler plugins</strong> offer the holy grail: full access to type 
+                information, resolved names, and semantic analysis. However, they require nightly Rust 
+                and depend on unstable internal APIs that change frequently, making them unsuitable 
+                for production tooling.
             </p>
 
             <div class="ecosystem-table">
@@ -86,9 +89,15 @@
             </div>
 
             <p>
-                Procedural macros strike the best balance: they work on stable Rust, integrate 
-                seamlessly with cargo, and can transform entire function bodies. The limitation—no 
-                access to type information—is significant but manageable for most patterns.
+                <strong>Procedural macros</strong> strike the best balance for our use case. They work 
+                on stable Rust, ensuring broad compatibility and long-term maintainability. They integrate 
+                seamlessly with Cargo—users simply add a dependency and annotate functions. Most importantly, 
+                they can receive and transform entire function bodies as structured ASTs, enabling the 
+                deep analysis needed for ownership tracking. The limitation—no access to type information, 
+                since macros execute before type checking—is significant and leads to edge cases where 
+                the macro cannot distinguish moves from copies or identify trait implementations. However, 
+                as we'll see, heuristics and syntactic patterns handle the vast majority of real-world code 
+                correctly, making this trade-off acceptable for practical ownership visualization.
             </p>
 
             <div class="highlight-box">
