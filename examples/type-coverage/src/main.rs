@@ -5,16 +5,104 @@
 use std::borrow::Cow;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::ffi::{CStr, CString, OsStr, OsString};
 use std::marker::PhantomData;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::num::{NonZeroI32, NonZeroUsize};
 use std::ops::{Range, RangeInclusive};
+use std::os::raw::{c_char, c_int, c_void};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
+
+// ============================================================================
+// Static and Const declarations
+// ============================================================================
+static STATIC_I32: i32 = 42;
+static STATIC_STR: &str = "hello";
+static STATIC_ARRAY: [u8; 4] = [1, 2, 3, 4];
+static mut STATIC_MUT: i32 = 0;
+
+const CONST_USIZE: usize = 100;
+const CONST_TUPLE: (i32, &str) = (1, "const");
+const CONST_ARRAY: [i32; 3] = [1, 2, 3];
+
+// ============================================================================
+// Type aliases
+// ============================================================================
+type MyRc<T> = Rc<T>;
+type MyArc<T> = Arc<T>;
+type StringVec = Vec<String>;
+type ResultI32 = Result<i32, String>;
+
+fn test_type_aliases() {
+    let my_rc: MyRc<String> = MyRc::new(String::from("aliased"));
+    let my_arc: MyArc<i32> = MyArc::new(42);
+    let string_vec: StringVec = vec!["a".into(), "b".into()];
+    let result_ok: ResultI32 = Ok(42);
+    let result_err: ResultI32 = Err("error".into());
+
+    println!("{:?} {:?} {:?} {:?} {:?}", my_rc, my_arc, string_vec, result_ok, result_err);
+}
+
+// ============================================================================
+// Union types
+// ============================================================================
+#[repr(C)]
+union IntOrFloat {
+    i: i32,
+    f: f32,
+}
+
+#[repr(C)]
+union DataUnion {
+    bytes: [u8; 8],
+    value: u64,
+}
+
+fn test_unions() {
+    let int_or_float = IntOrFloat { i: 42 };
+    let data_union = DataUnion { value: 0xDEADBEEF };
+
+    // Reading union fields requires unsafe
+    unsafe {
+        let i_val = int_or_float.i;
+        let f_val = int_or_float.f;
+        let bytes = data_union.bytes;
+        let value = data_union.value;
+        println!("{} {} {:?} {}", i_val, f_val, bytes, value);
+    }
+}
+
+// ============================================================================
+// FFI / Extern types
+// ============================================================================
+fn test_ffi_types() {
+    // C primitive types
+    let c_int_val: c_int = 42;
+    let c_char_val: c_char = b'A' as c_char;
+
+    // c_void pointer (common in FFI)
+    let mut data: i32 = 100;
+    let void_ptr: *mut c_void = &mut data as *mut i32 as *mut c_void;
+    let const_void_ptr: *const c_void = &data as *const i32 as *const c_void;
+
+    // CString and CStr
+    let c_string: CString = CString::new("hello").unwrap();
+    let c_str: &CStr = c_string.as_c_str();
+
+    // OsString and OsStr
+    let os_string: OsString = OsString::from("path");
+    let os_str: &OsStr = os_string.as_os_str();
+
+    println!(
+        "{} {} {:?} {:?} {:?} {:?} {:?} {:?}",
+        c_int_val, c_char_val, void_ptr, const_void_ptr, c_string, c_str, os_string, os_str
+    );
+}
 
 // ============================================================================
 // Primitives and Copy types
@@ -576,6 +664,9 @@ fn test_io_types() {
 }
 
 fn main() {
+    test_type_aliases();
+    test_unions();
+    test_ffi_types();
     test_primitives();
     test_smart_pointers();
     test_interior_mutability();

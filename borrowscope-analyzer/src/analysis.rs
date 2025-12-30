@@ -10,6 +10,7 @@ use ra_ap_ide_db::RootDatabase;
 use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_project_model::CargoConfig;
 use ra_ap_syntax::{ast, AstNode, Edition, SyntaxKind};
+use ra_ap_syntax::ast::HasName;
 use std::path::Path;
 use tracing::{info, warn};
 
@@ -109,46 +110,114 @@ fn analyze_file(
     let source_file = sema.parse(editioned_file_id);
 
     for node in source_file.syntax().descendants() {
-        if node.kind() != SyntaxKind::LET_STMT {
-            continue;
+        match node.kind() {
+            SyntaxKind::LET_STMT => {
+                if let Some(var_info) = analyze_let_stmt(sema, db, &node, relative_path, &source_file) {
+                    variables.push(var_info);
+                }
+            }
+            SyntaxKind::STATIC => {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, &node, relative_path, &source_file) {
+                    var_info.is_static = true;
+                    variables.push(var_info);
+                }
+            }
+            SyntaxKind::CONST => {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, &node, relative_path, &source_file) {
+                    var_info.is_const = true;
+                    variables.push(var_info);
+                }
+            }
+            _ => {}
         }
-
-        let Some(let_stmt) = ast::LetStmt::cast(node) else {
-            continue;
-        };
-        let Some(pat) = let_stmt.pat() else {
-            continue;
-        };
-
-        let range = pat.syntax().text_range();
-        let text_before = source_file
-            .syntax()
-            .text()
-            .slice(..range.start())
-            .to_string();
-        let line = text_before.lines().count() as u32;
-        let column = text_before.lines().last().map(|l| l.len()).unwrap_or(0) as u32;
-
-        let name = pat.syntax().text().to_string();
-        let mut var_info = VariableTypeInfo::new(name, relative_path.to_string(), line, column);
-
-        if let Some(type_info) = sema.type_of_pat(&pat) {
-            let ty = type_info.original;
-
-            var_info.ty = ty.display(db, Edition::Edition2021).to_string();
-            var_info.is_copy = ty.is_copy(db);
-            var_info.is_reference = ty.is_reference();
-            var_info.is_mutable_reference = ty.is_mutable_reference();
-            var_info.is_raw_ptr = ty.is_raw_ptr();
-
-            classify_type(&mut var_info);
-        }
-        // If semantic analysis fails, type remains "unknown" - no heuristics
-
-        variables.push(var_info);
     }
 
     variables
+}
+
+/// Analyze a let statement
+fn analyze_let_stmt(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    relative_path: &str,
+    source_file: &ast::SourceFile,
+) -> Option<VariableTypeInfo> {
+    let let_stmt = ast::LetStmt::cast(node.clone())?;
+    let pat = let_stmt.pat()?;
+
+    let (line, column) = get_location(&pat.syntax().text_range(), source_file);
+    let name = pat.syntax().text().to_string();
+    let mut var_info = VariableTypeInfo::new(name, relative_path.to_string(), line, column);
+
+    if let Some(type_info) = sema.type_of_pat(&pat) {
+        populate_type_info(&mut var_info, &type_info.original, db);
+    }
+
+    Some(var_info)
+}
+
+/// Analyze a static or const declaration
+fn analyze_static_or_const(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    relative_path: &str,
+    source_file: &ast::SourceFile,
+) -> Option<VariableTypeInfo> {
+    // Try to cast as Static first, then Const
+    let (name_token, ty_node) = if let Some(static_item) = ast::Static::cast(node.clone()) {
+        (static_item.name()?, static_item.ty())
+    } else if let Some(const_item) = ast::Const::cast(node.clone()) {
+        (const_item.name()?, const_item.ty())
+    } else {
+        return None;
+    };
+
+    let (line, column) = get_location(&name_token.syntax().text_range(), source_file);
+    let name = name_token.text().to_string();
+    let mut var_info = VariableTypeInfo::new(name, relative_path.to_string(), line, column);
+
+    // Try to resolve the type from the type annotation
+    if let Some(ty_node) = ty_node {
+        if let Some(ty) = sema.resolve_type(&ty_node) {
+            populate_type_info(&mut var_info, &ty, db);
+        } else {
+            // Fallback: use the syntax text
+            var_info.ty = ty_node.syntax().text().to_string();
+            classify_type(&mut var_info);
+        }
+    }
+
+    Some(var_info)
+}
+
+/// Get line and column from a text range
+fn get_location(range: &ra_ap_syntax::TextRange, source_file: &ast::SourceFile) -> (u32, u32) {
+    let text_before = source_file
+        .syntax()
+        .text()
+        .slice(..range.start())
+        .to_string();
+    let line = text_before.lines().count() as u32;
+    let column = text_before.lines().last().map(|l| l.len()).unwrap_or(0) as u32;
+    (line, column)
+}
+
+/// Populate type info from a resolved type
+fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase) {
+    var_info.ty = ty.display(db, Edition::Edition2021).to_string();
+    var_info.is_copy = ty.is_copy(db);
+    var_info.is_reference = ty.is_reference();
+    var_info.is_mutable_reference = ty.is_mutable_reference();
+    var_info.is_raw_ptr = ty.is_raw_ptr();
+
+    // Check if type is a union using semantic analysis
+    if let Some(adt) = ty.as_adt() {
+        var_info.is_union = matches!(adt, ra_ap_hir::Adt::Union(_));
+    }
+
+    classify_type(var_info);
 }
 
 /// Classify type based on resolved type string
@@ -207,6 +276,15 @@ fn classify_type(var_info: &mut VariableTypeInfo) {
         || ty.starts_with("FlatMap<")
         || ty.starts_with("Rev<")
         || ty.starts_with("Peekable<");
+
+    // Union and extern types (detected by type name patterns)
+    // Note: is_union is set semantically in populate_type_info using as_adt()
+    // Extern types from FFI - c_void, CStr, CString, OsStr, OsString
+    var_info.is_extern_type = ty.contains("c_void")
+        || ty.contains("CStr")
+        || ty.contains("CString")
+        || ty.contains("OsStr")
+        || ty.contains("OsString");
 
     // Extract inner type for wrapper types
     var_info.inner_type = extract_inner_type(ty);
