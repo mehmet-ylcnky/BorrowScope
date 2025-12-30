@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Methodology - Battle Testing the Type Information Barrier</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="methodology">
+            <h2>2. Battle Test Methodology</h2>
+            
+            <p>
+                Validating a code transformation tool requires testing against code that was not written 
+                with the tool in mind. Synthetic benchmarks risk bias—consciously or unconsciously 
+                constructed to succeed or fail. Production codebases, maintained by independent teams 
+                with their own priorities, provide the unbiased ground truth necessary for meaningful 
+                evaluation.
+            </p>
+
+            <h3 id="project-selection">2.1 Project Selection Criteria</h3>
+            
+            <p>We selected test subjects based on five criteria:</p>
+            
+            <ul>
+                <li><strong>Production quality:</strong> Actively maintained projects with significant user bases</li>
+                <li><strong>Domain diversity:</strong> Different application types exercise different language features</li>
+                <li><strong>Code style variation:</strong> Different teams have different idioms and patterns</li>
+                <li><strong>Size range:</strong> From focused utilities to large frameworks</li>
+                <li><strong>Rust feature coverage:</strong> Async/await, traits, generics, unsafe code, FFI</li>
+            </ul>
+
+            <h3 id="test-subjects">2.2 Test Subjects</h3>
+            
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th>Domain</th>
+                            <th>Functions</th>
+                            <th>Key Features</th>
+                            <th>GitHub Stars</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>ripgrep</strong></td>
+                            <td>CLI Search Tool</td>
+                            <td>1,847</td>
+                            <td>Regex, parallel I/O, memory mapping</td>
+                            <td>48k+</td>
+                        </tr>
+                        <tr>
+                            <td><strong>tokio</strong></td>
+                            <td>Async Runtime</td>
+                            <td>3,748</td>
+                            <td>async/await, futures, I/O drivers</td>
+                            <td>27k+</td>
+                        </tr>
+                        <tr>
+                            <td><strong>bat</strong></td>
+                            <td>CLI Cat Clone</td>
+                            <td>892</td>
+                            <td>Syntax highlighting, paging, themes</td>
+                            <td>50k+</td>
+                        </tr>
+                        <tr>
+                            <td><strong>fd</strong></td>
+                            <td>CLI Find Alternative</td>
+                            <td>634</td>
+                            <td>Parallel search, regex, ignore patterns</td>
+                            <td>35k+</td>
+                        </tr>
+                        <tr>
+                            <td><strong>zoxide</strong></td>
+                            <td>Directory Jumper</td>
+                            <td>412</td>
+                            <td>Frecency algorithm, shell integration</td>
+                            <td>23k+</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>
+                Together, these projects span 14,562 functions across CLI tools (ripgrep, bat, fd, zoxide) 
+                and infrastructure (tokio). The tokio async runtime is particularly valuable as a stress 
+                test—its heavy use of traits, generics, and complex lifetime patterns exercises edge cases 
+                that simpler codebases might not encounter.
+            </p>
+
+            <h3 id="instrumentation-process">2.3 Instrumentation Process</h3>
+            
+            <p>
+                For each project, we applied the <code>#[trace_borrow]</code> attribute to every function 
+                using an automated Python script. The script parses Rust source files, identifies function 
+                definitions (including methods in impl blocks), and inserts the attribute:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Before instrumentation</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>(input: &amp;[u8]) -&gt; Result&lt;Output&gt; {
+    <span class="rust-comment">// function body</span>
+}
+
+<span class="rust-comment">// After instrumentation</span>
+<span class="rust-attribute">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>(input: &amp;[u8]) -&gt; Result&lt;Output&gt; {
+    <span class="rust-comment">// function body</span>
+}</pre>
+            </div>
+
+            <p>The instrumentation script handles several edge cases:</p>
+            
+            <ul>
+                <li>Preserves existing attributes (derives, cfg, inline, etc.)</li>
+                <li>Skips functions already annotated with <code>#[trace_borrow]</code></li>
+                <li>Handles both free functions and methods in impl blocks</li>
+                <li>Processes async functions and const functions</li>
+                <li>Maintains original formatting and comments</li>
+            </ul>
+
+            <h3 id="measurement-framework">2.4 Measurement Framework</h3>
+            
+            <p>
+                After instrumentation, we compile each project using <code>cargo check</code> with full 
+                feature flags enabled. We capture compiler output and classify each function as:
+            </p>
+
+            <ul>
+                <li><strong>Pass:</strong> Function compiles without errors after macro transformation</li>
+                <li><strong>Fail:</strong> Compiler reports errors in the transformed code</li>
+            </ul>
+
+            <p>
+                For failed functions, we extract the error message and classify it according to our 
+                error taxonomy (Section 4). A single function may trigger multiple compiler errors, 
+                but we count the function once in pass/fail statistics while tracking all error types 
+                for pattern analysis.
+            </p>
+
+            <div class="highlight-box">
+                <h4>Reproducibility</h4>
+                <p>
+                    All instrumentation scripts, raw compiler output, and analysis tools are available 
+                    in the <code>battle-test/</code> directory of the BorrowScope repository. Each 
+                    project includes a <code>BATTLE_TEST_REPORT.md</code> with detailed per-file results.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error Taxonomy - Battle Testing the Type Information Barrier</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="error-taxonomy">
+            <h2>4. Error Taxonomy</h2>
+
+            <p>
+                Through systematic analysis of compiler errors across all five projects, we identified 
+                six primary error patterns. Each pattern represents a distinct failure mode of syntactic 
+                analysis, and each traces to specific manifestations of the type information barrier.
+            </p>
+
+            <h3 id="classification-system">4.1 Classification System</h3>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Error Code</th>
+                            <th>Name</th>
+                            <th>Frequency</th>
+                            <th>Projects Affected</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>ERR-003</code></td>
+                            <td>Mutable Borrow Conflicts</td>
+                            <td>Very High</td>
+                            <td>ALL 5</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-012</code></td>
+                            <td>Trait Impl Signature Mismatch</td>
+                            <td>Very High</td>
+                            <td>tokio, ripgrep</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-002</code></td>
+                            <td>Tuple Destructuring</td>
+                            <td>High</td>
+                            <td>4 projects</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-009</code></td>
+                            <td>Self-Consuming Functions</td>
+                            <td>High</td>
+                            <td>3 projects</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-014</code></td>
+                            <td>Trait Method Declarations</td>
+                            <td>Medium</td>
+                            <td>tokio</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-008</code></td>
+                            <td>Trait Bound Failures</td>
+                            <td>Medium</td>
+                            <td>3 projects</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 id="err-003">4.2 ERR-003: Mutable Borrow Conflicts</h3>
+
+            <div class="problem-statement">
+                <strong>Problem:</strong> Wrapping method calls on mutable references creates a second 
+                borrow, violating Rust's borrowing rules.
+            </div>
+
+            <p>
+                This is the most pervasive error, appearing in <strong>all five projects</strong>. 
+                When the macro wraps a method call for tracking, it may inadvertently create an 
+                additional borrow:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Original code</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process</span>(data: &amp;<span class="rust-keyword">mut</span> Vec&lt;u8&gt;) {
+    data.push(42);  <span class="rust-comment">// Single mutable borrow</span>
+}
+
+<span class="rust-comment">// After macro transformation (problematic)</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process</span>(data: &amp;<span class="rust-keyword">mut</span> Vec&lt;u8&gt;) {
+    track_call(data.push(42));  <span class="rust-comment">// data borrowed by track_call AND push</span>
+}</pre>
+            </div>
+
+            <p>
+                The macro cannot determine that <code>data</code> is mutably borrowed because it 
+                cannot see the type of <code>data</code> or the signature of <code>push</code>. 
+                Syntactically, <code>data.push(42)</code> looks identical whether <code>data</code> 
+                is <code>&amp;mut Vec</code>, <code>&amp;Vec</code>, or an owned <code>Vec</code>.
+            </p>
+
+            <h3 id="err-012">4.3 ERR-012: Trait Implementation Signature Mismatch</h3>
+
+            <div class="problem-statement">
+                <strong>Problem:</strong> The macro instruments trait method declarations (which have 
+                no body) or changes impl signatures to not match the trait definition.
+            </div>
+
+            <p>
+                This error accounts for <strong>54% of tokio's failures</strong>. The fundamental 
+                issue is that trait definitions and trait implementations look syntactically similar:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Trait definition - should NOT be instrumented</span>
+<span class="rust-keyword">trait</span> <span class="rust-type">AsyncRead</span> {
+    <span class="rust-keyword">fn</span> <span class="rust-function">poll_read</span>(
+        <span class="rust-keyword">self</span>: Pin&lt;&amp;<span class="rust-keyword">mut</span> Self&gt;,
+        cx: &amp;<span class="rust-keyword">mut</span> Context&lt;'_&gt;,
+        buf: &amp;<span class="rust-keyword">mut</span> ReadBuf&lt;'_&gt;,
+    ) -&gt; Poll&lt;io::Result&lt;()&gt;&gt;;  <span class="rust-comment">// No body!</span>
+}
+
+<span class="rust-comment">// Trait implementation - SHOULD be instrumented</span>
+<span class="rust-keyword">impl</span> <span class="rust-type">AsyncRead</span> <span class="rust-keyword">for</span> <span class="rust-type">TcpStream</span> {
+    <span class="rust-keyword">fn</span> <span class="rust-function">poll_read</span>(
+        <span class="rust-keyword">self</span>: Pin&lt;&amp;<span class="rust-keyword">mut</span> Self&gt;,
+        cx: &amp;<span class="rust-keyword">mut</span> Context&lt;'_&gt;,
+        buf: &amp;<span class="rust-keyword">mut</span> ReadBuf&lt;'_&gt;,
+    ) -&gt; Poll&lt;io::Result&lt;()&gt;&gt; {
+        <span class="rust-comment">// Implementation body</span>
+    }
+}</pre>
+            </div>
+
+            <p>
+                The macro sees <code>fn poll_read(...)</code> in both cases. Without type information, 
+                it cannot distinguish a trait declaration (no body, just a signature) from a trait 
+                implementation (has a body). When it instruments the declaration, it may add tracking 
+                code that changes the signature, causing the impl to no longer match the trait.
+            </p>
+
+            <h3 id="err-002">4.4 ERR-002: Tuple Destructuring</h3>
+
+            <div class="problem-statement">
+                <strong>Problem:</strong> Wrapping tuple expressions breaks pattern matching and 
+                destructuring bindings.
+            </div>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Original code</span>
+<span class="rust-keyword">let</span> (a, b) = get_pair();
+
+<span class="rust-comment">// After macro transformation (problematic)</span>
+<span class="rust-keyword">let</span> (a, b) = track_return(get_pair());  <span class="rust-comment">// track_return returns wrong type</span></pre>
+            </div>
+
+            <p>
+                The macro wraps the return value of <code>get_pair()</code>, but the wrapper function 
+                may not preserve the tuple type in a way that allows destructuring. The macro cannot 
+                see that the left-hand side expects a tuple pattern.
+            </p>
+
+            <h3 id="err-009">4.5 ERR-009: Self-Consuming Functions</h3>
+
+            <div class="problem-statement">
+                <strong>Problem:</strong> Functions that take <code>self</code> by value (consuming 
+                ownership) fail when the macro interferes with move semantics.
+            </div>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">impl</span> <span class="rust-type">Builder</span> {
+    <span class="rust-comment">// Consumes self, returns new owned value</span>
+    <span class="rust-keyword">fn</span> <span class="rust-function">build</span>(<span class="rust-keyword">self</span>) -&gt; Product {
+        <span class="rust-comment">// self is moved here</span>
+    }
+}
+
+<span class="rust-comment">// Usage</span>
+<span class="rust-keyword">let</span> product = builder.build();  <span class="rust-comment">// builder is consumed</span></pre>
+            </div>
+
+            <p>
+                The macro sees <code>builder.build()</code> but cannot determine that <code>build</code> 
+                takes <code>self</code> by value. If it wraps the call in a way that borrows 
+                <code>builder</code> first, the move semantics are violated.
+            </p>
+
+            <h3 id="err-014">4.6 ERR-014: Trait Method Declarations</h3>
+
+            <div class="problem-statement">
+                <strong>Problem:</strong> The macro attempts to add tracking code to trait method 
+                declarations that have no body.
+            </div>
+
+            <p>
+                This is related to ERR-012 but distinct: here the macro tries to instrument a method 
+                that has no body at all (just a semicolon). The transformation fails because there's 
+                no code to wrap.
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">trait</span> <span class="rust-type">Handler</span> {
+    <span class="rust-keyword">fn</span> <span class="rust-function">handle</span>(&amp;<span class="rust-keyword">self</span>, event: Event);  <span class="rust-comment">// No body - just declaration</span>
+    
+    <span class="rust-keyword">fn</span> <span class="rust-function">default_impl</span>(&amp;<span class="rust-keyword">self</span>) {
+        <span class="rust-comment">// Has body - can be instrumented</span>
+    }
+}</pre>
+            </div>
+
+            <h3 id="err-008">4.7 ERR-008: Trait Bound Failures</h3>
+
+            <div class="problem-statement">
+                <strong>Problem:</strong> Wrapping arguments breaks <code>impl Trait</code> and 
+                generic bounds.
+            </div>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">process</span>&lt;T: Into&lt;String&gt;&gt;(value: T) {
+    <span class="rust-keyword">let</span> s: String = value.into();
+}
+
+<span class="rust-comment">// Call site</span>
+process(<span class="rust-string">"hello"</span>);  <span class="rust-comment">// &amp;str implements Into&lt;String&gt;</span>
+
+<span class="rust-comment">// After macro transformation (problematic)</span>
+process(track_arg(<span class="rust-string">"hello"</span>));  <span class="rust-comment">// track_arg's return type may not impl Into&lt;String&gt;</span></pre>
+            </div>
+
+            <p>
+                The macro cannot see that the parameter has a trait bound. When it wraps the argument, 
+                the wrapper's return type may not satisfy the bound, causing a type error.
+            </p>
+
+            <hr />
+        </div>
+    </div>
+</body>
+</html>

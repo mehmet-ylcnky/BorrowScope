@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abstract - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="abstract">
+            <h1>Abstract</h1>
+            <p>
+                The <a href="../borrowscope-runtime/">BorrowScope Runtime</a> provides comprehensive 
+                tracking of Rust's ownership operations through an event-sourced architecture. However, 
+                manually instrumenting code with tracking calls is tedious, error-prone, and impractical 
+                for real-world codebases. This paper introduces <code>borrowscope-macro</code>, a 
+                procedural macro that <strong>automatically transforms</strong> Rust functions to emit 
+                ownership events without manual intervention.
+            </p>
+            <p>
+                The <code>#[trace_borrow]</code> attribute macro analyzes function bodies at compile-time, 
+                identifies ownership-relevant operations—variable bindings, borrows, moves, function calls, 
+                and scope exits—and injects the appropriate tracking calls. The transformation is transparent: 
+                instrumented code behaves identically to the original, with the addition of ownership event 
+                emission.
+            </p>
+            <p>
+                This paper explains how the macro works, what patterns it instruments, and how to use it 
+                effectively. We also discuss the macro's <strong>fundamental limitations</strong> arising 
+                from Rust's compilation model—procedural macros operate on syntax before type information 
+                is available—and preview the solutions explored in the companion 
+                <a href="../borrowscope-macro-whitepaper/">Type Information Barrier</a> whitepaper.
+            </p>
+            <p>
+                Together with the runtime library, <code>borrowscope-macro</code> enables practical 
+                ownership visualization for education, debugging, and research with minimal developer effort.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roadmap - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="roadmap">
+            <h2>8. Roadmap</h2>
+
+            <h3>Current Status</h3>
+
+            <p>
+                The macro is in active development. Current capabilities:
+            </p>
+
+            <ul>
+                <li>✅ Basic <code>#[trace_borrow]</code> attribute</li>
+                <li>✅ Variable binding tracking</li>
+                <li>✅ Borrow expression detection</li>
+                <li>✅ Scope enter/exit tracking</li>
+                <li>✅ Integration with runtime</li>
+            </ul>
+
+            <h3>Phased Development</h3>
+
+            <p>
+                Following the strategy outlined in the 
+                <a href="../borrowscope-macro-whitepaper/#recommendation">Type Information Barrier</a> 
+                whitepaper:
+            </p>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr><th>Phase</th><th>Goal</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Phase 1</strong></td>
+                            <td>~95% coverage via enhanced heuristics + annotations</td>
+                            <td class="status-planned">In Progress</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Phase 2</strong></td>
+                            <td>Validation tool (<code>cargo borrowscope check</code>)</td>
+                            <td class="status-planned">Planned</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Phase 3</strong></td>
+                            <td>Full compiler integration (if demand warrants)</td>
+                            <td>Future</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>Near-Term Priorities</h3>
+
+            <p>Based on <a href="../battle-test-whitepaper/#solutions">battle test analysis</a>:</p>
+
+            <ol>
+                <li><strong>ERR-003 fix:</strong> Conservative wrapping for mutable borrows</li>
+                <li><strong>ERR-012 fix:</strong> Detect and skip trait declarations</li>
+                <li><strong>Annotation system:</strong> <code>#[borrowscope(ffi=[...], unions=[...])]</code></li>
+                <li><strong>Tuple destructuring:</strong> Preserve pattern structure</li>
+            </ol>
+
+            <div class="highlight-box">
+                <h4>Contributing</h4>
+                <p>
+                    BorrowScope is open source. Contributions welcome at 
+                    <a href="https://github.com/mehmet-ylcnky/BorrowScope">github.com/mehmet-ylcnky/BorrowScope</a>.
+                </p>
+            </div>
+
+            <hr />
+        </div>
+    </div>
+</body>
+</html>

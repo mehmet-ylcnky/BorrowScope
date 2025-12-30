@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Introduction - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="introduction">
+            <h2>1. Introduction</h2>
+            
+            <p>
+                The <a href="../borrowscope-runtime/">BorrowScope Runtime</a> whitepaper establishes 
+                the foundation for runtime ownership tracking in Rust. It defines an event taxonomy 
+                covering 88 event types across 15 categories, implements a thread-safe global tracker, 
+                and provides algorithms for constructing ownership graphs from event streams. The 
+                runtime answers the question: <em>how do we capture and analyze ownership operations?</em>
+            </p>
+
+            <p>
+                This paper addresses the complementary question: <em>how do we instrument code to 
+                emit those events?</em>
+            </p>
+
+            <div class="problem-statement">
+                <h3>The Instrumentation Gap</h3>
+                <p>
+                    The runtime provides tracking functions like <code>track_borrow()</code>, 
+                    <code>track_move()</code>, and <code>track_drop()</code>. But calling these 
+                    functions manually throughout a codebase is impractical. A single function 
+                    might require dozens of tracking calls, and maintaining them as code evolves 
+                    is unsustainable.
+                </p>
+            </div>
+
+            <p>
+                Consider instrumenting a simple function manually:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">process</span>(data: Vec&lt;i32&gt;) -&gt; i32 {
+    <span class="rust-keyword">let</span> first = &amp;data[0];
+    <span class="rust-keyword">let</span> result = *first * 2;
+    result
+}
+
+<span class="rust-comment">// Manual instrumentation required:</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process_instrumented</span>(data: Vec&lt;i32&gt;) -&gt; i32 {
+    track_ownership(<span class="rust-string">"data"</span>, OwnershipKind::Owned);
+    <span class="rust-keyword">let</span> first = {
+        <span class="rust-keyword">let</span> _ref = &amp;data[0];
+        track_borrow(<span class="rust-string">"first"</span>, <span class="rust-string">"data"</span>, BorrowKind::Immutable);
+        _ref
+    };
+    <span class="rust-keyword">let</span> result = {
+        <span class="rust-keyword">let</span> _val = *first * 2;
+        track_copy(<span class="rust-string">"result"</span>, <span class="rust-string">"first"</span>);
+        _val
+    };
+    track_drop(<span class="rust-string">"first"</span>);
+    track_drop(<span class="rust-string">"data"</span>);
+    result
+}</pre>
+            </div>
+
+            <p>
+                This manual approach has obvious problems:
+            </p>
+
+            <ul>
+                <li><strong>Tedious:</strong> Every variable, borrow, and scope requires explicit tracking</li>
+                <li><strong>Error-prone:</strong> Missing or misplaced calls produce incorrect traces</li>
+                <li><strong>Unmaintainable:</strong> Code changes require updating instrumentation</li>
+                <li><strong>Invasive:</strong> Tracking code obscures the actual logic</li>
+            </ul>
+
+            <div class="solution-statement">
+                <h3>The Solution: Automatic Instrumentation</h3>
+                <p>
+                    <code>borrowscope-macro</code> provides the <code>#[trace_borrow]</code> attribute 
+                    that automatically transforms functions to include tracking calls. Developers 
+                    annotate functions they want to trace; the macro handles the rest.
+                </p>
+            </div>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-attribute">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process</span>(data: Vec&lt;i32&gt;) -&gt; i32 {
+    <span class="rust-keyword">let</span> first = &amp;data[0];
+    <span class="rust-keyword">let</span> result = *first * 2;
+    result
+}
+<span class="rust-comment">// Macro automatically generates all tracking calls!</span></pre>
+            </div>
+
+            <p>
+                The macro bridges the gap between the runtime's tracking capabilities and practical 
+                usability, making ownership visualization accessible for real-world code.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

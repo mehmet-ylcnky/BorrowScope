@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Introduction - Battle Testing the Type Information Barrier</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="introduction">
+            <h2>1. Introduction</h2>
+            
+            <p>
+                The <a href="../borrowscope-macro-whitepaper/">companion whitepaper</a> presents a theoretical 
+                analysis of why Rust procedural macros cannot access type information during compilation. 
+                It explains the fundamental architectural constraint—macros execute before type checking 
+                in the compilation pipeline—and explores six potential solutions with their trade-offs. 
+                The paper concludes with a prediction: heuristic-based approaches operating purely on 
+                syntax can achieve approximately 70% accuracy, with the remaining 30% requiring either 
+                user annotations or deeper compiler integration.
+            </p>
+            
+            <p>
+                Theory, however, requires validation. This paper presents the results of <strong>battle testing</strong> 
+                the <code>#[trace_borrow]</code> macro against real-world Rust codebases. Rather than 
+                constructing artificial examples that might favor or disfavor the macro's capabilities, 
+                we selected five production-grade projects representing diverse domains, coding styles, 
+                and complexity levels. We instrumented every function in each project and measured what 
+                compiles successfully versus what fails.
+            </p>
+
+            <div class="research-questions">
+                <h3>Research Questions</h3>
+                <ul>
+                    <li><strong>RQ1:</strong> What is the actual pass rate of syntactic-only instrumentation across production codebases?</li>
+                    <li><strong>RQ2:</strong> What error patterns emerge, and how do they correlate with the theoretical type information barrier?</li>
+                    <li><strong>RQ3:</strong> Which errors are most impactful, and what is the optimal fix priority?</li>
+                    <li><strong>RQ4:</strong> What pass rates can we expect after implementing targeted fixes?</li>
+                </ul>
+            </div>
+
+            <p>
+                The results both validate and refine the theoretical predictions. We observe an average 
+                pass rate of 80.5%—higher than the conservative 70% estimate but well within the predicted 
+                range for enhanced heuristics. More importantly, we identify specific error patterns that 
+                map directly to the "concrete manifestations" described in Section 5 of the theoretical 
+                paper. The mutable borrow conflicts (ERR-003) appearing in all five projects correspond 
+                to the paper's discussion of type-dependent method behavior. The trait implementation 
+                mismatches (ERR-012) dominating tokio's errors reflect the syntactic indistinguishability 
+                of trait declarations from implementations.
+            </p>
+
+            <div class="contributions">
+                <h3>Contributions</h3>
+                <ul>
+                    <li><strong>Empirical validation</strong> of theoretical predictions across 14,562 functions</li>
+                    <li><strong>Error taxonomy</strong> classifying six primary failure patterns with root causes</li>
+                    <li><strong>Correlation analysis</strong> mapping errors to type information barrier manifestations</li>
+                    <li><strong>Prioritized roadmap</strong> for fixes with projected improvement metrics</li>
+                    <li><strong>Reproducible methodology</strong> for ongoing regression testing</li>
+                </ul>
+            </div>
+
+            <p>
+                This paper is organized as follows. Section 2 describes our battle test methodology, 
+                including project selection criteria and the instrumentation process. Section 3 presents 
+                aggregate results across all projects. Section 4 develops a taxonomy of error patterns 
+                with detailed examples. Section 5 analyzes root causes. Section 6 correlates findings 
+                with the theoretical type information barrier. Section 7 proposes solutions with expected 
+                improvements. Section 8 concludes with implications for BorrowScope's development roadmap.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

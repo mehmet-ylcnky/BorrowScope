@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Instrumentation Challenge - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="challenge">
+            <h2>2. The Instrumentation Challenge</h2>
+
+            <h3 id="manual-instrumentation">2.1 Manual Instrumentation</h3>
+            
+            <p>
+                Before exploring the macro solution, it's worth understanding why manual 
+                instrumentation fails at scale. The runtime library provides a rich API:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Runtime tracking API (simplified)</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_ownership</span>(name: &amp;<span class="rust-keyword">str</span>, kind: OwnershipKind);
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_borrow</span>(borrower: &amp;<span class="rust-keyword">str</span>, owner: &amp;<span class="rust-keyword">str</span>, kind: BorrowKind);
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_move</span>(dest: &amp;<span class="rust-keyword">str</span>, source: &amp;<span class="rust-keyword">str</span>);
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_drop</span>(name: &amp;<span class="rust-keyword">str</span>);
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_scope_enter</span>(name: &amp;<span class="rust-keyword">str</span>);
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_scope_exit</span>(name: &amp;<span class="rust-keyword">str</span>);</pre>
+            </div>
+
+            <p>
+                Using this API manually requires understanding exactly when each ownership 
+                operation occurs—knowledge that typically only the compiler possesses:
+            </p>
+
+            <ul>
+                <li>When does a variable take ownership vs borrow?</li>
+                <li>When does a value move vs copy?</li>
+                <li>In what order do drops occur at scope exit?</li>
+                <li>Which temporaries are created and when do they drop?</li>
+            </ul>
+
+            <p>
+                Even expert Rust developers make mistakes when manually tracking these operations, 
+                and the resulting traces are unreliable.
+            </p>
+
+            <h3 id="why-macros">2.2 Why Procedural Macros</h3>
+
+            <p>
+                Rust offers several metaprogramming options. Why procedural macros?
+            </p>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Approach</th>
+                            <th>Pros</th>
+                            <th>Cons</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Declarative macros</strong></td>
+                            <td>Simple, hygienic</td>
+                            <td>Cannot analyze/transform function bodies</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Build scripts</strong></td>
+                            <td>Full file access</td>
+                            <td>Separate from compilation, complex setup</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Compiler plugins</strong></td>
+                            <td>Full type information</td>
+                            <td>Nightly-only, unstable API</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Procedural macros</strong></td>
+                            <td>Stable, can transform any item</td>
+                            <td>No type information (syntax only)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>
+                Procedural macros strike the best balance: they work on stable Rust, integrate 
+                seamlessly with cargo, and can transform entire function bodies. The limitation—no 
+                access to type information—is significant but manageable for most patterns.
+            </p>
+
+            <div class="highlight-box">
+                <h4>The syn and quote Ecosystem</h4>
+                <p>
+                    Procedural macros are powered by two foundational crates:
+                </p>
+                <ul>
+                    <li><strong>syn:</strong> Parses Rust source code into an AST (Abstract Syntax Tree)</li>
+                    <li><strong>quote:</strong> Generates Rust source code from templates</li>
+                </ul>
+                <p>
+                    Together, they enable parsing a function, analyzing its structure, and emitting 
+                    transformed code—all at compile time.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

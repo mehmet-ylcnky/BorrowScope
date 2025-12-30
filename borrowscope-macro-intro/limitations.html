@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limitations - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="limitations">
+            <h2>7. Limitations</h2>
+
+            <p>
+                The macro operates on <strong>syntax only</strong>—it cannot access type information. 
+                This fundamental constraint, explored in depth in the 
+                <a href="../borrowscope-macro-whitepaper/">Type Information Barrier</a> whitepaper, 
+                leads to specific limitations.
+            </p>
+
+            <div class="problem-statement">
+                <h3>The Core Constraint</h3>
+                <p>
+                    Procedural macros execute <em>before</em> type checking in Rust's compilation 
+                    pipeline. The macro sees tokens and syntax, not types and semantics.
+                </p>
+            </div>
+
+            <h3>What the Macro Cannot Detect</h3>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr><th>Pattern</th><th>Why It's Hard</th><th>Impact</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Move vs Copy</td>
+                            <td>Requires knowing if type implements <code>Copy</code></td>
+                            <td>May report moves for copies</td>
+                        </tr>
+                        <tr>
+                            <td>FFI calls</td>
+                            <td>Cannot distinguish <code>extern</code> functions</td>
+                            <td>FFI boundaries not tracked</td>
+                        </tr>
+                        <tr>
+                            <td>Trait methods</td>
+                            <td>Cannot resolve which impl applies</td>
+                            <td>Some method calls misclassified</td>
+                        </tr>
+                        <tr>
+                            <td>Generic bounds</td>
+                            <td>Cannot see <code>impl Trait</code> constraints</td>
+                            <td>Wrapping may break bounds</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>Empirical Results</h3>
+
+            <p>
+                The <a href="../battle-test-whitepaper/">Battle Test</a> whitepaper validates these 
+                limitations empirically. Testing across 14,562 functions in five production codebases:
+            </p>
+
+            <ul>
+                <li><strong>80.5% pass rate</strong> — most patterns work correctly</li>
+                <li><strong>Six error categories</strong> — all trace to type information barrier</li>
+                <li><strong>Concentrated failures</strong> — two patterns cause 73% of errors</li>
+            </ul>
+
+            <div class="solution-statement">
+                <h3>Mitigation Strategies</h3>
+                <p>
+                    The theoretical paper proposes solutions including annotation systems, 
+                    validation tools, and enhanced heuristics. The battle test data guides 
+                    prioritization of these fixes.
+                </p>
+            </div>
+
+            <h3>Further Reading</h3>
+            <ul>
+                <li><a href="../borrowscope-macro-whitepaper/">Type Information Barrier</a> — theoretical analysis</li>
+                <li><a href="../battle-test-whitepaper/">Battle Test Results</a> — empirical validation</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

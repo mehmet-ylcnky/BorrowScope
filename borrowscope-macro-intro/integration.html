@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration with Runtime - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="integration">
+            <h2>6. Integration with Runtime</h2>
+
+            <p>
+                The macro and runtime form a complete system. Understanding their relationship 
+                clarifies how ownership tracking works end-to-end.
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code">┌─────────────────────────────────────────────────────────────────┐
+│                        Your Code                                │
+│  #[trace_borrow]                                                │
+│  fn process(data: Vec&lt;i32&gt;) { ... }                            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ compile-time transformation
+┌─────────────────────────────────────────────────────────────────┐
+│                    borrowscope-macro                            │
+│  • Parses function AST                                          │
+│  • Identifies ownership operations                              │
+│  • Generates tracking calls                                     │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ generated code calls
+┌─────────────────────────────────────────────────────────────────┐
+│                   borrowscope-runtime                           │
+│  • Receives tracking calls at runtime                           │
+│  • Stores events in thread-safe buffer                          │
+│  • Builds ownership graphs                                      │
+│  • Provides query/export APIs                                   │
+└─────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h3>Event Flow</h3>
+
+            <ol>
+                <li><strong>Compile time:</strong> Macro transforms annotated functions</li>
+                <li><strong>Runtime:</strong> Transformed code emits events via runtime API</li>
+                <li><strong>Analysis:</strong> Runtime builds graphs from event stream</li>
+                <li><strong>Output:</strong> Graphs exported for visualization</li>
+            </ol>
+
+            <div class="highlight-box">
+                <h4>Zero-Cost When Disabled</h4>
+                <p>
+                    Both crates support conditional compilation. When the <code>tracking</code> 
+                    feature is disabled, all tracking calls compile to no-ops, achieving true 
+                    zero-cost abstraction as described in the 
+                    <a href="../borrowscope-runtime/">runtime whitepaper</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

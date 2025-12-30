@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Root Cause Analysis - Battle Testing the Type Information Barrier</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="root-cause-analysis">
+            <h2>5. Root Cause Analysis</h2>
+
+            <p>
+                The six error patterns identified in Section 4 share common root causes. Understanding 
+                these causes is essential for developing effective solutions—treating symptoms without 
+                addressing causes leads to whack-a-mole fixes that create new problems.
+            </p>
+
+            <h3 id="syntactic-ambiguity">5.1 Syntactic Ambiguity</h3>
+
+            <p>
+                The most fundamental cause is that Rust's syntax is designed for human readability 
+                and compiler processing, not for distinguishing semantic categories. Constructs that 
+                mean very different things look identical at the token level:
+            </p>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Syntax</th>
+                            <th>Possible Meanings</th>
+                            <th>Affected Errors</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>fn foo(&self)</code></td>
+                            <td>Trait declaration, trait impl, inherent impl</td>
+                            <td>ERR-012, ERR-014</td>
+                        </tr>
+                        <tr>
+                            <td><code>x.method()</code></td>
+                            <td>Immutable borrow, mutable borrow, move</td>
+                            <td>ERR-003, ERR-009</td>
+                        </tr>
+                        <tr>
+                            <td><code>func(arg)</code></td>
+                            <td>Owned, borrowed, impl Trait, generic</td>
+                            <td>ERR-008</td>
+                        </tr>
+                        <tr>
+                            <td><code>let x = expr</code></td>
+                            <td>Simple binding, destructuring, pattern match</td>
+                            <td>ERR-002</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <p>
+                The macro sees tokens: <code>fn</code>, <code>foo</code>, <code>(</code>, <code>&</code>, 
+                <code>self</code>, <code>)</code>. It cannot see that this particular <code>fn</code> 
+                is inside a <code>trait</code> block versus an <code>impl</code> block without tracking 
+                context through the entire file—and even then, it cannot determine if the impl is for 
+                a trait or an inherent impl without resolving the type names.
+            </p>
+
+            <h3 id="ownership-semantics">5.2 Ownership Semantics Blindness</h3>
+
+            <p>
+                Rust's ownership system is enforced through types, not syntax. The difference between 
+                <code>&T</code>, <code>&mut T</code>, and <code>T</code> is semantic—it determines 
+                what operations are valid—but the syntax for using them is often identical:
+            </p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">let</span> a: &amp;Vec&lt;i32&gt; = ...;
+<span class="rust-keyword">let</span> b: &amp;<span class="rust-keyword">mut</span> Vec&lt;i32&gt; = ...;
+<span class="rust-keyword">let</span> c: Vec&lt;i32&gt; = ...;
+
+<span class="rust-comment">// All three look identical syntactically:</span>
+a.len();  <span class="rust-comment">// Immutable borrow - safe to wrap</span>
+b.len();  <span class="rust-comment">// Mutable borrow - wrapping may conflict</span>
+c.len();  <span class="rust-comment">// Owned - wrapping may interfere with moves</span></pre>
+            </div>
+
+            <p>
+                The macro cannot distinguish these cases. It sees <code>identifier.method()</code> 
+                and must make a decision about how to wrap it without knowing whether the identifier 
+                is borrowed, mutably borrowed, or owned.
+            </p>
+
+            <div class="problem-statement">
+                <strong>Key Insight:</strong> ERR-003 (mutable borrow conflicts) appears in ALL five 
+                projects because mutable borrows are ubiquitous in Rust code, and the macro has no 
+                way to detect them.
+            </div>
+
+            <h3 id="context-sensitivity">5.3 Context Sensitivity</h3>
+
+            <p>
+                Many semantic properties depend on context that spans beyond the immediate syntax:
+            </p>
+
+            <ul>
+                <li>
+                    <strong>Name resolution:</strong> Is <code>foo()</code> a local function, an 
+                    imported function, a method, or an FFI call? The answer requires resolving the 
+                    name through use statements, impl blocks, and extern declarations.
+                </li>
+                <li>
+                    <strong>Type inference:</strong> What type does <code>let x = expr</code> bind? 
+                    The answer may depend on how <code>x</code> is used later in the function, 
+                    requiring forward analysis the macro cannot perform.
+                </li>
+                <li>
+                    <strong>Trait resolution:</strong> Which impl of a trait applies to a given 
+                    method call? The answer requires knowing the concrete type and searching for 
+                    matching impls—a process that happens during type checking.
+                </li>
+            </ul>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">use</span> std::io::Write;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>&lt;W: Write&gt;(writer: &amp;<span class="rust-keyword">mut</span> W) {
+    writer.write_all(b<span class="rust-string">"hello"</span>)?;  <span class="rust-comment">// Which write_all?</span>
+}
+
+<span class="rust-comment">// The macro sees: writer.write_all(b"hello")</span>
+<span class="rust-comment">// It cannot know:</span>
+<span class="rust-comment">//   - W is a generic type parameter</span>
+<span class="rust-comment">//   - W has a Write bound</span>
+<span class="rust-comment">//   - write_all comes from the Write trait</span>
+<span class="rust-comment">//   - writer is mutably borrowed</span></pre>
+            </div>
+
+            <p>
+                This context sensitivity explains why tokio—with its heavy use of generics, traits, 
+                and async patterns—has the lowest pass rate. The more a codebase relies on Rust's 
+                advanced type system features, the more context is needed to understand the code, 
+                and the less effective syntactic analysis becomes.
+            </p>
+
+            <div class="highlight-box">
+                <h4>The 80/20 Pattern</h4>
+                <p>
+                    Our results suggest an 80/20 pattern: approximately 80% of real-world Rust code 
+                    uses patterns simple enough for syntactic analysis, while 20% requires type 
+                    information. This aligns with the theoretical prediction and suggests that 
+                    the annotation system proposed in the companion paper can effectively handle 
+                    the remaining cases.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

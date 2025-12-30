@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Usage Guide - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="usage">
+            <h2>5. Usage Guide</h2>
+
+            <h3 id="basic-usage">5.1 Basic Usage</h3>
+
+            <p>Add dependencies to <code>Cargo.toml</code>:</p>
+
+            <div class="code-block">
+<pre class="rust-code">[dependencies]
+borrowscope-macro = <span class="rust-string">"0.1"</span>
+borrowscope-runtime = <span class="rust-string">"0.1"</span></pre>
+            </div>
+
+            <p>Annotate functions to trace:</p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_macro::trace_borrow;
+
+<span class="rust-attribute">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">my_function</span>(data: String) -&gt; usize {
+    <span class="rust-keyword">let</span> len = data.len();
+    len
+}</pre>
+            </div>
+
+            <p>Access the event stream:</p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_runtime::get_events;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    my_function(String::from(<span class="rust-string">"hello"</span>));
+    
+    <span class="rust-keyword">for</span> event <span class="rust-keyword">in</span> get_events() {
+        println!(<span class="rust-string">"{:?}"</span>, event);
+    }
+}</pre>
+            </div>
+
+            <h3 id="configuration">5.2 Configuration Options</h3>
+
+            <p>The macro supports optional configuration:</p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Trace with custom scope name</span>
+<span class="rust-attribute">#[trace_borrow(name = "custom_scope")]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">my_function</span>() { }
+
+<span class="rust-comment">// Disable drop tracking (reduces noise)</span>
+<span class="rust-attribute">#[trace_borrow(track_drops = false)]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">my_function</span>() { }</pre>
+            </div>
+
+            <h3 id="output-interpretation">5.3 Output Interpretation</h3>
+
+            <p>Events are emitted in execution order:</p>
+
+            <div class="code-block">
+<pre class="rust-code">ScopeEnter { name: <span class="rust-string">"my_function"</span>, timestamp: 1001 }
+VariableCreated { name: <span class="rust-string">"data"</span>, type: <span class="rust-string">"String"</span>, timestamp: 1002 }
+BorrowCreated { borrower: <span class="rust-string">"len"</span>, owner: <span class="rust-string">"data"</span>, kind: Immutable, timestamp: 1003 }
+VariableDropped { name: <span class="rust-string">"data"</span>, timestamp: 1004 }
+ScopeExit { name: <span class="rust-string">"my_function"</span>, timestamp: 1005 }</pre>
+            </div>
+
+            <p>
+                These events feed into the runtime's graph construction algorithms, enabling 
+                visualization of ownership relationships over time.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

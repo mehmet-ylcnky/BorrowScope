@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BorrowScope Macro: Automatic Instrumentation for Rust Ownership Tracking</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .section-container { margin-bottom: 3rem; }
+        .loading { text-align: center; color: var(--secondary-color); font-style: italic; padding: 2rem; }
+        .navigation {
+            position: fixed; top: 20px; right: 20px; background: var(--bg-color);
+            border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); max-width: 250px; z-index: 1000;
+        }
+        .navigation h3 { margin-top: 0; font-size: 1rem; color: var(--primary-color); }
+        .navigation ul { list-style: none; padding: 0; margin: 0; }
+        .navigation li { margin: 0.3rem 0; }
+        .navigation a { color: var(--secondary-color); text-decoration: none; font-size: 0.9rem; }
+        .navigation a:hover { text-decoration: underline; }
+        @media (max-width: 1024px) { .navigation { display: none; } }
+        .back-link { display: inline-block; margin-bottom: 1rem; color: var(--secondary-color); text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .back-link::before { content: "← "; }
+        .related-paper { display: inline-block; margin-left: 1rem; color: var(--accent-color); text-decoration: none; font-size: 0.9rem; }
+        .related-paper:hover { text-decoration: underline; }
+        .related-paper::before { content: "📄 "; }
+        .toc-toggle { cursor: pointer; display: inline-block; width: 1.2em; color: var(--secondary-color); user-select: none; transition: transform 0.2s; }
+        .toc-toggle.expanded { transform: rotate(90deg); }
+        .toc-sub { overflow: hidden; transition: max-height 0.3s ease; max-height: 500px; }
+        .toc-sub.collapsed { max-height: 0; }
+        .toc > ul > li { margin-bottom: 0.3rem; }
+    </style>
+</head>
+<body>
+    <a href="../" class="back-link">Back to BorrowScope</a>
+    <a href="../borrowscope-runtime/" class="related-paper">Related: Runtime White Paper</a>
+
+    <div class="navigation">
+        <h3>Quick Navigation</h3>
+        <ul>
+            <li><a href="#introduction">1. Introduction</a></li>
+            <li><a href="#challenge">2. The Instrumentation Challenge</a></li>
+            <li><a href="#how-it-works">3. How It Works</a></li>
+            <li><a href="#what-gets-instrumented">4. What Gets Instrumented</a></li>
+            <li><a href="#usage">5. Usage Guide</a></li>
+            <li><a href="#integration">6. Integration with Runtime</a></li>
+            <li><a href="#limitations">7. Limitations</a></li>
+            <li><a href="#roadmap">8. Roadmap</a></li>
+        </ul>
+    </div>
+
+    <div class="header">
+        <h1 class="title"><strong><code>borrowscope-macro</code></strong>: Automatic Instrumentation</h1>
+        <p class="subtitle">Procedural Macro for Rust Ownership Tracking</p>
+        <div class="logo-container">
+            <img src="logo.png" alt="BorrowScope Logo" class="logo">
+        </div>
+        <div class="authors">
+            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank" class="author-link">Mehmet Yalcinkaya, PhD</a><br>
+            Senior Software Engineer<br><br>
+            <strong>Date:</strong> December 2025<br>
+            <div class="badges">
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
+                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github" alt="GitHub Repository">
+                </a>
+                <a href="https://crates.io/crates/borrowscope-macro" target="_blank">
+                    <img src="https://img.shields.io/badge/crates.io-borrowscope--macro-orange?style=for-the-badge&logo=rust" alt="Crates.io">
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Abstract Section -->
+    <div class="section-container" id="abstract-container">
+        <div class="loading">Loading Abstract...</div>
+    </div>
+
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ul>
+            <li><a href="#introduction">1. Introduction</a></li>
+            <li>
+                <span class="toc-toggle">▶</span>
+                <a href="#challenge">2. The Instrumentation Challenge</a>
+                <ul class="toc-sub collapsed">
+                    <li><a href="#manual-instrumentation">2.1 Manual Instrumentation</a></li>
+                    <li><a href="#why-macros">2.2 Why Procedural Macros</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle">▶</span>
+                <a href="#how-it-works">3. How It Works</a>
+                <ul class="toc-sub collapsed">
+                    <li><a href="#trace-borrow-attribute">3.1 The #[trace_borrow] Attribute</a></li>
+                    <li><a href="#transformation-pipeline">3.2 Transformation Pipeline</a></li>
+                    <li><a href="#code-generation">3.3 Code Generation</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle">▶</span>
+                <a href="#what-gets-instrumented">4. What Gets Instrumented</a>
+                <ul class="toc-sub collapsed">
+                    <li><a href="#variable-bindings">4.1 Variable Bindings</a></li>
+                    <li><a href="#borrows-and-moves">4.2 Borrows and Moves</a></li>
+                    <li><a href="#function-calls">4.3 Function Calls</a></li>
+                    <li><a href="#scope-and-drops">4.4 Scope and Drops</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle">▶</span>
+                <a href="#usage">5. Usage Guide</a>
+                <ul class="toc-sub collapsed">
+                    <li><a href="#basic-usage">5.1 Basic Usage</a></li>
+                    <li><a href="#configuration">5.2 Configuration Options</a></li>
+                    <li><a href="#output-interpretation">5.3 Output Interpretation</a></li>
+                </ul>
+            </li>
+            <li><a href="#integration">6. Integration with Runtime</a></li>
+            <li><a href="#limitations">7. Limitations</a></li>
+            <li><a href="#roadmap">8. Roadmap</a></li>
+        </ul>
+    </div>
+
+    <!-- Section Containers -->
+    <div class="section-container" id="introduction-container">
+        <div class="loading">Loading Introduction...</div>
+    </div>
+
+    <div class="section-container" id="challenge-container">
+        <div class="loading">Loading The Instrumentation Challenge...</div>
+    </div>
+
+    <div class="section-container" id="how-it-works-container">
+        <div class="loading">Loading How It Works...</div>
+    </div>
+
+    <div class="section-container" id="what-gets-instrumented-container">
+        <div class="loading">Loading What Gets Instrumented...</div>
+    </div>
+
+    <div class="section-container" id="usage-container">
+        <div class="loading">Loading Usage Guide...</div>
+    </div>
+
+    <div class="section-container" id="integration-container">
+        <div class="loading">Loading Integration...</div>
+    </div>
+
+    <div class="section-container" id="limitations-container">
+        <div class="loading">Loading Limitations...</div>
+    </div>
+
+    <div class="section-container" id="roadmap-container">
+        <div class="loading">Loading Roadmap...</div>
+    </div>
+
+    <script src="scripts.js"></script>
+    <script>
+        document.querySelectorAll('.toc-toggle').forEach(toggle => {
+            toggle.addEventListener('click', function() {
+                this.classList.toggle('expanded');
+                const subList = this.parentElement.querySelector('.toc-sub');
+                if (subList) subList.classList.toggle('collapsed');
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const sections = [
+                { id: 'abstract', file: 'abstract.html' },
+                { id: 'introduction', file: 'introduction.html' },
+                { id: 'challenge', file: 'challenge.html' },
+                { id: 'how-it-works', file: 'how-it-works.html' },
+                { id: 'what-gets-instrumented', file: 'what-gets-instrumented.html' },
+                { id: 'usage', file: 'usage.html' },
+                { id: 'integration', file: 'integration.html' },
+                { id: 'limitations', file: 'limitations.html' },
+                { id: 'roadmap', file: 'roadmap.html' }
+            ];
+
+            sections.forEach(section => {
+                fetch(section.file)
+                    .then(response => response.text())
+                    .then(html => {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        const content = doc.querySelector('.section-content');
+                        if (content) document.getElementById(section.id + '-container').innerHTML = content.innerHTML;
+                    })
+                    .catch(error => {
+                        console.error('Error loading ' + section.id + ':', error);
+                        document.getElementById(section.id + '-container').innerHTML = '<p>Error loading content.</p>';
+                    });
+            });
+        });
+    </script>
+</body>
+</html>

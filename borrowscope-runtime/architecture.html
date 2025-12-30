@@ -34,6 +34,20 @@
 
                 <h3>Architectural Overview</h3>
 
+                <p>
+                    The architecture consists of four distinct layers that form a pipeline from instrumented 
+                    application code to structured output. At the top, application code instrumented with 
+                    tracking calls (track_new, track_borrow, etc.) generates ownership events with minimal 
+                    overhead—approximately 75 nanoseconds per call. These events flow into the Global Tracker, 
+                    a thread-safe component containing three subsystems: an atomic timestamp generator ensuring 
+                    temporal ordering, an event storage vector maintaining the immutable event sequence, and a 
+                    variable ID generator producing unique identifiers. The event stream then feeds into the 
+                    Analysis Layer, where the Graph Builder constructs ownership graphs, the Timeline Analyzer 
+                    enables temporal queries, and the Pattern Detector identifies ownership patterns. Finally, 
+                    the Export Layer transforms analyzed data into various formats—JSON for programmatic 
+                    consumption, DOT for graph visualization, or custom formats for specialized tooling.
+                </p>
+
                 <div class="code-block">
                     <pre class="rust-code"><span class="rust-comment">// High-level architecture flow</span>
 

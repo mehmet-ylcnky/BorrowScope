@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rust's Type Information Barrier - BorrowScope Macro White Paper</title>
+    <title>Battle Testing the Type Information Barrier - BorrowScope Empirical Validation</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
@@ -68,6 +68,19 @@
         .back-link::before {
             content: "← ";
         }
+        .related-paper {
+            display: inline-block;
+            margin-left: 1rem;
+            color: var(--accent-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .related-paper:hover {
+            text-decoration: underline;
+        }
+        .related-paper::before {
+            content: "📄 ";
+        }
         /* Collapsible ToC */
         .toc-toggle {
             cursor: pointer;
@@ -91,30 +104,60 @@
         .toc > ul > li {
             margin-bottom: 0.3rem;
         }
+        /* Statistics highlight */
+        .stat-highlight {
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            border: 1px solid #a5d6a7;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            color: var(--secondary-color);
+        }
     </style>
 </head>
 <body>
     <a href="../" class="back-link">Back to BorrowScope</a>
+    <a href="../borrowscope-macro-whitepaper/" class="related-paper">Related: Type Information Barrier</a>
 
     <div class="navigation">
         <h3>Quick Navigation</h3>
         <ul>
             <li><a href="#introduction">1. Introduction</a></li>
-            <li><a href="#background">2. Background</a></li>
-            <li><a href="#compilation-pipeline">3. Compilation Pipeline</a></li>
-            <li><a href="#type-barrier">4. Type Information Barrier</a></li>
-            <li><a href="#manifestations">5. Concrete Manifestations</a></li>
-            <li><a href="#solutions">6. Architectural Solutions</a></li>
-            <li><a href="#comparison">7. Comparative Analysis</a></li>
-            <li><a href="#recommendation">8. Recommended Approach</a></li>
-            <li><a href="#conclusion">9. Conclusion</a></li>
-            <li><a href="#references">10. References</a></li>
+            <li><a href="#methodology">2. Methodology</a></li>
+            <li><a href="#results">3. Results</a></li>
+            <li><a href="#error-taxonomy">4. Error Taxonomy</a></li>
+            <li><a href="#root-cause-analysis">5. Root Cause Analysis</a></li>
+            <li><a href="#barrier-correlation">6. Barrier Correlation</a></li>
+            <li><a href="#solutions">7. Proposed Solutions</a></li>
+            <li><a href="#conclusion">8. Conclusion</a></li>
+            <li><a href="#references">9. References</a></li>
         </ul>
     </div>
 
     <div class="header">
-        <h1 class="title"><strong><code>borrowscope-macro</code></strong>: Rust's Type Information Barrier</h1>
-        <p class="subtitle">Semantic Analysis Challenges in Rust Procedural Macros</p>
+        <h1 class="title">Battle Testing the Type Information Barrier</h1>
+        <p class="subtitle">Empirical Validation of BorrowScope Macro Across Production Rust Codebases</p>
         <div class="logo-container">
             <img src="logo.png" alt="BorrowScope Logo" class="logo">
         </div>
@@ -144,85 +187,75 @@
             <li><a href="#introduction">1. Introduction</a></li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#background">2. Background: The BorrowScope Project</a>
+                <a href="#methodology">2. Battle Test Methodology</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#project-overview">2.1 Project Overview</a></li>
-                    <li><a href="#the-role-of-borrowscope-macro">2.2 The Role of borrowscope-macro</a></li>
-                    <li><a href="#the-instrumentation-gap">2.3 The Instrumentation Gap</a></li>
+                    <li><a href="#project-selection">2.1 Project Selection Criteria</a></li>
+                    <li><a href="#test-subjects">2.2 Test Subjects</a></li>
+                    <li><a href="#instrumentation-process">2.3 Instrumentation Process</a></li>
+                    <li><a href="#measurement-framework">2.4 Measurement Framework</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#compilation-pipeline">3. Understanding Rust's Compilation Pipeline</a>
+                <a href="#results">3. Aggregate Results</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#the-compilation-phases">3.1 The Compilation Phases</a></li>
-                    <li><a href="#what-procedural-macros-receive">3.2 What Procedural Macros Receive</a></li>
-                    <li><a href="#when-type-information-becomes-available">3.3 When Type Information Becomes Available</a></li>
+                    <li><a href="#overall-statistics">3.1 Overall Statistics</a></li>
+                    <li><a href="#per-project-breakdown">3.2 Per-Project Breakdown</a></li>
+                    <li><a href="#pass-rate-analysis">3.3 Pass Rate Analysis</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#type-barrier">4. The Type Information Barrier</a>
+                <a href="#error-taxonomy">4. Error Taxonomy</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#the-fundamental-constraint">4.1 The Fundamental Constraint</a></li>
-                    <li><a href="#why-this-design-exists">4.2 Why This Design Exists</a></li>
-                    <li><a href="#the-syn-crate-powerful-but-syntactic">4.3 The syn Crate: Powerful but Syntactic</a></li>
+                    <li><a href="#classification-system">4.1 Classification System</a></li>
+                    <li><a href="#err-003">4.2 ERR-003: Mutable Borrow Conflicts</a></li>
+                    <li><a href="#err-012">4.3 ERR-012: Trait Implementation Mismatch</a></li>
+                    <li><a href="#err-002">4.4 ERR-002: Tuple Destructuring</a></li>
+                    <li><a href="#err-009">4.5 ERR-009: Self-Consuming Functions</a></li>
+                    <li><a href="#err-014">4.6 ERR-014: Trait Method Declarations</a></li>
+                    <li><a href="#err-008">4.7 ERR-008: Trait Bound Failures</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#manifestations">5. Concrete Manifestations of the Problem</a>
+                <a href="#root-cause-analysis">5. Root Cause Analysis</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#ffi-function-detection">5.1 FFI Function Detection</a></li>
-                    <li><a href="#union-field-access">5.2 Union Field Access</a></li>
-                    <li><a href="#static-variable-access">5.3 Static Variable Access</a></li>
-                    <li><a href="#type-dependent-method-behavior">5.4 Type-Dependent Method Behavior</a></li>
-                    <li><a href="#summary-the-pattern">5.5 Summary: The Pattern</a></li>
+                    <li><a href="#syntactic-ambiguity">5.1 Syntactic Ambiguity</a></li>
+                    <li><a href="#ownership-semantics">5.2 Ownership Semantics Blindness</a></li>
+                    <li><a href="#context-sensitivity">5.3 Context Sensitivity</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#solutions">6. Architectural Solutions</a>
+                <a href="#barrier-correlation">6. Correlation with Type Information Barrier</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#solution-1-custom-rustc-driver-compiler-plugin">6.1 Custom Rustc Driver</a></li>
-                    <li><a href="#solution-2-two-phase-architecture-marker-compiler">6.2 Two-Phase Architecture</a></li>
-                    <li><a href="#solution-3-rust-analyzer-integration">6.3 rust-analyzer Integration</a></li>
-                    <li><a href="#solution-4-external-type-query-tool-rtk">6.4 External Type Query Tool (RTK)</a></li>
-                    <li><a href="#solution-5-annotation-based-disambiguation">6.5 Annotation-Based Disambiguation</a></li>
-                    <li><a href="#solution-6-enhanced-heuristics">6.6 Enhanced Heuristics</a></li>
+                    <li><a href="#theoretical-predictions">6.1 Theoretical Predictions</a></li>
+                    <li><a href="#empirical-validation">6.2 Empirical Validation</a></li>
+                    <li><a href="#manifestation-mapping">6.3 Manifestation Mapping</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#comparison">7. Comparative Analysis</a>
+                <a href="#solutions">7. Proposed Solutions</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#evaluation-criteria">7.1 Evaluation Criteria</a></li>
-                    <li><a href="#solution-comparison-matrix">7.2 Solution Comparison Matrix</a></li>
-                    <li><a href="#the-nightly-question">7.3 The Nightly Question</a></li>
-                    <li><a href="#the-95-argument">7.4 The 95% Argument</a></li>
+                    <li><a href="#priority-ranking">7.1 Priority Ranking</a></li>
+                    <li><a href="#fix-strategies">7.2 Fix Strategies</a></li>
+                    <li><a href="#expected-improvements">7.3 Expected Improvements</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle">▶</span>
-                <a href="#recommendation">8. Recommended Approach for BorrowScope</a>
+                <a href="#conclusion">8. Conclusion</a>
                 <ul class="toc-sub collapsed">
-                    <li><a href="#phased-implementation-strategy">8.1 Phased Implementation Strategy</a></li>
-                    <li><a href="#phase-1-annotation-system-design">8.2 Phase 1: Annotation System Design</a></li>
-                    <li><a href="#phase-2-validation-tool-architecture">8.3 Phase 2: Validation Tool Architecture</a></li>
-                    <li><a href="#phase-3-full-compiler-integration">8.4 Phase 3: Full Compiler Integration</a></li>
+                    <li><a href="#key-findings">8.1 Key Findings</a></li>
+                    <li><a href="#implications">8.2 Implications for BorrowScope</a></li>
+                    <li><a href="#future-work">8.3 Future Work</a></li>
                 </ul>
             </li>
-            <li>
-                <span class="toc-toggle">▶</span>
-                <a href="#conclusion">9. Conclusion</a>
-                <ul class="toc-sub collapsed">
-                    <li><a href="#key-takeaways">9.1 Key Takeaways</a></li>
-                    <li><a href="#broader-implications">9.2 Broader Implications</a></li>
-                    <li><a href="#call-to-action">9.3 Call to Action</a></li>
-                </ul>
-            </li>
-            <li><a href="#references">10. References</a></li>
-            <li><a href="#glossary">Appendix A: Glossary</a></li>
+            <li><a href="#references">9. References</a></li>
+            <li><a href="#appendix-a">Appendix A: Per-Project Details</a></li>
+            <li><a href="#appendix-b">Appendix B: Error Code Reference</a></li>
         </ul>
     </div>
 
@@ -231,32 +264,28 @@
         <div class="loading">Loading Introduction...</div>
     </div>
 
-    <div class="section-container" id="background-container">
-        <div class="loading">Loading Background...</div>
+    <div class="section-container" id="methodology-container">
+        <div class="loading">Loading Methodology...</div>
     </div>
 
-    <div class="section-container" id="compilation-pipeline-container">
-        <div class="loading">Loading Compilation Pipeline...</div>
+    <div class="section-container" id="results-container">
+        <div class="loading">Loading Results...</div>
     </div>
 
-    <div class="section-container" id="type-barrier-container">
-        <div class="loading">Loading Type Information Barrier...</div>
+    <div class="section-container" id="error-taxonomy-container">
+        <div class="loading">Loading Error Taxonomy...</div>
     </div>
 
-    <div class="section-container" id="manifestations-container">
-        <div class="loading">Loading Concrete Manifestations...</div>
+    <div class="section-container" id="root-cause-analysis-container">
+        <div class="loading">Loading Root Cause Analysis...</div>
+    </div>
+
+    <div class="section-container" id="barrier-correlation-container">
+        <div class="loading">Loading Barrier Correlation...</div>
     </div>
 
     <div class="section-container" id="solutions-container">
-        <div class="loading">Loading Architectural Solutions...</div>
-    </div>
-
-    <div class="section-container" id="comparison-container">
-        <div class="loading">Loading Comparative Analysis...</div>
-    </div>
-
-    <div class="section-container" id="recommendation-container">
-        <div class="loading">Loading Recommended Approach...</div>
+        <div class="loading">Loading Proposed Solutions...</div>
     </div>
 
     <div class="section-container" id="conclusion-container">
@@ -267,8 +296,12 @@
         <div class="loading">Loading References...</div>
     </div>
 
-    <div class="section-container" id="glossary-container">
-        <div class="loading">Loading Glossary...</div>
+    <div class="section-container" id="appendix-a-container">
+        <div class="loading">Loading Appendix A...</div>
+    </div>
+
+    <div class="section-container" id="appendix-b-container">
+        <div class="loading">Loading Appendix B...</div>
     </div>
 
     <script src="scripts.js"></script>
@@ -289,16 +322,16 @@
             const sections = [
                 { id: 'abstract', file: 'abstract.html' },
                 { id: 'introduction', file: 'introduction.html' },
-                { id: 'background', file: 'background.html' },
-                { id: 'compilation-pipeline', file: 'compilation-pipeline.html' },
-                { id: 'type-barrier', file: 'type-barrier.html' },
-                { id: 'manifestations', file: 'manifestations.html' },
+                { id: 'methodology', file: 'methodology.html' },
+                { id: 'results', file: 'results.html' },
+                { id: 'error-taxonomy', file: 'error-taxonomy.html' },
+                { id: 'root-cause-analysis', file: 'root-cause-analysis.html' },
+                { id: 'barrier-correlation', file: 'barrier-correlation.html' },
                 { id: 'solutions', file: 'solutions.html' },
-                { id: 'comparison', file: 'comparison.html' },
-                { id: 'recommendation', file: 'recommendation.html' },
                 { id: 'conclusion', file: 'conclusion.html' },
                 { id: 'references', file: 'references.html' },
-                { id: 'glossary', file: 'glossary.html' }
+                { id: 'appendix-a', file: 'appendix-a.html' },
+                { id: 'appendix-b', file: 'appendix-b.html' }
             ];
 
             sections.forEach(section => {

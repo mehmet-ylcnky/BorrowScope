@@ -67,15 +67,46 @@
                 </p>
 
                 <p>
-                    Existing tools provide partial solutions but fail to address the core visibility problem:
+                    BorrowScope joins a growing ecosystem of tools and resources aimed at making Rust's ownership system more understandable. Here are some notable projects and articles in this space:
                 </p>
 
-                <ul>
-                    <li><strong><a href="https://valgrind.org/docs/manual/quick-start.html" target="_blank">Valgrind</a>/<a href="https://github.com/google/sanitizers/wiki/addresssanitizer" target="_blank">AddressSanitizer</a>:</strong> Focus on memory errors, not ownership semantics</li>
-                    <li><strong><a href="https://github.com/rust-lang/miri" target="_blank">Miri</a>:</strong> Provides some ownership tracking but with prohibitive performance overhead</li>
-                    <li><strong><a href="http://github.com/rust-lang/rust-analyzer" target="_blank">Rust Analyzer</a>:</strong> Offers static analysis but no runtime behavior</li>
-                    <li><strong><a href="https://lldb.llvm.org/use/map.html" target="_blank">GDB/LLDB</a>:</strong> Can inspect memory but not ownership relationships</li>
-                </ul>
+                <div class="ecosystem-table">
+                    <table>
+                        <thead>
+                            <tr><th>Project</th><th>Description</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong><a href="https://github.com/cognitive-engineering-lab/aquascope" target="_blank">Aquascope</a></strong></td>
+                                <td>Interactive visualizations of Rust at compile-time and runtime. Developed by Brown University's Cognitive Engineering Lab, it shows permission changes (read/write/own) on variables and visualizes how the borrow checker reasons about code. Powers the visualizations in "The Rust Book Experiment."</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://github.com/ChristianSchott/boris" target="_blank">Boris</a></strong></td>
+                                <td>A standalone ownership and borrowing visualizer that renders interactive diagrams showing memory layout, ownership transfers, and borrow scopes. Designed to help beginners understand Rust's memory model through visual exploration.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://github.com/willcrichton/flowistry" target="_blank">Flowistry</a></strong></td>
+                                <td>A VSCode extension using information flow analysis to help developers understand Rust programs. Highlights which code can affect other code, providing a "focus mode" to filter out irrelevant parts when debugging or comprehending complex codebases.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://github.com/weirane/vscode-revis" target="_blank">REVIS</a></strong></td>
+                                <td>A VSCode extension that visualizes lifetime-related Rust compiler errors. Draws lifetime spans directly in the editor to help developers understand and fix borrow checker errors, particularly useful for learning lifetime concepts.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://rufflewind.com/2017-02-15/rust-move-copy-borrow" target="_blank">Graphical Depiction of Ownership</a></strong></td>
+                                <td>A visual guide by Phil Ruffwind depicting move, copy, and borrow semantics through annotated diagrams. Shows how values flow between variables and how borrows create temporary access without transferring ownership.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://www.justanotherdot.com/posts/think-spatially-to-grok-lifetimes.html" target="_blank">Think Spatially to Grok Lifetimes</a></strong></td>
+                                <td>An article presenting a mental model for understanding lifetimes by thinking of programs as nested spaces. Values exist within scopes, and borrows create "bridges" between spaces that must not outlive their source.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://blog.adamant-lang.org/2019/rust-lifetime-visualization-ideas/" target="_blank">Rust Lifetime Visualization Ideas</a></strong></td>
+                                <td>A design exploration of how IDEs could visualize lifetimes inline with code. Proposes compact notations and color-coding schemes that could be integrated into editors without disrupting the coding experience.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
 
                 <p>
                     The gap between Rust's sophisticated compile-time ownership model and the complete lack of runtime observability represents a significant limitation for education, development, and research in the Rust ecosystem.

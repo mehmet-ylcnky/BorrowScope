@@ -76,14 +76,15 @@
         <h3>Quick Navigation</h3>
         <ul>
             <li><a href="#introduction">1. Introduction</a></li>
-            <li><a href="#architecture">2. Architecture</a></li>
-            <li><a href="#implementation">3. Implementation</a></li>
-            <li><a href="#graph-construction">4. Graph Construction</a></li>
-            <li><a href="#performance">5. Performance</a></li>
-            <li><a href="#applications">6. Applications</a></li>
-            <li><a href="#evaluation">7. Evaluation</a></li>
-            <li><a href="#future-work">8. Future Work</a></li>
-            <li><a href="#conclusion">9. Conclusion</a></li>
+            <li><a href="#related-work">2. Related Work</a></li>
+            <li><a href="#architecture">3. Architecture</a></li>
+            <li><a href="#implementation">4. Implementation</a></li>
+            <li><a href="#graph-construction">5. Graph Construction</a></li>
+            <li><a href="#performance">6. Performance</a></li>
+            <li><a href="#applications">7. Applications</a></li>
+            <li><a href="#evaluation">8. Evaluation</a></li>
+            <li><a href="#future-work">9. Future Work</a></li>
+            <li><a href="#conclusion">10. Conclusion</a></li>
         </ul>
     </div>
 
@@ -98,10 +99,6 @@
                 class="author-link">Mehmet Yalcinkaya, PhD</a><br>
             Senior Software Engineer<br><br>
             <strong>Date:</strong> December 2025<br>
-            <div class="dedication">
-                <em>hayatımın -de hâli yanımda olsun, sonrasına bakarız..</em><br>
-                <em>Canım kızım Dena'ya ❤️</em><br><br>
-            </div>
             <div class="badges">
                 <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
                     <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github"
@@ -137,84 +134,87 @@
                 </ul>
             </li>
             <li>
+                <a href="#related-work">2. Related Work and Comparative Analysis</a>
+            </li>
+            <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#architecture">2. System Architecture</a>
+                <a href="#architecture">3. System Architecture</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#event-sourced">2.1 Event-Sourced Design</a></li>
-                    <li><a href="#core-components">2.2 Core Components</a></li>
+                    <li><a href="#event-sourced">3.1 Event-Sourced Design</a></li>
+                    <li><a href="#core-components">3.2 Core Components</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#implementation">3. Implementation Details</a>
+                <a href="#implementation">4. Implementation Details</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#zero-cost">3.1 Zero-Cost Abstraction</a></li>
-                    <li><a href="#thread-safety">3.2 Thread Safety</a></li>
-                    <li><a href="#raii-guards">3.3 RAII Guards</a></li>
-                    <li><a href="#extended-tracking">3.4 Extended Tracking Categories</a></li>
-                    <li><a href="#tracking-api">3.5 Tracking API Reference</a></li>
+                    <li><a href="#zero-cost">4.1 Zero-Cost Abstraction</a></li>
+                    <li><a href="#thread-safety">4.2 Thread Safety</a></li>
+                    <li><a href="#raii-guards">4.3 RAII Guards</a></li>
+                    <li><a href="#extended-tracking">4.4 Extended Tracking Categories</a></li>
+                    <li><a href="#tracking-api">4.5 Tracking API Reference</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#graph-construction">4. Ownership Graph Construction</a>
+                <a href="#graph-construction">5. Ownership Graph Construction</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#graph-model">4.1 Graph Model and Data Structures</a></li>
-                    <li><a href="#construction-algorithm">4.2 Graph Construction Algorithm</a></li>
-                    <li><a href="#complex-patterns">4.3 Complex Ownership Patterns</a></li>
+                    <li><a href="#graph-model">5.1 Graph Model and Data Structures</a></li>
+                    <li><a href="#construction-algorithm">5.2 Graph Construction Algorithm</a></li>
+                    <li><a href="#complex-patterns">5.3 Complex Ownership Patterns</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#performance">5. Performance Analysis</a>
+                <a href="#performance">6. Performance Analysis</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#test-environment">5.1 Test Environment and Methodology</a></li>
-                    <li><a href="#tracking-overhead">5.2 Basic Tracking Overhead</a></li>
-                    <li><a href="#memory-scaling">5.3 Memory Usage Scaling</a></li>
-                    <li><a href="#complex-patterns">5.4 Complex Ownership Pattern Performance</a></li>
-                    <li><a href="#zero-cost-abstraction">5.5 Zero-Cost Abstraction Verification</a></li>
-                    <li><a href="#performance-summary">5.6 Performance Summary and Recommendations</a></li>
+                    <li><a href="#test-environment">6.1 Test Environment and Methodology</a></li>
+                    <li><a href="#tracking-overhead">6.2 Basic Tracking Overhead</a></li>
+                    <li><a href="#memory-scaling">6.3 Memory Usage Scaling</a></li>
+                    <li><a href="#complex-patterns">6.4 Complex Ownership Pattern Performance</a></li>
+                    <li><a href="#zero-cost-abstraction">6.5 Zero-Cost Abstraction Verification</a></li>
+                    <li><a href="#performance-summary">6.6 Performance Summary and Recommendations</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#applications">6. Applications and Use Cases</a>
+                <a href="#applications">7. Applications and Use Cases</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#educational-applications">6.1 Educational Applications</a></li>
-                    <li><a href="#development-debugging">6.2 Development and Debugging Applications</a></li>
+                    <li><a href="#educational-applications">7.1 Educational Applications</a></li>
+                    <li><a href="#development-debugging">7.2 Development and Debugging Applications</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#evaluation">7. Evaluation and Validation</a>
+                <a href="#evaluation">8. Evaluation and Validation</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#development-status">7.1 Development Status and Scope</a></li>
-                    <li><a href="#test-suite">7.2 Test Suite Architecture</a></li>
-                    <li><a href="#coverage-analysis">7.3 Pattern Coverage Analysis</a></li>
-                    <li><a href="#validation-results">7.4 Validation Results and Findings</a></li>
+                    <li><a href="#development-status">8.1 Development Status and Scope</a></li>
+                    <li><a href="#test-suite">8.2 Test Suite Architecture</a></li>
+                    <li><a href="#coverage-analysis">8.3 Pattern Coverage Analysis</a></li>
+                    <li><a href="#validation-results">8.4 Validation Results and Findings</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#future-work">8. Future Work and Extensions</a>
+                <a href="#future-work">9. Future Work and Extensions</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#ecosystem-overview">8.1 BorrowScope Ecosystem Overview</a></li>
-                    <li><a href="#macro-system">8.2 Automatic Instrumentation</a></li>
-                    <li><a href="#graph-analysis">8.3 Advanced Graph Analysis</a></li>
-                    <li><a href="#cli-tools">8.4 Command-Line Analysis</a></li>
-                    <li><a href="#interactive-ui">8.5 Interactive Visualization</a></li>
+                    <li><a href="#ecosystem-overview">9.1 BorrowScope Ecosystem Overview</a></li>
+                    <li><a href="#macro-system">9.2 Automatic Instrumentation</a></li>
+                    <li><a href="#graph-analysis">9.3 Advanced Graph Analysis</a></li>
+                    <li><a href="#cli-tools">9.4 Command-Line Analysis</a></li>
+                    <li><a href="#interactive-ui">9.5 Interactive Visualization</a></li>
                 </ul>
             </li>
             <li>
                 <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
-                <a href="#conclusion">9. Conclusion</a>
+                <a href="#conclusion">10. Conclusion</a>
                 <ul class="toc-subsections collapsed">
-                    <li><a href="#key-contributions">9.1 Key Contributions</a></li>
-                    <li><a href="#technical-achievements">9.2 Technical Achievements</a></li>
-                    <li><a href="#practical-impact">9.3 Practical Impact and Applications</a></li>
-                    <li><a href="#ecosystem-foundation">9.4 Foundation for Future Development</a></li>
-                    <li><a href="#broader-implications">9.5 Broader Implications</a></li>
-                    <li><a href="#final-remarks">9.6 Final Remarks</a></li>
+                    <li><a href="#key-contributions">10.1 Key Contributions</a></li>
+                    <li><a href="#technical-achievements">10.2 Technical Achievements</a></li>
+                    <li><a href="#practical-impact">10.3 Practical Impact and Applications</a></li>
+                    <li><a href="#ecosystem-foundation">10.4 Foundation for Future Development</a></li>
+                    <li><a href="#broader-implications">10.5 Broader Implications</a></li>
+                    <li><a href="#final-remarks">10.6 Final Remarks</a></li>
                 </ul>
             </li>
         </ul>
@@ -223,6 +223,11 @@
     <!-- Introduction Section -->
     <div class="section-container" id="introduction-container">
         <div class="loading">Loading Introduction...</div>
+    </div>
+
+    <!-- Related Work Section -->
+    <div class="section-container" id="related-work-container">
+        <div class="loading">Loading Related Work...</div>
     </div>
 
     <!-- Architecture Section -->
@@ -299,6 +304,22 @@
                 .catch(error => {
                     console.error('Error loading introduction:', error);
                     document.getElementById('introduction-container').innerHTML = '<p>Error loading introduction content.</p>';
+                });
+
+            // Load Related Work
+            fetch('related-work.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('related-work-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading related work:', error);
+                    document.getElementById('related-work-container').innerHTML = '<p>Error loading related work content.</p>';
                 });
 
             // Load Architecture

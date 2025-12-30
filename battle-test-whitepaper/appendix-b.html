@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Appendix B - Battle Testing the Type Information Barrier</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="appendix-b">
+            <h2>Appendix B: Error Code Reference</h2>
+
+            <p>
+                Complete reference for all error codes identified during battle testing.
+            </p>
+
+            <h3>B.1 ERR-003: Mutable Borrow Conflicts</h3>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Compiler error: cannot borrow `*data` as mutable more than once</span>
+<span class="rust-comment">// Trigger: Wrapping method calls on &amp;mut references</span>
+
+<span class="rust-comment">// Problematic pattern:</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>(data: &amp;<span class="rust-keyword">mut</span> Vec&lt;i32&gt;) {
+    track_call(data.push(1));  <span class="rust-comment">// Double borrow</span>
+}
+
+<span class="rust-comment">// Root cause: Macro cannot detect &amp;mut type</span>
+<span class="rust-comment">// Barrier section: §5.4 Type-Dependent Method Behavior</span></pre>
+            </div>
+
+            <h3>B.2 ERR-012: Trait Implementation Signature Mismatch</h3>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Compiler error: method `poll` has an incompatible type for trait</span>
+<span class="rust-comment">// Trigger: Instrumenting trait impl methods</span>
+
+<span class="rust-comment">// Problematic pattern:</span>
+<span class="rust-keyword">impl</span> Future <span class="rust-keyword">for</span> MyFuture {
+    <span class="rust-attribute">#[trace_borrow]</span>  <span class="rust-comment">// Changes signature</span>
+    <span class="rust-keyword">fn</span> <span class="rust-function">poll</span>(...) -&gt; Poll&lt;...&gt; { }
+}
+
+<span class="rust-comment">// Root cause: Macro cannot distinguish trait decl from impl</span>
+<span class="rust-comment">// Barrier section: §4.1 The Fundamental Constraint</span></pre>
+            </div>
+
+            <h3>B.3 ERR-002: Tuple Destructuring</h3>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Compiler error: mismatched types, expected tuple</span>
+<span class="rust-comment">// Trigger: Wrapping expressions assigned to tuple patterns</span>
+
+<span class="rust-comment">// Problematic pattern:</span>
+<span class="rust-keyword">let</span> (a, b) = track_return(get_pair());
+
+<span class="rust-comment">// Root cause: Wrapper doesn't preserve tuple type</span>
+<span class="rust-comment">// Barrier section: §5.4 Type-Dependent Method Behavior</span></pre>
+            </div>
+
+            <h3>B.4 ERR-009: Self-Consuming Functions</h3>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Compiler error: use of moved value</span>
+<span class="rust-comment">// Trigger: Wrapping calls to methods taking self by value</span>
+
+<span class="rust-comment">// Problematic pattern:</span>
+<span class="rust-keyword">let</span> result = track_call(builder.build());  <span class="rust-comment">// builder moved</span>
+
+<span class="rust-comment">// Root cause: Macro cannot detect self vs &amp;self</span>
+<span class="rust-comment">// Barrier section: §5.4 Type-Dependent Method Behavior</span></pre>
+            </div>
+
+            <h3>B.5 ERR-014: Trait Method Declarations</h3>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Compiler error: expected function body</span>
+<span class="rust-comment">// Trigger: Attempting to instrument bodyless declarations</span>
+
+<span class="rust-comment">// Problematic pattern:</span>
+<span class="rust-keyword">trait</span> Handler {
+    <span class="rust-attribute">#[trace_borrow]</span>  <span class="rust-comment">// No body to instrument!</span>
+    <span class="rust-keyword">fn</span> <span class="rust-function">handle</span>(&amp;<span class="rust-keyword">self</span>);
+}
+
+<span class="rust-comment">// Root cause: Macro applied to declaration, not definition</span>
+<span class="rust-comment">// Barrier section: §4.1 The Fundamental Constraint</span></pre>
+            </div>
+
+            <h3>B.6 ERR-008: Trait Bound Failures</h3>
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Compiler error: the trait bound `...` is not satisfied</span>
+<span class="rust-comment">// Trigger: Wrapping arguments with trait bounds</span>
+
+<span class="rust-comment">// Problematic pattern:</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process</span>(value: <span class="rust-keyword">impl</span> Into&lt;String&gt;) { }
+process(track_arg(<span class="rust-string">"hello"</span>));  <span class="rust-comment">// Wrapper breaks bound</span>
+
+<span class="rust-comment">// Root cause: Macro cannot see impl Trait bounds</span>
+<span class="rust-comment">// Barrier section: §5.4 Type-Dependent Method Behavior</span></pre>
+            </div>
+
+            <h3>B.7 Summary Table</h3>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>Rust Error</th>
+                            <th>Barrier Section</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>ERR-002</code></td>
+                            <td>Tuple Destructuring</td>
+                            <td>E0308 mismatched types</td>
+                            <td>§5.4</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-003</code></td>
+                            <td>Mutable Borrow</td>
+                            <td>E0499 cannot borrow as mutable</td>
+                            <td>§5.4</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-008</code></td>
+                            <td>Trait Bounds</td>
+                            <td>E0277 trait bound not satisfied</td>
+                            <td>§5.4</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-009</code></td>
+                            <td>Self-Consuming</td>
+                            <td>E0382 use of moved value</td>
+                            <td>§5.4</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-012</code></td>
+                            <td>Trait Impl Mismatch</td>
+                            <td>E0053 incompatible type for trait</td>
+                            <td>§4.1</td>
+                        </tr>
+                        <tr>
+                            <td><code>ERR-014</code></td>
+                            <td>Trait Declaration</td>
+                            <td>E0073 expected function body</td>
+                            <td>§4.1</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <hr />
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What Gets Instrumented - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="what-gets-instrumented">
+            <h2>4. What Gets Instrumented</h2>
+
+            <h3 id="variable-bindings">4.1 Variable Bindings</h3>
+            
+            <p>Every <code>let</code> statement is tracked:</p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">let</span> x = String::from(<span class="rust-string">"hello"</span>);  <span class="rust-comment">// track_ownership("x", "String")</span>
+<span class="rust-keyword">let</span> y = 42;                       <span class="rust-comment">// track_ownership("y", "i32")</span>
+<span class="rust-keyword">let</span> z = vec![1, 2, 3];            <span class="rust-comment">// track_ownership("z", "Vec")</span></pre>
+            </div>
+
+            <h3 id="borrows-and-moves">4.2 Borrows and Moves</h3>
+
+            <p>Reference creation and ownership transfers:</p>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-keyword">let</span> r = &amp;x;           <span class="rust-comment">// track_borrow("r", "x", Immutable)</span>
+<span class="rust-keyword">let</span> m = &amp;<span class="rust-keyword">mut</span> x;       <span class="rust-comment">// track_borrow("m", "x", Mutable)</span>
+<span class="rust-keyword">let</span> owned = x;        <span class="rust-comment">// track_move("owned", "x")</span></pre>
+            </div>
+
+            <h3 id="function-calls">4.3 Function Calls</h3>
+
+            <p>Function calls that may transfer or borrow values:</p>
+
+            <div class="code-block">
+<pre class="rust-code">consume(x);           <span class="rust-comment">// track_move to function parameter</span>
+borrow(&amp;x);           <span class="rust-comment">// track_borrow for reference parameter</span>
+<span class="rust-keyword">let</span> r = produce();    <span class="rust-comment">// track_ownership for return value</span></pre>
+            </div>
+
+            <h3 id="scope-and-drops">4.4 Scope and Drops</h3>
+
+            <p>Block boundaries and implicit drops:</p>
+
+            <div class="code-block">
+<pre class="rust-code">{                              <span class="rust-comment">// track_scope_enter("block")</span>
+    <span class="rust-keyword">let</span> temp = String::new();  <span class="rust-comment">// track_ownership("temp")</span>
+}                              <span class="rust-comment">// track_drop("temp"), track_scope_exit("block")</span></pre>
+            </div>
+
+            <div class="ecosystem-table">
+                <table>
+                    <thead>
+                        <tr><th>Pattern</th><th>Tracking Call</th><th>Event Type</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>let x = value</code></td><td><code>track_ownership</code></td><td>VariableCreated</td></tr>
+                        <tr><td><code>&amp;x</code></td><td><code>track_borrow</code></td><td>BorrowCreated</td></tr>
+                        <tr><td><code>&amp;mut x</code></td><td><code>track_borrow</code></td><td>MutableBorrowCreated</td></tr>
+                        <tr><td><code>y = x</code> (move)</td><td><code>track_move</code></td><td>OwnershipTransferred</td></tr>
+                        <tr><td><code>{ ... }</code></td><td><code>track_scope_*</code></td><td>ScopeEnter/Exit</td></tr>
+                        <tr><td>scope exit</td><td><code>track_drop</code></td><td>VariableDropped</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

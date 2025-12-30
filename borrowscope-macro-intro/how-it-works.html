@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How It Works - BorrowScope Macro</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="how-it-works">
+            <h2>3. How It Works</h2>
+
+            <h3 id="trace-borrow-attribute">3.1 The #[trace_borrow] Attribute</h3>
+            
+            <p>
+                The <code>#[trace_borrow]</code> attribute is an attribute procedural macro that 
+                transforms function definitions. When applied to a function, it:
+            </p>
+
+            <ol>
+                <li>Parses the function's AST using <code>syn</code></li>
+                <li>Walks the function body to identify ownership operations</li>
+                <li>Generates tracking calls for each operation</li>
+                <li>Emits the transformed function using <code>quote</code></li>
+            </ol>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Input to macro</span>
+<span class="rust-attribute">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>(x: String) {
+    <span class="rust-keyword">let</span> y = &amp;x;
+    println!(<span class="rust-string">"{}"</span>, y);
+}
+
+<span class="rust-comment">// Output from macro (conceptual)</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>(x: String) {
+    borrowscope_runtime::track_scope_enter(<span class="rust-string">"example"</span>);
+    borrowscope_runtime::track_ownership(<span class="rust-string">"x"</span>, <span class="rust-string">"String"</span>);
+    <span class="rust-keyword">let</span> y = {
+        <span class="rust-keyword">let</span> __tmp = &amp;x;
+        borrowscope_runtime::track_borrow(<span class="rust-string">"y"</span>, <span class="rust-string">"x"</span>, BorrowKind::Immutable);
+        __tmp
+    };
+    println!(<span class="rust-string">"{}"</span>, y);
+    borrowscope_runtime::track_drop(<span class="rust-string">"y"</span>);
+    borrowscope_runtime::track_drop(<span class="rust-string">"x"</span>);
+    borrowscope_runtime::track_scope_exit(<span class="rust-string">"example"</span>);
+}</pre>
+            </div>
+
+            <h3 id="transformation-pipeline">3.2 Transformation Pipeline</h3>
+
+            <div class="code-block">
+<pre class="rust-code">TokenStream ──▶ syn::parse ──▶ ItemFn AST ──▶ Analyze Body ──▶ Generate Calls ──▶ quote! output</pre>
+            </div>
+
+            <h4>Stage 1: Parsing</h4>
+            <p>
+                The macro receives a <code>TokenStream</code> and converts it into a structured 
+                <code>ItemFn</code> AST containing the function signature, body, and attributes.
+            </p>
+
+            <h4>Stage 2: Analysis</h4>
+            <p>The macro walks the AST to identify ownership-relevant patterns:</p>
+            <ul>
+                <li><code>let x = ...</code> — variable binding</li>
+                <li><code>&amp;x</code> or <code>&amp;mut x</code> — borrow expressions</li>
+                <li><code>func(x)</code> — function calls</li>
+                <li>Block boundaries — scope enter/exit</li>
+            </ul>
+
+            <h4>Stage 3: Code Generation</h4>
+            <p>
+                For each operation, the macro generates tracking calls using <code>quote!</code> 
+                and inserts them at the correct position.
+            </p>
+
+            <h3 id="code-generation">3.3 Code Generation</h3>
+
+            <div class="code-block">
+<pre class="rust-code"><span class="rust-comment">// Inside the procedural macro</span>
+<span class="rust-keyword">let</span> var_name = &amp;local.pat;
+<span class="rust-keyword">let</span> tracking_call = <span class="rust-macro">quote!</span> {
+    borrowscope_runtime::track_ownership(stringify!(#var_name), OwnershipKind::Owned);
+};</pre>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
