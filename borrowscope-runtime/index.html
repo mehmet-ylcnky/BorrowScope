@@ -67,6 +67,7 @@
             }
         }
     </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 
 <body>
@@ -379,6 +380,7 @@
                     const content = doc.querySelector('.section-content');
                     if (content) {
                         document.getElementById('performance-container').innerHTML = content.innerHTML;
+                        initPerformanceCharts();
                     }
                 })
                 .catch(error => {
@@ -486,6 +488,66 @@
                 });
             }, 1000);
         });
+
+        function initPerformanceCharts() {
+            const memoryData = [
+                { variables: 100, memory_mb: 0.045 },
+                { variables: 1000, memory_mb: 0.45 },
+                { variables: 10000, memory_mb: 4.5 },
+                { variables: 100000, memory_mb: 45 },
+                { variables: 1000000, memory_mb: 450 }
+            ];
+            createChart('memory-chart', memoryData, 'Variables', 'Memory (MB)', 
+                d => d.variables, d => d.memory_mb, '#3498db');
+
+            const complexData = [
+                { pattern: 'Rc Clone', time_ns: 89 },
+                { pattern: 'Arc Clone', time_ns: 95 },
+                { pattern: 'RefCell Borrow', time_ns: 156 },
+                { pattern: 'Mutex Lock', time_ns: 178 }
+            ];
+            createBarChart('complex-pattern-chart', complexData, 'Pattern Type', 'Time (ns)', 
+                d => d.pattern, d => d.time_ns, '#e74c3c');
+
+            const zeroCostData = [
+                { mode: 'Tracking Enabled', overhead_percent: 2.3 },
+                { mode: 'Tracking Disabled', overhead_percent: 0.0 }
+            ];
+            createBarChart('zero-cost-chart', zeroCostData, 'Mode', 'Overhead (%)', 
+                d => d.mode, d => d.overhead_percent, '#27ae60');
+        }
+
+        function createChart(containerId, data, xLabel, yLabel, xAccessor, yAccessor, color) {
+            const container = d3.select(`#${containerId}`);
+            if (container.empty()) return;
+            container.selectAll("*").remove();
+            const width = 700, height = 400;
+            const margin = { top: 20, right: 30, bottom: 50, left: 70 };
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const xScale = d3.scaleLinear().domain(d3.extent(data, xAccessor)).range([margin.left, width - margin.right]);
+            const yScale = d3.scaleLinear().domain([0, d3.max(data, yAccessor)]).range([height - margin.bottom, margin.top]);
+            const line = d3.line().x(d => xScale(xAccessor(d))).y(d => yScale(yAccessor(d))).curve(d3.curveLinear);
+            svg.append("path").datum(data).attr("fill", "none").attr("stroke", color).attr("stroke-width", 2).attr("d", line);
+            svg.selectAll("circle").data(data).enter().append("circle").attr("cx", d => xScale(xAccessor(d))).attr("cy", d => yScale(yAccessor(d))).attr("r", 5).attr("fill", color);
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(xScale));
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(yScale));
+            svg.append("text").attr("x", width / 2).attr("y", height - 10).attr("text-anchor", "middle").text(xLabel);
+            svg.append("text").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", 20).attr("text-anchor", "middle").text(yLabel);
+        }
+
+        function createBarChart(containerId, data, xLabel, yLabel, xAccessor, yAccessor, color) {
+            const container = d3.select(`#${containerId}`);
+            if (container.empty()) return;
+            container.selectAll("*").remove();
+            const width = 500, height = 300;
+            const margin = { top: 20, right: 30, bottom: 60, left: 70 };
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const xScale = d3.scaleBand().domain(data.map(xAccessor)).range([margin.left, width - margin.right]).padding(0.3);
+            const yScale = d3.scaleLinear().domain([0, d3.max(data, yAccessor)]).range([height - margin.bottom, margin.top]);
+            svg.selectAll("rect").data(data).enter().append("rect").attr("x", d => xScale(xAccessor(d))).attr("y", d => yScale(yAccessor(d))).attr("width", xScale.bandwidth()).attr("height", d => height - margin.bottom - yScale(yAccessor(d))).attr("fill", color);
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(xScale)).selectAll("text").attr("transform", "rotate(-20)").style("text-anchor", "end");
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(yScale));
+        }
     </script>
 </body>
 
