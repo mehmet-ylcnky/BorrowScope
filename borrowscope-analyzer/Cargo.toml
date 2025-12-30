@@ -6,6 +6,7 @@ description = "Static type analyzer for borrowscope using rust-analyzer"
 
 [dependencies]
 # rust-analyzer crates for syntax parsing
+# TODO: Add ra_ap_hir, ra_ap_ide_db, ra_ap_load-cargo for semantic analysis
 ra_ap_syntax = "0.0.232"
 
 # Utilities
