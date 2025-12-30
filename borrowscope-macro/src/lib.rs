@@ -169,9 +169,11 @@
 //! | `Rc::clone(&rc)` | `RcClone` |
 //! | `Arc::new(v)` | `ArcNew` |
 //! | `Arc::clone(&arc)` | `ArcClone` |
+//! | `Box::new(v)` | `BoxNew` |
+//! | `Box::pin(v)` | `PinNew` |
 //! | `RefCell::new(v)` | `RefCellNew` |
 //! | `refcell.borrow()` | `RefCellBorrow` |
-//! | `refcell.borrow_mut()` | `RefCellBorrow` (mutable) |
+//! | `refcell.borrow_mut()` | `RefCellBorrowMut` |
 //! | `Cell::new(v)` | `CellNew` |
 //! | `cell.get()` | `CellGet` |
 //! | `cell.set(v)` | `CellSet` |
@@ -211,6 +213,90 @@
 //! | `unsafe` | `unsafe { }`, `*ptr`, `transmute` | `UnsafeBlockEnter/Exit`, `RawPtrDeref`, `Transmute` |
 //! | `expressions` | structs, tuples, arrays, ranges, casts | `StructCreate`, `TupleCreate`, etc. |
 //! | `functions` | fn entry/exit | `FnEnter`, `FnExit` |
+//!
+//! ## Advanced Smart Pointer Tracking
+//!
+//! Beyond basic `Rc`, `Arc`, `RefCell`, and `Cell`, the macro tracks:
+//!
+//! ### Weak References
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `Rc::downgrade(&rc)` | `WeakNew` |
+//! | `Arc::downgrade(&arc)` | `WeakNewSync` |
+//! | `weak.upgrade()` | `WeakUpgrade` / `WeakUpgradeSync` |
+//! | `weak.clone()` | `WeakClone` / `WeakCloneSync` |
+//!
+//! ### Pin, Cow, OnceCell, MaybeUninit
+//!
+//! | Type | Operations |
+//! |------|------------|
+//! | `Box` | `Box::pin`, `Box::into_raw`, `Box::from_raw` |
+//! | `Pin<T>` | `Pin::new`, `Pin::into_inner` |
+//! | `Cow<T>` | `Cow::Borrowed`, `Cow::Owned`, `to_mut()` |
+//! | `OnceCell<T>` | `new()`, `set()`, `get()`, `get_or_init()` |
+//! | `OnceLock<T>` | `new()`, `set()`, `get()`, `get_or_init()` |
+//! | `MaybeUninit<T>` | `uninit()`, `new()`, `write()`, `assume_init()` |
+//!
+//! ## Concurrency Tracking
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `thread::spawn(...)` | `ThreadSpawn` |
+//! | `handle.join()` | `ThreadJoin` |
+//! | `mpsc::channel()` | `ChannelNew` |
+//! | `tx.send(v)` | `ChannelSend` |
+//! | `rx.recv()` | `ChannelRecv` |
+//! | `rx.try_recv()` | `ChannelTryRecv` |
+//!
+//! ## Expression Tracking (`expressions` group)
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `Point { x, y }` | `StructCreate` (with type name) |
+//! | `(a, b, c)` | `TupleCreate` (with arity) |
+//! | `[1, 2, 3]` | `ArrayCreate` (with length) |
+//! | `0..10` | `Range` (half_open) |
+//! | `0..=10` | `Range` (closed) |
+//! | `x as i64` | `TypeCast` (with target type) |
+//!
+//! ## Closure Tracking
+//!
+//! | Code Pattern | Event |
+//! |--------------|-------|
+//! | `\|x\| x + 1` | `ClosureCreate` (capture mode: ref) |
+//! | `move \|x\| x + 1` | `ClosureCreate` (capture mode: move) |
+//! | Captured variable | `ClosureCapture` (per variable) |
+//!
+//! ## Diagnostic Options
+//!
+//! For patterns that cannot be auto-detected, use diagnostic attributes:
+//!
+//! | Attribute | Description |
+//! |-----------|-------------|
+//! | `#[trace_borrow(warn)]` | Emit warnings for ambiguous patterns |
+//! | `#[trace_borrow(ffi = ["malloc"])]` | Declare known FFI functions |
+//! | `#[trace_borrow(unions = ["MyUnion"])]` | Declare known union types |
+//! | `#[trace_borrow(statics = ["GLOBAL"])]` | Declare known static variables |
+//!
+//! ## How It Works
+//!
+//! The macro transforms functions by:
+//!
+//! 1. **Parsing** the function into an AST using `syn`
+//! 2. **Walking** the AST with `OwnershipVisitor` that maintains:
+//!    - Unique IDs for each variable (for event correlation)
+//!    - Scope stack for LIFO drop ordering
+//!    - Type context (tracks which vars are Weak, Cow, OnceCell, etc.)
+//! 3. **Injecting** `borrowscope_runtime::track_*` calls
+//! 4. **Generating** drop calls at scope exits in reverse order
+//!
+//! ### ID-Based Correlation
+//!
+//! Each variable gets a unique ID, enabling correlation:
+//! - Borrows link to their owner's ID
+//! - Clones link to their source's ID
+//! - Moves link source and destination IDs
 //!
 //! ## Performance Tips
 //!

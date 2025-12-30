@@ -45,9 +45,43 @@ BorrowScope Macro addresses this by making ownership operations observable. Inst
 |------|-------------------|
 | `Rc<T>` | Creation (`Rc::new`), cloning (`Rc::clone`) |
 | `Arc<T>` | Creation (`Arc::new`), cloning (`Arc::clone`) |
-| `Box<T>` | Creation (`Box::new`) |
+| `Box<T>` | Creation (`Box::new`), `Box::pin`, `Box::into_raw`, `Box::from_raw` |
 | `RefCell<T>` | Creation, `borrow()`, `borrow_mut()` |
 | `Cell<T>` | Creation, `get()`, `set()` |
+| `Weak<T>` | `Rc::downgrade`, `Arc::downgrade`, `upgrade()`, `clone()` |
+| `Pin<T>` | `Pin::new`, `Pin::into_inner` |
+| `Cow<T>` | `Cow::Borrowed`, `Cow::Owned`, `to_mut()` |
+| `OnceCell<T>` | `new()`, `set()`, `get()`, `get_or_init()` |
+| `OnceLock<T>` | `new()`, `set()`, `get()`, `get_or_init()` |
+| `MaybeUninit<T>` | `uninit()`, `new()`, `write()`, `assume_init()`, `assume_init_read()`, `assume_init_drop()` |
+
+### Concurrency Tracking
+
+| Operation | Description |
+|-----------|-------------|
+| `thread::spawn` | Tracks thread creation with handle ID |
+| `JoinHandle::join` | Tracks thread join operations |
+| `mpsc::channel` | Tracks channel creation (sender and receiver) |
+| `Sender::send` | Tracks messages sent through channels |
+| `Receiver::recv` | Tracks blocking receive operations |
+| `Receiver::try_recv` | Tracks non-blocking receive attempts |
+
+### Expression Tracking
+
+| Expression | Description |
+|------------|-------------|
+| Struct creation | Tracks `Point { x, y }` with type name |
+| Tuple creation | Tracks `(a, b, c)` with arity |
+| Array creation | Tracks `[1, 2, 3]` with length |
+| Range expressions | Tracks `0..10` and `0..=10` with range type |
+| Type casts | Tracks `x as i64` with target type |
+
+### Closure Tracking
+
+| Operation | Description |
+|-----------|-------------|
+| Closure creation | Tracks closure with capture mode (`move` or `ref`) |
+| Variable capture | Tracks each captured variable and how it's captured |
 
 ### Unsafe Code Tracking
 
@@ -202,6 +236,176 @@ fn method_call_example() {
     
     let option: Option<i32> = Some(42);
     let value = option.unwrap();       // track_unwrap
+}
+```
+
+### Advanced Smart Pointer Example
+
+```rust
+use borrowscope_macro::trace_borrow;
+use std::rc::{Rc, Weak};
+use std::borrow::Cow;
+use std::cell::OnceCell;
+
+#[trace_borrow]
+fn advanced_smart_pointers() {
+    // Weak reference tracking
+    let strong = Rc::new(42);
+    let weak: Weak<i32> = Rc::downgrade(&strong);  // track_weak_new
+    let weak2 = weak.clone();                       // track_weak_clone
+    if let Some(val) = weak.upgrade() {             // track_weak_upgrade
+        println!("{}", val);
+    }
+    
+    // Cow tracking
+    let cow: Cow<str> = Cow::Borrowed("hello");     // track_cow_borrowed
+    let owned: Cow<str> = Cow::Owned(String::new()); // track_cow_owned
+    
+    // OnceCell tracking
+    let cell: OnceCell<i32> = OnceCell::new();      // track_once_cell_new
+    cell.set(42).ok();                               // track_once_cell_set
+    let val = cell.get();                            // track_once_cell_get
+}
+```
+
+### Concurrency Example
+
+```rust
+use borrowscope_macro::trace_borrow;
+use std::sync::mpsc;
+use std::thread;
+
+#[trace_borrow]
+fn concurrency_example() {
+    // Channel tracking
+    let (tx, rx) = mpsc::channel();  // track_channel
+    
+    // Thread tracking
+    let handle = thread::spawn(move || {  // track_thread_spawn
+        tx.send(42).unwrap();              // track_channel_send
+    });
+    
+    let received = rx.recv().unwrap();     // track_channel_recv
+    handle.join().unwrap();                // track_thread_join
+}
+```
+
+## Attribute Options
+
+### Presets
+
+| Attribute | Description |
+|-----------|-------------|
+| `#[trace_borrow]` | Standard tracking (all features except function entry/exit) |
+| `#[trace_borrow(quiet)]` | Ownership only (new, move, drop, borrow) |
+| `#[trace_borrow(verbose)]` | All tracking features enabled |
+
+### Feature Selection
+
+| Attribute | Description |
+|-----------|-------------|
+| `#[trace_borrow(skip = "loops,branches")]` | Disable specific feature groups |
+| `#[trace_borrow(only = "ownership")]` | Enable only specified groups (disable all others) |
+
+### Feature Groups
+
+| Group | Aliases | Description |
+|-------|---------|-------------|
+| `ownership` | - | Variable creation, moves, drops, borrows |
+| `smart_pointers` | `pointers` | Rc, Arc, RefCell, Cell, Weak, Pin, Cow, OnceCell, MaybeUninit |
+| `loops` | - | for, while, loop tracking |
+| `branches` | - | if/else, match tracking |
+| `control_flow` | `control` | break, continue, return |
+| `try` | - | `?` operator |
+| `methods` | - | clone, lock, unwrap |
+| `async` | - | async blocks, await |
+| `unsafe` | - | unsafe blocks, raw pointers, transmute |
+| `expressions` | `exprs` | struct, tuple, array, range, cast |
+| `functions` | `fn` | Function entry/exit (disabled by default) |
+
+### Filtering
+
+Track only variables matching a glob pattern:
+
+```rust
+#[trace_borrow(filter = "data*")]      // Track vars starting with "data"
+#[trace_borrow(filter = "*_count")]    // Track vars ending with "_count"
+#[trace_borrow(filter = "user_?")]     // Track user_1, user_2, etc.
+```
+
+Pattern syntax:
+- `*` matches zero or more characters
+- `?` matches exactly one character
+
+Filtering is applied at compile-time—no tracking code is generated for non-matching variables.
+
+### Sampling
+
+Reduce overhead by tracking only a percentage of operations:
+
+```rust
+#[trace_borrow(sample = 0.1)]   // Track ~10% of operations
+#[trace_borrow(sample = 0.5)]   // Track ~50% of operations
+```
+
+### Conditional Compilation
+
+| Attribute | Description |
+|-----------|-------------|
+| `#[trace_borrow(debug_only)]` | Only track in debug builds |
+| `#[trace_borrow(release_only)]` | Only track in release builds |
+| `#[trace_borrow(feature = "tracing")]` | Only track when cargo feature enabled |
+
+### Diagnostic Options
+
+| Attribute | Description |
+|-----------|-------------|
+| `#[trace_borrow(warn)]` | Emit warnings for ambiguous patterns |
+| `#[trace_borrow(ffi = ["malloc", "free"])]` | Declare known FFI functions (suppresses warnings) |
+| `#[trace_borrow(unions = ["MyUnion"])]` | Declare known union types (suppresses warnings) |
+| `#[trace_borrow(statics = ["GLOBAL"])]` | Declare known static variables (suppresses warnings) |
+
+### Combining Options
+
+```rust
+#[trace_borrow(debug_only, quiet)]
+#[trace_borrow(filter = "user*", sample = 0.1)]
+#[trace_borrow(feature = "trace", only = "ownership,smart_pointers")]
+#[trace_borrow(debug_only, skip = "loops,branches,expressions")]
+```
+
+## How It Works
+
+The macro transforms your function by:
+
+1. **Parsing** the function into an Abstract Syntax Tree (AST)
+2. **Walking** the AST with an `OwnershipVisitor` that tracks:
+   - Variable IDs for correlation
+   - Scope stack for LIFO drop ordering
+   - Variable types (Weak, Cow, OnceCell, etc.) for context-aware tracking
+3. **Injecting** tracking calls at appropriate points
+4. **Generating** drop calls at scope exits in reverse declaration order
+
+Each variable gets a unique ID, enabling correlation between events (e.g., linking a borrow to its owner).
+
+### Example Transformation
+
+Input:
+```rust
+#[trace_borrow]
+fn example() {
+    let data = vec![1, 2, 3];
+    let r = &data;
+}
+```
+
+Output (simplified):
+```rust
+fn example() {
+    let data = borrowscope_runtime::track_new_with_id(1, "data", "file.rs:2", vec![1, 2, 3]);
+    let r = borrowscope_runtime::track_borrow_with_id(2, 1, "borrow", "file.rs:3", false, &data);
+    borrowscope_runtime::track_drop("r");
+    borrowscope_runtime::track_drop("data");
 }
 ```
 
