@@ -34,5 +34,6 @@ examples/*/target/
 battle-test-whitepaper/
 borrowscope-macro-intro/
 
-# Battle test cloned repos
-battle-test/*/repo/
+# Not ready for main branch yet
+battle-test/
+borrowscope-lsp/
