@@ -12,6 +12,7 @@ exclude = [
     "examples/borrow-conflicts",
     "examples/graph-visualization",
     "examples/allocator-sim",
+    "examples/type-coverage",
 ]
 
 [workspace.package]

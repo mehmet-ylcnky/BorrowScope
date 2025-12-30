@@ -1,0 +1,5 @@
+[package]
+name = "type-coverage"
+version = "0.1.0"
+edition = "2021"
+description = "Comprehensive type coverage test for borrowscope-analyzer"
