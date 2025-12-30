@@ -1,51 +1,88 @@
-//! BorrowScope Analyzer - Static type analysis spike
+//! BorrowScope Analyzer - Production-ready static type analysis
 //!
-//! This is a proof-of-concept to test whether we can:
-//! 1. Load a Rust project using rust-analyzer crates
-//! 2. Query type information for variables
-//! 3. Detect specific types (Rc, Arc, unions, statics, FFI)
+//! Uses rust-analyzer's semantic analysis to extract accurate type information
+//! for all variables in a Rust project. This enables the BorrowScope proc macro
+//! to emit precise tracking calls.
 //!
-//! If successful, this will enable the proc macro to have
-//! accurate type information without requiring nightly Rust.
+//! # Architecture
+//!
+//! ```text
+//! cargo borrowscope analyze  →  .borrowscope/type-info.json
+//! cargo build                →  #[trace_borrow] reads JSON, emits correct calls
+//! ```
+//!
+//! # Usage
+//!
+//! ```bash
+//! cargo run -p borrowscope-analyzer -- /path/to/project
+//! ```
 
 mod analysis;
 mod output;
 
 use anyhow::Result;
 use std::path::PathBuf;
+use tracing::info;
 
 fn main() -> Result<()> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("borrowscope_analyzer=info".parse()?)
+                .add_directive("ra_ap=warn".parse()?),
+        )
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
-    
+
     let project_path = if args.len() > 1 {
         PathBuf::from(&args[1])
     } else {
         std::env::current_dir()?
     };
 
-    println!("BorrowScope Analyzer - Type Analysis Spike");
-    println!("==========================================");
-    println!("Analyzing project: {}", project_path.display());
+    println!("BorrowScope Analyzer v{}", env!("CARGO_PKG_VERSION"));
+    println!("═══════════════════════════════════════════");
+    println!("Project: {}", project_path.display());
+    println!();
 
-    match analysis::analyze_project(&project_path) {
-        Ok(type_info) => {
-            println!("\n✓ Analysis complete!");
-            let json = serde_json::to_string_pretty(&type_info)?;
-            println!("\nType Information:\n{}", json);
-            
-            // Write to .borrowscope/type-info.json
-            let output_dir = project_path.join(".borrowscope");
-            std::fs::create_dir_all(&output_dir)?;
-            let output_path = output_dir.join("type-info.json");
-            std::fs::write(&output_path, &json)?;
-            println!("\nWritten to: {}", output_path.display());
+    let type_info = analysis::analyze_project(&project_path)?;
+
+    // Summary
+    let total_vars: usize = type_info.files.values().map(|v| v.len()).sum();
+    let resolved: usize = type_info
+        .files
+        .values()
+        .flat_map(|v| v.iter())
+        .filter(|v| v.ty != "unknown" && !v.ty.contains("{unknown}"))
+        .count();
+
+    println!();
+    println!("═══════════════════════════════════════════");
+    println!("Summary:");
+    println!("  Files analyzed: {}", type_info.files.len());
+    println!("  Variables found: {}", total_vars);
+    println!(
+        "  Types resolved: {} ({:.1}%)",
+        resolved,
+        if total_vars > 0 {
+            resolved as f64 / total_vars as f64 * 100.0
+        } else {
+            0.0
         }
-        Err(e) => {
-            eprintln!("\n✗ Analysis failed: {}", e);
-            eprintln!("\nThis spike is testing rust-analyzer integration.");
-            eprintln!("Errors are expected while we figure out the API.");
-        }
-    }
+    );
+
+    // Write output
+    let output_dir = project_path.join(".borrowscope");
+    std::fs::create_dir_all(&output_dir)?;
+    let output_path = output_dir.join("type-info.json");
+    let json = serde_json::to_string_pretty(&type_info)?;
+    std::fs::write(&output_path, &json)?;
+
+    println!();
+    println!("Output: {}", output_path.display());
+    info!("Analysis complete");
 
     Ok(())
 }

@@ -2,15 +2,22 @@
 name = "borrowscope-analyzer"
 version = "0.1.0"
 edition = "2021"
-description = "Static type analyzer for borrowscope using rust-analyzer"
+description = "Static type analyzer for BorrowScope using rust-analyzer"
+license = "Apache-2.0"
+repository = "https://github.com/mehmet-ylcnky/BorrowScope"
 
 [dependencies]
-# rust-analyzer crates for syntax parsing
-# TODO: Add ra_ap_hir, ra_ap_ide_db, ra_ap_load-cargo for semantic analysis
+# rust-analyzer crates for full semantic analysis
+ra_ap_hir = "0.0.232"
+ra_ap_ide_db = "0.0.232"
+ra_ap_load-cargo = "0.0.232"
+ra_ap_project_model = "0.0.232"
 ra_ap_syntax = "0.0.232"
+ra_ap_vfs = "0.0.232"
 
 # Utilities
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-walkdir = "2.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
