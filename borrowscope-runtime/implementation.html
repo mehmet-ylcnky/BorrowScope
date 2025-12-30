@@ -600,7 +600,7 @@
                     abstraction pattern established in the core implementation.
                 </p>
 
-                <h3>3.4.1 Box, Weak, Pin, and Cow Tracking</h3>
+                <h3>4.4.1 Box, Weak, Pin, and Cow Tracking</h3>
                 
                 <p>
                     Beyond the reference-counted smart pointers (<code>Rc</code> and <code>Arc</code>), Rust provides several other smart pointer types with distinct ownership semantics. <code>Box&lt;T&gt;</code> represents unique ownership of heap-allocated data—the simplest form of heap allocation where exactly one owner exists at any time. Tracking Box operations is essential for understanding heap allocation patterns and identifying potential memory leaks or unnecessary allocations.
@@ -635,7 +635,7 @@
 <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_cow_to_mut</span>&lt;'a, T&gt;(name: &<span class="rust-keyword">str</span>, cow: &<span class="rust-keyword">mut</span> <span class="rust-type">Cow</span>&lt;'a, T&gt;) -&gt; &<span class="rust-keyword">mut</span> T</pre>
                 </div>
 
-                <h3>3.4.2 Thread, Channel, and Lock Guard Tracking</h3>
+                <h3>4.4.2 Thread, Channel, and Lock Guard Tracking</h3>
                 
                 <p>
                     Rust's ownership system extends naturally to concurrent programming, where ownership transfer across thread boundaries is a fundamental operation. When a thread is spawned, any captured variables are moved into the new thread's ownership—a transfer that the borrow checker enforces at compile time but that remains invisible at runtime without explicit tracking.
@@ -666,7 +666,7 @@
 <span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_lock_guard_acquire</span>&lt;'a, T&gt;(guard: &<span class="rust-keyword">str</span>, lock: &<span class="rust-keyword">str</span>, g: <span class="rust-type">MutexGuard</span>&lt;T&gt;) -&gt; <span class="rust-type">MutexGuard</span>&lt;T&gt;</pre>
                 </div>
 
-                <h3>3.4.3 OnceCell/OnceLock and MaybeUninit Tracking</h3>
+                <h3>4.4.3 OnceCell/OnceLock and MaybeUninit Tracking</h3>
                 
                 <p>
                     <code>OnceCell</code> and <code>OnceLock</code> provide lazy initialization patterns where a value is computed at most once and then cached for subsequent accesses. <code>OnceCell</code> is designed for single-threaded contexts, while <code>OnceLock</code> provides thread-safe initialization guarantees. These types are commonly used for global state, configuration values, and expensive computations that should only run once.
