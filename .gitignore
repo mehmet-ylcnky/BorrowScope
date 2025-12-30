@@ -29,3 +29,10 @@ borrowscope-cli/
 borrowscope-web/
 borrowscope-memory/
 examples/*/target/
+
+# gh-pages content (published separately)
+battle-test-whitepaper/
+borrowscope-macro-intro/
+
+# Battle test cloned repos
+battle-test/*/repo/
