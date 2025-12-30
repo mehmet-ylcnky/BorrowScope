@@ -17,7 +17,7 @@
             </p>
 
             <div id="test-environment">
-                <h2>5.1 Test Environment and Methodology</h2>
+                <h2>6.1 Test Environment and Methodology</h2>
                 
                 <p>
                     All performance measurements were conducted on a standardized test environment to ensure reproducible and representative results. The test system represents a typical development workstation configuration, providing realistic performance characteristics that developers can expect in practice. Benchmarks were executed using Rust's release mode with full optimizations enabled, reflecting production deployment scenarios.
@@ -49,7 +49,7 @@
             </div>
 
             <div id="tracking-overhead">
-                <h2>5.2 Basic Tracking Overhead</h2>
+                <h2>6.2 Basic Tracking Overhead</h2>
                 
                 <p>
                     The fundamental performance characteristic of <code>borrowscope-runtime</code> is the per-operation tracking overhead. This measurement quantifies the additional cost imposed by each tracking function call, providing the baseline metric for evaluating the system's practicality. The analysis compares identical operations with and without tracking enabled to isolate the pure overhead contribution.
@@ -147,7 +147,7 @@
             </div>
 
             <div id="memory-scaling">
-                <h2>5.3 Memory Usage Scaling</h2>
+                <h2>6.3 Memory Usage Scaling</h2>
                 
                 <p>
                     Memory consumption characteristics are crucial for understanding BorrowScope's applicability to large-scale applications. The memory scaling analysis examines how storage requirements grow with increasing numbers of tracked variables and events, providing insights into the practical limits and resource planning considerations for different application sizes.
@@ -260,7 +260,7 @@
             </div>
 
             <div id="complex-patterns">
-                <h2>5.4 Complex Ownership Pattern Performance</h2>
+                <h2>6.4 Complex Ownership Pattern Performance</h2>
                 
                 <p>
                     Real-world Rust applications employ sophisticated ownership patterns involving smart pointers, interior mutability, and complex borrowing relationships. This benchmark evaluates BorrowScope's performance when tracking advanced patterns like <code>Rc&lt;T&gt;</code> cloning, <code>RefCell&lt;T&gt;</code> borrowing, and nested ownership structures that represent typical production code complexity.
@@ -373,7 +373,7 @@
             </div>
 
             <div id="zero-cost-abstraction">
-                <h2>5.5 Zero-Cost Abstraction Verification</h2>
+                <h2>6.5 Zero-Cost Abstraction Verification</h2>
                 
                 <p>
                     The cornerstone of BorrowScope's design philosophy is the zero-cost abstraction principle: when tracking is disabled, there should be absolutely no performance impact on the application. This section provides empirical verification that the conditional compilation system successfully eliminates all tracking overhead when the <code>track</code> feature is not enabled, making BorrowScope suitable for production deployment without performance concerns.
@@ -493,7 +493,7 @@ borrowscope-runtime = <span class="rust-string">"0.1"</span>  <span class="rust-
             </div>
 
             <div id="performance-summary">
-                <h2>5.6 Performance Summary and Recommendations</h2>
+                <h2>6.6 Performance Summary and Recommendations</h2>
                 
                 <p>
                     The comprehensive performance analysis demonstrates that <code>borrowscope-runtime</code> achieves its design goals of providing detailed ownership tracking with minimal performance impact. The measured characteristics make it suitable for a wide range of applications, from educational tools to production debugging systems.

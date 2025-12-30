@@ -16,7 +16,7 @@
             </p>
 
             <div id="zero-cost">
-                <h2>3.1 Zero-Cost Abstraction Implementation</h2>
+                <h2>4.1 Zero-Cost Abstraction Implementation</h2>
                 
                 <p>
                     The zero-cost abstraction is the cornerstone of <strong><code>borrowscope-runtime</code></strong>'s design philosophy. When the <code>track</code> feature is disabled, all tracking functions must compile to complete no-ops without any runtime overhead. This is achieved through a sophisticated conditional compilation strategy that leverages Rust's feature system, generic programming, and compiler optimizations.
@@ -136,7 +136,7 @@
             </div>
 
             <div id="thread-safety">
-                <h2>3.2 Thread Safety Architecture</h2>
+                <h2>4.2 Thread Safety Architecture</h2>
                 
                 <p>
                     Thread safety in <strong><code>borrowscope-runtime</code></strong> requires careful coordination between multiple concurrent tracking operations while maintaining performance. The implementation uses a hybrid approach: lock-free atomic operations for timestamp generation combined with mutex-protected critical sections for event storage. This design minimizes contention while ensuring strong consistency guarantees for event ordering.
@@ -332,7 +332,7 @@
             </div>
 
             <div id="raii-guards">
-                <h2>3.3 RAII Guard System</h2>
+                <h2>4.3 RAII Guard System</h2>
                 
                 <p>
                     The RAII (Resource Acquisition Is Initialization) guard system provides automatic drop tracking without manual instrumentation. By leveraging Rust's ownership system and the <code>Drop</code> trait, the guards ensure that every tracked variable automatically generates a drop event when it goes out of scope. This eliminates a major source of tracking errors and reduces the instrumentation burden on developers.
@@ -592,7 +592,7 @@
             </div>
 
             <div id="extended-tracking">
-                <h2>3.4 Extended Tracking Categories</h2>
+                <h2>4.4 Extended Tracking Categories</h2>
                 
                 <p>
                     The tracking system includes eight additional categories covering smart pointers, 
@@ -696,7 +696,7 @@
 <span class="rust-keyword">pub</span> <span class="rust-keyword">unsafe</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_maybe_uninit_assume_init</span>&lt;T&gt;(name: &<span class="rust-keyword">str</span>, new: &<span class="rust-keyword">str</span>, val: T) -&gt; T</pre>
                 </div>
 
-                <h2>3.5 Tracking API Reference</h2>
+                <h2>4.5 Tracking API Reference</h2>
 
                 <p>
                     The <code>borrowscope-runtime</code> library provides <strong>106 tracking functions</strong> organized by category. Each function wraps a Rust operation, records the appropriate event, and returns the value unchanged—enabling transparent instrumentation with zero semantic impact.

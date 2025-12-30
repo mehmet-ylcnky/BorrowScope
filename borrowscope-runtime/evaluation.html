@@ -16,7 +16,7 @@
             </p>
 
             <div id="development-status">
-                <h2>7.1 Development Status and Scope</h2>
+                <h2>8.1 Development Status and Scope</h2>
                 
                 <p>
                     <code>borrowscope-runtime</code> represents an ambitious effort to capture and analyze Rust's ownership system at runtime—a system that spans an extraordinarily wide range of patterns and use cases across diverse application domains. Rust's comprehensive implementation areas, from systems programming and embedded development to web services and concurrent data processing, demonstrate various types of ownership and borrowing patterns that reflect the language's flexibility and power. While <code>borrowscope-runtime</code> handles many common and advanced patterns, the natural evolution of the ecosystem involves discovering and addressing unique development practices and challenges that emerge from real-world usage.
@@ -32,7 +32,7 @@
             </div>
 
             <div id="test-suite">
-                <h2>7.2 Test Suite Architecture</h2>
+                <h2>8.2 Test Suite Architecture</h2>
                 
                 <p>
                     The <code>borrowscope-runtime</code> test suite employs a multi-layered validation strategy designed to ensure correctness across all system components. The architecture encompasses unit tests for individual tracking functions, integration tests for complex ownership scenarios, property-based tests for invariant verification, and performance benchmarks for overhead characterization. This comprehensive approach provides confidence in the system's reliability while identifying areas requiring additional attention or refinement.
@@ -243,7 +243,7 @@
             </div>
 
             <div id="coverage-analysis">
-                <h2>7.3 Pattern Coverage Analysis</h2>
+                <h2>8.3 Pattern Coverage Analysis</h2>
                 
                 <p>
                     The test suite systematically validates BorrowScope's ability to track diverse ownership patterns encountered across Rust's application domains. This analysis examines coverage across pattern categories, identifying both well-supported scenarios and areas where additional validation or implementation work may be beneficial. The coverage assessment reflects the current state of the system while acknowledging that Rust's expressiveness means new patterns continue to emerge from the community.
@@ -308,7 +308,7 @@
             </div>
 
             <div id="validation-results">
-                <h2>7.4 Validation Results and Findings</h2>
+                <h2>8.4 Validation Results and Findings</h2>
                 
                 <p>
                     The comprehensive validation process has confirmed BorrowScope's effectiveness in capturing and analyzing ownership operations across a wide range of scenarios. The test suite's 700+ tests execute successfully, demonstrating functional correctness for supported patterns. Performance validation confirms the stated overhead characteristics, with measurements consistent across different hardware configurations and workload types. The zero-cost abstraction verification validates that disabled tracking imposes no measurable overhead, meeting the design requirement for production deployment safety.
