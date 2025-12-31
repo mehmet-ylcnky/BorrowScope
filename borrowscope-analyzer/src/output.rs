@@ -60,6 +60,12 @@ pub struct VariableTypeInfo {
     pub is_static: bool,
     pub is_const: bool,
 
+    // Binding patterns (for macro transformation decisions)
+    pub is_tuple_binding: bool,
+    pub is_mut_binding: bool,
+    pub is_impl_trait: bool,
+    pub has_lifetime: bool,
+
     // Inner type for nested smart pointers (e.g., "String" for Rc<String>)
     pub inner_type: Option<String>,
 
@@ -102,6 +108,10 @@ impl VariableTypeInfo {
             is_extern_type: false,
             is_static: false,
             is_const: false,
+            is_tuple_binding: false,
+            is_mut_binding: false,
+            is_impl_trait: false,
+            has_lifetime: false,
             inner_type: None,
             file,
             line,
@@ -124,7 +134,7 @@ pub struct ProjectTypeInfo {
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "1.2".to_string(),
+            version: "1.3".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
         }

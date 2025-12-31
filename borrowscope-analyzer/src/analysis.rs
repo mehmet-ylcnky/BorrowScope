@@ -150,8 +150,21 @@ fn analyze_let_stmt(
     let name = pat.syntax().text().to_string();
     let mut var_info = VariableTypeInfo::new(name, relative_path.to_string(), line, column);
 
+    // Detect tuple binding pattern
+    var_info.is_tuple_binding = matches!(&pat, ast::Pat::TuplePat(_));
+
+    // Detect mut binding
+    if let ast::Pat::IdentPat(ident_pat) = &pat {
+        var_info.is_mut_binding = ident_pat.mut_token().is_some();
+    }
+
     if let Some(type_info) = sema.type_of_pat(&pat) {
         populate_type_info(&mut var_info, &type_info.original, db);
+    }
+
+    // Detect impl Trait in type annotation
+    if let Some(ty) = let_stmt.ty() {
+        var_info.is_impl_trait = matches!(ty, ast::Type::ImplTraitType(_));
     }
 
     Some(var_info)
@@ -285,6 +298,9 @@ fn classify_type(var_info: &mut VariableTypeInfo) {
         || ty.contains("CString")
         || ty.contains("OsStr")
         || ty.contains("OsString");
+
+    // Detect explicit lifetime annotations (e.g., &'a T, &'static str)
+    var_info.has_lifetime = ty.contains("'");
 
     // Extract inner type for wrapper types
     var_info.inner_type = extract_inner_type(ty);

@@ -49,6 +49,40 @@ fn test_type_aliases() {
 }
 
 // ============================================================================
+// Binding patterns (for macro transformation decisions)
+// ============================================================================
+fn test_binding_patterns() {
+    // Tuple bindings (ERR-002)
+    let (tuple_a, tuple_b) = (1, 2);
+    let (tuple_x, tuple_y, tuple_z) = ("a", "b", "c");
+
+    // Mutable bindings (ERR-003)
+    let mut mut_int = 42;
+    let mut mut_vec = vec![1, 2, 3];
+    let mut mut_string = String::new();
+
+    // Nested tuple
+    let ((nested_a, nested_b), nested_c) = ((1, 2), 3);
+
+    // Use them to avoid warnings
+    mut_int += 1;
+    mut_vec.push(4);
+    mut_string.push_str("hello");
+    println!("{} {} {} {} {} {} {} {} {}", tuple_a, tuple_b, tuple_x, tuple_y, tuple_z, mut_int, mut_vec.len(), mut_string, nested_a + nested_b + nested_c);
+}
+
+fn test_lifetime_types() {
+    // Explicit lifetime in type (ERR-013)
+    let static_str: &'static str = "static";
+    
+    // References with inferred lifetimes
+    let local = String::from("local");
+    let local_ref: &str = &local;
+
+    println!("{} {}", static_str, local_ref);
+}
+
+// ============================================================================
 // Union types
 // ============================================================================
 #[repr(C)]
@@ -665,6 +699,8 @@ fn test_io_types() {
 
 fn main() {
     test_type_aliases();
+    test_binding_patterns();
+    test_lifetime_types();
     test_unions();
     test_ffi_types();
     test_primitives();
