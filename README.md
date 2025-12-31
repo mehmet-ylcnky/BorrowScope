@@ -199,6 +199,26 @@ cd examples/ownership-patterns
 cargo run
 ```
 
+## Static Analysis (borrowscope-analyzer)
+
+For enhanced tracking accuracy, run the static analyzer before building:
+
+```bash
+# Analyze your project
+cargo run -p borrowscope-analyzer -- /path/to/your/project
+
+# Then build with macro instrumentation
+cargo build
+```
+
+The analyzer extracts type information that procedural macros cannot access, enabling:
+- Correct tracking of type aliases (`type MyRc<T> = Rc<T>`)
+- Factory function return type detection
+- Precise disambiguation of shadowed variables
+- 90+ initializer pattern classifications
+
+Output is written to `.borrowscope/type-info.json` in your project directory.
+
 ## Project Structure
 
 ```
@@ -218,13 +238,21 @@ BorrowScope/
 │   │   └── transform_visitor.rs  # AST transformation
 │   └── tests/              # 300+ tests
 │
+├── borrowscope-analyzer/    # Static analysis tool (rust-analyzer based)
+│   ├── src/
+│   │   ├── main.rs         # CLI entry point
+│   │   ├── analysis.rs     # Type extraction and pattern classification
+│   │   └── output.rs       # JSON schema (v2.2)
+│   └── README.md           # Comprehensive documentation
+│
 └── examples/               # Standalone example projects
     ├── ownership-patterns/
     ├── smart-pointers/
     ├── borrow-conflicts/
     ├── async-ownership/
     ├── graph-visualization/
-    └── allocator-sim/
+    ├── allocator-sim/
+    └── type-coverage/      # Comprehensive analyzer test (254 variables)
 ```
 
 ## Performance
