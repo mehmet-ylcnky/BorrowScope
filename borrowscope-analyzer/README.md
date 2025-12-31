@@ -401,11 +401,11 @@ The output follows a hierarchical structure with project-level metadata and per-
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         type-info.json SCHEMA                               │
+│                         type-info.json SCHEMA (v1.3)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  {                                                                          │
-│    "version": "1.1",              ◄─── Schema version for compatibility     │
+│    "version": "1.3",              ◄─── Schema version for compatibility     │
 │    "analyzer_version": "0.1.0",   ◄─── Analyzer binary version              │
 │    "files": {                     ◄─── Map: relative path → variables       │
 │      "src/main.rs": [                                                       │
@@ -450,6 +450,20 @@ The output follows a hierarchical structure with project-level metadata and per-
 │          "is_closure": false,     ◄─── impl Fn/FnMut/FnOnce                 │
 │          "is_future": false,      ◄─── impl Future                          │
 │          "is_iterator": false,    ◄─── Iterator adapters                    │
+│                                                                             │
+│          // FFI and unsafe types (v1.2)                                     │
+│          "is_union": false,       ◄─── Union type (semantic detection)      │
+│          "is_extern_type": false, ◄─── c_void, CStr, CString, OsStr, etc.   │
+│                                                                             │
+│          // Declaration type (v1.2)                                         │
+│          "is_static": false,      ◄─── static declaration                   │
+│          "is_const": false,       ◄─── const declaration                    │
+│                                                                             │
+│          // Binding patterns for macro transformation (v1.3)                │
+│          "is_tuple_binding": false,  ◄─── let (a, b) = ... (ERR-002)        │
+│          "is_mut_binding": false,    ◄─── let mut x = ... (ERR-003)         │
+│          "is_impl_trait": false,     ◄─── impl Trait type (ERR-008)         │
+│          "has_lifetime": false,      ◄─── &'a T, Ref<'_, T> (ERR-013)       │
 │                                                                             │
 │          // Inner type extraction                                           │
 │          "inner_type": "RefCell<Vec<i32>>",  ◄─── T from Rc<T>              │
@@ -525,8 +539,27 @@ Boolean flags provide quick classification without parsing the type string:
 | `is_closure` | `impl Fn` or contains `closure` | Closure type |
 | `is_future` | `impl Future` or `Future<` | Future/async type |
 | `is_iterator` | `IntoIter<`, `Map<`, `Filter<`, `Chain<`, etc. | Iterator adapters |
+| `is_union` | Union type (via semantic `as_adt()`) | Union types including `MaybeUninit` |
+| `is_extern_type` | `c_void`, `CStr`, `CString`, `OsStr`, `OsString` | FFI/extern types |
+| `is_static` | `static` declaration | Static variable |
+| `is_const` | `const` declaration | Constant |
+| `is_tuple_binding` | `let (a, b) = ...` | Tuple destructuring pattern |
+| `is_mut_binding` | `let mut x = ...` | Mutable binding |
+| `is_impl_trait` | `impl Trait` in type annotation | Impl trait type |
+| `has_lifetime` | Type contains `'` (e.g., `&'a T`, `Ref<'_, T>`) | Explicit lifetime annotation |
 
 These flags are not mutually exclusive. A type like `Rc<RefCell<Vec<String>>>` will have `is_rc`, `is_refcell`, `is_vec`, and `is_string` all set to `true`, reflecting the nested structure.
+
+**Binding Pattern Flags (for Macro Transformation)**
+
+The following flags help the macro make better transformation decisions based on the [battle test whitepaper](https://mehmet-ylcnky.github.io/BorrowScope/battle-test-whitepaper/) error taxonomy:
+
+| Flag | Battle Test Error | Macro Action |
+|------|-------------------|--------------|
+| `is_tuple_binding` | ERR-002: Tuple destructuring | Skip tracking or handle specially |
+| `is_mut_binding` | ERR-003: Mutable borrow conflicts | Use `track_borrow_mut` for receivers |
+| `is_impl_trait` | ERR-008: Trait bound failures | Skip tracking for impl Trait params |
+| `has_lifetime` | ERR-013: Lifetime mismatch | Preserve lifetime annotations |
 
 **Inner Type Extraction**
 
