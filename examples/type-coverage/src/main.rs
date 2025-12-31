@@ -521,6 +521,12 @@ struct Point {
     y: i32,
 }
 
+impl Point {
+    fn new(x: i32, y: i32) -> Self {
+        Point { x, y }
+    }
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 struct Generic<T> {
@@ -537,6 +543,7 @@ enum Status {
 
 fn test_user_types() {
     let point = Point { x: 10, y: 20 };
+    let point_new = Point::new(5, 15);  // user_struct via constructor
     let generic_int = Generic { value: 42 };
     let generic_string = Generic {
         value: String::from("generic"),
