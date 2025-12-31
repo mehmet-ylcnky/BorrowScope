@@ -11,6 +11,7 @@ use crate::smart_pointer::{
     detect_smart_pointer_new, detect_weak_upgrade, ConcurrencyOp, SmartPointerOp,
     SmartPointerType,
 };
+use crate::type_info;
 use quote::quote;
 use std::collections::{HashMap, HashSet};
 use syn::{
@@ -66,6 +67,10 @@ pub struct OwnershipVisitor {
     lock_guard_vars: HashMap<String, String>, // guard_name -> lock_type
     /// Collected warnings to include in output
     warnings: Vec<proc_macro2::TokenStream>,
+    /// Current function name (for analyzer lookup)
+    current_function: Option<String>,
+    /// Declaration count per variable name in current function (for disambiguation)
+    decl_counts: HashMap<String, u32>,
 }
 
 impl OwnershipVisitor {
@@ -95,6 +100,8 @@ impl OwnershipVisitor {
             box_vars: HashSet::new(),
             lock_guard_vars: HashMap::new(),
             warnings: Vec::new(),
+            current_function: None,
+            decl_counts: HashMap::new(),
         }
     }
 
@@ -106,6 +113,27 @@ impl OwnershipVisitor {
     /// Add a warning
     fn add_warning(&mut self, warning: proc_macro2::TokenStream) {
         self.warnings.push(warning);
+    }
+
+    /// Lookup type info from analyzer for a variable
+    /// Returns the declaration index and increments the counter
+    fn lookup_type_info(&mut self, var_name: &str) -> Option<&'static type_info::VariableTypeInfo> {
+        let decl_idx = {
+            let count = self.decl_counts.entry(var_name.to_string()).or_insert(0);
+            let idx = *count;
+            *count += 1;
+            idx
+        };
+
+        // Try function-scoped lookup first
+        if let Some(fn_name) = &self.current_function {
+            if let Some(info) = type_info::lookup_in_function(fn_name, var_name, Some(decl_idx)) {
+                return Some(info);
+            }
+        }
+
+        // Fall back to name-only lookup
+        type_info::lookup_by_name(var_name)
     }
 
     /// Generate next unique ID
@@ -765,8 +793,22 @@ impl OwnershipVisitor {
 
             let original_expr = &init.expr;
 
-            // Check for smart pointer operations first
+            // Check analyzer type info first (semantic), then fall back to syntactic detection
             if self.config.track_smart_pointers {
+                // Try analyzer-based detection first
+                if let Some(type_info) = self.lookup_type_info(&var_name) {
+                    if let Some(ref init_kind) = type_info.initializer_kind {
+                        if let Some(new_expr) = self.transform_by_initializer_kind(
+                            init_kind, &var_name, var_id, &location, original_expr, type_info
+                        ) {
+                            *init.expr = new_expr;
+                            visit_mut::visit_local_mut(self, local);
+                            return;
+                        }
+                    }
+                }
+
+                // Fall back to syntactic detection
                 if let Some(sp_type) = detect_smart_pointer_new(original_expr) {
                     let new_expr = match sp_type {
                         SmartPointerType::Rc => {
@@ -1080,6 +1122,154 @@ impl OwnershipVisitor {
 
         // Continue visiting nested expressions
         visit_mut::visit_local_mut(self, local);
+    }
+
+    /// Transform expression based on analyzer's initializer_kind
+    /// Returns None if no transformation applies (fall back to syntactic detection)
+    fn transform_by_initializer_kind(
+        &mut self,
+        init_kind: &str,
+        var_name: &str,
+        var_id: usize,
+        location: &proc_macro2::TokenStream,
+        original_expr: &Expr,
+        type_info: &type_info::VariableTypeInfo,
+    ) -> Option<Expr> {
+        match init_kind {
+            // Smart pointer creation
+            "rc_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
+            }),
+            "arc_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
+            }),
+            "box_new" => {
+                self.box_vars.insert(var_name.to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_box_new(#var_name, #location, #original_expr)
+                })
+            }
+
+            // Smart pointer cloning
+            "rc_clone" => {
+                let source_id = self.extract_clone_source_id(original_expr);
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                })
+            }
+            "arc_clone" => {
+                let source_id = self.extract_clone_source_id(original_expr);
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
+                })
+            }
+
+            // Interior mutability
+            "refcell_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_refcell_new(#var_name, #original_expr)
+            }),
+            "cell_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_cell_new(#var_name, #original_expr)
+            }),
+            "mutex_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_mutex_new(#var_name, #location, #original_expr)
+            }),
+            "rwlock_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_rwlock_new(#var_name, #location, #original_expr)
+            }),
+
+            // Weak references
+            "weak_new" | "weak_downgrade" => {
+                // Track as weak variable
+                if type_info.is_arc {
+                    self.weak_vars.insert(var_name.to_string(), SmartPointerType::WeakArc);
+                } else {
+                    self.weak_vars.insert(var_name.to_string(), SmartPointerType::WeakRc);
+                }
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_weak_new(#var_name, #location, #original_expr)
+                })
+            }
+
+            // OnceCell/OnceLock
+            "once_cell_new" | "once_lock_new" => {
+                self.once_cell_vars.insert(var_name.to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
+                })
+            }
+
+            // MaybeUninit
+            "maybe_uninit_new" | "maybe_uninit" => {
+                self.maybe_uninit_vars.insert(var_name.to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
+                })
+            }
+
+            // Cow
+            "cow_new" | "cow_variant" => {
+                self.cow_vars.insert(var_name.to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_cow_new(#var_name, #location, #original_expr)
+                })
+            }
+
+            // Pin
+            "pin_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
+            }),
+
+            // Channels
+            "channel_new" | "sync_channel_new" => {
+                // This is typically a tuple (sender, receiver)
+                None // Let default handling work
+            }
+
+            // Guards - track for drop
+            "mutex_guard" | "mutex_lock" | "mutex_try_lock" => {
+                self.lock_guard_vars.insert(var_name.to_string(), "Mutex".to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_mutex_lock(#var_name, #location, #original_expr)
+                })
+            }
+            "rwlock_read_guard" | "rwlock_read" => {
+                self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_rwlock_read(#var_name, #location, #original_expr)
+                })
+            }
+            "rwlock_write_guard" | "rwlock_write" => {
+                self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_rwlock_write(#var_name, #location, #original_expr)
+                })
+            }
+            "refcell_borrow" | "ref_guard" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_refcell_borrow(#var_id, 0, #location, #original_expr)
+            }),
+            "refcell_borrow_mut" | "refmut_guard" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_refcell_borrow_mut(#var_id, 0, #location, #original_expr)
+            }),
+
+            // Collections - use generic tracking
+            "vec_new" | "vec_macro" | "string_new" | "hashmap_new" | "hashset_new" 
+            | "btreemap_new" | "btreeset_new" | "vecdeque_new" | "linkedlist_new" 
+            | "binaryheap_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+            }),
+
+            // User-defined types - use generic tracking
+            "user_struct" | "user_enum" | "user_union" => Some(syn::parse_quote! {
+                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+            }),
+
+            // Primitives, references, closures - no special tracking needed
+            "primitive" | "ref" | "ref_mut" | "closure" | "tuple" | "array" => None,
+
+            // Unknown - fall back to syntactic detection
+            _ => None,
+        }
     }
 
     /// Extract source variable ID from Rc::clone(&x) or Arc::clone(&x)
@@ -1865,8 +2055,17 @@ impl VisitMut for OwnershipVisitor {
         let fn_name = func.sig.ident.to_string();
         let fn_id = self.gen_id();
 
+        // Set current function context for analyzer lookup
+        let prev_function = self.current_function.take();
+        let prev_decl_counts = std::mem::take(&mut self.decl_counts);
+        self.current_function = Some(fn_name.clone());
+
         // Visit the function body first
         self.visit_block_mut(&mut func.block);
+
+        // Restore previous context
+        self.current_function = prev_function;
+        self.decl_counts = prev_decl_counts;
 
         // Wrap body with fn_enter/fn_exit if functions tracking is enabled
         if self.config.track_functions {
