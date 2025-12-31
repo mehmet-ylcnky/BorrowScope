@@ -9,7 +9,9 @@ use std::ffi::{CStr, CString, OsStr, OsString};
 use std::marker::PhantomData;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::num::{NonZeroI32, NonZeroUsize};
-use std::ops::{Range, RangeInclusive};
+use std::cmp::Ordering;
+use std::ops::{Range, RangeFrom, RangeFull, RangeInclusive, RangeTo, RangeToInclusive};
+use std::task::Poll;
 use std::os::raw::{c_char, c_int, c_void};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -195,15 +197,17 @@ fn test_smart_pointers() {
     let rc_string = Rc::new(String::from("shared"));
     let rc_clone = Rc::clone(&rc_int);
     let weak_ref: Weak<i32> = Rc::downgrade(&rc_int);
+    let weak_new: Weak<i32> = Weak::new();  // Weak::new pattern
 
     // Arc
     let arc_int = Arc::new(42);
     let arc_string = Arc::new(String::from("thread-safe"));
     let arc_clone = Arc::clone(&arc_int);
     let arc_weak: std::sync::Weak<i32> = Arc::downgrade(&arc_int);
+    let arc_weak_new: std::sync::Weak<i32> = std::sync::Weak::new();  // Arc Weak::new
 
     println!(
-        "{} {} {:?} {} {} {} {} {:?} {} {} {} {:?}",
+        "{} {} {:?} {} {} {} {} {:?} {:?} {} {} {} {:?} {:?}",
         boxed_int,
         boxed_string,
         boxed_vec,
@@ -212,10 +216,12 @@ fn test_smart_pointers() {
         rc_string,
         rc_clone,
         weak_ref.upgrade(),
+        weak_new.upgrade(),
         arc_int,
         arc_string,
         arc_clone,
-        arc_weak.upgrade()
+        arc_weak.upgrade(),
+        arc_weak_new.upgrade()
     );
 }
 
@@ -226,6 +232,10 @@ fn test_interior_mutability() {
     // Cell
     let cell_int = Cell::new(42);
     let cell_bool = Cell::new(true);
+    
+    // UnsafeCell - the primitive for interior mutability
+    use std::cell::UnsafeCell;
+    let unsafe_cell: UnsafeCell<i32> = UnsafeCell::new(42);
 
     // RefCell
     let refcell_int = RefCell::new(42);
@@ -241,9 +251,10 @@ fn test_interior_mutability() {
     let rwlock_map = RwLock::new(HashMap::<String, i32>::new());
 
     println!(
-        "{} {} {} {:?} {} {:?} {:?} {:?} {:?}",
+        "{} {} {:?} {} {:?} {} {:?} {:?} {:?} {:?}",
         cell_int.get(),
         cell_bool.get(),
+        unsafe_cell.get(),
         refcell_int.borrow(),
         refcell_vec.borrow(),
         refcell_string.borrow(),
@@ -258,6 +269,8 @@ fn test_interior_mutability() {
 // Collections
 // ============================================================================
 fn test_collections() {
+    use std::collections::{BTreeSet, BinaryHeap, LinkedList};
+    
     // Vec
     let vec_int: Vec<i32> = vec![1, 2, 3];
     let vec_string: Vec<String> = vec!["a".to_string(), "b".to_string()];
@@ -280,9 +293,18 @@ fn test_collections() {
 
     // BTreeMap
     let btreemap: BTreeMap<i32, String> = BTreeMap::new();
+    
+    // BTreeSet
+    let btreeset: BTreeSet<i32> = BTreeSet::new();
 
     // VecDeque
     let vecdeque: VecDeque<i32> = VecDeque::new();
+    
+    // LinkedList
+    let linkedlist: LinkedList<i32> = LinkedList::new();
+    
+    // BinaryHeap
+    let binaryheap: BinaryHeap<i32> = BinaryHeap::new();
 
     // Option and Result
     let opt_some: Option<i32> = Some(42);
@@ -291,7 +313,7 @@ fn test_collections() {
     let res_err: Result<i32, String> = Err("error".to_string());
 
     println!(
-        "{:?} {:?} {:?} {:?} {} {} {} {} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+        "{:?} {:?} {:?} {:?} {} {} {} {} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
         vec_int,
         vec_string,
         vec_empty,
@@ -304,11 +326,14 @@ fn test_collections() {
         hashmap_filled,
         hashset_empty,
         btreemap,
+        btreeset,
         vecdeque,
         opt_some,
         opt_none,
         res_ok,
-        res_err
+        res_err,
+        linkedlist,
+        binaryheap
     );
 }
 
@@ -530,10 +555,15 @@ fn test_user_types() {
 // Path types
 // ============================================================================
 fn test_path() {
+    let path_new = PathBuf::new();  // PathBuf::new pattern
     let path = PathBuf::from("/tmp/test");
     let path_ref: &std::path::Path = path.as_path();
+    
+    // OsString
+    let osstring_new = OsString::new();  // OsString::new pattern
+    let osstring_from = OsString::from("hello");
 
-    println!("{:?} {:?}", path, path_ref);
+    println!("{:?} {:?} {:?} {:?} {:?}", path_new, path, path_ref, osstring_new, osstring_from);
 }
 
 // ============================================================================
@@ -561,6 +591,8 @@ fn test_advanced_types() {
     // NonNull
     let mut value = 42i32;
     let non_null: NonNull<i32> = NonNull::from(&mut value);
+    let non_null_new: Option<NonNull<i32>> = NonNull::new(&mut value);  // NonNull::new pattern
+    let non_null_dangling: NonNull<i32> = NonNull::dangling();  // NonNull::dangling pattern
 
     // NonZero types
     let non_zero_i32: NonZeroI32 = NonZeroI32::new(42).unwrap();
@@ -592,21 +624,40 @@ fn test_once_and_time() {
     let once_lock: OnceLock<String> = OnceLock::new();
     let _ = once_lock.set(String::from("thread-safe"));
 
-    // Range types
+    // Range types (all 6 variants from std::ops)
     let range: Range<i32> = 0..10;
     let range_inclusive: RangeInclusive<i32> = 0..=10;
+    let range_to: RangeTo<i32> = ..10;
+    let range_from: RangeFrom<i32> = 5..;
+    let range_to_inclusive: RangeToInclusive<i32> = ..=10;
+    let range_full: RangeFull = ..;
     let range_usize: Range<usize> = 0..100;
 
     // Duration and Instant
+    let duration_new: Duration = Duration::new(60, 0);  // Duration::new pattern
     let duration: Duration = Duration::from_secs(60);
     let duration_millis: Duration = Duration::from_millis(500);
+    let duration_micros: Duration = Duration::from_micros(1000);
+    let duration_nanos: Duration = Duration::from_nanos(1_000_000);
     let instant: Instant = Instant::now();
 
+    // Ordering (comparison result type)
+    let ordering_less: Ordering = Ordering::Less;
+    let ordering_equal: Ordering = Ordering::Equal;
+    let ordering_greater: Ordering = Ordering::Greater;
+    let ordering_cmp: Ordering = 1.cmp(&2);
+
+    // Poll (async support type)
+    let poll_ready: Poll<i32> = Poll::Ready(42);
+    let poll_pending: Poll<i32> = Poll::Pending;
+
     println!(
-        "{:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+        "{:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
         once_cell, once_cell_filled, once_lock, range, range_inclusive,
-        range_usize, duration, duration_millis, instant
+        range_usize, duration_new, duration, duration_millis, duration_micros, instant,
+        range_to, range_from, range_to_inclusive, range_full, ordering_less, poll_ready
     );
+    let _ = (duration_nanos, ordering_equal, ordering_greater, ordering_cmp, poll_pending);
 }
 
 // ============================================================================
@@ -673,19 +724,20 @@ fn test_unsized_types() {
 // Atomic types
 // ============================================================================
 fn test_atomics() {
-    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicUsize, AtomicPtr};
+    use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicIsize, AtomicUsize, AtomicPtr};
 
     let atomic_bool: AtomicBool = AtomicBool::new(true);
     let atomic_i32: AtomicI32 = AtomicI32::new(42);
     let atomic_i64: AtomicI64 = AtomicI64::new(100);
+    let atomic_isize: AtomicIsize = AtomicIsize::new(-1);
     let atomic_usize: AtomicUsize = AtomicUsize::new(0);
 
     let mut value = 42i32;
     let atomic_ptr: AtomicPtr<i32> = AtomicPtr::new(&mut value);
 
     println!(
-        "{:?} {:?} {:?} {:?} {:?}",
-        atomic_bool, atomic_i32, atomic_i64, atomic_usize, atomic_ptr
+        "{:?} {:?} {:?} {:?} {:?} {:?}",
+        atomic_bool, atomic_i32, atomic_i64, atomic_isize, atomic_usize, atomic_ptr
     );
 }
 
@@ -724,6 +776,87 @@ fn test_io_types() {
     );
 }
 
+// ============================================================================
+// Impl Trait types (opaque types)
+// ============================================================================
+fn returns_impl_iterator() -> impl Iterator<Item = i32> {
+    vec![1, 2, 3].into_iter()
+}
+
+fn returns_impl_fn() -> impl Fn(i32) -> i32 {
+    |x| x * 2
+}
+
+fn accepts_impl_trait(iter: impl Iterator<Item = i32>) -> i32 {
+    iter.sum()
+}
+
+fn test_impl_trait() {
+    // impl Trait in return position - type is opaque
+    let iter = returns_impl_iterator();
+    let func = returns_impl_fn();
+    
+    // impl Trait in argument position
+    let sum = accepts_impl_trait(vec![1, 2, 3].into_iter());
+    
+    let iter_sum: i32 = iter.sum();
+    let result = func(21);
+    
+    println!("{} {} {}", sum, iter_sum, result);
+}
+
+// ============================================================================
+// Never type (!) - type with no values
+// ============================================================================
+fn test_never_type() {
+    // Never type appears in diverging expressions
+    // We can't create a value of type !, but we can use it in type annotations
+    
+    // Result<T, !> means infallible - can never be Err
+    use std::convert::Infallible;
+    let infallible_ok: Result<i32, Infallible> = Ok(42);
+    
+    // Unwrap is safe because Err variant is uninhabited
+    let value = match infallible_ok {
+        Ok(v) => v,
+        Err(e) => match e {}, // e is Infallible, which is equivalent to !
+    };
+    
+    println!("{}", value);
+}
+
+// ============================================================================
+// Panic support types (PanicInfo, Location)
+// ============================================================================
+fn test_panic_support() {
+    use std::panic::Location;
+    
+    // Location::caller() returns &'static Location<'static>
+    let location: &Location = Location::caller();
+    let file: &str = location.file();
+    let line: u32 = location.line();
+    let column: u32 = location.column();
+    
+    println!("Called from {}:{}:{}", file, line, column);
+    
+    // PanicInfo is only available in panic hooks, but we can set one up
+    // to demonstrate the type exists
+    use std::panic;
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(|panic_info| {
+        // panic_info: &PanicInfo
+        if let Some(location) = panic_info.location() {
+            let _file = location.file();
+            let _line = location.line();
+        }
+        if let Some(msg) = panic_info.payload().downcast_ref::<&str>() {
+            let _ = msg;
+        }
+    }));
+    // Restore default hook without triggering panic
+    panic::set_hook(default_hook);
+}
+
 fn main() {
     test_type_aliases();
     test_binding_patterns();
@@ -749,4 +882,7 @@ fn main() {
     test_atomics();
     test_channels();
     test_io_types();
+    test_impl_trait();
+    test_never_type();
+    test_panic_support();
 }
