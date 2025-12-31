@@ -55,6 +55,9 @@ pub struct VariableTypeInfo {
     pub is_cow: bool,
     pub is_option: bool,
     pub is_result: bool,
+    pub is_once_cell: bool,
+    pub is_maybe_uninit: bool,
+    pub is_channel: bool,
 
     // Callable/async types (semantic via Type methods and trait impl)
     pub is_closure: bool,
@@ -92,6 +95,12 @@ pub struct VariableTypeInfo {
     
     // Scope tracking
     pub scope_id: Option<u32>,
+    
+    /// Containing function name (for disambiguation)
+    pub function_name: Option<String>,
+    
+    /// Declaration index within function (0-based, for disambiguation)
+    pub decl_index: Option<u32>,
 }
 
 impl VariableTypeInfo {
@@ -126,6 +135,9 @@ impl VariableTypeInfo {
             is_cow: false,
             is_option: false,
             is_result: false,
+            is_once_cell: false,
+            is_maybe_uninit: false,
+            is_channel: false,
             is_closure: false,
             is_fn_ptr: false,
             is_future: false,
@@ -145,6 +157,8 @@ impl VariableTypeInfo {
             span_start: 0,
             span_end: 0,
             scope_id: None,
+            function_name: None,
+            decl_index: None,
         }
     }
 }
@@ -158,14 +172,44 @@ pub struct ProjectTypeInfo {
     pub analyzer_version: String,
     /// Map from relative file path to variables in that file
     pub files: HashMap<String, Vec<VariableTypeInfo>>,
+    /// Index by variable name for macro lookup (stable Rust compatible)
+    #[serde(default)]
+    pub by_name: HashMap<String, Vec<VariableTypeInfo>>,
+    /// Index by (function_name, var_name) for precise lookup
+    #[serde(default)]
+    pub by_function: HashMap<String, HashMap<String, Vec<VariableTypeInfo>>>,
 }
 
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "2.0".to_string(),
+            version: "2.3".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
+            by_name: HashMap::new(),
+            by_function: HashMap::new(),
+        }
+    }
+    
+    /// Build the by_name and by_function indices from files data
+    pub fn build_name_index(&mut self) {
+        self.by_name.clear();
+        self.by_function.clear();
+        for vars in self.files.values() {
+            for var in vars {
+                // by_name index
+                self.by_name.entry(var.name.clone()).or_default().push(var.clone());
+                
+                // by_function index
+                if let Some(ref fn_name) = var.function_name {
+                    self.by_function
+                        .entry(fn_name.clone())
+                        .or_default()
+                        .entry(var.name.clone())
+                        .or_default()
+                        .push(var.clone());
+                }
+            }
         }
     }
 }
