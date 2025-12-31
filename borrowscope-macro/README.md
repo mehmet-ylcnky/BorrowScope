@@ -494,6 +494,49 @@ The macro cannot detect or track these behaviors because they are determined by 
 
 ## Technical Background
 
+### Analyzer Integration (Semantic Type Resolution)
+
+When the static analyzer (`borrowscope-analyzer`) has been run on your project, the macro can leverage semantic type information for more accurate tracking. This overcomes many limitations of syntactic-only detection.
+
+**How it works:**
+
+1. Run `cargo run -p borrowscope-analyzer -- /path/to/project` to generate `.borrowscope/type-info.json`
+2. The macro automatically loads this file at compile time
+3. For each variable, it checks the analyzer's `initializer_kind` classification first
+4. Falls back to syntactic detection if no analyzer data is available
+
+**Benefits of analyzer integration:**
+
+| Scenario | Syntactic Only | With Analyzer |
+|----------|----------------|---------------|
+| `type MyRc<T> = Rc<T>; let x = MyRc::new(1);` | ❌ Not detected | ✅ `rc_new` |
+| `fn make_rc() -> Rc<i32>; let x = make_rc();` | ❌ Not detected | ✅ `rc_new` |
+| `let x = some_rc.clone();` (method syntax) | ❌ Not detected | ✅ `rc_clone` |
+| `let x: Rc<_> = other.into();` | ❌ Not detected | ✅ `rc_new` |
+
+**Supported initializer kinds (78 semantic categories):**
+
+- Smart pointers: `rc_new`, `rc_clone`, `arc_new`, `arc_clone`, `box_new`, `weak_new`, `weak_downgrade`
+- Interior mutability: `refcell_new`, `cell_new`, `mutex_new`, `rwlock_new`, `once_cell_new`
+- Guards: `mutex_lock`, `rwlock_read`, `rwlock_write`, `refcell_borrow`, `refcell_borrow_mut`
+- Collections: `vec_new`, `vec_macro`, `string_new`, `hashmap_new`, etc.
+- User types: `user_struct`, `user_enum`, `user_union`
+- And many more...
+
+**Disambiguation:**
+
+The analyzer tracks function context and declaration index, enabling accurate lookup even when:
+- Multiple variables share the same name (shadowing)
+- The same name appears in different functions
+- Variables are reassigned within a function
+
+```rust
+fn example() {
+    let x = Rc::new(1);  // decl_index=0, function="example"
+    let x = Rc::new(2);  // decl_index=1, function="example" (shadowed)
+}
+```
+
 Procedural macros in Rust operate during an early phase of compilation, after parsing but before type checking. At this stage, the compiler has constructed an Abstract Syntax Tree (AST) representing the syntactic structure of the code, but has not yet:
 
 1. Resolved names to their definitions
