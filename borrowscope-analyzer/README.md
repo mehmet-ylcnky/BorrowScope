@@ -358,25 +358,74 @@ fn extract_with_semantics(
 }
 ```
 
-The `classify_type` function examines the resolved type string to set classification flags:
+The `classify_type` function uses **semantic analysis** via rust-analyzer's type system APIs to set classification flags. This approach is fully semantic—no string heuristics:
 
 ```rust
-fn classify_type(var_info: &mut VariableTypeInfo) {
-    let ty = &var_info.ty;
+fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase) {
+    // === Trait implementations (semantic via impls_trait) ===
+    var_info.is_copy = ty.is_copy(db);  // Direct API
     
-    var_info.is_rc = ty.contains("Rc<") && !ty.contains("Arc<");
-    var_info.is_arc = ty.contains("Arc<");
-    var_info.is_refcell = ty.contains("RefCell<");
-    var_info.is_cell = ty.contains("Cell<") && !var_info.is_refcell;
-    var_info.is_mutex = ty.contains("Mutex<");
-    var_info.is_rwlock = ty.contains("RwLock<");
-    var_info.is_box = ty.contains("Box<");
-    var_info.is_vec = ty.contains("Vec<");
-    var_info.is_string = ty == "String" || ty.contains("::String");
+    // Lookup traits via lang items and check implementation
+    if let Some(clone_trait) = db.lang_item(krate_id, LangItem::Clone).and_then(|li| li.as_trait()) {
+        var_info.is_clone = ty.impls_trait(db, clone_trait.into(), &[]);
+    }
+    // Same pattern for: Drop, Sync, Sized, Future, Iterator
+    
+    // Send trait (not a lang item) - found via import_map search
+    if let Some(send_trait) = find_send_trait(db, krate) {
+        var_info.is_send = ty.impls_trait(db, send_trait, &[]);
+    }
+    
+    // === Type structure (semantic via Type methods) ===
+    var_info.is_reference = ty.is_reference();
+    var_info.is_mutable_reference = ty.is_mutable_reference();
+    var_info.is_raw_ptr = ty.is_raw_ptr();
+    var_info.is_closure = ty.is_closure();
+    var_info.is_fn_ptr = ty.is_fn();
+    
+    // Slice detection - checks inner type for &[T], Box<[T]>, etc.
+    var_info.is_slice = ty.is_slice() || ty.strip_reference().is_slice()
+        || ty.type_arguments().any(|inner| inner.is_slice());
+    
+    // Primitive detection via builtin type API
+    if let Some(builtin) = ty.as_builtin() {
+        var_info.is_primitive = builtin.is_int() || builtin.is_uint() || builtin.is_float() 
+            || builtin.is_char() || builtin.is_bool() || builtin.is_str();
+    }
+    
+    // === ADT classification (semantic via canonical path) ===
+    if let Some(adt) = ty.as_adt() {
+        var_info.is_union = matches!(adt, Adt::Union(_));
+        
+        // Get canonical path like "alloc::rc::Rc" or "std::sync::Mutex"
+        if let Some(path) = get_adt_path(&adt, db) {
+            classify_by_path(var_info, &path);
+        }
+    }
+    
+    // Trait object detection - checks inner type for &dyn T, Box<dyn T>, etc.
+    var_info.is_dyn_trait = ty.as_dyn_trait().is_some() 
+        || ty.strip_reference().as_dyn_trait().is_some()
+        || ty.type_arguments().any(|inner| inner.as_dyn_trait().is_some());
+}
+
+fn classify_by_path(var_info: &mut VariableTypeInfo, path: &str) {
+    // Exact path matching - no string heuristics
+    var_info.is_rc = path == "alloc::rc::Rc" || path == "std::rc::Rc";
+    var_info.is_arc = path == "alloc::sync::Arc" || path == "std::sync::Arc";
+    var_info.is_mutex = path == "std::sync::Mutex" || path == "std::sync::poison::mutex::Mutex";
+    // ... etc for all ADT types
 }
 ```
 
-This string-based classification operates on the fully resolved type name. Unlike the macro's syntactic pattern matching, this classification is reliable because it operates on the actual type after resolution. A variable initialized with `create_shared(value)` that returns `Rc<T>` will have its type resolved to `Rc<SomeType, Global>`, and the classification will correctly identify it as an `Rc`.
+This semantic classification is reliable because it uses rust-analyzer's type resolution APIs directly:
+
+1. **Trait detection**: Uses `ty.impls_trait()` with traits looked up via `LangItem` or `import_map` search
+2. **Type structure**: Uses `Type` methods like `is_reference()`, `is_closure()`, `is_slice()`, `as_dyn_trait()`
+3. **Primitive detection**: Uses `ty.as_builtin()` methods
+4. **ADT classification**: Uses exact canonical path matching from `get_adt_path()`
+
+A variable initialized with `create_shared(value)` that returns `Rc<T>` will have its type resolved to `Rc<SomeType, Global>`, and the ADT path will be `alloc::rc::Rc`, correctly identifying it as an `Rc`.
 
 The analyzer also handles files that are not part of the crate graph (e.g., standalone `.rs` files or files excluded from compilation). For these files, it falls back to syntax-only analysis using explicit type annotations when available:
 
@@ -401,74 +450,68 @@ The output follows a hierarchical structure with project-level metadata and per-
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         type-info.json SCHEMA (v1.3)                        │
+│                         type-info.json SCHEMA (v2.0)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  {                                                                          │
-│    "version": "1.3",              ◄─── Schema version for compatibility     │
+│    "version": "2.0",              ◄─── Schema version for compatibility     │
 │    "analyzer_version": "0.1.0",   ◄─── Analyzer binary version              │
 │    "files": {                     ◄─── Map: relative path → variables       │
 │      "src/main.rs": [                                                       │
 │        {                                                                    │
 │          "name": "data",          ◄─── Variable name from source            │
 │          "ty": "Rc<RefCell<Vec<i32>>>",  ◄─── Fully resolved type          │
-│          "is_copy": false,        ◄─── Copy trait implementation            │
 │                                                                             │
-│          // Smart pointers                                                  │
-│          "is_rc": true,           ◄─── Reference-counted pointer            │
-│          "is_arc": false,         ◄─── Atomic reference-counted             │
-│          "is_box": false,         ◄─── Heap allocation                      │
-│          "is_weak": false,        ◄─── Weak reference (Rc/Arc)              │
+│          // === Trait implementations (semantic via impls_trait) ===        │
+│          "is_copy": false,        ◄─── Copy trait (ty.is_copy)              │
+│          "is_clone": true,        ◄─── Clone trait (impls_trait)            │
+│          "is_send": false,        ◄─── Send trait (import_map lookup)       │
+│          "is_sync": false,        ◄─── Sync trait (impls_trait)             │
+│          "is_drop": true,         ◄─── Drop trait (impls_trait)             │
+│          "is_sized": true,        ◄─── Sized trait (impls_trait)            │
+│          "is_future": false,      ◄─── Future trait (impls_trait)           │
+│          "is_iterator": false,    ◄─── Iterator trait (impls_trait)         │
 │                                                                             │
-│          // Interior mutability                                             │
-│          "is_refcell": true,      ◄─── Runtime borrow checking              │
-│          "is_cell": false,        ◄─── Copy-based interior mutability       │
-│          "is_mutex": false,       ◄─── Thread-safe lock                     │
-│          "is_rwlock": false,      ◄─── Reader-writer lock                   │
+│          // === Type structure (semantic via Type methods) ===              │
+│          "is_primitive": false,   ◄─── i32, bool, char, etc. (as_builtin)   │
+│          "is_reference": false,   ◄─── &T or &mut T (is_reference)          │
+│          "is_mutable_reference": false,  ◄─── &mut T (is_mutable_reference) │
+│          "is_raw_ptr": false,     ◄─── *const T or *mut T (is_raw_ptr)      │
+│          "is_slice": false,       ◄─── [T], &[T], Box<[T]> (is_slice)       │
+│          "is_str": false,         ◄─── str type (as_builtin.is_str)         │
+│          "is_closure": false,     ◄─── Closure type (is_closure)            │
+│          "is_fn_ptr": false,      ◄─── fn(...) -> ... (is_fn)               │
+│          "is_dyn_trait": false,   ◄─── dyn Trait, &dyn T, Box<dyn T>        │
+│          "is_union": false,       ◄─── Union type (as_adt + Adt::Union)     │
 │                                                                             │
-│          // Guards (borrow scope)                                           │
+│          // === ADT classification (semantic via canonical path) ===        │
+│          "is_rc": true,           ◄─── alloc::rc::Rc                        │
+│          "is_arc": false,         ◄─── alloc::sync::Arc                     │
+│          "is_box": false,         ◄─── alloc::boxed::Box                    │
+│          "is_weak": false,        ◄─── alloc::rc::Weak or alloc::sync::Weak │
+│          "is_refcell": true,      ◄─── core::cell::RefCell                  │
+│          "is_cell": false,        ◄─── core::cell::Cell                     │
+│          "is_mutex": false,       ◄─── std::sync::Mutex                     │
+│          "is_rwlock": false,      ◄─── std::sync::RwLock                    │
 │          "is_guard": false,       ◄─── MutexGuard, Ref, RefMut, etc.        │
-│                                                                             │
-│          // Collections                                                     │
-│          "is_vec": true,          ◄─── Dynamic array                        │
-│          "is_string": false,      ◄─── Owned string                         │
-│                                                                             │
-│          // References and pointers                                         │
-│          "is_raw_ptr": false,     ◄─── *const T or *mut T                   │
-│          "is_reference": false,   ◄─── &T or &mut T                         │
-│          "is_mutable_reference": false,                                     │
-│          "is_slice": false,       ◄─── &[T] or &mut [T]                     │
-│          "is_str": false,         ◄─── &str                                 │
-│                                                                             │
-│          // Wrapper types                                                   │
-│          "is_pin": false,         ◄─── Pin<T>                               │
-│          "is_cow": false,         ◄─── Cow<T> (clone-on-write)              │
-│          "is_option": false,      ◄─── Option<T>                            │
-│          "is_result": false,      ◄─── Result<T, E>                         │
-│                                                                             │
-│          // Callable/async types                                            │
-│          "is_closure": false,     ◄─── impl Fn/FnMut/FnOnce                 │
-│          "is_future": false,      ◄─── impl Future                          │
-│          "is_iterator": false,    ◄─── Iterator adapters                    │
-│                                                                             │
-│          // FFI and unsafe types (v1.2)                                     │
-│          "is_union": false,       ◄─── Union type (semantic detection)      │
+│          "is_vec": true,          ◄─── alloc::vec::Vec                      │
+│          "is_string": false,      ◄─── alloc::string::String                │
+│          "is_option": false,      ◄─── core::option::Option                 │
+│          "is_result": false,      ◄─── core::result::Result                 │
+│          "is_pin": false,         ◄─── core::pin::Pin                       │
+│          "is_cow": false,         ◄─── alloc::borrow::Cow                   │
 │          "is_extern_type": false, ◄─── c_void, CStr, CString, OsStr, etc.   │
 │                                                                             │
-│          // Declaration type (v1.2)                                         │
+│          // === Declaration type ===                                        │
 │          "is_static": false,      ◄─── static declaration                   │
 │          "is_const": false,       ◄─── const declaration                    │
 │                                                                             │
-│          // Binding patterns for macro transformation (v1.3)                │
-│          "is_tuple_binding": false,  ◄─── let (a, b) = ... (ERR-002)        │
-│          "is_mut_binding": false,    ◄─── let mut x = ... (ERR-003)         │
-│          "is_impl_trait": false,     ◄─── impl Trait type (ERR-008)         │
-│          "has_lifetime": false,      ◄─── &'a T, Ref<'_, T> (ERR-013)       │
+│          // === Binding patterns for macro transformation ===               │
+│          "is_tuple_binding": false,  ◄─── let (a, b) = ...                  │
+│          "is_mut_binding": false,    ◄─── let mut x = ...                   │
+│          "is_impl_trait": false,     ◄─── impl Trait type                   │
 │                                                                             │
-│          // Inner type extraction                                           │
-│          "inner_type": "RefCell<Vec<i32>>",  ◄─── T from Rc<T>              │
-│                                                                             │
-│          // Source location                                                 │
+│          // === Source location ===                                         │
 │          "file": "src/main.rs",                                             │
 │          "line": 15,                                                        │
 │          "column": 8                                                        │
@@ -511,42 +554,49 @@ The `Global` allocator parameter appears because rust-analyzer displays the full
 
 **Classification Flags**
 
-Boolean flags provide quick classification without parsing the type string:
+Boolean flags provide quick classification using semantic analysis (no string parsing):
 
-| Flag | True When | Purpose |
-|------|-----------|---------|
-| `is_copy` | Implements `Copy` trait | Determines move vs copy semantics |
-| `is_rc` | `Rc<` (not `Arc<`) | Reference-counted pointer |
-| `is_arc` | `Arc<` | Atomic reference-counted pointer |
-| `is_box` | `Box<` | Heap allocation |
-| `is_weak` | `Weak<` | Weak reference from Rc/Arc |
-| `is_refcell` | `RefCell<` | Interior mutability with runtime borrow checking |
-| `is_cell` | `Cell<` (not `RefCell<`, `OnceCell<`) | Interior mutability for `Copy` types |
-| `is_mutex` | `Mutex<` (not `MutexGuard<`) | Thread-safe interior mutability |
-| `is_rwlock` | `RwLock<` (not guards) | Reader-writer lock |
-| `is_guard` | `MutexGuard<`, `RwLockReadGuard<`, `RwLockWriteGuard<`, `Ref<`, `RefMut<` | Borrow scope guards |
-| `is_vec` | `Vec<` | Dynamic array |
-| `is_string` | `String` | Owned string |
-| `is_raw_ptr` | `*const` or `*mut` | Raw pointer |
-| `is_reference` | Starts with `&` | Borrowed reference |
-| `is_mutable_reference` | Starts with `&mut` | Mutable borrow |
-| `is_slice` | `&[` or `&mut [` | Slice reference |
-| `is_str` | `&str` or `&mut str` | String slice |
-| `is_pin` | `Pin<` | Pinned pointer |
-| `is_cow` | `Cow<` | Clone-on-write |
-| `is_option` | `Option<` | Optional value |
-| `is_result` | `Result<` | Result type |
-| `is_closure` | `impl Fn` or contains `closure` | Closure type |
-| `is_future` | `impl Future` or `Future<` | Future/async type |
-| `is_iterator` | `IntoIter<`, `Map<`, `Filter<`, `Chain<`, etc. | Iterator adapters |
-| `is_union` | Union type (via semantic `as_adt()`) | Union types including `MaybeUninit` |
-| `is_extern_type` | `c_void`, `CStr`, `CString`, `OsStr`, `OsString` | FFI/extern types |
-| `is_static` | `static` declaration | Static variable |
-| `is_const` | `const` declaration | Constant |
-| `is_tuple_binding` | `let (a, b) = ...` | Tuple destructuring pattern |
-| `is_mut_binding` | `let mut x = ...` | Mutable binding |
-| `is_impl_trait` | `impl Trait` in type annotation | Impl trait type |
-| `has_lifetime` | Type contains `'` (e.g., `&'a T`, `Ref<'_, T>`) | Explicit lifetime annotation |
+| Flag | Detection Method | Purpose |
+|------|------------------|---------|
+| `is_copy` | `ty.is_copy(db)` | Copy trait - determines move vs copy semantics |
+| `is_clone` | `ty.impls_trait(Clone)` | Clone trait implementation |
+| `is_send` | `ty.impls_trait(Send)` via import_map | Thread-safe ownership transfer |
+| `is_sync` | `ty.impls_trait(Sync)` | Thread-safe shared reference |
+| `is_drop` | `ty.impls_trait(Drop)` | Custom destructor |
+| `is_sized` | `ty.impls_trait(Sized)` | Compile-time known size |
+| `is_future` | `ty.impls_trait(Future)` | Async/Future type |
+| `is_iterator` | `ty.impls_trait(Iterator)` | Iterator type |
+| `is_primitive` | `ty.as_builtin()` | i32, bool, char, f64, etc. |
+| `is_reference` | `ty.is_reference()` | &T or &mut T |
+| `is_mutable_reference` | `ty.is_mutable_reference()` | &mut T |
+| `is_raw_ptr` | `ty.is_raw_ptr()` | *const T or *mut T |
+| `is_slice` | `ty.is_slice()` + inner type check | [T], &[T], Box<[T]> |
+| `is_str` | `ty.as_builtin().is_str()` | str type |
+| `is_closure` | `ty.is_closure()` | Closure type |
+| `is_fn_ptr` | `ty.is_fn()` | fn(...) -> ... |
+| `is_dyn_trait` | `ty.as_dyn_trait()` + inner type check | dyn Trait, &dyn T, Box<dyn T> |
+| `is_union` | `ty.as_adt()` + `Adt::Union` | Union types including MaybeUninit |
+| `is_rc` | ADT path == `alloc::rc::Rc` | Reference-counted pointer |
+| `is_arc` | ADT path == `alloc::sync::Arc` | Atomic reference-counted pointer |
+| `is_box` | ADT path == `alloc::boxed::Box` | Heap allocation |
+| `is_weak` | ADT path == `alloc::rc::Weak` or `alloc::sync::Weak` | Weak reference |
+| `is_refcell` | ADT path == `core::cell::RefCell` | Runtime borrow checking |
+| `is_cell` | ADT path == `core::cell::Cell` | Copy-based interior mutability |
+| `is_mutex` | ADT path == `std::sync::Mutex` | Thread-safe lock |
+| `is_rwlock` | ADT path == `std::sync::RwLock` | Reader-writer lock |
+| `is_guard` | ADT path matches guard types | MutexGuard, Ref, RefMut, etc. |
+| `is_vec` | ADT path == `alloc::vec::Vec` | Dynamic array |
+| `is_string` | ADT path == `alloc::string::String` | Owned string |
+| `is_option` | ADT path == `core::option::Option` | Optional value |
+| `is_result` | ADT path == `core::result::Result` | Result type |
+| `is_pin` | ADT path == `core::pin::Pin` | Pinned pointer |
+| `is_cow` | ADT path == `alloc::borrow::Cow` | Clone-on-write |
+| `is_extern_type` | ADT path matches FFI types | c_void, CStr, CString, OsStr, etc. |
+| `is_static` | Declaration syntax | static declaration |
+| `is_const` | Declaration syntax | const declaration |
+| `is_tuple_binding` | Pattern syntax | let (a, b) = ... |
+| `is_mut_binding` | Pattern syntax | let mut x = ... |
+| `is_impl_trait` | Type annotation syntax | impl Trait type |
 
 These flags are not mutually exclusive. A type like `Rc<RefCell<Vec<String>>>` will have `is_rc`, `is_refcell`, `is_vec`, and `is_string` all set to `true`, reflecting the nested structure.
 
@@ -557,23 +607,10 @@ The following flags help the macro make better transformation decisions based on
 | Flag | Battle Test Error | Macro Action |
 |------|-------------------|--------------|
 | `is_tuple_binding` | ERR-002: Tuple destructuring | Skip tracking or handle specially |
-| `is_mut_binding` | ERR-003: Mutable borrow conflicts | Use `track_borrow_mut` for receivers |
-| `is_impl_trait` | ERR-008: Trait bound failures | Skip tracking for impl Trait params |
-| `has_lifetime` | ERR-013: Lifetime mismatch | Preserve lifetime annotations |
+| `is_mut_binding` | Pattern syntax | let mut x = ... |
+| `is_impl_trait` | Type annotation syntax | impl Trait type |
 
-**Inner Type Extraction**
-
-The `inner_type` field extracts the type parameter from wrapper types, enabling recursive type analysis:
-
-| Type | `inner_type` |
-|------|--------------|
-| `Rc<String, Global>` | `String` |
-| `Box<Vec<i32, Global>, Global>` | `Vec<i32, Global>` |
-| `Option<i32>` | `i32` |
-| `Rc<RefCell<Vec<i32>>>` | `RefCell<Vec<i32>>` |
-| `i32` | `null` |
-
-This enables the macro to understand nested smart pointer structures and apply appropriate tracking at each level.
+These flags are not mutually exclusive. A type like `Rc<RefCell<Vec<String>>>` will have `is_rc`, `is_refcell`, `is_vec`, and `is_string` all set to `true`, reflecting the nested structure. Additionally, it will have `is_clone: true`, `is_drop: true`, `is_sized: true` from trait detection.
 
 ### Example Output
 
@@ -592,7 +629,7 @@ The analyzer produces:
 
 ```json
 {
-  "version": "1.1",
+  "version": "2.0",
   "analyzer_version": "0.1.0",
   "files": {
     "src/main.rs": [
@@ -600,30 +637,28 @@ The analyzer produces:
         "name": "count",
         "ty": "i32",
         "is_copy": true,
+        "is_clone": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_drop": false,
+        "is_sized": true,
+        "is_future": false,
+        "is_iterator": false,
+        "is_primitive": true,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_raw_ptr": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_dyn_trait": false,
+        "is_union": false,
         "is_rc": false,
         "is_arc": false,
         "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
         "is_vec": false,
         "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_closure": false,
-        "is_future": false,
-        "is_iterator": false,
-        "inner_type": null,
         "file": "src/main.rs",
         "line": 2,
         "column": 8
@@ -632,30 +667,29 @@ The analyzer produces:
         "name": "shared",
         "ty": "Rc<RefCell<Vec<i32, Global>>, Global>",
         "is_copy": false,
+        "is_clone": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_drop": true,
+        "is_sized": true,
+        "is_future": false,
+        "is_iterator": false,
+        "is_primitive": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_raw_ptr": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_dyn_trait": false,
+        "is_union": false,
         "is_rc": true,
         "is_arc": false,
         "is_box": false,
-        "is_weak": false,
         "is_refcell": true,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
         "is_vec": true,
         "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_closure": false,
-        "is_future": false,
-        "is_iterator": false,
-        "inner_type": "RefCell<Vec<i32, Global>>",
         "file": "src/main.rs",
         "line": 3,
         "column": 8
@@ -664,30 +698,13 @@ The analyzer produces:
         "name": "guard",
         "ty": "Ref<'_, Vec<i32, Global>>",
         "is_copy": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
+        "is_clone": false,
+        "is_send": false,
+        "is_sync": true,
+        "is_drop": true,
+        "is_sized": true,
         "is_guard": true,
         "is_vec": true,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_closure": false,
-        "is_future": false,
-        "is_iterator": false,
-        "inner_type": "'_, Vec<i32, Global>",
         "file": "src/main.rs",
         "line": 4,
         "column": 8
@@ -696,30 +713,13 @@ The analyzer produces:
         "name": "future",
         "ty": "impl Future<Output = i32>",
         "is_copy": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
-        "is_vec": false,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_closure": false,
+        "is_clone": false,
+        "is_send": true,
+        "is_sync": false,
+        "is_drop": false,
+        "is_sized": true,
         "is_future": true,
-        "is_iterator": false,
-        "inner_type": "Output = i32",
+        "is_closure": true,
         "file": "src/main.rs",
         "line": 5,
         "column": 8
@@ -730,10 +730,11 @@ The analyzer produces:
 ```
 
 Key observations:
-- `guard` has `is_guard: true`, enabling the macro to track borrow scope entry/exit
-- `shared` has multiple flags set (`is_rc`, `is_refcell`, `is_vec`) reflecting nested structure
-- `inner_type` provides the wrapped type for recursive analysis
-- `future` has `is_future: true` for async tracking
+- `count` has `is_primitive: true`, `is_copy: true`, `is_send: true`, `is_sync: true` - all detected semantically
+- `shared` has `is_send: false`, `is_sync: false` because `Rc` is not thread-safe
+- `guard` has `is_guard: true` and `is_sync: true` (guards are Sync but not Send)
+- `future` has `is_future: true` detected via `impls_trait(Future)`
+- All trait flags are determined by actual trait implementations, not string matching
 
 ---
 

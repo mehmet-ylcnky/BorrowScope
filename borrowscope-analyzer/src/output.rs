@@ -12,67 +12,86 @@ pub struct VariableTypeInfo {
     pub name: String,
     /// Fully resolved type string (e.g., "Rc<String>", "Vec<i32>")
     pub ty: String,
-    /// Whether the type implements Copy
+    
+    // Core trait implementations (semantic via impls_trait)
     pub is_copy: bool,
+    pub is_clone: bool,
+    pub is_drop: bool,
+    pub is_send: bool,  // Cannot be detected - Send is not a lang item
+    pub is_sync: bool,
+    pub is_sized: bool,
 
-    // Smart pointers
+    // Primitive types (semantic via as_builtin)
+    pub is_primitive: bool,
+
+    // Smart pointers (semantic via ADT canonical path)
     pub is_rc: bool,
     pub is_arc: bool,
     pub is_box: bool,
     pub is_weak: bool,
 
-    // Interior mutability
+    // Interior mutability (semantic via ADT canonical path)
     pub is_refcell: bool,
     pub is_cell: bool,
     pub is_mutex: bool,
     pub is_rwlock: bool,
 
-    // Guards (borrow scope tracking)
+    // Guards (semantic via ADT canonical path)
     pub is_guard: bool,
 
-    // Collections
+    // Collections (semantic via ADT canonical path)
     pub is_vec: bool,
     pub is_string: bool,
 
-    // References and pointers
+    // References and pointers (semantic via Type methods)
     pub is_raw_ptr: bool,
     pub is_reference: bool,
     pub is_mutable_reference: bool,
     pub is_slice: bool,
     pub is_str: bool,
 
-    // Wrapper types
+    // Wrapper types (semantic via ADT canonical path)
     pub is_pin: bool,
     pub is_cow: bool,
     pub is_option: bool,
     pub is_result: bool,
 
-    // Callable/async types
+    // Callable/async types (semantic via Type methods and trait impl)
     pub is_closure: bool,
+    pub is_fn_ptr: bool,
     pub is_future: bool,
     pub is_iterator: bool,
+    
+    // Trait objects (semantic via as_dyn_trait)
+    pub is_dyn_trait: bool,
 
-    // FFI and unsafe types
+    // FFI and unsafe types (semantic via ADT)
     pub is_union: bool,
     pub is_extern_type: bool,
 
-    // Static/const binding
+    // Static/const binding (semantic via syntax kind)
     pub is_static: bool,
     pub is_const: bool,
 
-    // Binding patterns (for macro transformation decisions)
+    // Binding patterns (semantic via AST pattern analysis)
     pub is_tuple_binding: bool,
     pub is_mut_binding: bool,
     pub is_impl_trait: bool,
-    pub has_lifetime: bool,
 
-    // Inner type for nested smart pointers (e.g., "String" for Rc<String>)
-    pub inner_type: Option<String>,
+    // Initializer kind for tracking strategy
+    pub initializer_kind: Option<String>,
 
     /// Source location
     pub file: String,
     pub line: u32,
     pub column: u32,
+    
+    // Byte offsets for precise matching
+    pub span_start: u32,
+    pub span_end: u32,
+    
+    // Scope tracking
+    pub scope_id: Option<u32>,
 }
 
 impl VariableTypeInfo {
@@ -81,6 +100,12 @@ impl VariableTypeInfo {
             name,
             ty: "unknown".to_string(),
             is_copy: false,
+            is_clone: false,
+            is_drop: false,
+            is_send: false,
+            is_sync: false,
+            is_sized: false,
+            is_primitive: false,
             is_rc: false,
             is_arc: false,
             is_box: false,
@@ -102,8 +127,10 @@ impl VariableTypeInfo {
             is_option: false,
             is_result: false,
             is_closure: false,
+            is_fn_ptr: false,
             is_future: false,
             is_iterator: false,
+            is_dyn_trait: false,
             is_union: false,
             is_extern_type: false,
             is_static: false,
@@ -111,11 +138,13 @@ impl VariableTypeInfo {
             is_tuple_binding: false,
             is_mut_binding: false,
             is_impl_trait: false,
-            has_lifetime: false,
-            inner_type: None,
+            initializer_kind: None,
             file,
             line,
             column,
+            span_start: 0,
+            span_end: 0,
+            scope_id: None,
         }
     }
 }
@@ -134,7 +163,7 @@ pub struct ProjectTypeInfo {
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "1.3".to_string(),
+            version: "2.0".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
         }

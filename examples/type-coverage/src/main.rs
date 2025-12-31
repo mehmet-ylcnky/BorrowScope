@@ -622,13 +622,13 @@ impl Animal for Dog {
 }
 
 fn test_trait_objects() {
-    // Trait objects
+    // Trait objects (behind pointers - the pointer is Sized, the dyn Trait is !Sized)
     let dyn_animal: &dyn Animal = &Dog;
     let boxed_dyn: Box<dyn Animal> = Box::new(Dog);
     let arc_dyn: Arc<dyn Animal> = Arc::new(Dog);
     let rc_dyn: Rc<dyn Animal> = Rc::new(Dog);
 
-    // Boxed slices
+    // Boxed slices (Box<[T]> is Sized, but [T] inside is !Sized)
     let boxed_slice: Box<[i32]> = vec![1, 2, 3].into_boxed_slice();
     let boxed_str: Box<str> = String::from("boxed str").into_boxed_str();
 
@@ -639,6 +639,33 @@ fn test_trait_objects() {
         "{} {} {} {} {:?} {} {:?}",
         dyn_animal.speak(), boxed_dyn.speak(), arc_dyn.speak(), rc_dyn.speak(),
         boxed_slice, boxed_str, boxed_array
+    );
+}
+
+// ============================================================================
+// Unsized types (!Sized) - trait objects and slices
+// ============================================================================
+fn test_unsized_types() {
+    // Slice references - the slice [T] is !Sized, but &[T] is Sized
+    let slice_ref: &[i32] = &[1, 2, 3, 4, 5];
+    let str_ref: &str = "hello unsized";
+    let mut_slice: &mut [u8] = &mut [0u8; 10];
+    
+    // Nested slices
+    let slice_of_slices: &[&[i32]] = &[&[1, 2], &[3, 4, 5]];
+    
+    // CStr is !Sized (it's a dynamically-sized type like str)
+    let c_str_ref: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"hello\0") };
+    
+    // OsStr is !Sized
+    let os_str_ref: &OsStr = OsStr::new("os string");
+    
+    // Path is !Sized
+    let path_ref: &std::path::Path = std::path::Path::new("/tmp/test");
+    
+    println!(
+        "{:?} {} {:?} {:?} {:?} {:?} {:?}",
+        slice_ref, str_ref, mut_slice, slice_of_slices, c_str_ref, os_str_ref, path_ref
     );
 }
 
@@ -718,6 +745,7 @@ fn main() {
     test_advanced_types();
     test_once_and_time();
     test_trait_objects();
+    test_unsized_types();
     test_atomics();
     test_channels();
     test_io_types();
