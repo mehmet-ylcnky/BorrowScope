@@ -450,11 +450,11 @@ The output follows a hierarchical structure with project-level metadata and per-
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         type-info.json SCHEMA (v2.2)                        │
+│                         type-info.json SCHEMA (v2.3)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  {                                                                          │
-│    "version": "2.2",              ◄─── Schema version for compatibility     │
+│    "version": "2.3",              ◄─── Schema version for compatibility     │
 │    "analyzer_version": "0.1.0",   ◄─── Analyzer binary version              │
 │    "files": {                     ◄─── Map: relative path → variables       │
 │      "src/main.rs": [                                                       │
@@ -627,7 +627,7 @@ Boolean flags provide quick classification using semantic analysis (no string pa
 
 **Initializer Pattern (v2.1+)**
 
-The `initializer_kind` field captures the semantic pattern of the variable's initializer expression. This enables the macro to select the most appropriate tracking function based on how the variable was created, not just its type. The analyzer performs syntactic pattern matching on the AST to classify initializers into one of 90+ categories.
+The `initializer_kind` field captures the semantic pattern of the variable's initializer expression. This enables the macro to select the most appropriate tracking function based on how the variable was created, not just its type. The analyzer uses fully semantic type resolution to classify initializers into 78 distinct categories.
 
 #### Expression-Level Classification
 
@@ -877,11 +877,69 @@ When the initializer is a function call (`CallExpr`), the analyzer examines the 
 | Default::default | `default` | `Default::default`, `std::default::Default::default`, `core::default::Default::default` |
 | Clone (generic) | `clone` | Any path ending in `::clone` |
 
+##### Semantic Type Classification (v2.3+)
+
+The analyzer applies **semantic type classification** to ALL expressions using rust-analyzer's type resolution. This approach examines the resolved type to classify the initializer, with expression structure (call, method, macro, etc.) used only as context:
+
+###### ADT Classification by Canonical Path
+
+For types that resolve to an ADT (struct, enum, or union), the analyzer extracts the canonical module path and classifies accordingly:
+
+| Resolved Type Path | `initializer_kind` | Example |
+|-------------------|-------------------|---------|
+| `alloc::rc::Rc` | `rc_new` | `let x = create_rc();` where return type is `Rc<T>` |
+| `alloc::sync::Arc` | `arc_new` | Factory function returning `Arc<T>` |
+| `core::option::Option` | `option_variant` | Any function returning `Option<T>` |
+| `core::result::Result` | `result_variant` | Any function returning `Result<T, E>` |
+| (70+ standard library types) | (type-specific) | See full list in source |
+
+###### User-Defined Types
+
+When the resolved type is a user-defined ADT (not from std/core/alloc), classification is by ADT kind:
+
+| ADT Kind | `initializer_kind` | Example |
+|----------|-------------------|---------|
+| Struct | `user_struct` | `let p = Point::new(1, 2);` |
+| Enum | `user_enum` | `let s = Status::Active;` |
+| Union | `user_union` | `let u = MyUnion::new();` |
+
+###### Tuple Types
+
+| Type | `initializer_kind` | Example |
+|------|-------------------|---------|
+| Tuple | `tuple` | `let (tx, rx) = channel();` |
+
+###### impl Trait Types
+
+For opaque `impl Trait` return types, the analyzer extracts the primary trait bound:
+
+| Trait Bound | `initializer_kind` | Example |
+|-------------|-------------------|---------|
+| `Future` | `impl_future` | `let f = async_fn();` returning `impl Future<Output = T>` |
+| `Iterator` | `impl_iterator` | `let i = get_iter();` returning `impl Iterator<Item = T>` |
+| `Fn`/`FnMut`/`FnOnce` | `impl_fn` | `let f = get_closure();` returning `impl Fn(T) -> U` |
+| Other traits | `impl_{trait_name}` | Lowercase trait name |
+
+###### Other Semantic Classifications
+
+| Type Category | `initializer_kind` | Detection Method |
+|---------------|-------------------|------------------|
+| Primitives | `primitive` | `ty.as_builtin()` - i32, bool, char, etc. |
+| str | `str` | `ty.as_builtin().is_str()` |
+| Closures | `closure` | `ty.is_closure()` |
+| Function pointers | `fn_ptr` | `ty.is_fn()` |
+| References | `ref` / `ref_mut` | `ty.is_reference()` |
+| Raw pointers | `raw_ptr` | `ty.is_raw_ptr()` |
+
 ##### Fallback
+
+With semantic classification, the `call` fallback is now rare and only occurs when:
+- The type cannot be resolved (e.g., in files outside the crate graph)
+- The type is truly unknown to rust-analyzer
 
 | Pattern | `initializer_kind` | Description |
 |---------|-------------------|-------------|
-| Unknown call | `call` | Any function call not matching above patterns |
+| Unresolved call | `call` | Function call with unresolvable return type |
 
 #### Method Call Classification
 
@@ -1006,9 +1064,12 @@ When the initializer is a method call (`MethodCallExpr`), the analyzer examines 
 
 ##### Fallback
 
+For method calls not matching known patterns, the analyzer applies semantic type classification (see above) based on the resolved return type. This means methods like `.iter().map().filter()` chains are classified by their final return type rather than falling back to a generic `method` classification.
+
 | Method | `initializer_kind` | Description |
 |--------|-------------------|-------------|
-| Unknown method | `method` | Any method not matching above patterns |
+| Unknown method | (semantic) | Classified by resolved return type |
+| Unresolved method | `method` | Method with unresolvable return type |
 
 #### Macro Classification
 
@@ -1094,7 +1155,7 @@ The analyzer produces:
 
 ```json
 {
-  "version": "2.0",
+  "version": "2.3",
   "analyzer_version": "0.1.0",
   "files": {
     "src/main.rs": [

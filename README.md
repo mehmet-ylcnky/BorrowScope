@@ -215,7 +215,7 @@ The analyzer extracts type information that procedural macros cannot access, ena
 - Correct tracking of type aliases (`type MyRc<T> = Rc<T>`)
 - Factory function return type detection
 - Precise disambiguation of shadowed variables
-- 90+ initializer pattern classifications
+- 78 semantic initializer categories (fully semantic, no heuristics)
 
 Output is written to `.borrowscope/type-info.json` in your project directory.
 
@@ -252,7 +252,7 @@ BorrowScope/
     ├── async-ownership/
     ├── graph-visualization/
     ├── allocator-sim/
-    └── type-coverage/      # Comprehensive analyzer test (254 variables)
+    └── type-coverage/      # Comprehensive analyzer test (255 variables)
 ```
 
 ## Performance
