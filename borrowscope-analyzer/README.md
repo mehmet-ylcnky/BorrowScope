@@ -17,7 +17,14 @@
    - [6.2 Workflow for Users](#62-workflow-for-users)
 7. [Performance Characteristics](#7-performance-characteristics)
 8. [Limitations & Future Work](#8-limitations--future-work)
-9. [Dependencies](#9-dependencies)
+9. [Future Development Roadmap](#9-future-development-roadmap)
+   - [9.1 Current Coverage Analysis](#91-current-coverage-analysis)
+   - [9.2 Architecture Evolution](#92-architecture-evolution)
+   - [9.3 Implementation Phases](#93-implementation-phases)
+   - [9.4 Schema Evolution](#94-schema-evolution)
+   - [9.5 Macro Refactoring](#95-macro-refactoring)
+   - [9.6 Success Criteria](#96-success-criteria)
+10. [Dependencies](#10-dependencies)
 
 ---
 
@@ -1788,7 +1795,880 @@ Beyond immediate improvements, several research directions could advance BorrowS
 
 ---
 
-## 9. Dependencies
+## 9. Future Development Roadmap
+
+This section presents a comprehensive technical roadmap for evolving the borrowscope-analyzer from its current initializer-focused analysis to a complete semantic analysis system capable of eliminating all heuristic pattern matching from the macro. The goal is to achieve 100% semantic coverage, where every ownership-related operation is classified through rust-analyzer's type system rather than syntactic string matching.
+
+### 9.1 Current Coverage Analysis
+
+The analyzer currently tracks **variable initializers**—the expressions that create new variables. This covers 36 of 109 patterns (33%) used by the macro for ownership tracking. The remaining patterns involve method calls on existing variables, standalone expressions, and self-borrow type inference, none of which produce new variable bindings.
+
+#### Coverage by Category
+
+| Category | Total Patterns | ✅ Semantic | ⚠️ Partial | ❌ Syntactic |
+|----------|---------------|-------------|------------|--------------|
+| Smart pointer creation | 5 | 5 | 0 | 0 |
+| Smart pointer clone | 2 | 2 | 0 | 0 |
+| RefCell/Cell methods | 4 | 3 | 0 | 1 |
+| Box operations | 3 | 3 | 0 | 0 |
+| Pin operations | 2 | 1 | 1 | 0 |
+| Cow operations | 3 | 2 | 0 | 1 |
+| Weak reference operations | 3 | 3 | 0 | 0 |
+| OnceCell/OnceLock operations | 5 | 2 | 2 | 1 |
+| MaybeUninit operations | 6 | 2 | 2 | 2 |
+| Concurrency operations | 12 | 5 | 0 | 7 |
+| Guard method patterns | 9 | 8 | 1 | 0 |
+| Self borrow inference (immutable) | 19 | 0 | 0 | 19 |
+| Self borrow inference (mutable) | 25 | 0 | 0 | 25 |
+| Self borrow inference (consuming) | 3 | 0 | 0 | 3 |
+| Unwrap methods | 5 | 0 | 0 | 5 |
+| Clone method | 1 | 0 | 1 | 0 |
+| Transmute detection | 2 | 0 | 0 | 2 |
+| **TOTAL** | **109** | **36** | **7** | **66** |
+
+#### The Fundamental Gap
+
+The analyzer's current architecture creates a fundamental gap: it tracks what types variables **have**, not what operations are **performed on** those variables. Consider:
+
+```rust
+let x = Rc::new(1);  // ✅ Tracked: initializer_kind = "rc_new"
+let y = x.clone();   // ✅ Tracked: initializer_kind = "rc_clone" (via result type)
+x.some_method();     // ❌ Not tracked: method call, no new variable
+```
+
+The third line represents the gap—method calls that don't create new variables but still represent significant ownership operations (like `Cell::set`, `Sender::send`, or `JoinHandle::join`).
+
+### 9.2 Architecture Evolution
+
+To achieve 100% semantic coverage, the analyzer must evolve from initializer-only analysis to full expression analysis. This requires tracking three additional categories of operations.
+
+#### Current Architecture: Initializer Analysis
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CURRENT: INITIALIZER-ONLY ANALYSIS                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Source Code                    Analysis Output                             │
+│  ───────────                    ───────────────                             │
+│  let x = Rc::new(1);    ───▶    { name: "x", ty: "Rc<i32>",                │
+│                                   initializer_kind: "rc_new" }              │
+│                                                                             │
+│  let y = x.clone();     ───▶    { name: "y", ty: "Rc<i32>",                │
+│                                   initializer_kind: "rc_clone" }            │
+│                                                                             │
+│  cell.set(42);          ───▶    (not tracked - no new variable)            │
+│                                                                             │
+│  thread::spawn(|| {});  ───▶    (not tracked - no new variable)            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Target Architecture: Full Expression Analysis
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TARGET: FULL EXPRESSION ANALYSIS                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Source Code                    Analysis Output                             │
+│  ───────────                    ───────────────                             │
+│  let x = Rc::new(1);    ───▶    { name: "x", ty: "Rc<i32>",                │
+│                                   initializer_kind: "rc_new",               │
+│                                   method_calls: [...] }                     │
+│                                                                             │
+│  let y = x.clone();     ───▶    { name: "y", ty: "Rc<i32>",                │
+│                                   initializer_kind: "rc_clone" }            │
+│                                                                             │
+│  cell.set(42);          ───▶    method_calls on "cell": [{                 │
+│                                   method: "set", line: 5,                   │
+│                                   operation: "cell_set",                    │
+│                                   self_borrow: "mutable" }]                 │
+│                                                                             │
+│  thread::spawn(|| {});  ───▶    expressions: [{                            │
+│                                   kind: "function_call",                    │
+│                                   operation: "thread_spawn",                │
+│                                   line: 7 }]                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### New Analysis Capabilities Required
+
+1. **Method Call Tracking**: For each tracked variable, record all method calls made on it, including the method name, resolved receiver type, and semantic operation classification.
+
+2. **Standalone Expression Tracking**: Track function calls and expressions that don't create variables but represent significant operations (e.g., `thread::spawn`, `transmute`).
+
+3. **Self-Borrow Type Resolution**: Use rust-analyzer's method resolution to determine whether methods take `&self`, `&mut self`, or `self`, eliminating 47 heuristic patterns.
+
+### 9.3 Implementation Phases
+
+The expansion is organized into five phases, each targeting a specific category of patterns. Phases are ordered by dependency and complexity, allowing incremental progress with testable milestones.
+
+#### Phase 1: Method Call Tracking on Known Variables
+
+**Objective**: Track method calls where the receiver is a variable with a known tracked type.
+
+**Patterns Eliminated**: 13 syntactic patterns
+
+**Implementation Strategy**:
+
+After collecting variables in `analyze_file()`, walk all method call expressions in the syntax tree. For each method call, check if the receiver resolves to a tracked variable. If so, classify the method call based on the receiver type and method name.
+
+```rust
+// Pseudocode for Phase 1 implementation
+fn analyze_method_calls(
+    sema: &Semantics<'_, RootDatabase>,
+    source_file: &ast::SourceFile,
+    variables: &mut HashMap<String, VariableTypeInfo>,
+    db: &RootDatabase,
+) {
+    for node in source_file.syntax().descendants() {
+        if let Some(method_call) = ast::MethodCallExpr::cast(node) {
+            // Extract receiver name (e.g., "cell" from "cell.set(42)")
+            let receiver_name = extract_receiver_name(&method_call)?;
+            
+            // Check if receiver is a tracked variable
+            if let Some(var_info) = variables.get_mut(&receiver_name) {
+                let method_name = method_call.name_ref()?.text().to_string();
+                let receiver_type = sema.type_of_expr(&method_call.receiver()?)?;
+                
+                // Classify based on receiver type and method
+                if let Some(operation) = classify_method_call(&receiver_type, &method_name, db) {
+                    var_info.method_calls.push(MethodCallInfo {
+                        method: method_name,
+                        operation,
+                        line: line_number(&method_call),
+                        self_borrow: resolve_self_borrow(sema, &method_call, db),
+                    });
+                }
+            }
+        }
+    }
+}
+```
+
+**Specific Patterns**:
+
+| Method | Receiver Type | Operation | Current Detection |
+|--------|---------------|-----------|-------------------|
+| `.set(v)` | `Cell<T>` | `cell_set` | `method_name == "set"` |
+| `.to_mut()` | `Cow<T>` | `cow_to_mut` | `method.to_string() == "to_mut"` |
+| `.set(v)` | `OnceCell<T>` | `once_cell_set` | `method_name == "set"` |
+| `.get()` | `OnceCell<T>` | `once_cell_get` | `method_name == "get"` |
+| `.get_or_init(f)` | `OnceCell<T>` | `once_cell_get_or_init` | `method_name == "get_or_init"` |
+| `.write(v)` | `MaybeUninit<T>` | `maybe_uninit_write` | `method_name == "write"` |
+| `.assume_init()` | `MaybeUninit<T>` | `maybe_uninit_assume_init` | `method_name == "assume_init"` |
+| `.assume_init_read()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_read` | `method_name == "assume_init_read"` |
+| `.assume_init_drop()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_drop` | `method_name == "assume_init_drop"` |
+| `.send(v)` | `Sender<T>` | `channel_send` | `method_name == "send"` |
+| `.recv()` | `Receiver<T>` | `channel_recv` | `method_name == "recv"` |
+| `.try_recv()` | `Receiver<T>` | `channel_try_recv` | `method_name == "try_recv"` |
+| `.join()` | `JoinHandle<T>` | `thread_join` | `method_name == "join"` |
+
+**Estimated Effort**: 2-3 hours
+
+#### Phase 2: Standalone Expression Tracking
+
+**Objective**: Track function calls and expressions that don't create variables but represent significant ownership operations.
+
+**Patterns Eliminated**: 4 syntactic patterns
+
+**Implementation Strategy**:
+
+Add a new output field `expressions` that captures standalone calls. Walk all call expressions and check if they resolve to known functions like `thread::spawn` or `std::mem::transmute`.
+
+```rust
+// Pseudocode for Phase 2 implementation
+fn analyze_expressions(
+    sema: &Semantics<'_, RootDatabase>,
+    source_file: &ast::SourceFile,
+    db: &RootDatabase,
+) -> Vec<ExpressionInfo> {
+    let mut expressions = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(call) = ast::CallExpr::cast(node) {
+            // Resolve the called function
+            if let Some(path_expr) = call.expr().and_then(ast::PathExpr::cast) {
+                if let Some(resolved) = sema.resolve_path(&path_expr.path()?) {
+                    let path = get_function_canonical_path(&resolved, db);
+                    
+                    let operation = match path.as_str() {
+                        "std::thread::spawn" | "core::thread::spawn" => Some("thread_spawn"),
+                        "std::mem::transmute" | "core::mem::transmute" => Some("transmute"),
+                        _ => None,
+                    };
+                    
+                    if let Some(op) = operation {
+                        expressions.push(ExpressionInfo {
+                            kind: "function_call".to_string(),
+                            operation: op.to_string(),
+                            line: line_number(&call),
+                            path: Some(path),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    expressions
+}
+```
+
+**Specific Patterns**:
+
+| Pattern | Operation | Current Detection |
+|---------|-----------|-------------------|
+| `thread::spawn(...)` | `thread_spawn` | `path_str.contains("thread::spawn")` |
+| `std::thread::spawn(...)` | `thread_spawn` | `path_str.contains("std::thread::spawn")` |
+| `transmute(...)` | `transmute` | `path_str.contains("transmute")` |
+| `std::mem::transmute(...)` | `transmute` | `fn_name.contains("transmute")` |
+
+**Estimated Effort**: 1-2 hours
+
+#### Phase 3: Self-Borrow Type Inference Elimination
+
+**Objective**: Replace all heuristic self-borrow inference with semantic method resolution.
+
+**Patterns Eliminated**: 47 syntactic patterns (the largest category)
+
+**The Problem**:
+
+The macro currently infers whether a method takes `&self`, `&mut self`, or `self` based on method name patterns:
+
+```rust
+// Current heuristic approach in borrowscope-macro
+fn infer_self_borrow_type(method_name: &str) -> SelfBorrowType {
+    // Immutable patterns
+    if method_name.starts_with("as_") || method_name.starts_with("to_") ||
+       method_name.starts_with("is_") || method_name.starts_with("get") ||
+       matches!(method_name, "len" | "capacity" | "iter" | "clone" | ...) {
+        return SelfBorrowType::Immutable;
+    }
+    
+    // Mutable patterns
+    if method_name.starts_with("push") || method_name.starts_with("pop") ||
+       method_name.starts_with("insert") || method_name.starts_with("set") ||
+       matches!(method_name, "clear" | "sort" | "reverse" | ...) {
+        return SelfBorrowType::Mutable;
+    }
+    
+    // Consuming patterns
+    if method_name.starts_with("into_") ||
+       matches!(method_name, "unwrap" | "expect") {
+        return SelfBorrowType::Consuming;
+    }
+    
+    SelfBorrowType::Unknown
+}
+```
+
+This heuristic approach fails for:
+- Methods that don't follow naming conventions
+- User-defined methods with arbitrary names
+- Trait methods with non-standard signatures
+
+**The Solution**:
+
+Use rust-analyzer's `resolve_method_call` to get the actual method definition, then inspect its self parameter:
+
+```rust
+fn resolve_self_borrow(
+    sema: &Semantics<'_, RootDatabase>,
+    method_call: &ast::MethodCallExpr,
+    db: &RootDatabase,
+) -> Option<String> {
+    // Resolve method call to its definition
+    let func = sema.resolve_method_call(method_call)?;
+    
+    // Get the self parameter from the function signature
+    let self_param = func.self_param(db)?;
+    
+    // Determine access type
+    match self_param.access(db) {
+        ra_ap_hir::Access::Shared => Some("immutable".to_string()),
+        ra_ap_hir::Access::Exclusive => Some("mutable".to_string()),
+        ra_ap_hir::Access::Owned => Some("consuming".to_string()),
+    }
+}
+```
+
+**Patterns Eliminated**:
+
+*Immutable (19 patterns)*: `as_*`, `to_*`, `is_*`, `get*`, `len`, `capacity`, `iter`, `chars`, `bytes`, `lines`, `split`, `trim`, `contains`, `starts_with`, `ends_with`, `find`, `clone`, `first`, `last`
+
+*Mutable (25 patterns)*: `push*`, `pop*`, `insert*`, `remove*`, `append*`, `add*`, `set*`, `update*`, `modify*`, `clear`, `truncate`, `extend`, `drain`, `sort`, `reverse`, `dedup`, `retain`, `tick`, `recv`, `send`, `changed`, `wait`, `acquire`, `lock`, `write`
+
+*Consuming (3 patterns)*: `into_*`, `unwrap`, `expect`
+
+**Estimated Effort**: 3-4 hours
+
+#### Phase 4: Unwrap Method Tracking
+
+**Objective**: Track unwrap operations semantically by detecting method calls on `Option<T>` and `Result<T, E>`.
+
+**Patterns Eliminated**: 5 syntactic patterns
+
+**Implementation Strategy**:
+
+When processing method calls, check if the receiver type is `Option` or `Result`, then classify unwrap-family methods:
+
+```rust
+fn classify_unwrap_method(
+    receiver_type: &ra_ap_hir::Type,
+    method_name: &str,
+    db: &RootDatabase,
+) -> Option<String> {
+    // Check if receiver is Option<T> or Result<T, E>
+    if !is_option_or_result(receiver_type, db) {
+        return None;
+    }
+    
+    match method_name {
+        "unwrap" => Some("unwrap".to_string()),
+        "expect" => Some("expect".to_string()),
+        "unwrap_or" => Some("unwrap_or".to_string()),
+        "unwrap_or_else" => Some("unwrap_or_else".to_string()),
+        "unwrap_or_default" => Some("unwrap_or_default".to_string()),
+        _ => None,
+    }
+}
+
+fn is_option_or_result(ty: &ra_ap_hir::Type, db: &RootDatabase) -> bool {
+    let display = ty.display(db).to_string();
+    display.starts_with("Option<") || display.starts_with("Result<")
+}
+```
+
+**Specific Patterns**:
+
+| Method | Operation | Current Detection |
+|--------|-----------|-------------------|
+| `.unwrap()` | `unwrap` | `method_name == "unwrap"` |
+| `.expect(msg)` | `expect` | `method_name == "expect"` |
+| `.unwrap_or(v)` | `unwrap_or` | `method_name == "unwrap_or"` |
+| `.unwrap_or_else(f)` | `unwrap_or_else` | `method_name == "unwrap_or_else"` |
+| `.unwrap_or_default()` | `unwrap_or_default` | `method_name == "unwrap_or_default"` |
+
+**Estimated Effort**: 1 hour
+
+#### Phase 5: Clone Tracking
+
+**Objective**: Track `.clone()` calls semantically by verifying the method resolves to `Clone::clone`.
+
+**Patterns Eliminated**: 1 syntactic pattern
+
+**Implementation Strategy**:
+
+When encountering a `.clone()` method call, verify it's actually `Clone::clone` (not some other method named `clone`) by checking the trait:
+
+```rust
+fn is_clone_trait_call(
+    sema: &Semantics<'_, RootDatabase>,
+    method_call: &ast::MethodCallExpr,
+    db: &RootDatabase,
+) -> bool {
+    let method_name = method_call.name_ref()?.text().to_string();
+    if method_name != "clone" {
+        return false;
+    }
+    
+    // Resolve to the actual method definition
+    let func = sema.resolve_method_call(method_call)?;
+    
+    // Check if it's a trait method
+    let assoc_item = func.as_assoc_item(db)?;
+    let container_trait = assoc_item.container_trait(db)?;
+    
+    // Get the trait's canonical path
+    let trait_path = get_trait_canonical_path(&container_trait, db);
+    
+    trait_path == "core::clone::Clone" || trait_path == "std::clone::Clone"
+}
+```
+
+**Estimated Effort**: 30 minutes
+
+### 9.4 Schema Evolution
+
+The expanded analysis capabilities require evolving the output schema from v2.2 to v2.4. The new schema adds two major components: method call tracking per variable and standalone expression tracking per file.
+
+#### Current Schema (v2.2)
+
+```json
+{
+  "version": "2.2",
+  "files": {
+    "src/main.rs": [
+      {
+        "name": "x",
+        "ty": "Rc<i32>",
+        "is_copy": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_box": false,
+        "is_send": true,
+        "is_sync": true,
+        "initializer_kind": "rc_new",
+        "source_location": { "line": 5, "column": 9 },
+        "function_context": "main"
+      }
+    ]
+  },
+  "by_name": { ... },
+  "by_function": { ... }
+}
+```
+
+#### Target Schema (v2.4)
+
+```json
+{
+  "version": "2.4",
+  "files": {
+    "src/main.rs": [
+      {
+        "name": "x",
+        "ty": "Rc<i32>",
+        "is_copy": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_box": false,
+        "is_send": true,
+        "is_sync": true,
+        "initializer_kind": "rc_new",
+        "source_location": { "line": 5, "column": 9 },
+        "function_context": "main",
+        "method_calls": [
+          {
+            "method": "clone",
+            "line": 8,
+            "operation": "rc_clone",
+            "self_borrow": "immutable",
+            "receiver_type": "Rc<i32>",
+            "result_type": "Rc<i32>"
+          },
+          {
+            "method": "as_ref",
+            "line": 10,
+            "operation": null,
+            "self_borrow": "immutable",
+            "receiver_type": "Rc<i32>",
+            "result_type": "&i32"
+          }
+        ]
+      },
+      {
+        "name": "cell",
+        "ty": "Cell<i32>",
+        "is_cell": true,
+        "initializer_kind": "cell_new",
+        "source_location": { "line": 12, "column": 9 },
+        "function_context": "main",
+        "method_calls": [
+          {
+            "method": "set",
+            "line": 15,
+            "operation": "cell_set",
+            "self_borrow": "immutable",
+            "receiver_type": "Cell<i32>",
+            "result_type": "()"
+          },
+          {
+            "method": "get",
+            "line": 16,
+            "operation": "cell_get",
+            "self_borrow": "immutable",
+            "receiver_type": "Cell<i32>",
+            "result_type": "i32"
+          }
+        ]
+      }
+    ]
+  },
+  "expressions": {
+    "src/main.rs": [
+      {
+        "kind": "function_call",
+        "line": 20,
+        "operation": "thread_spawn",
+        "path": "std::thread::spawn",
+        "result_type": "JoinHandle<()>"
+      },
+      {
+        "kind": "function_call",
+        "line": 25,
+        "operation": "transmute",
+        "path": "std::mem::transmute",
+        "from_type": "u32",
+        "to_type": "i32"
+      }
+    ]
+  },
+  "by_name": { ... },
+  "by_function": { ... }
+}
+```
+
+#### New Data Structures
+
+```rust
+/// Information about a method call on a tracked variable
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodCallInfo {
+    /// Method name (e.g., "clone", "set", "send")
+    pub method: String,
+    
+    /// Line number where the call occurs
+    pub line: u32,
+    
+    /// Semantic operation classification (e.g., "cell_set", "channel_send")
+    /// None if the method doesn't map to a tracked operation
+    pub operation: Option<String>,
+    
+    /// How the method borrows self: "immutable", "mutable", or "consuming"
+    pub self_borrow: Option<String>,
+    
+    /// Fully qualified receiver type
+    pub receiver_type: String,
+    
+    /// Fully qualified result type (if any)
+    pub result_type: Option<String>,
+}
+
+/// Information about a standalone expression requiring tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpressionInfo {
+    /// Expression kind: "function_call", "method_call", "unsafe_block"
+    pub kind: String,
+    
+    /// Line number where the expression occurs
+    pub line: u32,
+    
+    /// Semantic operation classification
+    pub operation: String,
+    
+    /// Function path for function calls (e.g., "std::thread::spawn")
+    pub path: Option<String>,
+    
+    /// Additional type information for specific operations
+    #[serde(flatten)]
+    pub extra: HashMap<String, String>,
+}
+
+/// Updated variable type information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariableTypeInfo {
+    // ... existing fields ...
+    
+    /// Method calls made on this variable
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub method_calls: Vec<MethodCallInfo>,
+}
+
+/// Updated project type information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectTypeInfo {
+    // ... existing fields ...
+    
+    /// Standalone expressions requiring tracking, keyed by file path
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub expressions: HashMap<String, Vec<ExpressionInfo>>,
+}
+```
+
+#### Backward Compatibility
+
+The schema evolution maintains backward compatibility:
+
+1. **New fields are optional**: `method_calls` and `expressions` default to empty collections
+2. **Existing fields unchanged**: All v2.2 fields retain their meaning and format
+3. **Version field updated**: Consumers can check version to determine available features
+4. **Graceful degradation**: Macros using v2.2 data continue working; they simply don't benefit from new fields
+
+### 9.5 Macro Refactoring
+
+After the analyzer expansion, the macro requires significant refactoring to consume the new semantic data and eliminate syntactic detection.
+
+#### Current Macro Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CURRENT MACRO DETECTION FLOW                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Input: AST Node                                                            │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Check Analyzer Data │──── Found? ───▶ Use semantic classification       │
+│  └─────────────────────┘                                                    │
+│           │                                                                 │
+│           │ Not found                                                       │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Syntactic Detection │                                                    │
+│  │ (109 patterns)      │                                                    │
+│  └─────────────────────┘                                                    │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Emit Tracking Call  │                                                    │
+│  └─────────────────────┘                                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Target Macro Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TARGET MACRO DETECTION FLOW                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Input: AST Node                                                            │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Query Analyzer Data │                                                    │
+│  │ (type-info.json)    │                                                    │
+│  └─────────────────────┘                                                    │
+│           │                                                                 │
+│           ├── Variable binding? ──▶ Look up by (function, name, occurrence) │
+│           │                              │                                  │
+│           │                              ▼                                  │
+│           │                        Use initializer_kind                     │
+│           │                                                                 │
+│           ├── Method call? ──────▶ Look up receiver variable                │
+│           │                              │                                  │
+│           │                              ▼                                  │
+│           │                        Find matching method_call by line        │
+│           │                              │                                  │
+│           │                              ▼                                  │
+│           │                        Use operation + self_borrow              │
+│           │                                                                 │
+│           └── Standalone expr? ──▶ Look up in expressions by line           │
+│                                          │                                  │
+│                                          ▼                                  │
+│                                    Use operation                            │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Emit Tracking Call  │                                                    │
+│  │ (semantic only)     │                                                    │
+│  └─────────────────────┘                                                    │
+│                                                                             │
+│  NO SYNTACTIC FALLBACK - analyzer data is authoritative                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Files to Modify
+
+**`borrowscope-macro/src/smart_pointer.rs`**:
+- Delete `detect_smart_pointer_new()` - replaced by `initializer_kind`
+- Delete `detect_rc_clone()` - replaced by `initializer_kind`
+- Delete `detect_refcell_borrow()` - replaced by `initializer_kind`
+- Delete `detect_cell_op()` - replaced by `method_calls`
+- Delete `detect_cow_creation()` - replaced by `initializer_kind`
+- Delete `detect_cow_to_mut()` - replaced by `method_calls`
+- Delete `detect_once_cell_new()` - replaced by `initializer_kind`
+- Delete `detect_once_cell_method()` - replaced by `method_calls`
+- Delete `detect_maybe_uninit_new()` - replaced by `initializer_kind`
+- Delete `detect_maybe_uninit_method()` - replaced by `method_calls`
+- Delete `detect_concurrency_op()` - replaced by `initializer_kind` + `method_calls` + `expressions`
+- Delete `detect_pin_operation()` - replaced by `initializer_kind`
+- Delete `detect_downgrade()` - replaced by `initializer_kind`
+- Delete `detect_weak_upgrade()` - replaced by `initializer_kind`
+
+**`borrowscope-macro/src/transform_visitor.rs`**:
+- Delete `infer_self_borrow_type()` - replaced by `self_borrow` field
+- Modify `visit_local_mut()` to query `initializer_kind` directly
+- Modify `visit_expr_mut()` to query `method_calls` and `expressions`
+- Remove all `method_name ==` comparisons
+- Remove all `contains()` string matching
+
+**`borrowscope-macro/src/type_info.rs`**:
+- Add `MethodCallInfo` and `ExpressionInfo` structs
+- Add lookup methods for method calls by line number
+- Add lookup methods for expressions by line number
+- Update `VariableTypeInfo` to include `method_calls`
+
+#### Code Transformation Example
+
+**Before (Syntactic)**:
+
+```rust
+// In transform_visitor.rs
+fn transform_method_call(&mut self, expr: &ExprMethodCall) -> Option<Expr> {
+    let method_name = expr.method.to_string();
+    
+    // Heuristic: check method name patterns
+    if method_name == "clone" {
+        return Some(self.emit_clone_tracking(expr));
+    }
+    
+    if method_name == "set" {
+        // Could be Cell::set, OnceCell::set, or something else
+        // We guess based on context
+        return Some(self.emit_cell_set_tracking(expr));
+    }
+    
+    // Infer self borrow type from method name
+    let borrow_type = infer_self_borrow_type(&method_name);
+    self.emit_method_borrow_tracking(expr, borrow_type)
+}
+```
+
+**After (Semantic)**:
+
+```rust
+// In transform_visitor.rs
+fn transform_method_call(&mut self, expr: &ExprMethodCall) -> Option<Expr> {
+    let line = expr.span().start().line as u32;
+    
+    // Look up receiver variable
+    let receiver_name = extract_receiver_name(expr)?;
+    let var_info = self.lookup_type_info(&receiver_name)?;
+    
+    // Find the method call info for this line
+    let method_info = var_info.method_calls.iter()
+        .find(|m| m.line == line)?;
+    
+    // Use semantic classification directly
+    match method_info.operation.as_deref() {
+        Some("cell_set") => self.emit_cell_set_tracking(expr),
+        Some("channel_send") => self.emit_channel_send_tracking(expr),
+        Some("rc_clone") => self.emit_rc_clone_tracking(expr),
+        Some("clone") => self.emit_clone_tracking(expr),
+        _ => {
+            // Use semantic self_borrow instead of heuristic
+            let borrow_type = match method_info.self_borrow.as_deref() {
+                Some("immutable") => SelfBorrowType::Immutable,
+                Some("mutable") => SelfBorrowType::Mutable,
+                Some("consuming") => SelfBorrowType::Consuming,
+                _ => SelfBorrowType::Unknown,
+            };
+            self.emit_method_borrow_tracking(expr, borrow_type)
+        }
+    }
+}
+```
+
+#### Estimated Refactoring Effort
+
+| Component | Changes | Estimate |
+|-----------|---------|----------|
+| `smart_pointer.rs` | Delete 14 detection functions | 1 hour |
+| `transform_visitor.rs` | Rewrite method call handling | 2 hours |
+| `type_info.rs` | Add new structs and lookups | 1 hour |
+| Testing | Update tests for new behavior | 1 hour |
+| **Total** | | **5 hours** |
+
+### 9.6 Success Criteria
+
+The expansion is complete when all of the following criteria are met:
+
+#### Code Quality Metrics
+
+1. **Zero syntactic detection in `smart_pointer.rs`**:
+   ```bash
+   # Should return 0 matches
+   grep -c "contains\|starts_with\|ends_with\|== \"" borrowscope-macro/src/smart_pointer.rs
+   ```
+
+2. **Zero method name comparisons in `transform_visitor.rs`**:
+   ```bash
+   # Should return 0 matches
+   grep -c "method_name ==" borrowscope-macro/src/transform_visitor.rs
+   ```
+
+3. **`infer_self_borrow_type()` function deleted**:
+   ```bash
+   # Should return 0 matches
+   grep -c "fn infer_self_borrow_type" borrowscope-macro/src/transform_visitor.rs
+   ```
+
+4. **All 109 patterns marked as covered**:
+   - Update `SYNTACTIC_PATTERNS.md` to show ✅ for all patterns
+   - No ❌ or ⚠️ remaining
+
+#### Functional Verification
+
+5. **All tests pass**:
+   ```bash
+   cargo test -p borrowscope-analyzer
+   cargo test -p borrowscope-macro
+   ```
+
+6. **Example projects produce identical output**:
+   - Run all examples with and without analyzer data
+   - Verify tracking events are semantically equivalent
+   - No regression in tracking accuracy
+
+7. **Type coverage example achieves 100%**:
+   ```bash
+   cargo run -p borrowscope-analyzer -- examples/type-coverage
+   # Verify all variables have initializer_kind
+   # Verify all method calls have operation or self_borrow
+   # Verify all standalone expressions are captured
+   ```
+
+#### Documentation Updates
+
+8. **Schema documentation updated** to v2.4
+9. **README updated** with new capabilities
+10. **SYNTACTIC_PATTERNS.md archived** (no longer needed)
+
+### 9.7 Timeline and Milestones
+
+| Phase | Patterns | Complexity | Estimate | Cumulative |
+|-------|----------|------------|----------|------------|
+| Phase 1: Method calls | 13 | Medium | 2-3 hours | 3 hours |
+| Phase 2: Expressions | 4 | Medium | 1-2 hours | 5 hours |
+| Phase 3: Self-borrow | 47 | High | 3-4 hours | 9 hours |
+| Phase 4: Unwrap | 5 | Low | 1 hour | 10 hours |
+| Phase 5: Clone | 1 | Low | 30 min | 10.5 hours |
+| Testing & validation | - | Medium | 2 hours | 12.5 hours |
+| Macro refactoring | - | High | 5 hours | 17.5 hours |
+| Documentation | - | Low | 1 hour | 18.5 hours |
+| **Total** | **70** | | | **~19 hours** |
+
+#### Milestone Checkpoints
+
+**M1: Method Call Infrastructure** (Phase 1 complete)
+- New `method_calls` field in output
+- 13 patterns eliminated
+- Macro consumes method call data
+
+**M2: Expression Tracking** (Phase 2 complete)
+- New `expressions` field in output
+- 17 patterns eliminated (cumulative)
+- `thread::spawn` and `transmute` tracked semantically
+
+**M3: Self-Borrow Resolution** (Phase 3 complete)
+- `self_borrow` field populated for all method calls
+- 64 patterns eliminated (cumulative)
+- `infer_self_borrow_type()` deleted from macro
+
+**M4: Complete Semantic Coverage** (Phases 4-5 complete)
+- 70 patterns eliminated (all non-initializer patterns)
+- All success criteria met
+- Ready for release
+
+---
+
+## 10. Dependencies
 
 The borrowscope-analyzer relies on rust-analyzer's published crate ecosystem for semantic analysis. These crates are versioned together and should be kept in sync to avoid compatibility issues.
 
