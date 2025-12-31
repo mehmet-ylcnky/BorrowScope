@@ -195,9 +195,10 @@ fn analyze_let_stmt(
         var_info.is_impl_trait = matches!(ty, ast::Type::ImplTraitType(_));
     }
 
-    // Detect initializer kind
+    // Detect initializer kind semantically using resolved type
     if let Some(init) = let_stmt.initializer() {
-        var_info.initializer_kind = Some(classify_initializer(&init));
+        let resolved_type = sema.type_of_pat(&pat).map(|ti| ti.original);
+        var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, &init, resolved_type.as_ref()));
     }
 
     // Assign scope ID (simple incrementing for now)
@@ -206,25 +207,55 @@ fn analyze_let_stmt(
     Some(var_info)
 }
 
-/// Classify the initializer expression kind
-fn classify_initializer(expr: &ast::Expr) -> String {
+/// Classify the initializer expression using semantic analysis
+/// 
+/// This function uses the resolved type from rust-analyzer to determine
+/// the initializer kind. Expression structure is used as context for
+/// the semantic classification.
+fn classify_initializer_semantic(
+    _sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    expr: &ast::Expr,
+    resolved_type: Option<&ra_ap_hir::Type>,
+) -> String {
+    // Get expression structure as context
+    let expr_kind = classify_expr_structure(expr);
+    
+    // Always try semantic classification first
+    if let Some(ty) = resolved_type {
+        if let Some(semantic_kind) = classify_by_resolved_type(ty, db, &expr_kind) {
+            return semantic_kind;
+        }
+    }
+    
+    // Fallback to macro-specific classification for macros
+    if let ast::Expr::MacroExpr(mac) = expr {
+        return classify_macro_expr(mac);
+    }
+    
+    // Final fallback: expression structure
+    expr_kind
+}
+
+/// Classify expression by its syntactic structure (AST node kind)
+/// Used as context for semantic classification
+fn classify_expr_structure(expr: &ast::Expr) -> String {
     match expr {
         ast::Expr::Literal(_) => "literal".to_string(),
-        ast::Expr::CallExpr(call) => classify_call_expr(call),
-        ast::Expr::MethodCallExpr(method) => classify_method_call(method),
+        ast::Expr::CallExpr(_) => "call".to_string(),
+        ast::Expr::MethodCallExpr(m) => {
+            // Return method name for structural classification
+            m.name_ref().map(|n| n.text().to_string()).unwrap_or_else(|| "method".to_string())
+        }
         ast::Expr::BlockExpr(_) => "block".to_string(),
         ast::Expr::IfExpr(_) => "if".to_string(),
         ast::Expr::MatchExpr(_) => "match".to_string(),
         ast::Expr::ClosureExpr(_) => "closure".to_string(),
         ast::Expr::RefExpr(ref_expr) => {
-            if ref_expr.mut_token().is_some() {
-                "ref_mut".to_string()
-            } else {
-                "ref".to_string()
-            }
+            if ref_expr.mut_token().is_some() { "ref_mut".to_string() } else { "ref".to_string() }
         }
-        ast::Expr::PathExpr(path) => classify_path_expr(path),
-        ast::Expr::MacroExpr(mac) => classify_macro_expr(mac),
+        ast::Expr::PathExpr(_) => "path".to_string(),
+        ast::Expr::MacroExpr(_) => "macro".to_string(),
         ast::Expr::AwaitExpr(_) => "await".to_string(),
         ast::Expr::TryExpr(_) => "try".to_string(),
         ast::Expr::TupleExpr(_) => "tuple".to_string(),
@@ -236,18 +267,14 @@ fn classify_initializer(expr: &ast::Expr) -> String {
         ast::Expr::RangeExpr(_) => "range".to_string(),
         ast::Expr::BinExpr(_) => "binary".to_string(),
         ast::Expr::ParenExpr(paren) => {
-            // Unwrap parentheses
-            paren.expr().map(|e| classify_initializer(&e)).unwrap_or_else(|| "paren".to_string())
+            paren.expr().map(|e| classify_expr_structure(&e)).unwrap_or_else(|| "paren".to_string())
         }
         ast::Expr::PrefixExpr(prefix) => {
-            if prefix.op_kind() == Some(ast::UnaryOp::Deref) {
-                "deref".to_string()
-            } else if prefix.op_kind() == Some(ast::UnaryOp::Not) {
-                "not".to_string()
-            } else if prefix.op_kind() == Some(ast::UnaryOp::Neg) {
-                "neg".to_string()
-            } else {
-                "prefix".to_string()
+            match prefix.op_kind() {
+                Some(ast::UnaryOp::Deref) => "deref".to_string(),
+                Some(ast::UnaryOp::Not) => "not".to_string(),
+                Some(ast::UnaryOp::Neg) => "neg".to_string(),
+                _ => "prefix".to_string(),
             }
         }
         ast::Expr::LetExpr(_) => "let_expr".to_string(),
@@ -267,293 +294,313 @@ fn classify_initializer(expr: &ast::Expr) -> String {
     }
 }
 
-/// Classify a function call expression to detect specific patterns
-fn classify_call_expr(call: &ast::CallExpr) -> String {
-    let Some(callee) = call.expr() else {
-        return "call".to_string();
-    };
-    
-    // Get the path of the callee
-    let path_str = match &callee {
-        ast::Expr::PathExpr(path) => path.path().map(|p| p.syntax().text().to_string()),
-        _ => None,
-    };
-    
-    let Some(path) = path_str else {
-        return "call".to_string();
-    };
-    
-    // Match specific patterns
-    match path.as_str() {
-        // Smart pointer constructors
-        "Rc::new" | "std::rc::Rc::new" | "alloc::rc::Rc::new" => "rc_new".to_string(),
-        "Arc::new" | "std::sync::Arc::new" | "alloc::sync::Arc::new" => "arc_new".to_string(),
-        "Box::new" | "std::boxed::Box::new" | "alloc::boxed::Box::new" => "box_new".to_string(),
-        "Box::pin" | "std::boxed::Box::pin" => "box_pin".to_string(),
+/// Classify initializer by the resolved type (fully semantic)
+/// Returns None if no specific classification applies
+fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind: &str) -> Option<String> {
+    // Get the ADT path for type-based classification
+    if let Some(adt) = ty.as_adt() {
+        let path = get_adt_path(&adt, db)?;
         
-        // Interior mutability
-        "UnsafeCell::new" | "std::cell::UnsafeCell::new" | "core::cell::UnsafeCell::new" => "unsafe_cell_new".to_string(),
-        "RefCell::new" | "std::cell::RefCell::new" | "core::cell::RefCell::new" => "refcell_new".to_string(),
-        "Cell::new" | "std::cell::Cell::new" | "core::cell::Cell::new" => "cell_new".to_string(),
-        "Mutex::new" | "std::sync::Mutex::new" => "mutex_new".to_string(),
-        "RwLock::new" | "std::sync::RwLock::new" => "rwlock_new".to_string(),
+        // Classify based on canonical type path
+        let type_class = match path.as_str() {
+            // Smart pointers
+            "alloc::rc::Rc" | "std::rc::Rc" => "rc",
+            "alloc::sync::Arc" | "std::sync::Arc" => "arc",
+            "alloc::boxed::Box" | "std::boxed::Box" => "box",
+            "alloc::rc::Weak" | "std::rc::Weak" | "alloc::sync::Weak" | "std::sync::Weak" => "weak",
+            
+            // Interior mutability
+            "core::cell::UnsafeCell" | "std::cell::UnsafeCell" => "unsafe_cell",
+            "core::cell::Cell" | "std::cell::Cell" => "cell",
+            "core::cell::RefCell" | "std::cell::RefCell" => "refcell",
+            "std::sync::Mutex" | "std::sync::poison::mutex::Mutex" | "std::sync::mutex::Mutex" => "mutex",
+            "std::sync::RwLock" | "std::sync::poison::rwlock::RwLock" | "std::sync::rwlock::RwLock" => "rwlock",
+            "core::cell::OnceCell" | "std::cell::OnceCell" | "core::cell::once::OnceCell" => "once_cell",
+            "std::sync::OnceLock" | "std::sync::once_lock::OnceLock" => "once_lock",
+            
+            // Guards
+            "core::cell::Ref" | "std::cell::Ref" => "ref_guard",
+            "core::cell::RefMut" | "std::cell::RefMut" => "refmut_guard",
+            "std::sync::MutexGuard" | "std::sync::poison::mutex::MutexGuard" | "std::sync::mutex::MutexGuard" => "mutex_guard",
+            "std::sync::RwLockReadGuard" | "std::sync::poison::rwlock::RwLockReadGuard" | "std::sync::rwlock::RwLockReadGuard" => "rwlock_read_guard",
+            "std::sync::RwLockWriteGuard" | "std::sync::poison::rwlock::RwLockWriteGuard" | "std::sync::rwlock::RwLockWriteGuard" => "rwlock_write_guard",
+            
+            // Memory
+            "core::mem::MaybeUninit" | "std::mem::MaybeUninit" | "core::mem::maybe_uninit::MaybeUninit" => "maybe_uninit",
+            "core::mem::ManuallyDrop" | "std::mem::ManuallyDrop" | "core::mem::manually_drop::ManuallyDrop" => "manually_drop",
+            
+            // Pin
+            "core::pin::Pin" | "std::pin::Pin" => "pin",
+            
+            // Collections
+            "alloc::vec::Vec" | "std::vec::Vec" => "vec",
+            "alloc::string::String" | "std::string::String" => "string",
+            "std::collections::HashMap" | "std::collections::hash::map::HashMap" => "hashmap",
+            "std::collections::HashSet" | "std::collections::hash::set::HashSet" => "hashset",
+            "std::collections::BTreeMap" | "alloc::collections::btree::map::BTreeMap" => "btreemap",
+            "std::collections::BTreeSet" | "alloc::collections::btree::set::BTreeSet" => "btreeset",
+            "std::collections::VecDeque" | "alloc::collections::vec_deque::VecDeque" => "vecdeque",
+            "std::collections::LinkedList" | "alloc::collections::linked_list::LinkedList" => "linkedlist",
+            "std::collections::BinaryHeap" | "alloc::collections::binary_heap::BinaryHeap" => "binaryheap",
+            
+            // Cow
+            "alloc::borrow::Cow" | "std::borrow::Cow" => "cow",
+            
+            // Option/Result
+            "core::option::Option" | "std::option::Option" => "option",
+            "core::result::Result" | "std::result::Result" => "result",
+            
+            // Channels
+            "std::sync::mpsc::Sender" => "channel_sender",
+            "std::sync::mpsc::Receiver" => "channel_receiver",
+            "std::sync::mpsc::SyncSender" => "sync_channel_sender",
+            
+            // Paths
+            "std::path::PathBuf" | "std::path::pathbuf::PathBuf" => "pathbuf",
+            "std::ffi::OsString" | "std::ffi::os_str::OsString" => "osstring",
+            "std::ffi::CString" | "alloc::ffi::c_str::CString" | "std::ffi::c_str::CString" => "cstring",
+            
+            // Pointers
+            "core::ptr::NonNull" | "std::ptr::NonNull" | "core::ptr::non_null::NonNull" => "nonnull",
+            
+            // Atomics
+            "core::sync::atomic::AtomicBool" | "std::sync::atomic::AtomicBool" => "atomic_bool",
+            "core::sync::atomic::AtomicI8" | "std::sync::atomic::AtomicI8" => "atomic_i8",
+            "core::sync::atomic::AtomicI16" | "std::sync::atomic::AtomicI16" => "atomic_i16",
+            "core::sync::atomic::AtomicI32" | "std::sync::atomic::AtomicI32" => "atomic_i32",
+            "core::sync::atomic::AtomicI64" | "std::sync::atomic::AtomicI64" => "atomic_i64",
+            "core::sync::atomic::AtomicIsize" | "std::sync::atomic::AtomicIsize" => "atomic_isize",
+            "core::sync::atomic::AtomicU8" | "std::sync::atomic::AtomicU8" => "atomic_u8",
+            "core::sync::atomic::AtomicU16" | "std::sync::atomic::AtomicU16" => "atomic_u16",
+            "core::sync::atomic::AtomicU32" | "std::sync::atomic::AtomicU32" => "atomic_u32",
+            "core::sync::atomic::AtomicU64" | "std::sync::atomic::AtomicU64" => "atomic_u64",
+            "core::sync::atomic::AtomicUsize" | "std::sync::atomic::AtomicUsize" => "atomic_usize",
+            "core::sync::atomic::AtomicPtr" | "std::sync::atomic::AtomicPtr" => "atomic_ptr",
+            
+            // Time
+            "core::time::Duration" | "std::time::Duration" => "duration",
+            "std::time::Instant" => "instant",
+            "std::time::SystemTime" => "system_time",
+            
+            // IO
+            "std::io::Cursor" | "std::io::cursor::Cursor" => "cursor",
+            "std::io::BufReader" | "std::io::buffered::bufreader::BufReader" => "bufreader",
+            "std::io::BufWriter" | "std::io::buffered::bufwriter::BufWriter" => "bufwriter",
+            "std::fs::File" => "file",
+            "std::io::Empty" | "std::io::util::Empty" => "io_empty",
+            "std::io::Repeat" | "std::io::util::Repeat" => "io_repeat",
+            "std::io::Sink" | "std::io::util::Sink" => "io_sink",
+            
+            // Ordering
+            "core::cmp::Ordering" | "std::cmp::Ordering" => "ordering",
+            
+            // Poll
+            "core::task::Poll" | "std::task::Poll" | "core::task::poll::Poll" => "poll",
+            
+            // Location
+            "core::panic::Location" | "std::panic::Location" | "core::panic::location::Location" => "location",
+            
+            // Ranges (public API and internal module paths)
+            "core::ops::Range" | "std::ops::Range" | "core::ops::range::Range" => "range_type",
+            "core::ops::RangeFrom" | "std::ops::RangeFrom" | "core::ops::range::RangeFrom" => "range_from",
+            "core::ops::RangeTo" | "std::ops::RangeTo" | "core::ops::range::RangeTo" => "range_to",
+            "core::ops::RangeInclusive" | "std::ops::RangeInclusive" | "core::ops::range::RangeInclusive" => "range_inclusive",
+            "core::ops::RangeToInclusive" | "std::ops::RangeToInclusive" | "core::ops::range::RangeToInclusive" => "range_to_inclusive",
+            "core::ops::RangeFull" | "std::ops::RangeFull" | "core::ops::range::RangeFull" => "range_full",
+            
+            // User-defined types - classify by ADT kind
+            _ => match &adt {
+                ra_ap_hir::Adt::Struct(_) => "user_struct",
+                ra_ap_hir::Adt::Enum(_) => "user_enum",
+                ra_ap_hir::Adt::Union(_) => "user_union",
+            },
+        };
         
-        // OnceCell/OnceLock
-        "OnceCell::new" | "std::cell::OnceCell::new" | "core::cell::OnceCell::new" => "once_cell_new".to_string(),
-        "OnceLock::new" | "std::sync::OnceLock::new" => "once_lock_new".to_string(),
-        
-        // MaybeUninit
-        "MaybeUninit::uninit" | "std::mem::MaybeUninit::uninit" | "core::mem::MaybeUninit::uninit" => "maybe_uninit_uninit".to_string(),
-        "MaybeUninit::new" | "std::mem::MaybeUninit::new" | "core::mem::MaybeUninit::new" => "maybe_uninit_new".to_string(),
-        "MaybeUninit::zeroed" | "std::mem::MaybeUninit::zeroed" | "core::mem::MaybeUninit::zeroed" => "maybe_uninit_zeroed".to_string(),
-        
-        // Channels
-        "channel" | "std::sync::mpsc::channel" => "channel_new".to_string(),
-        "sync_channel" | "std::sync::mpsc::sync_channel" => "sync_channel_new".to_string(),
-        
-        // Pin
-        "Pin::new" | "std::pin::Pin::new" | "core::pin::Pin::new" => "pin_new".to_string(),
-        "Pin::new_unchecked" | "std::pin::Pin::new_unchecked" => "pin_new_unchecked".to_string(),
-        
-        // Cow
-        "Cow::Borrowed" | "std::borrow::Cow::Borrowed" => "cow_borrowed".to_string(),
-        "Cow::Owned" | "std::borrow::Cow::Owned" => "cow_owned".to_string(),
-        
-        // Weak
-        "Weak::new" | "std::rc::Weak::new" | "std::sync::Weak::new" => "weak_new".to_string(),
-        
-        // Option/Result constructors
-        "Some" | "core::option::Option::Some" | "std::option::Option::Some" => "option_some".to_string(),
-        "None" | "core::option::Option::None" | "std::option::Option::None" => "option_none".to_string(),
-        "Ok" | "core::result::Result::Ok" | "std::result::Result::Ok" => "result_ok".to_string(),
-        "Err" | "core::result::Result::Err" | "std::result::Result::Err" => "result_err".to_string(),
-        
-        // String constructors
-        "String::new" | "std::string::String::new" | "alloc::string::String::new" => "string_new".to_string(),
-        "String::from" | "std::string::String::from" | "alloc::string::String::from" => "string_from".to_string(),
-        "String::with_capacity" => "string_with_capacity".to_string(),
-        
-        // Vec constructors
-        "Vec::new" | "std::vec::Vec::new" | "alloc::vec::Vec::new" => "vec_new".to_string(),
-        "Vec::with_capacity" | "std::vec::Vec::with_capacity" => "vec_with_capacity".to_string(),
-        
-        // Collection constructors
-        "HashMap::new" | "std::collections::HashMap::new" => "hashmap_new".to_string(),
-        "HashSet::new" | "std::collections::HashSet::new" => "hashset_new".to_string(),
-        "BTreeMap::new" | "std::collections::BTreeMap::new" => "btreemap_new".to_string(),
-        "BTreeSet::new" | "std::collections::BTreeSet::new" => "btreeset_new".to_string(),
-        "VecDeque::new" | "std::collections::VecDeque::new" => "vecdeque_new".to_string(),
-        "LinkedList::new" | "std::collections::LinkedList::new" => "linkedlist_new".to_string(),
-        "BinaryHeap::new" | "std::collections::BinaryHeap::new" => "binaryheap_new".to_string(),
-        
-        // Path constructors
-        "PathBuf::new" | "std::path::PathBuf::new" => "pathbuf_new".to_string(),
-        "PathBuf::from" | "std::path::PathBuf::from" => "pathbuf_from".to_string(),
-        "OsString::new" | "std::ffi::OsString::new" => "osstring_new".to_string(),
-        "OsString::from" | "std::ffi::OsString::from" => "osstring_from".to_string(),
-        "CString::new" | "std::ffi::CString::new" => "cstring_new".to_string(),
-        
-        // Raw pointer constructors
-        "ptr::null" | "std::ptr::null" | "core::ptr::null" => "ptr_null".to_string(),
-        "ptr::null_mut" | "std::ptr::null_mut" | "core::ptr::null_mut" => "ptr_null_mut".to_string(),
-        "NonNull::new" | "std::ptr::NonNull::new" | "core::ptr::NonNull::new" => "nonnull_new".to_string(),
-        "NonNull::dangling" | "std::ptr::NonNull::dangling" => "nonnull_dangling".to_string(),
-        
-        // Default trait
-        "Default::default" | "std::default::Default::default" | "core::default::Default::default" => "default".to_string(),
-        
-        // Clone trait
-        p if p.ends_with("::clone") => {
-            if p.starts_with("Rc::") || p.contains("rc::Rc::") {
-                "rc_clone".to_string()
-            } else if p.starts_with("Arc::") || p.contains("sync::Arc::") {
-                "arc_clone".to_string()
-            } else {
-                "clone".to_string()
+        // Combine type class with expression kind for full classification
+        // e.g., "rc" + "call" -> "rc_new", "rc" + "clone" -> "rc_clone"
+        let kind = match (type_class, expr_kind) {
+            // Smart pointer creation vs cloning
+            ("rc", "call") => "rc_new",
+            ("rc", "clone") => "rc_clone",
+            ("arc", "call") => "arc_new",
+            ("arc", "clone") => "arc_clone",
+            ("box", "call") => "box_new",
+            ("weak", "call") => "weak_new",
+            ("weak", "clone") => "weak_clone",
+            ("weak", "downgrade") => "weak_downgrade",
+            ("weak", "upgrade") => "weak_upgrade",
+            
+            // Interior mutability
+            ("unsafe_cell", "call") => "unsafe_cell_new",
+            ("cell", "call") => "cell_new",
+            ("cell", "get") => "cell_get",
+            ("cell", "set") => "cell_set",
+            ("cell", "replace") => "cell_replace",
+            ("cell", "take") => "cell_take",
+            ("refcell", "call") => "refcell_new",
+            ("ref_guard", "borrow") => "refcell_borrow",
+            ("refmut_guard", "borrow_mut") => "refcell_borrow_mut",
+            ("mutex", "call") => "mutex_new",
+            ("mutex_guard", "lock") => "mutex_lock",
+            ("mutex_guard", "try_lock") => "mutex_try_lock",
+            ("rwlock", "call") => "rwlock_new",
+            ("rwlock_read_guard", "read") => "rwlock_read",
+            ("rwlock_write_guard", "write") => "rwlock_write",
+            ("once_cell", "call") => "once_cell_new",
+            ("once_lock", "call") => "once_lock_new",
+            
+            // Memory
+            ("maybe_uninit", "call") => "maybe_uninit_new",
+            ("maybe_uninit", _) => "maybe_uninit",
+            ("manually_drop", "call") => "manually_drop_new",
+            
+            // Pin
+            ("pin", "call") => "pin_new",
+            
+            // Collections
+            ("vec", "call") => "vec_new",
+            ("vec", "macro") => "vec_macro",
+            ("string", "call") => "string_new",
+            ("hashmap", "call") => "hashmap_new",
+            ("hashset", "call") => "hashset_new",
+            ("btreemap", "call") => "btreemap_new",
+            ("btreeset", "call") => "btreeset_new",
+            ("vecdeque", "call") => "vecdeque_new",
+            ("linkedlist", "call") => "linkedlist_new",
+            ("binaryheap", "call") => "binaryheap_new",
+            
+            // Cow
+            ("cow", "call") => "cow_new",
+            ("cow", "path") => "cow_variant",
+            
+            // Option/Result
+            ("option", "call") => "option_some",
+            ("option", "path") => "option_variant",
+            ("option", "unwrap") => "unwrap",
+            ("option", "expect") => "expect",
+            ("option", "map") => "map",
+            ("result", "call") => "result_variant",
+            ("result", "path") => "result_variant",
+            ("result", "unwrap") => "unwrap",
+            ("result", "expect") => "expect",
+            ("result", "ok") => "result_ok_method",
+            ("result", "err") => "result_err_method",
+            
+            // Channels
+            ("channel_sender", _) | ("channel_receiver", _) => "channel_new",
+            ("sync_channel_sender", _) => "sync_channel_new",
+            
+            // Paths
+            ("pathbuf", "call") => "pathbuf_new",
+            ("osstring", "call") => "osstring_new",
+            ("cstring", "call") => "cstring_new",
+            
+            // Pointers
+            ("nonnull", "call") => "nonnull_new",
+            
+            // Atomics
+            (atomic, "call") if atomic.starts_with("atomic_") => {
+                return Some(format!("{}_new", atomic));
             }
+            (atomic, method) if atomic.starts_with("atomic_") => {
+                return Some(format!("atomic_{}", method));
+            }
+            
+            // Time
+            ("duration", "call") => "duration_new",
+            ("duration", method) if method.starts_with("as_") => {
+                return Some(format!("duration_{}", method));
+            }
+            ("instant", "call") => "instant_now",
+            ("instant", "elapsed") => "instant_elapsed",
+            ("instant", "duration_since") => "instant_duration_since",
+            ("system_time", "call") => "system_time_now",
+            
+            // IO
+            ("cursor", "call") => "cursor_new",
+            ("bufreader", "call") => "bufreader_new",
+            ("bufwriter", "call") => "bufwriter_new",
+            ("file", "open") => "file_open",
+            ("file", "create") => "file_create",
+            
+            // Ordering/Poll/Location
+            ("ordering", _) => "ordering",
+            ("poll", _) => "poll",
+            ("location", _) => "location",
+            
+            // Ranges
+            (range_type, _) if range_type.starts_with("range") => range_type,
+            
+            // User-defined types
+            ("user_struct", _) => "user_struct",
+            ("user_enum", _) => "user_enum",
+            ("user_union", _) => "user_union",
+            
+            // Default: type_class + expression kind
+            (tc, ek) => return Some(format!("{}_{}", tc, ek)),
+        };
+        
+        return Some(kind.to_string());
+    }
+    
+    // Check for primitive types
+    if let Some(builtin) = ty.as_builtin() {
+        if builtin.is_int() || builtin.is_uint() || builtin.is_float() 
+            || builtin.is_char() || builtin.is_bool() {
+            return Some("primitive".to_string());
         }
-        
-        // Raw pointer operations
-        "Box::into_raw" | "std::boxed::Box::into_raw" => "box_into_raw".to_string(),
-        "Box::from_raw" | "std::boxed::Box::from_raw" => "box_from_raw".to_string(),
-        
-        // ManuallyDrop
-        "ManuallyDrop::new" | "std::mem::ManuallyDrop::new" | "core::mem::ManuallyDrop::new" => "manually_drop_new".to_string(),
-        "ManuallyDrop::into_inner" | "std::mem::ManuallyDrop::into_inner" => "manually_drop_into_inner".to_string(),
-        
-        // Atomics
-        "AtomicBool::new" | "std::sync::atomic::AtomicBool::new" | "core::sync::atomic::AtomicBool::new" => "atomic_bool_new".to_string(),
-        "AtomicI8::new" | "std::sync::atomic::AtomicI8::new" => "atomic_i8_new".to_string(),
-        "AtomicI16::new" | "std::sync::atomic::AtomicI16::new" => "atomic_i16_new".to_string(),
-        "AtomicI32::new" | "std::sync::atomic::AtomicI32::new" => "atomic_i32_new".to_string(),
-        "AtomicI64::new" | "std::sync::atomic::AtomicI64::new" => "atomic_i64_new".to_string(),
-        "AtomicIsize::new" | "std::sync::atomic::AtomicIsize::new" => "atomic_isize_new".to_string(),
-        "AtomicU8::new" | "std::sync::atomic::AtomicU8::new" => "atomic_u8_new".to_string(),
-        "AtomicU16::new" | "std::sync::atomic::AtomicU16::new" => "atomic_u16_new".to_string(),
-        "AtomicU32::new" | "std::sync::atomic::AtomicU32::new" => "atomic_u32_new".to_string(),
-        "AtomicU64::new" | "std::sync::atomic::AtomicU64::new" => "atomic_u64_new".to_string(),
-        "AtomicUsize::new" | "std::sync::atomic::AtomicUsize::new" => "atomic_usize_new".to_string(),
-        "AtomicPtr::new" | "std::sync::atomic::AtomicPtr::new" => "atomic_ptr_new".to_string(),
-        
-        // Time
-        "Duration::new" | "std::time::Duration::new" | "core::time::Duration::new" => "duration_new".to_string(),
-        "Duration::from_secs" | "std::time::Duration::from_secs" => "duration_from_secs".to_string(),
-        "Duration::from_millis" | "std::time::Duration::from_millis" => "duration_from_millis".to_string(),
-        "Duration::from_micros" | "std::time::Duration::from_micros" => "duration_from_micros".to_string(),
-        "Duration::from_nanos" | "std::time::Duration::from_nanos" => "duration_from_nanos".to_string(),
-        "Duration::from_secs_f32" | "std::time::Duration::from_secs_f32" => "duration_from_secs_f".to_string(),
-        "Duration::from_secs_f64" | "std::time::Duration::from_secs_f64" => "duration_from_secs_f".to_string(),
-        "Instant::now" | "std::time::Instant::now" => "instant_now".to_string(),
-        "SystemTime::now" | "std::time::SystemTime::now" => "system_time_now".to_string(),
-        
-        // IO
-        "Cursor::new" | "std::io::Cursor::new" => "cursor_new".to_string(),
-        "BufReader::new" | "std::io::BufReader::new" => "bufreader_new".to_string(),
-        "BufReader::with_capacity" | "std::io::BufReader::with_capacity" => "bufreader_with_capacity".to_string(),
-        "BufWriter::new" | "std::io::BufWriter::new" => "bufwriter_new".to_string(),
-        "BufWriter::with_capacity" | "std::io::BufWriter::with_capacity" => "bufwriter_with_capacity".to_string(),
-        "File::open" | "std::fs::File::open" => "file_open".to_string(),
-        "File::create" | "std::fs::File::create" => "file_create".to_string(),
-        
-        // Ordering (comparison result)
-        "Ordering::Less" | "std::cmp::Ordering::Less" => "ordering_less".to_string(),
-        "Ordering::Equal" | "std::cmp::Ordering::Equal" => "ordering_equal".to_string(),
-        "Ordering::Greater" | "std::cmp::Ordering::Greater" => "ordering_greater".to_string(),
-        
-        // Poll (async support)
-        "Poll::Ready" | "std::task::Poll::Ready" => "poll_ready".to_string(),
-        "Poll::Pending" | "std::task::Poll::Pending" => "poll_pending".to_string(),
-        
-        // Location (panic support)
-        "Location::caller" | "std::panic::Location::caller" => "location_caller".to_string(),
-        
-        // Async
-        "async" => "async_block".to_string(),
-        
-        // Default
-        _ => "call".to_string(),
+        if builtin.is_str() {
+            return Some("str".to_string());
+        }
     }
-}
-
-/// Classify a method call expression
-fn classify_method_call(method: &ast::MethodCallExpr) -> String {
-    let Some(name) = method.name_ref() else {
-        return "method".to_string();
-    };
     
-    let method_name = name.text().to_string();
-    
-    match method_name.as_str() {
-        // RefCell methods
-        "borrow" => "refcell_borrow".to_string(),
-        "borrow_mut" => "refcell_borrow_mut".to_string(),
-        "try_borrow" => "refcell_try_borrow".to_string(),
-        "try_borrow_mut" => "refcell_try_borrow_mut".to_string(),
-        
-        // Cell methods
-        "get" => "cell_get".to_string(),
-        "set" => "cell_set".to_string(),
-        "replace" => "cell_replace".to_string(),
-        "take" => "cell_take".to_string(),
-        
-        // Mutex/RwLock methods
-        "lock" => "mutex_lock".to_string(),
-        "try_lock" => "mutex_try_lock".to_string(),
-        "read" => "rwlock_read".to_string(),
-        "write" => "rwlock_write".to_string(),
-        "try_read" => "rwlock_try_read".to_string(),
-        "try_write" => "rwlock_try_write".to_string(),
-        
-        // OnceCell methods
-        "get_or_init" => "once_cell_get_or_init".to_string(),
-        "get_or_try_init" => "once_cell_get_or_try_init".to_string(),
-        
-        // MaybeUninit methods
-        "assume_init" => "maybe_uninit_assume_init".to_string(),
-        "assume_init_read" => "maybe_uninit_assume_init_read".to_string(),
-        "assume_init_ref" => "maybe_uninit_assume_init_ref".to_string(),
-        "assume_init_mut" => "maybe_uninit_assume_init_mut".to_string(),
-        
-        // Weak methods
-        "downgrade" => "weak_downgrade".to_string(),
-        "upgrade" => "weak_upgrade".to_string(),
-        
-        // Cow methods
-        "to_mut" => "cow_to_mut".to_string(),
-        "into_owned" => "cow_into_owned".to_string(),
-        
-        // Clone
-        "clone" => "clone".to_string(),
-        
-        // Pin methods
-        "as_ref" => "pin_as_ref".to_string(),
-        "as_mut" => "pin_as_mut".to_string(),
-        "into_inner" => "into_inner".to_string(),
-        
-        // Atomic methods
-        "load" => "atomic_load".to_string(),
-        "store" => "atomic_store".to_string(),
-        "swap" => "atomic_swap".to_string(),
-        "compare_exchange" => "atomic_compare_exchange".to_string(),
-        "compare_exchange_weak" => "atomic_compare_exchange_weak".to_string(),
-        "fetch_add" => "atomic_fetch_add".to_string(),
-        "fetch_sub" => "atomic_fetch_sub".to_string(),
-        "fetch_and" => "atomic_fetch_and".to_string(),
-        "fetch_or" => "atomic_fetch_or".to_string(),
-        "fetch_xor" => "atomic_fetch_xor".to_string(),
-        "fetch_max" => "atomic_fetch_max".to_string(),
-        "fetch_min" => "atomic_fetch_min".to_string(),
-        "fetch_update" => "atomic_fetch_update".to_string(),
-        
-        // Duration methods
-        "as_secs" => "duration_as_secs".to_string(),
-        "as_millis" => "duration_as_millis".to_string(),
-        "as_micros" => "duration_as_micros".to_string(),
-        "as_nanos" => "duration_as_nanos".to_string(),
-        "as_secs_f32" => "duration_as_secs_f".to_string(),
-        "as_secs_f64" => "duration_as_secs_f".to_string(),
-        "elapsed" => "instant_elapsed".to_string(),
-        "duration_since" => "instant_duration_since".to_string(),
-        
-        // Iterator methods
-        "iter" => "iter".to_string(),
-        "iter_mut" => "iter_mut".to_string(),
-        "into_iter" => "into_iter".to_string(),
-        
-        // Common methods
-        "unwrap" => "unwrap".to_string(),
-        "expect" => "expect".to_string(),
-        "map" => "map".to_string(),
-        "and_then" => "and_then".to_string(),
-        "ok" => "ok".to_string(),
-        "err" => "err".to_string(),
-        
-        _ => "method".to_string(),
+    // Check for closures
+    if ty.is_closure() {
+        return Some("closure".to_string());
     }
-}
-
-/// Classify path expressions (unit variants, constants, etc.)
-fn classify_path_expr(path: &ast::PathExpr) -> String {
-    let Some(p) = path.path() else {
-        return "path".to_string();
-    };
     
-    let path_str = p.syntax().text().to_string();
-    
-    match path_str.as_str() {
-        // Ordering variants
-        "Ordering::Less" | "std::cmp::Ordering::Less" => "ordering_less".to_string(),
-        "Ordering::Equal" | "std::cmp::Ordering::Equal" => "ordering_equal".to_string(),
-        "Ordering::Greater" | "std::cmp::Ordering::Greater" => "ordering_greater".to_string(),
-        
-        // Poll variants (unit variant)
-        "Poll::Pending" | "std::task::Poll::Pending" => "poll_pending".to_string(),
-        
-        // Option/Result variants
-        "None" | "Option::None" | "std::option::Option::None" => "none".to_string(),
-        
-        _ => "path".to_string(),
+    // Check for tuples
+    if ty.is_tuple() {
+        return Some("tuple".to_string());
     }
+    
+    // Check for impl Trait types
+    if let Some(mut traits) = ty.as_impl_traits(db) {
+        if let Some(first_trait) = traits.next() {
+            let trait_name = first_trait.name(db).as_str().to_lowercase();
+            return Some(format!("impl_{}", trait_name));
+        }
+    }
+    
+    // Check for function pointers
+    if ty.is_fn() {
+        return Some("fn_ptr".to_string());
+    }
+    
+    // Check for arrays
+    if ty.is_array() {
+        return Some("array".to_string());
+    }
+    
+    // Check for slices
+    if ty.is_slice() {
+        return Some("slice".to_string());
+    }
+    
+    // Check for references
+    if ty.is_reference() {
+        if ty.is_mutable_reference() {
+            return Some("ref_mut".to_string());
+        }
+        return Some("ref".to_string());
+    }
+    
+    // Check for raw pointers
+    if ty.is_raw_ptr() {
+        return Some("raw_ptr".to_string());
+    }
+    
+    None
 }
 
 /// Classify macro expressions
@@ -588,10 +635,10 @@ fn analyze_static_or_const(
     source_file: &ast::SourceFile,
 ) -> Option<VariableTypeInfo> {
     // Try to cast as Static first, then Const
-    let (name_token, ty_node) = if let Some(static_item) = ast::Static::cast(node.clone()) {
-        (static_item.name()?, static_item.ty())
+    let (name_token, ty_node, body_expr) = if let Some(static_item) = ast::Static::cast(node.clone()) {
+        (static_item.name()?, static_item.ty(), static_item.body())
     } else if let Some(const_item) = ast::Const::cast(node.clone()) {
-        (const_item.name()?, const_item.ty())
+        (const_item.name()?, const_item.ty(), const_item.body())
     } else {
         return None;
     };
@@ -609,6 +656,11 @@ fn analyze_static_or_const(
     if let Some(ty_node) = ty_node {
         if let Some(ty) = sema.resolve_type(&ty_node) {
             populate_type_info(&mut var_info, &ty, db);
+            
+            // Classify initializer if body exists
+            if let Some(expr) = body_expr {
+                var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, &expr, Some(&ty)));
+            }
         } else {
             // Fallback: use the syntax text, no classification without semantic info
             var_info.ty = ty_node.syntax().text().to_string();
