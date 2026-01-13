@@ -124,6 +124,7 @@ Add both crates to your `Cargo.toml`:
 
 ```toml
 [dependencies]
+# Check crates.io for the most recent version numbers
 borrowscope-runtime = { version = "0.1", features = ["track"] }
 borrowscope-macro = "0.1"
 ```
@@ -496,7 +497,11 @@ The macro cannot detect or track these behaviors because they are determined by 
 
 ### Analyzer Integration (Semantic Type Resolution)
 
-When the static analyzer (`borrowscope-analyzer`) has been run on your project, the macro can leverage semantic type information for more accurate tracking. This overcomes many limitations of syntactic-only detection.
+The `borrowscope-macro` currently uses syntactic pattern matching (heuristics) to detect smart pointer types and ownership operations. While effective for common patterns like `Rc::new(...)` or `Arc::clone(&x)`, this approach cannot detect type aliases, factory functions, or method-syntax clones because procedural macros execute before type resolution in Rust's compilation pipeline.
+
+The `borrowscope-analyzer` is a companion static analysis tool (currently under development, not yet published to crates.io) that leverages rust-analyzer's semantic analysis to extract complete type information. By running the analyzer as a pre-build step, it generates a `.borrowscope/type-info.json` file containing resolved types for every variable in your project. The macro then consumes this data at compile time, enabling accurate semantic classification instead of relying on heuristics.
+
+This two-phase approach bridges the fundamental gap between macro expansion (no type info) and type checking (full type info), allowing BorrowScope to correctly track ownership even for complex patterns that syntactic detection cannot handle.
 
 **How it works:**
 
@@ -567,7 +572,6 @@ For patterns that the macro cannot auto-detect (FFI calls, union field access, s
 
 - **[Limitations Guide](docs/LIMITATIONS.md)** - Detailed documentation with code examples
 - **[Manual Tracking Example](examples/manual_tracking.rs)** - Complete runnable example demonstrating manual instrumentation
-- **[Type Information Barrier Whitepaper](../docs/whitepaper-type-information-challenge.md)** - Technical analysis of why these limitations exist
 
 ## License
 
