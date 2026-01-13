@@ -30,8 +30,8 @@
 <pre class="rust-code"><span class="rust-comment">// The transformation pipeline</span>
 
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  <span class="rust-attribute">#[trace_borrow]</span>                                                          │
-│  <span class="rust-keyword">fn</span> example(x: String) { <span class="rust-keyword">let</span> y = &amp;x; }                                    │
+│  <span class="rust-attribute">#[trace_borrow]</span>                                                             │
+│  <span class="rust-keyword">fn</span> example(x: String) { <span class="rust-keyword">let</span> y = &amp;x; }                                       │
 └──────────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼  <span class="rust-comment">1. Parse with syn</span>
@@ -60,11 +60,11 @@
                                     │
                                     ▼  <span class="rust-comment">3. Generate tracking calls</span>
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│  <span class="rust-keyword">fn</span> example(x: String) {                                                    │
+│  <span class="rust-keyword">fn</span> example(x: String) {                                                     │
 │    borrowscope_runtime::track_scope_enter("example");                        │
 │    borrowscope_runtime::track_ownership("x", "String", 1);                   │
-│    <span class="rust-keyword">let</span> y = {                                                                │
-│      <span class="rust-keyword">let</span> __tmp = &amp;x;                                                        │
+│    <span class="rust-keyword">let</span> y = {                                                                 │
+│      <span class="rust-keyword">let</span> __tmp = &amp;x;                                                         │
 │      borrowscope_runtime::track_borrow("y", 2, "x", 1, Immutable);           │
 │      __tmp                                                                   │
 │    };                                                                        │
