@@ -17,7 +17,7 @@
                 Our analysis synthesizes insights from compiler internals, existing tooling patterns (Clippy, Miri, rust-analyzer), and practical engineering trade-offs to provide guidance for projects facing similar challenges. We present six architectural solutions ranging from custom rustc drivers to annotation-based disambiguation, each with distinct trade-offs between accuracy, stability, complexity, and user experience.
             </p>
             <p>
-                The recommended approach for BorrowScope adopts a pragmatic phased strategy: shipping a stable-Rust solution that handles 95% of patterns through syntactic analysis, with optional annotation support for edge cases, and a roadmap toward compiler integration for users requiring complete accuracy.
+                The recommended approach for BorrowScope adopts a pragmatic phased strategy: shipping a stable-Rust solution that handles majority of patterns through syntactic analysis, with optional annotation support for edge cases, and a roadmap toward compiler integration for users requiring complete accuracy.
             </p>
         </div>
     </div>

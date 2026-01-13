@@ -23,12 +23,12 @@ project can respond to actual demand rather than speculating about what
 users might need.</p>
 <div class="code-block">
 <pre class="rust-code">Phase 1: Stable Foundation          Phase 2: Validation         Phase 3: Full Integration
-┌─────────────────────────┐        ┌──────────────────┐        ┌──────────────────────┐
-│ • Current macro (95%)   │        │ • cargo plugin   │        │ • rustc driver       │
+┌─────────────────────────┐         ┌──────────────────┐        ┌──────────────────────┐
+│ • Current macro (95%)   │         │ • cargo plugin   │        │ • rustc driver       │
 │ • Annotation attributes │   ──▶  │ • Type checking  │   ──▶  │ • MIR transformation │
-│ • Clear documentation   │        │ • Suggestions    │        │ • Zero annotations   │
-│ • Works on stable       │        │ • Nightly opt-in │        │ • Complete accuracy  │
-└─────────────────────────┘        └──────────────────┘        └──────────────────────┘</pre>
+│ • Clear documentation   │         │ • Suggestions    │        │ • Zero annotations   │
+│ • Works on stable       │         │ • Nightly opt-in │        │ • Complete accuracy  │
+└─────────────────────────┘         └──────────────────┘        └──────────────────────┘</pre>
 </div>
 <p>Phase 1 represents the stable foundation, available today. The
 existing proc macro handles the vast majority of ownership patterns

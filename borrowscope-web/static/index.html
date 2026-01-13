@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="BorrowScope - Visualize Rust's ownership and borrowing at runtime">
+    <meta name="author" content="BorrowScope Team">
+    <title>BorrowScope Web - Rust Ownership Visualization</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🦀 BorrowScope Web</h1>
+            <p class="tagline">Real-time visualization of Rust's borrow checker in action</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="features">
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3>📊 Graph Visualization</h3>
+                    <p>Interactive ownership graphs with D3.js</p>
+                </div>
+                <div class="feature-card">
+                    <h3>⚡ Real-time Updates</h3>
+                    <p>WebSocket-based live tracking</p>
+                </div>
+                <div class="feature-card">
+                    <h3>🔍 Conflict Detection</h3>
+                    <p>Automatic borrow checker violation analysis</p>
+                </div>
+                <div class="feature-card">
+                    <h3>📈 Timeline View</h3>
+                    <p>Temporal visualization of variable lifetimes</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="api-links">
+            <h2>API Endpoints</h2>
+            <nav class="api-nav">
+                <a href="/health" class="api-link">
+                    <span class="method">GET</span>
+                    <span class="endpoint">/health</span>
+                    <span class="description">Health Check</span>
+                </a>
+                <a href="/health/ready" class="api-link">
+                    <span class="method">GET</span>
+                    <span class="endpoint">/health/ready</span>
+                    <span class="description">Readiness Probe</span>
+                </a>
+                <a href="/health/live" class="api-link">
+                    <span class="method">GET</span>
+                    <span class="endpoint">/health/live</span>
+                    <span class="description">Liveness Probe</span>
+                </a>
+                <a href="/api/info" class="api-link">
+                    <span class="method">GET</span>
+                    <span class="endpoint">/api/info</span>
+                    <span class="description">Application Info</span>
+                </a>
+            </nav>
+        </section>
+
+        <section class="status">
+            <h2>System Status</h2>
+            <div id="status-info" class="status-grid">
+                <div class="status-item">
+                    <span class="label">Server:</span>
+                    <span id="server-status" class="value loading">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Version:</span>
+                    <span id="app-version" class="value loading">Loading...</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Environment:</span>
+                    <span id="app-env" class="value loading">Loading...</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 BorrowScope. Licensed under Apache 2.0</p>
+            <p>
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">GitHub</a> |
+                <a href="/api/info">API Docs</a>
+            </p>
+        </div>
+    </footer>
+
+    <script src="/js/app.js"></script>
+</body>
+</html>

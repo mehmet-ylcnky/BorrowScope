@@ -20,10 +20,11 @@ Information that does not exist at a given phase simply cannot be
 accessed by code running at that phase, regardless of how useful it
 might be.</p>
 <div class="code-block">
-<pre class="rust-code">┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+<pre class="rust-code">
+┌──────────┐     ┌──────────┐    ┌──────────┐     ┌──────────┐    ┌──────────┐     ┌──────────┐
 │  Source  │───▶│  Lexer/  │───▶│  Macro   │───▶│   Name   │───▶│   Type   │───▶│   MIR    │
-│   Code   │    │  Parser  │    │ Expansion│    │Resolution│    │ Checking │    │ Codegen  │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
+│   Code   │     │  Parser  │    │ Expansion│     │Resolution│    │ Checking │     │ Codegen  │
+└──────────┘     └──────────┘    └──────────┘     └──────────┘    └──────────┘     └──────────┘
                      │               │                               │
                      ▼               ▼                               ▼
                   Tokens         TokenStream                    Full Type Info
@@ -87,6 +88,52 @@ tokens, or remove existing ones. What it cannot do is ask questions like
 will this call resolve to?” Those questions require information that
 does not exist in the token stream and will not exist until compilation
 phases that run after the macro completes.</p>
+<div class="code-block">
+<pre class="rust-code">
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     WHAT PROCEDURAL MACROS RECEIVE                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Source Code                        TokenStream                             │
+│  ───────────                        ───────────                             │
+│                                                                             │
+│  value.clone()          ───▶        [Ident]  [Punct]  [Ident]  [Group]     │
+│                                     "value"    "."    "clone"    "()"       │
+│                                                                             │
+│                                          │                                  │
+│                                          ▼                                  │
+│                                                                             │
+│                                   syn::ExprMethodCall                       │
+│                                   ┌─────────────────┐                       │
+│                                   │ receiver: value │                       │
+│                                   │ method: clone   │                       │
+│                                   │ args: ()        │                       │
+│                                   └─────────────────┘                       │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ✓ WHAT MACROS CAN SEE              ✗ WHAT MACROS CANNOT SEE               │
+│  ─────────────────────              ────────────────────────                │
+│  • Token sequence                   • Type of `value`                       │
+│  • Syntactic structure              • Which clone() impl resolves           │
+│  • Identifier names                 • Resolved type aliases                 │
+│  • Literal values                   • Generic type substitutions            │
+│  • Grouping/nesting                 • Import paths / module origins         │
+│                                     • Trait implementations                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  SAME SYNTAX, DIFFERENT SEMANTICS:                                          │
+│                                                                             │
+│  rc.clone()   ──┐                                                           │
+│  arc.clone()  ──┼──▶  All appear as: [Ident] [.] [Ident "clone"] [()]      │
+│  vec.clone()  ──┘                                                           │
+│                                                                             │
+│  But mean:     Rc&lt;T&gt;  → reference count increment                           │
+│                Arc&lt;T&gt; → atomic reference count increment                    │
+│                Vec&lt;T&gt; → deep copy allocation                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
 <p>Most procedural macros use the <code>syn</code> crate to parse token
 streams into structured abstract syntax trees. This provides a much more
 ergonomic interface than working with raw tokens: instead of manually

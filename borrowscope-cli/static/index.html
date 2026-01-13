@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BorrowScope Visualization</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1e1e1e; color: #d4d4d4; }
+        header { background: #252526; padding: 1rem 2rem; border-bottom: 1px solid #3e3e42; }
+        h1 { font-size: 1.5rem; font-weight: 600; }
+        main { padding: 2rem; }
+        #graph { width: 100%; height: 600px; background: #252526; border-radius: 8px; margin-bottom: 2rem; display: flex; align-items: center; justify-content: center; }
+        #info { background: #252526; padding: 1.5rem; border-radius: 8px; }
+        .stat { display: inline-block; margin-right: 2rem; }
+        .stat-label { color: #858585; font-size: 0.875rem; }
+        .stat-value { font-size: 1.5rem; font-weight: 600; color: #4ec9b0; }
+        .loading { color: #858585; }
+        .error { color: #f48771; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🔍 BorrowScope Visualization</h1>
+    </header>
+    <main>
+        <div id="graph">
+            <div class="loading">Loading visualization...</div>
+        </div>
+        <div id="info">
+            <div class="stat">
+                <div class="stat-label">Events</div>
+                <div class="stat-value" id="events-count">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Nodes</div>
+                <div class="stat-value" id="nodes-count">-</div>
+            </div>
+            <div class="stat">
+                <div class="stat-label">Edges</div>
+                <div class="stat-value" id="edges-count">-</div>
+            </div>
+        </div>
+    </main>
+    <script>
+        async function loadData() {
+            try {
+                const response = await fetch('/api/data');
+                if (!response.ok) throw new Error('Failed to load data');
+                const data = await response.json();
+                
+                document.getElementById('events-count').textContent = data.events?.length || 0;
+                document.getElementById('nodes-count').textContent = data.graph?.nodes?.length || 0;
+                document.getElementById('edges-count').textContent = data.graph?.edges?.length || 0;
+                
+                document.querySelector('#graph .loading').textContent = 'Graph visualization (placeholder)';
+            } catch (error) {
+                document.querySelector('#graph .loading').className = 'error';
+                document.querySelector('#graph .loading').textContent = 'Error: ' + error.message;
+            }
+        }
+        
+        loadData();
+    </script>
+</body>
+</html>

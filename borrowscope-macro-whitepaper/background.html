@@ -102,7 +102,7 @@ patterns. When it sees <code>let rc = Rc::new(value)</code>, it records
 that <code>rc</code> is an Rc-typed variable; when it later encounters
 <code>rc.clone()</code>, it can emit <code>track_rc_clone</code> rather
 than a generic clone tracker. This propagation of type knowledge through
-syntactic analysis enables surprisingly accurate instrumentation for
+syntactic analysis enables accurate instrumentation for
 patterns that follow conventional Rust idioms.</p>
 <p>Yet despite this success, a gap remains. The
 <code>borrowscope-runtime</code> library provides tracking functions
