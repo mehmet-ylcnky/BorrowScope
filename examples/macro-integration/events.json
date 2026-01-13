@@ -1,0 +1,118 @@
+[
+  {
+    "type": "RcNew",
+    "timestamp": 0,
+    "var_name": "rc_data",
+    "var_id": "rc_data_2",
+    "type_name": "Rc<Vec<i32, Global>, Global> @ src/main.rs:14",
+    "strong_count": 1,
+    "weak_count": 0
+  },
+  {
+    "type": "ArcNew",
+    "timestamp": 1,
+    "var_name": "arc_data",
+    "var_id": "arc_data_3",
+    "type_name": "Arc<String, Global> @ src/main.rs:15",
+    "strong_count": 1,
+    "weak_count": 0
+  },
+  {
+    "type": "RefCellNew",
+    "timestamp": 2,
+    "var_name": "refcell_data",
+    "var_id": "refcell_refcell_data",
+    "type_name": "RefCell<T>"
+  },
+  {
+    "type": "Borrow",
+    "timestamp": 3,
+    "borrower_name": "borrow @ src/main.rs:19",
+    "borrower_id": "borrow_6",
+    "owner_id": "owner_2",
+    "mutable": false
+  },
+  {
+    "type": "New",
+    "timestamp": 4,
+    "var_name": "borrowed",
+    "var_id": "borrowed_5",
+    "type_name": "&alloc::rc::Rc<alloc::vec::Vec<i32>> @ src/main.rs:19"
+  },
+  {
+    "type": "RefCellBorrow",
+    "timestamp": 5,
+    "borrow_id": "borrow_8",
+    "refcell_id": "refcell_refcell_data",
+    "is_mutable": true,
+    "location": "src/main.rs:20"
+  },
+  {
+    "type": "New",
+    "timestamp": 6,
+    "var_name": "guard",
+    "var_id": "guard_7",
+    "type_name": "core::cell::RefMut<i32> @ src/main.rs:20"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 7,
+    "var_id": "guard"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 8,
+    "var_id": "borrowed"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 9,
+    "var_id": "refcell_data"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 10,
+    "var_id": "arc_data"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 11,
+    "var_id": "rc_data"
+  },
+  {
+    "type": "New",
+    "timestamp": 12,
+    "var_name": "counter",
+    "var_id": "counter_2",
+    "type_name": "i32 @ src/main.rs:29"
+  },
+  {
+    "type": "New",
+    "timestamp": 13,
+    "var_name": "name",
+    "var_id": "name_3",
+    "type_name": "alloc::string::String @ src/main.rs:30"
+  },
+  {
+    "type": "New",
+    "timestamp": 14,
+    "var_name": "flag",
+    "var_id": "flag_4",
+    "type_name": "bool @ src/main.rs:31"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 15,
+    "var_id": "flag"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 16,
+    "var_id": "name"
+  },
+  {
+    "type": "Drop",
+    "timestamp": 17,
+    "var_id": "counter"
+  }
+]
