@@ -5,7 +5,7 @@
 
 use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt, HasContainer};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_project_model::CargoConfig;
@@ -1163,6 +1163,14 @@ pub fn analyze_method_calls(
         // Get operation as the canonical method path (fully semantic)
         let operation = resolve_method_path(sema, &method_call, db);
 
+        // Check if this is a trait method and get trait info (semantic)
+        let (is_trait_method, trait_name) = resolve_trait_info(sema, &method_call, db);
+        
+        // Check if this method is unsafe to call (semantic via Function::is_unsafe_to_call)
+        let is_unsafe = sema.resolve_method_call(&method_call)
+            .filter(|func| func.is_unsafe_to_call(db))
+            .map(|_| true);
+
         let method_info = MethodCallInfo {
             method: method_name,
             line: call_line,
@@ -1171,6 +1179,9 @@ pub fn analyze_method_calls(
             self_borrow,
             receiver_type,
             result_type,
+            is_trait_method,
+            trait_name,
+            is_unsafe,
         };
 
         // Find the most recent variable declared before this method call
@@ -1182,6 +1193,29 @@ pub fn analyze_method_calls(
         if let Some(&idx) = best_idx {
             variables[idx].method_calls.push(method_info);
         }
+    }
+}
+
+/// Resolve trait information for a method call (semantic)
+fn resolve_trait_info(
+    sema: &Semantics<'_, RootDatabase>,
+    method_call: &ast::MethodCallExpr,
+    db: &RootDatabase,
+) -> (Option<bool>, Option<String>) {
+    let Some(func) = sema.resolve_method_call(method_call) else {
+        return (None, None);
+    };
+    
+    use ra_ap_hir::ItemContainer;
+    match func.container(db) {
+        ItemContainer::Trait(t) => {
+            let trait_name = t.name(db).display_no_db(Edition::Edition2021).to_string();
+            (Some(true), Some(trait_name))
+        }
+        ItemContainer::Impl(_) => {
+            (Some(false), None)
+        }
+        _ => (None, None),
     }
 }
 
@@ -1243,24 +1277,79 @@ fn analyze_call_expr(
     
     let (line, column) = get_call_location(call, source_file);
     
-    // Extract argument - variable name, or captured variables for closures
-    let argument = call.arg_list()
-        .and_then(|args| args.args().next())
-        .and_then(|arg| extract_argument_info(sema, &arg));
+    // Extract argument info and closure captures
+    let first_arg = call.arg_list().and_then(|args| args.args().next());
+    let argument = first_arg.as_ref().and_then(|arg| extract_argument_info(sema, arg));
+    
+    // Extract semantic closure captures if argument is a closure
+    let closure_captures = first_arg
+        .and_then(|arg| {
+            if let ast::Expr::ClosureExpr(closure) = arg {
+                Some(extract_closure_captures_semantic(sema, db, &closure))
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default();
     
     // Get result type
     let result_type = sema.type_of_expr(&ast::Expr::CallExpr(call.clone()))
         .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+
+    // Check if this function is unsafe (semantic)
+    let is_unsafe = if func.is_unsafe_to_call(db) {
+        Some(true)
+    } else {
+        None
+    };
 
     Some(ExpressionInfo {
         line,
         column,
         kind: "function_call".to_string(),
         path: Some(canonical_path.clone()),
-        operation: canonical_path.clone(),  // Operation IS the canonical path (fully semantic)
+        operation: canonical_path.clone(),
         argument,
         result_type,
+        is_unsafe,
+        closure_captures,
     })
+}
+
+/// Extract semantic closure captures with capture kinds using rust-analyzer
+fn extract_closure_captures_semantic(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    closure: &ast::ClosureExpr,
+) -> Vec<crate::output::ClosureCaptureInfo> {
+    use ra_ap_hir::CaptureKind;
+    
+    // Try to get the closure's HIR representation
+    let Some(closure_ty) = sema.type_of_expr(&ast::Expr::ClosureExpr(closure.clone())) else {
+        return Vec::new();
+    };
+    
+    let Some(closure_hir) = closure_ty.original.as_closure() else {
+        return Vec::new();
+    };
+    
+    closure_hir.captured_items(db)
+        .into_iter()
+        .map(|capture| {
+            let local = capture.local();
+            let name = local.name(db).display_no_db(Edition::Edition2021).to_string();
+            let capture_kind = match capture.kind() {
+                CaptureKind::SharedRef => "shared_ref",
+                CaptureKind::UniqueSharedRef => "unique_shared_ref", 
+                CaptureKind::MutableRef => "mutable_ref",
+                CaptureKind::Move => "move",
+            }.to_string();
+            // Get the type of the local variable
+            let ty = Some(local.ty(db).display(db, Edition::Edition2021).to_string());
+            
+            crate::output::ClosureCaptureInfo { name, capture_kind, ty }
+        })
+        .collect()
 }
 
 /// Extract argument info - variable name or captured variables for closures

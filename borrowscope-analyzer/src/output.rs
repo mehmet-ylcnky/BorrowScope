@@ -23,6 +23,27 @@ pub struct MethodCallInfo {
     pub receiver_type: String,
     /// Fully qualified result type (if any)
     pub result_type: Option<String>,
+    /// Whether this is a trait method (vs inherent method)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_trait_method: Option<bool>,
+    /// Trait name if this is a trait method (e.g., "Clone", "Iterator")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trait_name: Option<String>,
+    /// Whether this method call is unsafe
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_unsafe: Option<bool>,
+}
+
+/// Information about a closure capture
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClosureCaptureInfo {
+    /// Name of the captured variable
+    pub name: String,
+    /// Capture mode: "shared_ref", "unique_shared_ref", "mutable_ref", "move"
+    pub capture_kind: String,
+    /// Type of the captured variable
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ty: Option<String>,
 }
 
 /// Information about a standalone expression (not a method call on a variable)
@@ -42,6 +63,12 @@ pub struct ExpressionInfo {
     pub argument: Option<String>,
     /// Result type (if applicable)
     pub result_type: Option<String>,
+    /// Whether this function call is unsafe
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_unsafe: Option<bool>,
+    /// Closure captures with their capture modes (for spawn, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closure_captures: Vec<ClosureCaptureInfo>,
 }
 
 /// Type information for a single variable binding

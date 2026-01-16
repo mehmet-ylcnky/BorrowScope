@@ -958,12 +958,16 @@ fn test_method_calls_refcell() {
 
 fn test_method_calls_mutex_rwlock() {
     let mutex = Mutex::new(42);
-    let _ = mutex.lock();  // mutex_lock
-    let _ = mutex.try_lock();  // mutex_try_lock
+    let _guard1 = mutex.lock();  // mutex_lock
+    drop(_guard1);
+    let _guard2 = mutex.try_lock();  // mutex_try_lock
+    drop(_guard2);
     
     let rwlock = RwLock::new(42);
-    let _ = rwlock.read();  // rwlock_read
-    let _ = rwlock.write();  // rwlock_write
+    let _guard3 = rwlock.read();  // rwlock_read
+    drop(_guard3);
+    let _guard4 = rwlock.write();  // rwlock_write
+    drop(_guard4);
 }
 
 fn test_method_calls_option_result() {
@@ -1100,6 +1104,132 @@ fn main() {
     test_method_calls_option_result();
     test_method_calls_clone();
     test_standalone_expressions();
+    test_closure_capture_modes();
+    test_trait_vs_inherent_methods();
+    test_unsafe_operations();
+}
+
+// ============================================================================
+// Closure capture modes (semantic via rust-analyzer CaptureKind)
+// ============================================================================
+fn test_closure_capture_modes() {
+    // Capture by shared reference (read-only access)
+    let shared_data = vec![1, 2, 3];
+    let closure_shared = || {
+        println!("{:?}", shared_data); // shared_ref capture
+    };
+    closure_shared();
+    
+    // Capture by mutable reference (mutation)
+    let mut mutable_data = String::from("hello");
+    let mut closure_mut = || {
+        mutable_data.push_str(" world"); // mutable_ref capture
+    };
+    closure_mut();
+    
+    // Capture by move (ownership transfer)
+    let owned_data = String::from("moved");
+    let closure_move = move || {
+        drop(owned_data); // move capture
+    };
+    closure_move();
+    
+    // Mixed captures in one closure
+    let read_only = 42;
+    let mut mutated = vec![1];
+    let moved = Box::new(100);
+    let mixed_closure = move || {
+        let _ = read_only;      // move (Copy type, but move closure)
+        mutated.push(2);        // move (move closure)
+        drop(moved);            // move
+    };
+    mixed_closure();
+    
+    // Spawn with captures (tests semantic capture extraction)
+    let spawn_data = std::sync::Arc::new(std::sync::Mutex::new(0));
+    let spawn_data_clone = spawn_data.clone();
+    let handle = std::thread::spawn(move || {
+        let mut guard = spawn_data_clone.lock().unwrap();
+        *guard += 1;
+    });
+    let _ = handle.join();
+    
+    println!("{}", mutable_data);
+}
+
+// ============================================================================
+// Trait vs inherent method resolution (semantic via ItemContainer)
+// ============================================================================
+fn test_trait_vs_inherent_methods() {
+    // Clone trait method
+    let s = String::from("hello");
+    let s_cloned = s.clone(); // Clone::clone - trait method
+    
+    // Iterator trait methods
+    let v = vec![1, 2, 3];
+    let mapped: Vec<_> = v.iter().map(|x| x * 2).collect(); // Iterator::map, Iterator::collect
+    
+    // Display trait (via to_string from ToString which blanket impls Display)
+    let num = 42;
+    let num_str = num.to_string(); // ToString::to_string - trait method
+    
+    // Inherent methods (not from traits)
+    let mut vec = Vec::new();
+    vec.push(1);        // Vec::push - inherent method
+    vec.push(2);
+    let len = vec.len(); // Vec::len - inherent method
+    
+    // String inherent methods
+    let mut string = String::new();
+    string.push_str("hello"); // String::push_str - inherent method
+    
+    // Option inherent methods
+    let opt = Some(42);
+    let unwrapped = opt.unwrap(); // Option::unwrap - inherent method
+    
+    // Deref trait (implicit)
+    let boxed = Box::new(String::from("boxed"));
+    let box_len = boxed.len(); // Deref to String, then String::len
+    
+    println!("{} {:?} {} {} {} {}", s_cloned, mapped, num_str, len, string, unwrapped);
+    println!("{}", box_len);
+}
+
+// ============================================================================
+// Unsafe operations tracking (semantic via is_unsafe_to_call)
+// ============================================================================
+fn test_unsafe_operations() {
+    // Unsafe function calls (tracked in expressions)
+    let mut value = 42i32;
+    let ptr = &mut value as *mut i32;
+    
+    unsafe {
+        // ptr::read is unsafe
+        let read_val = std::ptr::read(ptr);
+        
+        // ptr::write is unsafe
+        std::ptr::write(ptr, 100);
+        
+        // transmute is unsafe
+        let bytes: [u8; 4] = std::mem::transmute(read_val);
+        
+        println!("{:?}", bytes);
+    }
+    
+    // Unsafe method calls
+    let mut uninit: std::mem::MaybeUninit<i32> = std::mem::MaybeUninit::uninit();
+    unsafe {
+        uninit.as_mut_ptr().write(42);
+        let initialized = uninit.assume_init(); // unsafe method
+        println!("{}", initialized);
+    }
+    
+    // Safe wrappers around unsafe
+    let v = vec![1, 2, 3];
+    let first = v.get(0); // safe - returns Option
+    let first_unchecked = unsafe { v.get_unchecked(0) }; // unsafe method
+    
+    println!("{:?} {}", first, first_unchecked);
 }
 
 // ============================================================================
