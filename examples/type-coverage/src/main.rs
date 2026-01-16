@@ -1086,6 +1086,7 @@ fn main() {
     test_impl_trait();
     test_never_type();
     test_panic_support();
+    test_macro_initializers();
     
     // Method call tracking tests
     test_method_calls_cell();
@@ -1099,4 +1100,45 @@ fn main() {
     test_method_calls_option_result();
     test_method_calls_clone();
     test_standalone_expressions();
+}
+
+// ============================================================================
+// Macro initializers (semantic macro resolution)
+// ============================================================================
+fn test_macro_initializers() {
+    // vec! macro
+    let vec_init = vec![1, 2, 3];
+    
+    // format! macro
+    let format_init = format!("hello {}", "world");
+    
+    // String formatting macros as initializers
+    let formatted = format!("{:?}", vec_init);
+    
+    // concat! macro (compile-time)
+    let concat_init = concat!("hello", " ", "world");
+    
+    // env! macro
+    let env_init = env!("CARGO_PKG_NAME");
+    
+    // include_str! / include_bytes! would need actual files
+    
+    // stringify! macro
+    let stringify_init = stringify!(some_identifier);
+    
+    // line!/column!/file! macros
+    let line_init = line!();
+    let column_init = column!();
+    let file_init = file!();
+    
+    // module_path! macro
+    let module_init = module_path!();
+    
+    // option_env! macro
+    let option_env_init = option_env!("NONEXISTENT_VAR");
+    
+    println!("{:?} {} {} {} {} {} {} {} {} {:?}", 
+        vec_init, format_init, formatted, concat_init, env_init, 
+        stringify_init, line_init, column_init, file_init, option_env_init);
+    println!("{}", module_init);
 }

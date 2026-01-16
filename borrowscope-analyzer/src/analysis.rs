@@ -5,7 +5,7 @@
 
 use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_project_model::CargoConfig;
@@ -14,6 +14,287 @@ use ra_ap_syntax::ast::{HasName, HasArgList};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::{info, warn};
+
+/// Known ADT types looked up once at startup by semantic identity (AdtId).
+/// Used for type classification without string matching.
+#[derive(Default)]
+pub(crate) struct KnownTypes {
+    // Smart pointers
+    rc: Option<Adt>,
+    arc: Option<Adt>,
+    box_: Option<Adt>,
+    weak_rc: Option<Adt>,
+    weak_arc: Option<Adt>,
+    
+    // Interior mutability
+    cell: Option<Adt>,
+    refcell: Option<Adt>,
+    unsafe_cell: Option<Adt>,
+    mutex: Option<Adt>,
+    rwlock: Option<Adt>,
+    once_cell: Option<Adt>,
+    once_lock: Option<Adt>,
+    
+    // Guards
+    ref_guard: Option<Adt>,
+    refmut_guard: Option<Adt>,
+    mutex_guard: Option<Adt>,
+    rwlock_read_guard: Option<Adt>,
+    rwlock_write_guard: Option<Adt>,
+    
+    // Memory
+    maybe_uninit: Option<Adt>,
+    manually_drop: Option<Adt>,
+    
+    // Collections
+    vec: Option<Adt>,
+    string: Option<Adt>,
+    hashmap: Option<Adt>,
+    hashset: Option<Adt>,
+    
+    // Wrappers
+    pin: Option<Adt>,
+    cow: Option<Adt>,
+    option: Option<Adt>,
+    result: Option<Adt>,
+    
+    // Channels
+    sender: Option<Adt>,
+    receiver: Option<Adt>,
+    sync_sender: Option<Adt>,
+    
+    // Paths/FFI
+    pathbuf: Option<Adt>,
+    osstring: Option<Adt>,
+    cstring: Option<Adt>,
+    
+    // NonNull
+    nonnull: Option<Adt>,
+}
+
+/// Get full module path as string (e.g., "std::sync::poison::mutex")
+fn get_module_path(module: &ra_ap_hir::Module, db: &RootDatabase) -> String {
+    let mut parts = Vec::new();
+    let mut current = Some(*module);
+    while let Some(m) = current {
+        if let Some(name) = m.name(db) {
+            parts.push(name.display_no_db(Edition::Edition2021).to_string());
+        }
+        current = m.parent(db);
+    }
+    parts.reverse();
+    parts.join("::")
+}
+
+impl KnownTypes {
+    /// Build the set of known types by looking them up semantically
+    fn new(db: &RootDatabase) -> Self {
+        use ra_ap_hir::{import_map, ModuleDef, Crate};
+        
+        let mut known = Self::default();
+        
+        // Types to find: (type_name, expected_module, field_setter)
+        let types_to_find: &[(&str, &str, fn(&mut KnownTypes, Adt))] = &[
+            // Smart pointers
+            ("Rc", "rc", |k, a| k.rc = Some(a)),
+            ("Arc", "sync", |k, a| k.arc = Some(a)),
+            ("Box", "boxed", |k, a| k.box_ = Some(a)),
+            ("Weak", "rc", |k, a| k.weak_rc = Some(a)),
+            // Note: Weak in sync module handled separately
+            
+            // Interior mutability
+            ("Cell", "cell", |k, a| k.cell = Some(a)),
+            ("RefCell", "cell", |k, a| k.refcell = Some(a)),
+            ("UnsafeCell", "cell", |k, a| k.unsafe_cell = Some(a)),
+            ("Mutex", "sync", |k, a| k.mutex = Some(a)),
+            ("RwLock", "sync", |k, a| k.rwlock = Some(a)),
+            ("OnceCell", "cell", |k, a| k.once_cell = Some(a)),
+            ("OnceLock", "sync", |k, a| k.once_lock = Some(a)),
+            
+            // Guards
+            ("Ref", "cell", |k, a| k.ref_guard = Some(a)),
+            ("RefMut", "cell", |k, a| k.refmut_guard = Some(a)),
+            ("MutexGuard", "sync", |k, a| k.mutex_guard = Some(a)),
+            ("RwLockReadGuard", "sync", |k, a| k.rwlock_read_guard = Some(a)),
+            ("RwLockWriteGuard", "sync", |k, a| k.rwlock_write_guard = Some(a)),
+            
+            // Memory
+            ("MaybeUninit", "mem", |k, a| k.maybe_uninit = Some(a)),
+            ("ManuallyDrop", "mem", |k, a| k.manually_drop = Some(a)),
+            
+            // Collections
+            ("Vec", "vec", |k, a| k.vec = Some(a)),
+            ("String", "string", |k, a| k.string = Some(a)),
+            ("HashMap", "hash", |k, a| k.hashmap = Some(a)),
+            ("HashSet", "hash", |k, a| k.hashset = Some(a)),
+            
+            // Wrappers
+            ("Pin", "pin", |k, a| k.pin = Some(a)),
+            ("Cow", "borrow", |k, a| k.cow = Some(a)),
+            ("Option", "option", |k, a| k.option = Some(a)),
+            ("Result", "result", |k, a| k.result = Some(a)),
+            
+            // Channels
+            ("Sender", "mpsc", |k, a| k.sender = Some(a)),
+            ("Receiver", "mpsc", |k, a| k.receiver = Some(a)),
+            ("SyncSender", "mpsc", |k, a| k.sync_sender = Some(a)),
+            
+            // Paths/FFI
+            ("PathBuf", "path", |k, a| k.pathbuf = Some(a)),
+            ("OsString", "ffi", |k, a| k.osstring = Some(a)),
+            ("CString", "ffi", |k, a| k.cstring = Some(a)),
+            
+            // NonNull
+            ("NonNull", "ptr", |k, a| k.nonnull = Some(a)),
+        ];
+        
+        for krate in Crate::all(db) {
+            for (type_name, expected_module, setter) in types_to_find {
+                let query = import_map::Query::new(type_name.to_string()).exact();
+                for item in krate.query_external_importables(db, query) {
+                    if let either::Either::Left(ModuleDef::Adt(adt)) = item {
+                        // Build full module path to check against expected_module
+                        let module_path = get_module_path(&adt.module(db), db);
+                        if module_path.contains(expected_module) {
+                            setter(&mut known, adt);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Handle Weak in sync module (Arc's Weak)
+        for krate in Crate::all(db) {
+            let query = import_map::Query::new("Weak".to_string()).exact();
+            for item in krate.query_external_importables(db, query) {
+                if let either::Either::Left(ModuleDef::Adt(adt)) = item {
+                    let module_path = get_module_path(&adt.module(db), db);
+                    if module_path.contains("sync") && !module_path.contains("rc") {
+                        known.weak_arc = Some(adt);
+                    }
+                }
+            }
+        }
+        
+        known
+    }
+    
+    /// Classify an ADT by comparing AdtId directly (fully semantic)
+    fn classify(&self, adt: &Adt) -> Option<&'static str> {
+        // Smart pointers
+        if self.rc.as_ref() == Some(adt) { return Some("rc"); }
+        if self.arc.as_ref() == Some(adt) { return Some("arc"); }
+        if self.box_.as_ref() == Some(adt) { return Some("box"); }
+        if self.weak_rc.as_ref() == Some(adt) || self.weak_arc.as_ref() == Some(adt) { return Some("weak"); }
+        
+        // Interior mutability
+        if self.cell.as_ref() == Some(adt) { return Some("cell"); }
+        if self.refcell.as_ref() == Some(adt) { return Some("refcell"); }
+        if self.unsafe_cell.as_ref() == Some(adt) { return Some("unsafe_cell"); }
+        if self.mutex.as_ref() == Some(adt) { return Some("mutex"); }
+        if self.rwlock.as_ref() == Some(adt) { return Some("rwlock"); }
+        if self.once_cell.as_ref() == Some(adt) { return Some("once_cell"); }
+        if self.once_lock.as_ref() == Some(adt) { return Some("once_lock"); }
+        
+        // Guards
+        if self.ref_guard.as_ref() == Some(adt) { return Some("ref_guard"); }
+        if self.refmut_guard.as_ref() == Some(adt) { return Some("refmut_guard"); }
+        if self.mutex_guard.as_ref() == Some(adt) { return Some("mutex_guard"); }
+        if self.rwlock_read_guard.as_ref() == Some(adt) { return Some("rwlock_read_guard"); }
+        if self.rwlock_write_guard.as_ref() == Some(adt) { return Some("rwlock_write_guard"); }
+        
+        // Memory
+        if self.maybe_uninit.as_ref() == Some(adt) { return Some("maybe_uninit"); }
+        if self.manually_drop.as_ref() == Some(adt) { return Some("manually_drop"); }
+        
+        // Collections
+        if self.vec.as_ref() == Some(adt) { return Some("vec"); }
+        if self.string.as_ref() == Some(adt) { return Some("string"); }
+        if self.hashmap.as_ref() == Some(adt) { return Some("hashmap"); }
+        if self.hashset.as_ref() == Some(adt) { return Some("hashset"); }
+        
+        // Wrappers
+        if self.pin.as_ref() == Some(adt) { return Some("pin"); }
+        if self.cow.as_ref() == Some(adt) { return Some("cow"); }
+        if self.option.as_ref() == Some(adt) { return Some("option"); }
+        if self.result.as_ref() == Some(adt) { return Some("result"); }
+        
+        // Channels
+        if self.sender.as_ref() == Some(adt) { return Some("channel_sender"); }
+        if self.receiver.as_ref() == Some(adt) { return Some("channel_receiver"); }
+        if self.sync_sender.as_ref() == Some(adt) { return Some("sync_channel_sender"); }
+        
+        // Paths/FFI
+        if self.pathbuf.as_ref() == Some(adt) { return Some("pathbuf"); }
+        if self.osstring.as_ref() == Some(adt) { return Some("osstring"); }
+        if self.cstring.as_ref() == Some(adt) { return Some("cstring"); }
+        
+        // NonNull
+        if self.nonnull.as_ref() == Some(adt) { return Some("nonnull"); }
+        
+        None
+    }
+    
+    /// Set boolean flags on VariableTypeInfo by comparing AdtId directly
+    fn set_flags(&self, var_info: &mut VariableTypeInfo, adt: &Adt) {
+        var_info.is_rc = self.rc.as_ref() == Some(adt);
+        var_info.is_arc = self.arc.as_ref() == Some(adt);
+        var_info.is_box = self.box_.as_ref() == Some(adt);
+        var_info.is_weak = self.weak_rc.as_ref() == Some(adt) || self.weak_arc.as_ref() == Some(adt);
+        
+        var_info.is_cell = self.cell.as_ref() == Some(adt);
+        var_info.is_refcell = self.refcell.as_ref() == Some(adt);
+        var_info.is_mutex = self.mutex.as_ref() == Some(adt);
+        var_info.is_rwlock = self.rwlock.as_ref() == Some(adt);
+        
+        var_info.is_guard = self.ref_guard.as_ref() == Some(adt)
+            || self.refmut_guard.as_ref() == Some(adt)
+            || self.mutex_guard.as_ref() == Some(adt)
+            || self.rwlock_read_guard.as_ref() == Some(adt)
+            || self.rwlock_write_guard.as_ref() == Some(adt);
+        
+        var_info.is_vec = self.vec.as_ref() == Some(adt);
+        var_info.is_string = self.string.as_ref() == Some(adt);
+        
+        var_info.is_pin = self.pin.as_ref() == Some(adt);
+        var_info.is_cow = self.cow.as_ref() == Some(adt);
+        var_info.is_option = self.option.as_ref() == Some(adt);
+        var_info.is_result = self.result.as_ref() == Some(adt);
+        var_info.is_once_cell = self.once_cell.as_ref() == Some(adt) || self.once_lock.as_ref() == Some(adt);
+        var_info.is_maybe_uninit = self.maybe_uninit.as_ref() == Some(adt);
+        var_info.is_channel = self.sender.as_ref() == Some(adt) 
+            || self.receiver.as_ref() == Some(adt)
+            || self.sync_sender.as_ref() == Some(adt);
+    }
+    
+    /// OR flags for tuple/array elements (doesn't clear existing flags)
+    fn set_flags_or(&self, var_info: &mut VariableTypeInfo, adt: &Adt) {
+        var_info.is_rc |= self.rc.as_ref() == Some(adt);
+        var_info.is_arc |= self.arc.as_ref() == Some(adt);
+        var_info.is_box |= self.box_.as_ref() == Some(adt);
+        var_info.is_weak |= self.weak_rc.as_ref() == Some(adt) || self.weak_arc.as_ref() == Some(adt);
+        var_info.is_cell |= self.cell.as_ref() == Some(adt);
+        var_info.is_refcell |= self.refcell.as_ref() == Some(adt);
+        var_info.is_mutex |= self.mutex.as_ref() == Some(adt);
+        var_info.is_rwlock |= self.rwlock.as_ref() == Some(adt);
+        var_info.is_guard |= self.ref_guard.as_ref() == Some(adt)
+            || self.refmut_guard.as_ref() == Some(adt)
+            || self.mutex_guard.as_ref() == Some(adt)
+            || self.rwlock_read_guard.as_ref() == Some(adt)
+            || self.rwlock_write_guard.as_ref() == Some(adt);
+        var_info.is_vec |= self.vec.as_ref() == Some(adt);
+        var_info.is_string |= self.string.as_ref() == Some(adt);
+        var_info.is_pin |= self.pin.as_ref() == Some(adt);
+        var_info.is_cow |= self.cow.as_ref() == Some(adt);
+        var_info.is_option |= self.option.as_ref() == Some(adt);
+        var_info.is_result |= self.result.as_ref() == Some(adt);
+        var_info.is_once_cell |= self.once_cell.as_ref() == Some(adt) || self.once_lock.as_ref() == Some(adt);
+        var_info.is_maybe_uninit |= self.maybe_uninit.as_ref() == Some(adt);
+        var_info.is_channel |= self.sender.as_ref() == Some(adt) 
+            || self.receiver.as_ref() == Some(adt)
+            || self.sync_sender.as_ref() == Some(adt);
+    }
+}
 
 /// Functions we track for ownership-relevant operations.
 /// Looked up once at startup by semantic identity (FunctionId), not string matching.
@@ -54,15 +335,10 @@ impl TrackedFunctions {
                 let query = import_map::Query::new(fn_name.to_string()).exact();
                 for item in krate.query_external_importables(db, query) {
                     if let either::Either::Left(ModuleDef::Function(f)) = item {
-                        let module = f.module(db);
-                        let module_name = module.name(db)
-                            .map(|n| n.display_no_db(Edition::Edition2021).to_string());
-                        
-                        if let Some(ref name) = module_name {
-                            if acceptable_modules.contains(&name.as_str()) {
-                                let path = get_function_path(&f, db);
-                                tracked.functions.insert(f, path);
-                            }
+                        let module_path = get_module_path(&f.module(db), db);
+                        if acceptable_modules.iter().any(|m| module_path.contains(m)) {
+                            let path = get_function_path(&f, db);
+                            tracked.functions.insert(f, path);
                         }
                     }
                 }
@@ -138,8 +414,9 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
     let mut info = ProjectTypeInfo::new();
     let sema = Semantics::new(&db);
     
-    // Look up tracked functions once by semantic identity
+    // Look up tracked functions and types once by semantic identity
     let tracked_functions = TrackedFunctions::new(&db);
+    let known_types = KnownTypes::new(&db);
 
     for (file_id, vfs_path) in vfs.iter() {
         let path_str = match vfs_path.as_path() {
@@ -176,7 +453,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions) = analyze_file(&sema, &db, &tracked_functions, file_id, &relative);
+        let (variables, expressions) = analyze_file(&sema, &db, &tracked_functions, &known_types, file_id, &relative);
         if !variables.is_empty() {
             info.files.insert(relative.clone(), variables);
         }
@@ -193,6 +470,7 @@ fn analyze_file(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     tracked_functions: &TrackedFunctions,
+    known_types: &KnownTypes,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
 ) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>) {
@@ -222,7 +500,7 @@ fn analyze_file(
         
         match node.kind() {
             SyntaxKind::LET_STMT => {
-                if let Some(mut var_info) = analyze_let_stmt(sema, db, &node, relative_path, &source_file, &mut scope_id) {
+                if let Some(mut var_info) = analyze_let_stmt(sema, db, known_types, &node, relative_path, &source_file, &mut scope_id) {
                     // Set function context
                     var_info.function_name = current_fn.clone();
                     if let Some(ref fn_name) = current_fn {
@@ -235,13 +513,13 @@ fn analyze_file(
                 }
             }
             SyntaxKind::STATIC => {
-                if let Some(mut var_info) = analyze_static_or_const(sema, db, &node, relative_path, &source_file) {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, &node, relative_path, &source_file) {
                     var_info.is_static = true;
                     variables.push(var_info);
                 }
             }
             SyntaxKind::CONST => {
-                if let Some(mut var_info) = analyze_static_or_const(sema, db, &node, relative_path, &source_file) {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, &node, relative_path, &source_file) {
                     var_info.is_const = true;
                     variables.push(var_info);
                 }
@@ -263,6 +541,7 @@ fn analyze_file(
 fn analyze_let_stmt(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    known_types: &KnownTypes,
     node: &ra_ap_syntax::SyntaxNode,
     relative_path: &str,
     source_file: &ast::SourceFile,
@@ -291,7 +570,7 @@ fn analyze_let_stmt(
     }
 
     if let Some(type_info) = sema.type_of_pat(&pat) {
-        populate_type_info(&mut var_info, &type_info.original, db);
+        populate_type_info(&mut var_info, &type_info.original, db, known_types);
     }
 
     // Detect impl Trait in type annotation
@@ -302,7 +581,7 @@ fn analyze_let_stmt(
     // Detect initializer kind semantically using resolved type
     if let Some(init) = let_stmt.initializer() {
         let resolved_type = sema.type_of_pat(&pat).map(|ti| ti.original);
-        var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, &init, resolved_type.as_ref()));
+        var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, &init, resolved_type.as_ref()));
     }
 
     // Assign scope ID (simple incrementing for now)
@@ -317,24 +596,25 @@ fn analyze_let_stmt(
 /// the initializer kind. Expression structure is used as context for
 /// the semantic classification.
 fn classify_initializer_semantic(
-    _sema: &Semantics<'_, RootDatabase>,
+    sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    known_types: &KnownTypes,
     expr: &ast::Expr,
     resolved_type: Option<&ra_ap_hir::Type>,
 ) -> String {
     // Get expression structure as context
     let expr_kind = classify_expr_structure(expr);
     
-    // Always try semantic classification first
+    // Always try semantic classification first using AdtId comparison
     if let Some(ty) = resolved_type {
-        if let Some(semantic_kind) = classify_by_resolved_type(ty, db, &expr_kind) {
+        if let Some(semantic_kind) = classify_by_resolved_type_semantic(ty, known_types, &expr_kind) {
             return semantic_kind;
         }
     }
     
-    // Fallback to macro-specific classification for macros
+    // Fallback to macro-specific classification for macros (semantic)
     if let ast::Expr::MacroExpr(mac) = expr {
-        return classify_macro_expr(mac);
+        return classify_macro_expr_semantic(sema, db, mac);
     }
     
     // Final fallback: expression structure
@@ -398,130 +678,22 @@ fn classify_expr_structure(expr: &ast::Expr) -> String {
     }
 }
 
-/// Classify initializer by the resolved type (fully semantic)
+/// Classify initializer by the resolved type using AdtId comparison (fully semantic)
 /// Returns None if no specific classification applies
-fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind: &str) -> Option<String> {
-    // Get the ADT path for type-based classification
+fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownTypes, expr_kind: &str) -> Option<String> {
+    // Get the ADT for type-based classification using AdtId comparison
     if let Some(adt) = ty.as_adt() {
-        let path = get_adt_path(&adt, db)?;
-        
-        // Classify based on canonical type path
-        let type_class = match path.as_str() {
-            // Smart pointers
-            "alloc::rc::Rc" | "std::rc::Rc" => "rc",
-            "alloc::sync::Arc" | "std::sync::Arc" => "arc",
-            "alloc::boxed::Box" | "std::boxed::Box" => "box",
-            "alloc::rc::Weak" | "std::rc::Weak" | "alloc::sync::Weak" | "std::sync::Weak" => "weak",
-            
-            // Interior mutability
-            "core::cell::UnsafeCell" | "std::cell::UnsafeCell" => "unsafe_cell",
-            "core::cell::Cell" | "std::cell::Cell" => "cell",
-            "core::cell::RefCell" | "std::cell::RefCell" => "refcell",
-            "std::sync::Mutex" | "std::sync::poison::mutex::Mutex" | "std::sync::mutex::Mutex" => "mutex",
-            "std::sync::RwLock" | "std::sync::poison::rwlock::RwLock" | "std::sync::rwlock::RwLock" => "rwlock",
-            "core::cell::OnceCell" | "std::cell::OnceCell" | "core::cell::once::OnceCell" => "once_cell",
-            "std::sync::OnceLock" | "std::sync::once_lock::OnceLock" => "once_lock",
-            
-            // Guards
-            "core::cell::Ref" | "std::cell::Ref" => "ref_guard",
-            "core::cell::RefMut" | "std::cell::RefMut" => "refmut_guard",
-            "std::sync::MutexGuard" | "std::sync::poison::mutex::MutexGuard" | "std::sync::mutex::MutexGuard" => "mutex_guard",
-            "std::sync::RwLockReadGuard" | "std::sync::poison::rwlock::RwLockReadGuard" | "std::sync::rwlock::RwLockReadGuard" => "rwlock_read_guard",
-            "std::sync::RwLockWriteGuard" | "std::sync::poison::rwlock::RwLockWriteGuard" | "std::sync::rwlock::RwLockWriteGuard" => "rwlock_write_guard",
-            
-            // Memory
-            "core::mem::MaybeUninit" | "std::mem::MaybeUninit" | "core::mem::maybe_uninit::MaybeUninit" => "maybe_uninit",
-            "core::mem::ManuallyDrop" | "std::mem::ManuallyDrop" | "core::mem::manually_drop::ManuallyDrop" => "manually_drop",
-            
-            // Pin
-            "core::pin::Pin" | "std::pin::Pin" => "pin",
-            
-            // Collections
-            "alloc::vec::Vec" | "std::vec::Vec" => "vec",
-            "alloc::string::String" | "std::string::String" => "string",
-            "std::collections::HashMap" | "std::collections::hash::map::HashMap" => "hashmap",
-            "std::collections::HashSet" | "std::collections::hash::set::HashSet" => "hashset",
-            "std::collections::BTreeMap" | "alloc::collections::btree::map::BTreeMap" => "btreemap",
-            "std::collections::BTreeSet" | "alloc::collections::btree::set::BTreeSet" => "btreeset",
-            "std::collections::VecDeque" | "alloc::collections::vec_deque::VecDeque" => "vecdeque",
-            "std::collections::LinkedList" | "alloc::collections::linked_list::LinkedList" => "linkedlist",
-            "std::collections::BinaryHeap" | "alloc::collections::binary_heap::BinaryHeap" => "binaryheap",
-            
-            // Cow
-            "alloc::borrow::Cow" | "std::borrow::Cow" => "cow",
-            
-            // Option/Result
-            "core::option::Option" | "std::option::Option" => "option",
-            "core::result::Result" | "std::result::Result" => "result",
-            
-            // Channels
-            "std::sync::mpsc::Sender" => "channel_sender",
-            "std::sync::mpsc::Receiver" => "channel_receiver",
-            "std::sync::mpsc::SyncSender" => "sync_channel_sender",
-            
-            // Paths
-            "std::path::PathBuf" | "std::path::pathbuf::PathBuf" => "pathbuf",
-            "std::ffi::OsString" | "std::ffi::os_str::OsString" => "osstring",
-            "std::ffi::CString" | "alloc::ffi::c_str::CString" | "std::ffi::c_str::CString" => "cstring",
-            
-            // Pointers
-            "core::ptr::NonNull" | "std::ptr::NonNull" | "core::ptr::non_null::NonNull" => "nonnull",
-            
-            // Atomics
-            "core::sync::atomic::AtomicBool" | "std::sync::atomic::AtomicBool" => "atomic_bool",
-            "core::sync::atomic::AtomicI8" | "std::sync::atomic::AtomicI8" => "atomic_i8",
-            "core::sync::atomic::AtomicI16" | "std::sync::atomic::AtomicI16" => "atomic_i16",
-            "core::sync::atomic::AtomicI32" | "std::sync::atomic::AtomicI32" => "atomic_i32",
-            "core::sync::atomic::AtomicI64" | "std::sync::atomic::AtomicI64" => "atomic_i64",
-            "core::sync::atomic::AtomicIsize" | "std::sync::atomic::AtomicIsize" => "atomic_isize",
-            "core::sync::atomic::AtomicU8" | "std::sync::atomic::AtomicU8" => "atomic_u8",
-            "core::sync::atomic::AtomicU16" | "std::sync::atomic::AtomicU16" => "atomic_u16",
-            "core::sync::atomic::AtomicU32" | "std::sync::atomic::AtomicU32" => "atomic_u32",
-            "core::sync::atomic::AtomicU64" | "std::sync::atomic::AtomicU64" => "atomic_u64",
-            "core::sync::atomic::AtomicUsize" | "std::sync::atomic::AtomicUsize" => "atomic_usize",
-            "core::sync::atomic::AtomicPtr" | "std::sync::atomic::AtomicPtr" => "atomic_ptr",
-            
-            // Time
-            "core::time::Duration" | "std::time::Duration" => "duration",
-            "std::time::Instant" => "instant",
-            "std::time::SystemTime" => "system_time",
-            
-            // IO
-            "std::io::Cursor" | "std::io::cursor::Cursor" => "cursor",
-            "std::io::BufReader" | "std::io::buffered::bufreader::BufReader" => "bufreader",
-            "std::io::BufWriter" | "std::io::buffered::bufwriter::BufWriter" => "bufwriter",
-            "std::fs::File" => "file",
-            "std::io::Empty" | "std::io::util::Empty" => "io_empty",
-            "std::io::Repeat" | "std::io::util::Repeat" => "io_repeat",
-            "std::io::Sink" | "std::io::util::Sink" => "io_sink",
-            
-            // Ordering
-            "core::cmp::Ordering" | "std::cmp::Ordering" => "ordering",
-            
-            // Poll
-            "core::task::Poll" | "std::task::Poll" | "core::task::poll::Poll" => "poll",
-            
-            // Location
-            "core::panic::Location" | "std::panic::Location" | "core::panic::location::Location" => "location",
-            
-            // Ranges (public API and internal module paths)
-            "core::ops::Range" | "std::ops::Range" | "core::ops::range::Range" => "range_type",
-            "core::ops::RangeFrom" | "std::ops::RangeFrom" | "core::ops::range::RangeFrom" => "range_from",
-            "core::ops::RangeTo" | "std::ops::RangeTo" | "core::ops::range::RangeTo" => "range_to",
-            "core::ops::RangeInclusive" | "std::ops::RangeInclusive" | "core::ops::range::RangeInclusive" => "range_inclusive",
-            "core::ops::RangeToInclusive" | "std::ops::RangeToInclusive" | "core::ops::range::RangeToInclusive" => "range_to_inclusive",
-            "core::ops::RangeFull" | "std::ops::RangeFull" | "core::ops::range::RangeFull" => "range_full",
-            
-            // User-defined types - classify by ADT kind
-            _ => match &adt {
+        // Use semantic AdtId comparison instead of string matching
+        let type_class = known_types.classify(&adt).unwrap_or_else(|| {
+            // Fallback for types not in KnownTypes (user-defined, etc.)
+            match &adt {
                 ra_ap_hir::Adt::Struct(_) => "user_struct",
                 ra_ap_hir::Adt::Enum(_) => "user_enum",
                 ra_ap_hir::Adt::Union(_) => "user_union",
-            },
-        };
+            }
+        });
         
         // Combine type class with expression kind for full classification
-        // e.g., "rc" + "call" -> "rc_new", "rc" + "clone" -> "rc_clone"
         let kind = match (type_class, expr_kind) {
             // Smart pointer creation vs cloning
             ("rc", "call") => "rc_new",
@@ -537,16 +709,11 @@ fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind:
             // Interior mutability
             ("unsafe_cell", "call") => "unsafe_cell_new",
             ("cell", "call") => "cell_new",
-            ("cell", "get") => "cell_get",
-            ("cell", "set") => "cell_set",
-            ("cell", "replace") => "cell_replace",
-            ("cell", "take") => "cell_take",
             ("refcell", "call") => "refcell_new",
             ("ref_guard", "borrow") => "refcell_borrow",
             ("refmut_guard", "borrow_mut") => "refcell_borrow_mut",
             ("mutex", "call") => "mutex_new",
             ("mutex_guard", "lock") => "mutex_lock",
-            ("mutex_guard", "try_lock") => "mutex_try_lock",
             ("rwlock", "call") => "rwlock_new",
             ("rwlock_read_guard", "read") => "rwlock_read",
             ("rwlock_write_guard", "write") => "rwlock_write",
@@ -564,14 +731,12 @@ fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind:
             // Collections
             ("vec", "call") => "vec_new",
             ("vec", "macro") => "vec_macro",
+            ("vec", "clone") => "vec_clone",
             ("string", "call") => "string_new",
+            ("string", "macro") => "string_macro",
+            ("string", "clone") => "string_clone",
             ("hashmap", "call") => "hashmap_new",
             ("hashset", "call") => "hashset_new",
-            ("btreemap", "call") => "btreemap_new",
-            ("btreeset", "call") => "btreeset_new",
-            ("vecdeque", "call") => "vecdeque_new",
-            ("linkedlist", "call") => "linkedlist_new",
-            ("binaryheap", "call") => "binaryheap_new",
             
             // Cow
             ("cow", "call") => "cow_new",
@@ -580,60 +745,20 @@ fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind:
             // Option/Result
             ("option", "call") => "option_some",
             ("option", "path") => "option_variant",
-            ("option", "unwrap") => "unwrap",
-            ("option", "expect") => "expect",
-            ("option", "map") => "map",
             ("result", "call") => "result_variant",
             ("result", "path") => "result_variant",
-            ("result", "unwrap") => "unwrap",
-            ("result", "expect") => "expect",
-            ("result", "ok") => "result_ok_method",
-            ("result", "err") => "result_err_method",
             
             // Channels
             ("channel_sender", _) | ("channel_receiver", _) => "channel_new",
             ("sync_channel_sender", _) => "sync_channel_new",
             
-            // Paths
+            // Paths/FFI
             ("pathbuf", "call") => "pathbuf_new",
             ("osstring", "call") => "osstring_new",
             ("cstring", "call") => "cstring_new",
             
-            // Pointers
+            // NonNull
             ("nonnull", "call") => "nonnull_new",
-            
-            // Atomics
-            (atomic, "call") if atomic.starts_with("atomic_") => {
-                return Some(format!("{}_new", atomic));
-            }
-            (atomic, method) if atomic.starts_with("atomic_") => {
-                return Some(format!("atomic_{}", method));
-            }
-            
-            // Time
-            ("duration", "call") => "duration_new",
-            ("duration", method) if method.starts_with("as_") => {
-                return Some(format!("duration_{}", method));
-            }
-            ("instant", "call") => "instant_now",
-            ("instant", "elapsed") => "instant_elapsed",
-            ("instant", "duration_since") => "instant_duration_since",
-            ("system_time", "call") => "system_time_now",
-            
-            // IO
-            ("cursor", "call") => "cursor_new",
-            ("bufreader", "call") => "bufreader_new",
-            ("bufwriter", "call") => "bufwriter_new",
-            ("file", "open") => "file_open",
-            ("file", "create") => "file_create",
-            
-            // Ordering/Poll/Location
-            ("ordering", _) => "ordering",
-            ("poll", _) => "poll",
-            ("location", _) => "location",
-            
-            // Ranges
-            (range_type, _) if range_type.starts_with("range") => range_type,
             
             // User-defined types
             ("user_struct", _) => "user_struct",
@@ -668,14 +793,6 @@ fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind:
         return Some("tuple".to_string());
     }
     
-    // Check for impl Trait types
-    if let Some(mut traits) = ty.as_impl_traits(db) {
-        if let Some(first_trait) = traits.next() {
-            let trait_name = first_trait.name(db).as_str().to_lowercase();
-            return Some(format!("impl_{}", trait_name));
-        }
-    }
-    
     // Check for function pointers
     if ty.is_fn() {
         return Some("fn_ptr".to_string());
@@ -708,32 +825,47 @@ fn classify_by_resolved_type(ty: &ra_ap_hir::Type, db: &RootDatabase, expr_kind:
 }
 
 /// Classify macro expressions
-fn classify_macro_expr(mac: &ast::MacroExpr) -> String {
+/// Classify macro expression using semantic resolution
+fn classify_macro_expr_semantic(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    mac: &ast::MacroExpr,
+) -> String {
     let Some(macro_call) = mac.macro_call() else {
         return "macro".to_string();
     };
     
+    // Try semantic resolution first
+    if let Some(resolved) = sema.resolve_macro_call(&macro_call) {
+        let module_path = get_module_path(&resolved.module(db), db);
+        let name = resolved.name(db).display_no_db(Edition::Edition2021).to_string();
+        
+        // Classify by semantic path
+        return match (module_path.as_str(), name.as_str()) {
+            (m, "vec") if m.contains("vec") => "vec_macro".to_string(),
+            (m, "format") if m.contains("fmt") => "format_macro".to_string(),
+            (m, "format_args") if m.contains("fmt") => "format_macro".to_string(),
+            (m, n) if m.contains("io") && matches!(n, "println" | "print" | "eprintln" | "eprint") => "print_macro".to_string(),
+            (m, "panic") if m.contains("panic") => "panic_macro".to_string(),
+            (m, n) if m.contains("assert") && n.starts_with("assert") => "assert_macro".to_string(),
+            (m, "pin") if m.contains("pin") => "pin_macro".to_string(),
+            _ => format!("{}::{}", module_path, name),
+        };
+    }
+    
+    // Fallback to syntactic if resolution fails
     let Some(path) = macro_call.path() else {
         return "macro".to_string();
     };
-    
     let macro_name = path.syntax().text().to_string();
-    
-    match macro_name.as_str() {
-        "vec" => "vec_macro".to_string(),
-        "format" => "format_macro".to_string(),
-        "println" | "print" | "eprintln" | "eprint" => "print_macro".to_string(),
-        "panic" => "panic_macro".to_string(),
-        "assert" | "assert_eq" | "assert_ne" => "assert_macro".to_string(),
-        "pin" => "pin_macro".to_string(),
-        _ => "macro".to_string(),
-    }
+    format!("macro:{}", macro_name)
 }
 
 /// Analyze a static or const declaration
 fn analyze_static_or_const(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    known_types: &KnownTypes,
     node: &ra_ap_syntax::SyntaxNode,
     relative_path: &str,
     source_file: &ast::SourceFile,
@@ -759,11 +891,11 @@ fn analyze_static_or_const(
     // Try to resolve the type from the type annotation
     if let Some(ty_node) = ty_node {
         if let Some(ty) = sema.resolve_type(&ty_node) {
-            populate_type_info(&mut var_info, &ty, db);
+            populate_type_info(&mut var_info, &ty, db, known_types);
             
             // Classify initializer if body exists
             if let Some(expr) = body_expr {
-                var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, &expr, Some(&ty)));
+                var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, &expr, Some(&ty)));
             }
         } else {
             // Fallback: use the syntax text, no classification without semantic info
@@ -813,7 +945,7 @@ fn extract_tuple_elements(tuple_pat: &str) -> Vec<String> {
 }
 
 /// Populate type info from a resolved type using semantic analysis only
-fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase) {
+fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase, known_types: &KnownTypes) {
     use ra_ap_hir::Adt;
     
     var_info.ty = ty.display(db, Edition::Edition2021).to_string();
@@ -880,12 +1012,18 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
         var_info.is_str = builtin.is_str();
     }
     
-    // === ADT-based classification (semantic via canonical path) ===
+    // === ADT-based classification using AdtId comparison (fully semantic) ===
     if let Some(adt) = ty.as_adt() {
         var_info.is_union = matches!(adt, Adt::Union(_));
         
-        if let Some(path) = get_adt_path(&adt, db) {
-            classify_by_path(var_info, &path);
+        // Use KnownTypes for semantic AdtId comparison instead of path strings
+        known_types.set_flags(var_info, &adt);
+    } else {
+        // For tuples/arrays, check if any element is a known type
+        for inner in ty.type_arguments() {
+            if let Some(adt) = inner.as_adt() {
+                known_types.set_flags_or(var_info, &adt);
+            }
         }
     }
     
@@ -955,60 +1093,6 @@ fn get_adt_path(adt: &ra_ap_hir::Adt, db: &RootDatabase) -> Option<String> {
     }
     
     Some(segments.join("::"))
-}
-
-/// Classify type based on its canonical path (semantic)
-fn classify_by_path(var_info: &mut VariableTypeInfo, path: &str) {
-    // Smart pointers
-    var_info.is_rc = path == "alloc::rc::Rc" || path == "std::rc::Rc";
-    var_info.is_arc = path == "alloc::sync::Arc" || path == "std::sync::Arc";
-    var_info.is_box = path == "alloc::boxed::Box" || path == "std::boxed::Box";
-    var_info.is_weak = path == "alloc::rc::Weak" || path == "std::rc::Weak" 
-        || path == "alloc::sync::Weak" || path == "std::sync::Weak";
-    
-    // Interior mutability
-    var_info.is_refcell = path == "core::cell::RefCell" || path == "std::cell::RefCell";
-    var_info.is_cell = path == "core::cell::Cell" || path == "std::cell::Cell";
-    var_info.is_mutex = path == "std::sync::Mutex" || path == "std::sync::poison::mutex::Mutex";
-    var_info.is_rwlock = path == "std::sync::RwLock" || path == "std::sync::poison::rwlock::RwLock";
-    
-    // Guards
-    var_info.is_guard = path == "std::sync::MutexGuard" 
-        || path == "std::sync::poison::mutex::MutexGuard"
-        || path == "std::sync::RwLockReadGuard"
-        || path == "std::sync::poison::rwlock::RwLockReadGuard"
-        || path == "std::sync::RwLockWriteGuard"
-        || path == "std::sync::poison::rwlock::RwLockWriteGuard"
-        || path == "core::cell::Ref" || path == "std::cell::Ref"
-        || path == "core::cell::RefMut" || path == "std::cell::RefMut";
-    
-    // Collections
-    var_info.is_vec = path == "alloc::vec::Vec" || path == "std::vec::Vec";
-    var_info.is_string = path == "alloc::string::String" || path == "std::string::String";
-    
-    // Wrapper types
-    var_info.is_pin = path == "core::pin::Pin" || path == "std::pin::Pin";
-    var_info.is_cow = path == "alloc::borrow::Cow" || path == "std::borrow::Cow";
-    var_info.is_option = path == "core::option::Option" || path == "std::option::Option";
-    var_info.is_result = path == "core::result::Result" || path == "std::result::Result";
-    
-    // OnceCell/OnceLock
-    var_info.is_once_cell = path == "core::cell::once::OnceCell" || path == "std::cell::OnceCell"
-        || path == "std::sync::once_lock::OnceLock" || path == "std::sync::OnceLock"
-        || path == "core::cell::lazy::LazyCell" || path == "std::sync::lazy_lock::LazyLock";
-    
-    // MaybeUninit
-    var_info.is_maybe_uninit = path == "core::mem::maybe_uninit::MaybeUninit" || path == "std::mem::MaybeUninit";
-    
-    // Channels (Sender/Receiver)
-    var_info.is_channel = path == "std::sync::mpsc::Sender" || path == "std::sync::mpsc::Receiver"
-        || path == "std::sync::mpsc::SyncSender";
-    
-    // FFI types
-    var_info.is_extern_type = path == "core::ffi::c_void" || path == "std::ffi::c_void"
-        || path == "core::ffi::CStr" || path == "std::ffi::CStr"
-        || path == "alloc::ffi::CString" || path == "std::ffi::CString"
-        || path == "std::ffi::OsStr" || path == "std::ffi::OsString";
 }
 
 // =============================================================================
@@ -1162,7 +1246,7 @@ fn analyze_call_expr(
     // Extract argument - variable name, or captured variables for closures
     let argument = call.arg_list()
         .and_then(|args| args.args().next())
-        .and_then(|arg| extract_argument_info(&arg));
+        .and_then(|arg| extract_argument_info(sema, &arg));
     
     // Get result type
     let result_type = sema.type_of_expr(&ast::Expr::CallExpr(call.clone()))
@@ -1180,7 +1264,7 @@ fn analyze_call_expr(
 }
 
 /// Extract argument info - variable name or captured variables for closures
-fn extract_argument_info(arg: &ast::Expr) -> Option<String> {
+fn extract_argument_info(sema: &Semantics<'_, RootDatabase>, arg: &ast::Expr) -> Option<String> {
     match arg {
         // Simple variable: drop(x) -> "x"
         ast::Expr::PathExpr(p) => {
@@ -1188,7 +1272,7 @@ fn extract_argument_info(arg: &ast::Expr) -> Option<String> {
         }
         // Closure: spawn(|| {}) or spawn(move || {}) -> extract captured variables
         ast::Expr::ClosureExpr(closure) => {
-            let captured = extract_closure_captures(closure);
+            let captured = extract_closure_captures(sema, closure);
             if captured.is_empty() {
                 Some("<closure>".to_string())
             } else {
@@ -1197,14 +1281,14 @@ fn extract_argument_info(arg: &ast::Expr) -> Option<String> {
         }
         // Reference: &x or &mut x
         ast::Expr::RefExpr(ref_expr) => {
-            ref_expr.expr().and_then(|e| extract_argument_info(&e))
+            ref_expr.expr().and_then(|e| extract_argument_info(sema, &e))
         }
         _ => None,
     }
 }
 
-/// Extract variable names captured by a closure
-fn extract_closure_captures(closure: &ast::ClosureExpr) -> Vec<String> {
+/// Extract variable names captured by a closure (semantic)
+fn extract_closure_captures(sema: &Semantics<'_, RootDatabase>, closure: &ast::ClosureExpr) -> Vec<String> {
     let mut captures = Vec::new();
     
     // Get closure parameter names to exclude them
@@ -1250,11 +1334,20 @@ fn extract_closure_captures(closure: &ast::ClosureExpr) -> Vec<String> {
                     if let Some(segment) = path.segment() {
                         if let Some(name_ref) = segment.name_ref() {
                             let name = name_ref.text().to_string();
-                            // Skip closure parameters, common non-captures
-                            if !param_names.contains(&name) 
-                                && !is_likely_not_capture(&name) 
-                                && !captures.contains(&name) {
-                                captures.push(name);
+                            // Skip closure parameters and already captured
+                            if param_names.contains(&name) || captures.contains(&name) {
+                                continue;
+                            }
+                            // Use semantic resolution: if it resolves to a local variable, it's a capture
+                            if let Some(resolved) = sema.resolve_path(&path) {
+                                use ra_ap_hir::PathResolution;
+                                match resolved {
+                                    PathResolution::Local(_) => {
+                                        captures.push(name);
+                                    }
+                                    // Not a local - it's a function, type, const, etc.
+                                    _ => {}
+                                }
                             }
                         }
                     }
@@ -1264,16 +1357,6 @@ fn extract_closure_captures(closure: &ast::ClosureExpr) -> Vec<String> {
     }
     
     captures
-}
-
-/// Check if a name is likely not a captured variable
-fn is_likely_not_capture(name: &str) -> bool {
-    matches!(name, 
-        "self" | "Self" | "true" | "false" | "None" | "Some" | "Ok" | "Err" |
-        "println" | "print" | "eprintln" | "eprint" | "format" | "panic" |
-        "vec" | "assert" | "assert_eq" | "assert_ne" | "debug_assert" |
-        "Box" | "Rc" | "Arc" | "Vec" | "String" | "Option" | "Result"
-    )
 }
 
 /// Get location of a call expression
