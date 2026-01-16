@@ -73,6 +73,18 @@ fn test_rwlock_methods() {
     let _ = rwlock.write();  // Should track: rwlock_write
 }
 
+// Phase 2: Standalone expressions
+fn test_drop_forget() {
+    let x = Box::new(42);
+    let y = Box::new(43);
+    drop(x);  // Should track: drop
+    std::mem::forget(y);  // Should track: forget
+}
+
+fn test_thread_spawn() {
+    let _ = std::thread::spawn(|| 42);  // Should track: thread_spawn
+}
+
 fn main() {
     test_cell_methods();
     test_cow_methods();
@@ -84,4 +96,6 @@ fn main() {
     test_refcell_methods();
     test_mutex_methods();
     test_rwlock_methods();
+    test_drop_forget();
+    test_thread_spawn();
 }

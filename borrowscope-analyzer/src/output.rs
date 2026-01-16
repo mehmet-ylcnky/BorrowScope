@@ -25,6 +25,25 @@ pub struct MethodCallInfo {
     pub result_type: Option<String>,
 }
 
+/// Information about a standalone expression (not a method call on a variable)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpressionInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Expression kind: "function_call", "macro_call"
+    pub kind: String,
+    /// Function/macro path (e.g., "std::thread::spawn", "std::mem::drop")
+    pub path: Option<String>,
+    /// Semantic operation classification
+    pub operation: String,
+    /// Argument variable name (if applicable, e.g., for drop(x))
+    pub argument: Option<String>,
+    /// Result type (if applicable)
+    pub result_type: Option<String>,
+}
+
 /// Type information for a single variable binding
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableTypeInfo {
@@ -197,6 +216,9 @@ pub struct ProjectTypeInfo {
     pub analyzer_version: String,
     /// Map from relative file path to variables in that file
     pub files: HashMap<String, Vec<VariableTypeInfo>>,
+    /// Standalone expressions by file (thread::spawn, transmute, drop, etc.)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub expressions: HashMap<String, Vec<ExpressionInfo>>,
     /// Index by variable name for macro lookup (stable Rust compatible)
     #[serde(default)]
     pub by_name: HashMap<String, Vec<VariableTypeInfo>>,
@@ -208,9 +230,10 @@ pub struct ProjectTypeInfo {
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "2.4".to_string(),
+            version: "2.5".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
+            expressions: HashMap::new(),
             by_name: HashMap::new(),
             by_function: HashMap::new(),
         }

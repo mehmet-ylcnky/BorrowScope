@@ -3,14 +3,14 @@
 //! This module provides type analysis by leveraging rust-analyzer's
 //! full semantic analysis capabilities. No heuristics are used.
 
-use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo};
+use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo};
 use anyhow::{Context, Result};
 use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_project_model::CargoConfig;
 use ra_ap_syntax::{ast, AstNode, Edition, SyntaxKind};
-use ra_ap_syntax::ast::HasName;
+use ra_ap_syntax::ast::{HasName, HasArgList};
 use std::path::Path;
 use tracing::{info, warn};
 
@@ -84,9 +84,12 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let variables = analyze_file(&sema, &db, file_id, &relative);
+        let (variables, expressions) = analyze_file(&sema, &db, file_id, &relative);
         if !variables.is_empty() {
-            info.files.insert(relative, variables);
+            info.files.insert(relative.clone(), variables);
+        }
+        if !expressions.is_empty() {
+            info.expressions.insert(relative, expressions);
         }
     }
 
@@ -99,13 +102,13 @@ fn analyze_file(
     db: &RootDatabase,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
-) -> Vec<VariableTypeInfo> {
+) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>) {
     let mut variables = Vec::new();
     let mut scope_id: u32 = 0;
 
     let Some(editioned_file_id) = sema.attach_first_edition(file_id) else {
         warn!("File {} not in crate graph, skipping", relative_path);
-        return variables;
+        return (variables, Vec::new());
     };
 
     let source_file = sema.parse(editioned_file_id);
@@ -156,8 +159,11 @@ fn analyze_file(
 
     // Analyze method calls on tracked variables
     analyze_method_calls(sema, db, &source_file, &mut variables);
+    
+    // Analyze standalone expressions
+    let expressions = analyze_expressions(sema, db, &source_file);
 
-    variables
+    (variables, expressions)
 }
 
 /// Analyze a let statement
@@ -995,6 +1001,146 @@ pub fn analyze_method_calls(
             variables[idx].method_calls.push(method_info);
         }
     }
+}
+
+// =============================================================================
+// STANDALONE EXPRESSION TRACKING (Phase 2 of Semantic Expansion)
+// =============================================================================
+
+/// Analyze standalone function calls (thread::spawn, drop, transmute, etc.)
+pub fn analyze_expressions(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<ExpressionInfo> {
+    let mut expressions = Vec::new();
+
+    for node in source_file.syntax().descendants() {
+        // Handle function calls: drop(x), thread::spawn(|| {}), transmute(x)
+        if let Some(call) = ast::CallExpr::cast(node) {
+            if let Some(expr_info) = analyze_call_expr(sema, db, &call, source_file) {
+                expressions.push(expr_info);
+            }
+        }
+    }
+
+    expressions
+}
+
+/// Analyze a function call expression
+fn analyze_call_expr(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    call: &ast::CallExpr,
+    source_file: &ast::SourceFile,
+) -> Option<ExpressionInfo> {
+    let callee = call.expr()?;
+    
+    // Get the path expression (e.g., std::mem::drop, thread::spawn)
+    let path_expr = match &callee {
+        ast::Expr::PathExpr(p) => p.clone(),
+        _ => return None,
+    };
+    
+    let path = path_expr.path()?;
+    
+    // Resolve the function
+    let resolved = sema.resolve_path(&path)?;
+    let func_path = get_resolved_path(&resolved, db)?;
+    
+    // Classify the function call
+    let operation = classify_function_call(&func_path)?;
+    
+    let (line, column) = get_call_location(call, source_file);
+    
+    // Extract argument if it's a simple variable
+    let argument = call.arg_list()
+        .and_then(|args| args.args().next())
+        .and_then(|arg| {
+            if let ast::Expr::PathExpr(p) = arg {
+                p.path()?.segment()?.name_ref().map(|n| n.text().to_string())
+            } else {
+                None
+            }
+        });
+    
+    // Get result type
+    let result_type = sema.type_of_expr(&ast::Expr::CallExpr(call.clone()))
+        .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+
+    Some(ExpressionInfo {
+        line,
+        column,
+        kind: "function_call".to_string(),
+        path: Some(func_path),
+        operation,
+        argument,
+        result_type,
+    })
+}
+
+/// Get the canonical path of a resolved item
+fn get_resolved_path(resolved: &ra_ap_hir::PathResolution, db: &RootDatabase) -> Option<String> {
+    use ra_ap_hir::PathResolution;
+    match resolved {
+        PathResolution::Def(def) => {
+            use ra_ap_hir::ModuleDef;
+            match def {
+                ModuleDef::Function(f) => {
+                    let module = f.module(db);
+                    let krate = module.krate().display_name(db)?;
+                    let mod_path = module.path_to_root(db)
+                        .into_iter()
+                        .rev()
+                        .filter_map(|m| m.name(db))
+                        .map(|n| n.as_str().to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    let fn_name = f.name(db).as_str().to_string();
+                    if mod_path.is_empty() {
+                        Some(format!("{}::{}", krate, fn_name))
+                    } else {
+                        Some(format!("{}::{}::{}", krate, mod_path, fn_name))
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Classify a function call by its canonical path
+fn classify_function_call(path: &str) -> Option<String> {
+    match path {
+        // Thread spawning
+        p if p.ends_with("::thread::spawn") => Some("thread_spawn".to_string()),
+        
+        // Memory operations
+        p if p.ends_with("::mem::drop") => Some("drop".to_string()),
+        p if p.ends_with("::mem::forget") => Some("forget".to_string()),
+        p if p.ends_with("::mem::transmute") => Some("transmute".to_string()),
+        p if p.ends_with("::mem::transmute_copy") => Some("transmute_copy".to_string()),
+        p if p.ends_with("::mem::replace") => Some("mem_replace".to_string()),
+        p if p.ends_with("::mem::swap") => Some("mem_swap".to_string()),
+        p if p.ends_with("::mem::take") => Some("mem_take".to_string()),
+        
+        // Pointer operations
+        p if p.ends_with("::ptr::read") => Some("ptr_read".to_string()),
+        p if p.ends_with("::ptr::write") => Some("ptr_write".to_string()),
+        p if p.ends_with("::ptr::read_volatile") => Some("ptr_read_volatile".to_string()),
+        p if p.ends_with("::ptr::write_volatile") => Some("ptr_write_volatile".to_string()),
+        p if p.ends_with("::ptr::copy") => Some("ptr_copy".to_string()),
+        p if p.ends_with("::ptr::copy_nonoverlapping") => Some("ptr_copy_nonoverlapping".to_string()),
+        
+        _ => None,
+    }
+}
+
+/// Get location of a call expression
+fn get_call_location(call: &ast::CallExpr, source_file: &ast::SourceFile) -> (u32, u32) {
+    let range = call.syntax().text_range();
+    get_location(&range, source_file)
 }
 
 /// Extract the receiver variable name from a method call expression
