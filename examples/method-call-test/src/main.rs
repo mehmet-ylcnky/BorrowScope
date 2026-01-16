@@ -85,6 +85,35 @@ fn test_thread_spawn() {
     let _ = std::thread::spawn(|| 42);  // Should track: thread_spawn
 }
 
+// Phase 4: Option/Result methods
+fn test_option_methods() {
+    let opt: Option<i32> = Some(42);
+    let _ = opt.unwrap();  // Should track: option_unwrap
+    
+    let opt2: Option<i32> = Some(42);
+    let _ = opt2.expect("msg");  // Should track: option_expect
+    
+    let opt3: Option<i32> = None;
+    let _ = opt3.unwrap_or(0);  // Should track: option_unwrap_or
+}
+
+fn test_result_methods() {
+    let res: Result<i32, &str> = Ok(42);
+    let _ = res.unwrap();  // Should track: result_unwrap
+    
+    let res2: Result<i32, &str> = Ok(42);
+    let _ = res2.expect("msg");  // Should track: result_expect
+}
+
+// Phase 5: Clone
+fn test_clone() {
+    let s = String::from("hello");
+    let _ = s.clone();  // Should track: clone
+    
+    let v = vec![1, 2, 3];
+    let _ = v.clone();  // Should track: clone
+}
+
 fn main() {
     test_cell_methods();
     test_cow_methods();
@@ -98,4 +127,7 @@ fn main() {
     test_rwlock_methods();
     test_drop_forget();
     test_thread_spawn();
+    test_option_methods();
+    test_result_methods();
+    test_clone();
 }

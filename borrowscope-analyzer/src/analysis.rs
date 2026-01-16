@@ -1324,6 +1324,47 @@ fn classify_method_operation(receiver_type: &str, method_name: &str) -> Option<S
         };
     }
     
+    // Phase 4: Option methods
+    if receiver_type.starts_with("Option<") {
+        return match method_name {
+            "unwrap" => Some("option_unwrap".to_string()),
+            "expect" => Some("option_expect".to_string()),
+            "unwrap_or" => Some("option_unwrap_or".to_string()),
+            "unwrap_or_else" => Some("option_unwrap_or_else".to_string()),
+            "unwrap_or_default" => Some("option_unwrap_or_default".to_string()),
+            "map" => Some("option_map".to_string()),
+            "and_then" => Some("option_and_then".to_string()),
+            "ok_or" => Some("option_ok_or".to_string()),
+            "take" => Some("option_take".to_string()),
+            "replace" => Some("option_replace".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Phase 4: Result methods
+    if receiver_type.starts_with("Result<") {
+        return match method_name {
+            "unwrap" => Some("result_unwrap".to_string()),
+            "expect" => Some("result_expect".to_string()),
+            "unwrap_or" => Some("result_unwrap_or".to_string()),
+            "unwrap_or_else" => Some("result_unwrap_or_else".to_string()),
+            "unwrap_or_default" => Some("result_unwrap_or_default".to_string()),
+            "unwrap_err" => Some("result_unwrap_err".to_string()),
+            "expect_err" => Some("result_expect_err".to_string()),
+            "map" => Some("result_map".to_string()),
+            "map_err" => Some("result_map_err".to_string()),
+            "and_then" => Some("result_and_then".to_string()),
+            "ok" => Some("result_ok".to_string()),
+            "err" => Some("result_err".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Phase 5: Generic clone (for types not covered above)
+    if method_name == "clone" {
+        return Some("clone".to_string());
+    }
+    
     None
 }
 
