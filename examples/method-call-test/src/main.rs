@@ -1,10 +1,14 @@
-//! Test file for method call tracking (Phase 1)
+//! Test file for method call tracking (Phase 1 + Phase 1.5)
 
 use std::cell::Cell;
 use std::borrow::Cow;
 use std::cell::OnceCell;
 use std::sync::mpsc;
 use std::thread;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::cell::RefCell;
+use std::sync::{Mutex, RwLock};
 
 fn test_cell_methods() {
     let cell = Cell::new(42);
@@ -36,10 +40,48 @@ fn test_thread_join() {
     let _ = handle.join();  // Should track: thread_join, self_borrow: consuming
 }
 
+// Phase 1.5: Smart pointer methods
+fn test_rc_methods() {
+    let rc = Rc::new(42);
+    let _ = rc.clone();  // Should track: rc_clone
+    let weak = Rc::downgrade(&rc);  // downgrade is associated fn, not method
+    let _ = weak.upgrade();  // Should track: weak_upgrade
+}
+
+fn test_arc_methods() {
+    let arc = Arc::new(42);
+    let _ = arc.clone();  // Should track: arc_clone
+    let weak = Arc::downgrade(&arc);  // downgrade is associated fn
+    let _ = weak.upgrade();  // Should track: weak_upgrade
+}
+
+fn test_refcell_methods() {
+    let refcell = RefCell::new(42);
+    let _ = refcell.borrow();  // Should track: refcell_borrow
+    let _ = refcell.borrow_mut();  // Should track: refcell_borrow_mut
+}
+
+fn test_mutex_methods() {
+    let mutex = Mutex::new(42);
+    let _ = mutex.lock();  // Should track: mutex_lock
+    let _ = mutex.try_lock();  // Should track: mutex_try_lock
+}
+
+fn test_rwlock_methods() {
+    let rwlock = RwLock::new(42);
+    let _ = rwlock.read();  // Should track: rwlock_read
+    let _ = rwlock.write();  // Should track: rwlock_write
+}
+
 fn main() {
     test_cell_methods();
     test_cow_methods();
     test_once_cell_methods();
     test_channel_methods();
     test_thread_join();
+    test_rc_methods();
+    test_arc_methods();
+    test_refcell_methods();
+    test_mutex_methods();
+    test_rwlock_methods();
 }

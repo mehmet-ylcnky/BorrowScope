@@ -81,79 +81,100 @@ x.some_method();     // ✅ NEW: method_calls[] = [{receiver: "x", method: "some
 
 ## Implementation Plan
 
-### Phase 1: Method Call Tracking on Known Variables
+### Phase 1: Method Call Tracking on Known Variables ✅ COMPLETE
 
-**File:** `analysis.rs`
-**New Function:** `analyze_method_calls()`
+**Status:** Implemented in commit `42b01190b` and `eb879f159`
 
-Track method calls where the receiver is a known variable with a tracked type.
+**Files Modified:**
+- `output.rs`: Added `MethodCallInfo` struct, `method_calls` field to `VariableTypeInfo`
+- `analysis.rs`: Added `analyze_method_calls()`, `resolve_self_borrow()`, `classify_method_operation()`, `extract_tuple_elements()`
 
-#### 1.1 Cell Methods (Eliminates 1 syntactic pattern)
+**Schema Version:** 2.4
 
-| Method | Receiver Type | Operation | Macro Pattern Eliminated |
-|--------|---------------|-----------|--------------------------|
-| `.set(v)` | `Cell<T>` | `cell_set` | `method_name == "set"` |
+#### Implemented Functions
 
-**Implementation:**
-```rust
-// In analyze_file(), after collecting variables:
-for node in source_file.syntax().descendants() {
-    if let Some(method_call) = ast::MethodCallExpr::cast(node) {
-        if let Some(receiver_name) = extract_receiver_name(&method_call) {
-            if let Some(var_info) = variables.get_mut(&receiver_name) {
-                let method_name = method_call.name_ref()?.text().to_string();
-                let receiver_type = sema.type_of_expr(&method_call.receiver())?;
-                
-                if is_cell_type(&receiver_type, db) && method_name == "set" {
-                    var_info.method_calls.push(MethodCall {
-                        method: "set",
-                        operation: "cell_set",
-                        line: method_call.syntax().text_range().start().into(),
-                    });
-                }
-            }
-        }
-    }
-}
-```
+##### `analyze_method_calls(sema, db, source_file, variables)`
+Iterates over all `MethodCallExpr` nodes in the source file, extracts the receiver variable name, and associates method calls with their corresponding `VariableTypeInfo`.
 
-#### 1.2 Cow Methods (Eliminates 1 syntactic pattern)
+Key features:
+- Handles shadowed variables by matching the most recent declaration before the call (by line number)
+- Supports tuple destructuring: `(tx, rx)` elements are indexed separately
+- Extracts `mut` bindings correctly: `let mut cow` → variable name `cow`
 
-| Method | Receiver Type | Operation | Macro Pattern Eliminated |
-|--------|---------------|-----------|--------------------------|
-| `.to_mut()` | `Cow<T>` | `cow_to_mut` | `method.to_string() == "to_mut"` |
+##### `resolve_self_borrow(sema, method_call, db) -> Option<String>`
+Uses `sema.resolve_method_call()` to get the actual function definition, then inspects `self_param.access()` to determine:
+- `"immutable"` for `&self`
+- `"mutable"` for `&mut self`
+- `"consuming"` for `self`
 
-#### 1.3 OnceCell/OnceLock Methods (Eliminates 3 syntactic patterns)
+##### `classify_method_operation(receiver_type, method_name) -> Option<String>`
+Pattern matches (receiver_type, method_name) pairs to semantic operation names.
 
-| Method | Receiver Type | Operation | Macro Pattern Eliminated |
-|--------|---------------|-----------|--------------------------|
-| `.set(v)` | `OnceCell<T>` / `OnceLock<T>` | `once_cell_set` | `method_name == "set"` |
-| `.get()` | `OnceCell<T>` / `OnceLock<T>` | `once_cell_get` | `method_name == "get"` |
-| `.get_or_init(f)` | `OnceCell<T>` / `OnceLock<T>` | `once_cell_get_or_init` | `method_name == "get_or_init"` |
+##### `extract_tuple_elements(tuple_pat) -> Vec<String>`
+Parses tuple pattern strings like `"(tx, rx)"` into individual element names for method call matching.
 
-#### 1.4 MaybeUninit Methods (Eliminates 4 syntactic patterns)
+#### Phase 1 Patterns Implemented (13 patterns)
 
-| Method | Receiver Type | Operation | Macro Pattern Eliminated |
-|--------|---------------|-----------|--------------------------|
-| `.write(v)` | `MaybeUninit<T>` | `maybe_uninit_write` | `method_name == "write"` |
-| `.assume_init()` | `MaybeUninit<T>` | `maybe_uninit_assume_init` | `method_name == "assume_init"` |
-| `.assume_init_read()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_read` | `method_name == "assume_init_read"` |
-| `.assume_init_drop()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_drop` | `method_name == "assume_init_drop"` |
+| Method | Receiver Type | Operation | Self Borrow |
+|--------|---------------|-----------|-------------|
+| `.set(v)` | `Cell<T>` | `cell_set` | immutable |
+| `.get()` | `Cell<T>` | `cell_get` | immutable |
+| `.replace()` | `Cell<T>` | `cell_replace` | immutable |
+| `.take()` | `Cell<T>` | `cell_take` | immutable |
+| `.to_mut()` | `Cow<T>` | `cow_to_mut` | mutable |
+| `.into_owned()` | `Cow<T>` | `cow_into_owned` | consuming |
+| `.set(v)` | `OnceCell<T>` | `once_cell_set` | immutable |
+| `.get()` | `OnceCell<T>` | `once_cell_get` | immutable |
+| `.get_or_init(f)` | `OnceCell<T>` | `once_cell_get_or_init` | immutable |
+| `.get_or_try_init(f)` | `OnceCell<T>` | `once_cell_get_or_try_init` | immutable |
+| `.write(v)` | `MaybeUninit<T>` | `maybe_uninit_write` | mutable |
+| `.assume_init()` | `MaybeUninit<T>` | `maybe_uninit_assume_init` | consuming |
+| `.assume_init_read()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_read` | immutable |
+| `.assume_init_drop()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_drop` | mutable |
+| `.assume_init_ref()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_ref` | immutable |
+| `.assume_init_mut()` | `MaybeUninit<T>` | `maybe_uninit_assume_init_mut` | mutable |
+| `.send(v)` | `Sender<T>` | `channel_send` | immutable |
+| `.try_send(v)` | `SyncSender<T>` | `channel_try_send` | immutable |
+| `.recv()` | `Receiver<T>` | `channel_recv` | immutable |
+| `.try_recv()` | `Receiver<T>` | `channel_try_recv` | immutable |
+| `.recv_timeout()` | `Receiver<T>` | `channel_recv_timeout` | immutable |
+| `.iter()` | `Receiver<T>` | `channel_iter` | immutable |
+| `.join()` | `JoinHandle<T>` | `thread_join` | consuming |
+| `.is_finished()` | `JoinHandle<T>` | `thread_is_finished` | immutable |
 
-#### 1.5 Channel Methods (Eliminates 4 syntactic patterns)
+#### Tests
 
-| Method | Receiver Type | Operation | Macro Pattern Eliminated |
-|--------|---------------|-----------|--------------------------|
-| `.send(v)` | `Sender<T>` / `SyncSender<T>` | `channel_send` | `method_name == "send"` |
-| `.recv()` | `Receiver<T>` | `channel_recv` | `method_name == "recv"` |
-| `.try_recv()` | `Receiver<T>` | `channel_try_recv` | `method_name == "try_recv"` |
-| `.join()` | `JoinHandle<T>` | `thread_join` | `method_name == "join"` |
+Integration tests in `borrowscope-analyzer/tests/method_call_tracking.rs`:
+- `test_cell_method_tracking`
+- `test_cow_method_tracking`
+- `test_once_cell_method_tracking`
+- `test_channel_method_tracking`
+- `test_join_handle_method_tracking`
+- `test_self_borrow_detection`
 
-**New Type Detection Required:**
-```rust
-// Add to classify_by_path:
-"std::thread::JoinHandle" => "join_handle",
-```
+---
+
+### Phase 1.5: Smart Pointer Method Patterns (TODO)
+
+Extend `classify_method_operation()` to cover smart pointer methods not yet tracked.
+
+| Method | Receiver Type | Operation | Priority |
+|--------|---------------|-----------|----------|
+| `.clone()` | `Rc<T>` | `rc_clone` | High |
+| `.downgrade()` | `Rc<T>` | `rc_downgrade` | Medium |
+| `.upgrade()` | `Weak<T>` (Rc) | `rc_weak_upgrade` | Medium |
+| `.clone()` | `Arc<T>` | `arc_clone` | High |
+| `.downgrade()` | `Arc<T>` | `arc_downgrade` | Medium |
+| `.upgrade()` | `Weak<T>` (Arc) | `arc_weak_upgrade` | Medium |
+| `.borrow()` | `RefCell<T>` | `refcell_borrow` | High |
+| `.borrow_mut()` | `RefCell<T>` | `refcell_borrow_mut` | High |
+| `.lock()` | `Mutex<T>` | `mutex_lock` | High |
+| `.try_lock()` | `Mutex<T>` | `mutex_try_lock` | Medium |
+| `.read()` | `RwLock<T>` | `rwlock_read` | High |
+| `.write()` | `RwLock<T>` | `rwlock_write` | High |
+| `.try_read()` | `RwLock<T>` | `rwlock_try_read` | Medium |
+| `.try_write()` | `RwLock<T>` | `rwlock_try_write` | Medium |
+| `.into_inner()` | Various | `into_inner` | Low |
 
 ---
 

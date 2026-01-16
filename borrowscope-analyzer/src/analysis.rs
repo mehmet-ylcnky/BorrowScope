@@ -1116,6 +1116,68 @@ fn classify_method_operation(receiver_type: &str, method_name: &str) -> Option<S
         };
     }
     
+    // Rc methods
+    if receiver_type.starts_with("Rc<") {
+        return match method_name {
+            "clone" => Some("rc_clone".to_string()),
+            "downgrade" => Some("rc_downgrade".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Arc methods
+    if receiver_type.starts_with("Arc<") {
+        return match method_name {
+            "clone" => Some("arc_clone".to_string()),
+            "downgrade" => Some("arc_downgrade".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Weak (Rc/Arc) methods
+    if receiver_type.starts_with("Weak<") {
+        return match method_name {
+            "upgrade" => Some("weak_upgrade".to_string()),
+            "clone" => Some("weak_clone".to_string()),
+            _ => None,
+        };
+    }
+    
+    // RefCell methods
+    if receiver_type.starts_with("RefCell<") {
+        return match method_name {
+            "borrow" => Some("refcell_borrow".to_string()),
+            "borrow_mut" => Some("refcell_borrow_mut".to_string()),
+            "try_borrow" => Some("refcell_try_borrow".to_string()),
+            "try_borrow_mut" => Some("refcell_try_borrow_mut".to_string()),
+            "into_inner" => Some("refcell_into_inner".to_string()),
+            "replace" => Some("refcell_replace".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Mutex methods
+    if receiver_type.starts_with("Mutex<") {
+        return match method_name {
+            "lock" => Some("mutex_lock".to_string()),
+            "try_lock" => Some("mutex_try_lock".to_string()),
+            "into_inner" => Some("mutex_into_inner".to_string()),
+            _ => None,
+        };
+    }
+    
+    // RwLock methods
+    if receiver_type.starts_with("RwLock<") {
+        return match method_name {
+            "read" => Some("rwlock_read".to_string()),
+            "write" => Some("rwlock_write".to_string()),
+            "try_read" => Some("rwlock_try_read".to_string()),
+            "try_write" => Some("rwlock_try_write".to_string()),
+            "into_inner" => Some("rwlock_into_inner".to_string()),
+            _ => None,
+        };
+    }
+    
     None
 }
 
