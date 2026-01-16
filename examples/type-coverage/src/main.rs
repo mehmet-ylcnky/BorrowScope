@@ -590,6 +590,17 @@ fn test_advanced_types() {
     // MaybeUninit
     let uninit: MaybeUninit<i32> = MaybeUninit::uninit();
     let init: MaybeUninit<i32> = MaybeUninit::new(42);
+    
+    // MaybeUninit method calls
+    let mut mu: MaybeUninit<i32> = MaybeUninit::uninit();
+    mu.write(42);
+    let _val = unsafe { mu.assume_init() };
+    
+    let mut mu2: MaybeUninit<i32> = MaybeUninit::new(100);
+    let _read = unsafe { mu2.assume_init_read() };
+    
+    let mut mu3: MaybeUninit<String> = MaybeUninit::new(String::from("drop me"));
+    unsafe { mu3.assume_init_drop() };
 
     // PhantomData
     let phantom: PhantomData<String> = PhantomData;
@@ -864,6 +875,189 @@ fn test_panic_support() {
     panic::set_hook(default_hook);
 }
 
+// ============================================================================
+// METHOD CALL TRACKING TESTS (Semantic Operation Classification)
+// ============================================================================
+
+// Type alias for testing semantic resolution through aliases
+type MyCell<T> = Cell<T>;
+type MyCow<'a, T: ?Sized + ToOwned> = Cow<'a, T>;
+type MyOption<T> = Option<T>;
+type MyResult<T, E> = Result<T, E>;
+
+fn test_method_calls_cell() {
+    // Direct Cell
+    let cell = Cell::new(42);
+    cell.set(100);  // cell_set
+    let _ = cell.get();  // cell_get
+    
+    // Cell via type alias - should still resolve to cell_* operations
+    let my_cell: MyCell<i32> = MyCell::new(42);
+    my_cell.set(200);  // Should be cell_set (semantic)
+    let _ = my_cell.get();  // Should be cell_get (semantic)
+}
+
+fn test_method_calls_cow() {
+    // Direct Cow
+    let mut cow: Cow<str> = Cow::Borrowed("hello");
+    let _ = cow.to_mut();  // cow_to_mut
+    
+    // Cow via type alias
+    let mut my_cow: MyCow<str> = MyCow::Borrowed("world");
+    let _ = my_cow.to_mut();  // Should be cow_to_mut (semantic)
+}
+
+fn test_method_calls_once_cell() {
+    let cell: OnceCell<i32> = OnceCell::new();
+    let _ = cell.set(42);  // once_cell_set
+    let _ = cell.get();  // once_cell_get
+    let _ = cell.get_or_init(|| 42);  // once_cell_get_or_init
+}
+
+fn test_method_calls_channels() {
+    use std::sync::mpsc;
+    let (tx, rx) = mpsc::channel();
+    let _ = tx.send(42);  // channel_send
+    let _ = rx.recv();  // channel_recv
+    let _ = rx.try_recv();  // channel_try_recv
+}
+
+fn test_method_calls_thread_join() {
+    use std::thread;
+    let handle = thread::spawn(|| 42);
+    let _ = handle.join();  // thread_join (consuming)
+}
+
+fn test_method_calls_smart_pointers() {
+    // Rc
+    let rc = Rc::new(42);
+    let _ = rc.clone();  // rc_clone
+    let weak = Rc::downgrade(&rc);
+    let _ = weak.upgrade();  // weak_upgrade
+    
+    // Arc
+    let arc = Arc::new(42);
+    let _ = arc.clone();  // arc_clone
+    let arc_weak = Arc::downgrade(&arc);
+    let _ = arc_weak.upgrade();  // weak_upgrade
+    
+    // Rc via type alias
+    let my_rc: MyRc<i32> = MyRc::new(42);
+    let _ = my_rc.clone();  // Should be rc_clone (semantic)
+    
+    // Arc via type alias
+    let my_arc: MyArc<i32> = MyArc::new(42);
+    let _ = my_arc.clone();  // Should be arc_clone (semantic)
+}
+
+fn test_method_calls_refcell() {
+    let refcell = RefCell::new(42);
+    let _ = refcell.borrow();  // refcell_borrow
+    let _ = refcell.borrow_mut();  // refcell_borrow_mut
+}
+
+fn test_method_calls_mutex_rwlock() {
+    let mutex = Mutex::new(42);
+    let _ = mutex.lock();  // mutex_lock
+    let _ = mutex.try_lock();  // mutex_try_lock
+    
+    let rwlock = RwLock::new(42);
+    let _ = rwlock.read();  // rwlock_read
+    let _ = rwlock.write();  // rwlock_write
+}
+
+fn test_method_calls_option_result() {
+    // Direct Option
+    let opt: Option<i32> = Some(42);
+    let _ = opt.unwrap();  // option_unwrap
+    
+    let opt2: Option<i32> = Some(42);
+    let _ = opt2.expect("msg");  // option_expect
+    
+    let opt3: Option<i32> = None;
+    let _ = opt3.unwrap_or(0);  // option_unwrap_or
+    
+    // Option via type alias
+    let my_opt: MyOption<i32> = Some(42);
+    let _ = my_opt.unwrap();  // Should be option_unwrap (semantic)
+    
+    // Direct Result
+    let res: Result<i32, &str> = Ok(42);
+    let _ = res.unwrap();  // result_unwrap
+    
+    let res2: Result<i32, &str> = Ok(42);
+    let _ = res2.expect("msg");  // result_expect
+    
+    // Result via type alias
+    let my_res: MyResult<i32, &str> = Ok(42);
+    let _ = my_res.unwrap();  // Should be result_unwrap (semantic)
+}
+
+fn test_method_calls_clone() {
+    let s = String::from("hello");
+    let _ = s.clone();  // clone
+    
+    let v = vec![1, 2, 3];
+    let _ = v.clone();  // clone
+}
+
+fn test_standalone_expressions() {
+    let x = Box::new(42);
+    let y = Box::new(43);
+    drop(x);  // drop, argument: "x"
+    std::mem::forget(y);  // forget, argument: "y"
+    
+    // Closure with no captures
+    let _ = std::thread::spawn(|| 42);  // thread_spawn, argument: "<closure>"
+    
+    // Closure with captures
+    let data = vec![1, 2, 3];
+    let multiplier = 2;
+    let _ = std::thread::spawn(move || {
+        // Captures: data, multiplier
+        data.iter().map(|x| x * multiplier).sum::<i32>()
+    });  // thread_spawn, argument: "<closure captures: data, multiplier>"
+    
+    // mem::replace, swap, take
+    let mut a = String::from("hello");
+    let old = std::mem::replace(&mut a, String::from("world"));
+    let _ = old;
+    
+    let mut b = String::from("foo");
+    let mut c = String::from("bar");
+    std::mem::swap(&mut b, &mut c);
+    
+    let mut d = Some(42);
+    let taken = std::mem::take(&mut d);
+    let _ = taken;
+    
+    // transmute (unsafe)
+    let num: u32 = 42;
+    let _bytes: [u8; 4] = unsafe { std::mem::transmute(num) };
+    
+    // transmute_copy
+    let src: u32 = 0x12345678;
+    let _dst: [u8; 4] = unsafe { std::mem::transmute_copy(&src) };
+    
+    // ptr operations (unsafe)
+    let mut val = 100i32;
+    let ptr = &mut val as *mut i32;
+    unsafe {
+        let read_val = std::ptr::read(ptr);
+        std::ptr::write(ptr, read_val + 1);
+        
+        // volatile operations
+        let _volatile_read = std::ptr::read_volatile(ptr);
+        std::ptr::write_volatile(ptr, 200);
+        
+        // copy operations
+        let mut dest = 0i32;
+        let dest_ptr = &mut dest as *mut i32;
+        std::ptr::copy(ptr, dest_ptr, 1);
+        std::ptr::copy_nonoverlapping(ptr, dest_ptr, 1);
+    }
+}
+
 fn main() {
     test_type_aliases();
     test_binding_patterns();
@@ -892,4 +1086,17 @@ fn main() {
     test_impl_trait();
     test_never_type();
     test_panic_support();
+    
+    // Method call tracking tests
+    test_method_calls_cell();
+    test_method_calls_cow();
+    test_method_calls_once_cell();
+    test_method_calls_channels();
+    test_method_calls_thread_join();
+    test_method_calls_smart_pointers();
+    test_method_calls_refcell();
+    test_method_calls_mutex_rwlock();
+    test_method_calls_option_result();
+    test_method_calls_clone();
+    test_standalone_expressions();
 }

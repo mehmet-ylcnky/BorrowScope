@@ -5,14 +5,103 @@
 
 use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_project_model::CargoConfig;
 use ra_ap_syntax::{ast, AstNode, Edition, SyntaxKind};
 use ra_ap_syntax::ast::{HasName, HasArgList};
+use std::collections::HashMap;
 use std::path::Path;
 use tracing::{info, warn};
+
+/// Functions we track for ownership-relevant operations.
+/// Looked up once at startup by semantic identity (FunctionId), not string matching.
+#[derive(Default)]
+pub(crate) struct TrackedFunctions {
+    /// Maps FunctionId to canonical path for tracked functions
+    functions: HashMap<Function, String>,
+}
+
+impl TrackedFunctions {
+    /// Build the set of tracked functions by looking them up semantically
+    fn new(db: &RootDatabase) -> Self {
+        use ra_ap_hir::{import_map, ModuleDef, Crate};
+        
+        let mut tracked = Self::default();
+        
+        // Functions to track: (function_name, acceptable_modules)
+        // Some functions are intrinsics re-exported to mem/ptr
+        let functions_to_find: &[(&str, &[&str])] = &[
+            ("drop", &["mem"]),
+            ("forget", &["mem"]),
+            ("transmute", &["mem", "intrinsics"]),
+            ("transmute_copy", &["mem"]),
+            ("replace", &["mem"]),
+            ("swap", &["mem"]),
+            ("take", &["mem"]),
+            ("spawn", &["thread"]),
+            ("read", &["ptr"]),
+            ("write", &["ptr"]),
+            ("read_volatile", &["ptr", "intrinsics"]),
+            ("write_volatile", &["ptr", "intrinsics"]),
+            ("copy", &["ptr", "intrinsics"]),
+            ("copy_nonoverlapping", &["ptr", "intrinsics"]),
+        ];
+        
+        for krate in Crate::all(db) {
+            for (fn_name, acceptable_modules) in functions_to_find {
+                let query = import_map::Query::new(fn_name.to_string()).exact();
+                for item in krate.query_external_importables(db, query) {
+                    if let either::Either::Left(ModuleDef::Function(f)) = item {
+                        let module = f.module(db);
+                        let module_name = module.name(db)
+                            .map(|n| n.display_no_db(Edition::Edition2021).to_string());
+                        
+                        if let Some(ref name) = module_name {
+                            if acceptable_modules.contains(&name.as_str()) {
+                                let path = get_function_path(&f, db);
+                                tracked.functions.insert(f, path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        for path in tracked.functions.values() {
+            println!("    Tracked: {}", path);
+        }
+        info!("Tracked {} ownership-relevant functions", tracked.functions.len());
+        tracked
+    }
+    
+    /// Check if a function is tracked and return its canonical path
+    fn get_path(&self, func: &Function) -> Option<&String> {
+        self.functions.get(func)
+    }
+}
+
+/// Get the canonical path of a function
+fn get_function_path(f: &Function, db: &RootDatabase) -> String {
+    let module = f.module(db);
+    let krate = module.krate().display_name(db)
+        .map(|n| n.to_string())
+        .unwrap_or_default();
+    let mod_path: Vec<String> = module.path_to_root(db)
+        .into_iter()
+        .rev()
+        .filter_map(|m| m.name(db))
+        .map(|n| n.display_no_db(Edition::Edition2021).to_string())
+        .collect();
+    let fn_name = f.name(db).display_no_db(Edition::Edition2021).to_string();
+    
+    if mod_path.is_empty() {
+        format!("{}::{}", krate, fn_name)
+    } else {
+        format!("{}::{}::{}", krate, mod_path.join("::"), fn_name)
+    }
+}
 
 /// Analyze a Rust project and extract type information for all variables
 pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
@@ -48,6 +137,9 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
     let mut info = ProjectTypeInfo::new();
     let sema = Semantics::new(&db);
+    
+    // Look up tracked functions once by semantic identity
+    let tracked_functions = TrackedFunctions::new(&db);
 
     for (file_id, vfs_path) in vfs.iter() {
         let path_str = match vfs_path.as_path() {
@@ -84,7 +176,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions) = analyze_file(&sema, &db, file_id, &relative);
+        let (variables, expressions) = analyze_file(&sema, &db, &tracked_functions, file_id, &relative);
         if !variables.is_empty() {
             info.files.insert(relative.clone(), variables);
         }
@@ -100,6 +192,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 fn analyze_file(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    tracked_functions: &TrackedFunctions,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
 ) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>) {
@@ -160,8 +253,8 @@ fn analyze_file(
     // Analyze method calls on tracked variables
     analyze_method_calls(sema, db, &source_file, &mut variables);
     
-    // Analyze standalone expressions
-    let expressions = analyze_expressions(sema, db, &source_file);
+    // Analyze standalone expressions (using semantic function lookup)
+    let expressions = analyze_expressions(sema, db, tracked_functions, &source_file);
 
     (variables, expressions)
 }
@@ -963,11 +1056,16 @@ pub fn analyze_method_calls(
 
         let (call_line, column) = get_method_call_location(&method_call, source_file);
 
-        // Get receiver type
-        let receiver_type = method_call
+        // Get receiver type (semantic)
+        let receiver_ty = method_call
             .receiver()
             .and_then(|r| sema.type_of_expr(&r))
-            .map(|ti| ti.original.display(db, Edition::Edition2021).to_string())
+            .map(|ti| ti.original);
+
+        // Get receiver type display string for output
+        let receiver_type = receiver_ty
+            .as_ref()
+            .map(|ty| ty.display(db, Edition::Edition2021).to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
         // Get result type
@@ -975,11 +1073,11 @@ pub fn analyze_method_calls(
             .type_of_expr(&ast::Expr::MethodCallExpr(method_call.clone()))
             .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
 
-        // Resolve self borrow type
+        // Resolve self borrow type (semantic)
         let self_borrow = resolve_self_borrow(sema, &method_call, db);
 
-        // Classify the operation
-        let operation = classify_method_operation(&receiver_type, &method_name);
+        // Get operation as the canonical method path (fully semantic)
+        let operation = resolve_method_path(sema, &method_call, db);
 
         let method_info = MethodCallInfo {
             method: method_name,
@@ -1008,9 +1106,11 @@ pub fn analyze_method_calls(
 // =============================================================================
 
 /// Analyze standalone function calls (thread::spawn, drop, transmute, etc.)
-pub fn analyze_expressions(
+/// Uses semantic function identity comparison (FunctionId), not string matching.
+fn analyze_expressions(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    tracked_functions: &TrackedFunctions,
     source_file: &ast::SourceFile,
 ) -> Vec<ExpressionInfo> {
     let mut expressions = Vec::new();
@@ -1018,7 +1118,7 @@ pub fn analyze_expressions(
     for node in source_file.syntax().descendants() {
         // Handle function calls: drop(x), thread::spawn(|| {}), transmute(x)
         if let Some(call) = ast::CallExpr::cast(node) {
-            if let Some(expr_info) = analyze_call_expr(sema, db, &call, source_file) {
+            if let Some(expr_info) = analyze_call_expr(sema, db, tracked_functions, &call, source_file) {
                 expressions.push(expr_info);
             }
         }
@@ -1027,10 +1127,11 @@ pub fn analyze_expressions(
     expressions
 }
 
-/// Analyze a function call expression
+/// Analyze a function call expression using semantic function identity
 fn analyze_call_expr(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    tracked_functions: &TrackedFunctions,
     call: &ast::CallExpr,
     source_file: &ast::SourceFile,
 ) -> Option<ExpressionInfo> {
@@ -1044,25 +1145,24 @@ fn analyze_call_expr(
     
     let path = path_expr.path()?;
     
-    // Resolve the function
+    // Resolve the function to its semantic identity (FunctionId)
     let resolved = sema.resolve_path(&path)?;
-    let func_path = get_resolved_path(&resolved, db)?;
     
-    // Classify the function call
-    let operation = classify_function_call(&func_path)?;
+    // Extract the Function from the resolution
+    let func = match &resolved {
+        ra_ap_hir::PathResolution::Def(ra_ap_hir::ModuleDef::Function(f)) => f,
+        _ => return None,
+    };
+    
+    // Check if this function is one we track (by FunctionId, not string)
+    let canonical_path = tracked_functions.get_path(func)?;
     
     let (line, column) = get_call_location(call, source_file);
     
-    // Extract argument if it's a simple variable
+    // Extract argument - variable name, or captured variables for closures
     let argument = call.arg_list()
         .and_then(|args| args.args().next())
-        .and_then(|arg| {
-            if let ast::Expr::PathExpr(p) = arg {
-                p.path()?.segment()?.name_ref().map(|n| n.text().to_string())
-            } else {
-                None
-            }
-        });
+        .and_then(|arg| extract_argument_info(&arg));
     
     // Get result type
     let result_type = sema.type_of_expr(&ast::Expr::CallExpr(call.clone()))
@@ -1072,69 +1172,108 @@ fn analyze_call_expr(
         line,
         column,
         kind: "function_call".to_string(),
-        path: Some(func_path),
-        operation,
+        path: Some(canonical_path.clone()),
+        operation: canonical_path.clone(),  // Operation IS the canonical path (fully semantic)
         argument,
         result_type,
     })
 }
 
-/// Get the canonical path of a resolved item
-fn get_resolved_path(resolved: &ra_ap_hir::PathResolution, db: &RootDatabase) -> Option<String> {
-    use ra_ap_hir::PathResolution;
-    match resolved {
-        PathResolution::Def(def) => {
-            use ra_ap_hir::ModuleDef;
-            match def {
-                ModuleDef::Function(f) => {
-                    let module = f.module(db);
-                    let krate = module.krate().display_name(db)?;
-                    let mod_path = module.path_to_root(db)
-                        .into_iter()
-                        .rev()
-                        .filter_map(|m| m.name(db))
-                        .map(|n| n.as_str().to_string())
-                        .collect::<Vec<_>>()
-                        .join("::");
-                    let fn_name = f.name(db).as_str().to_string();
-                    if mod_path.is_empty() {
-                        Some(format!("{}::{}", krate, fn_name))
-                    } else {
-                        Some(format!("{}::{}::{}", krate, mod_path, fn_name))
-                    }
-                }
-                _ => None,
+/// Extract argument info - variable name or captured variables for closures
+fn extract_argument_info(arg: &ast::Expr) -> Option<String> {
+    match arg {
+        // Simple variable: drop(x) -> "x"
+        ast::Expr::PathExpr(p) => {
+            p.path()?.segment()?.name_ref().map(|n| n.text().to_string())
+        }
+        // Closure: spawn(|| {}) or spawn(move || {}) -> extract captured variables
+        ast::Expr::ClosureExpr(closure) => {
+            let captured = extract_closure_captures(closure);
+            if captured.is_empty() {
+                Some("<closure>".to_string())
+            } else {
+                Some(format!("<closure captures: {}>", captured.join(", ")))
             }
+        }
+        // Reference: &x or &mut x
+        ast::Expr::RefExpr(ref_expr) => {
+            ref_expr.expr().and_then(|e| extract_argument_info(&e))
         }
         _ => None,
     }
 }
 
-/// Classify a function call by its canonical path
-fn classify_function_call(path: &str) -> Option<String> {
-    match path {
-        // Thread spawning
-        p if p.ends_with("::thread::spawn") => Some("thread_spawn".to_string()),
-        
-        // Memory operations
-        p if p.ends_with("::mem::drop") => Some("drop".to_string()),
-        p if p.ends_with("::mem::forget") => Some("forget".to_string()),
-        p if p.ends_with("::mem::transmute") => Some("transmute".to_string()),
-        p if p.ends_with("::mem::transmute_copy") => Some("transmute_copy".to_string()),
-        p if p.ends_with("::mem::replace") => Some("mem_replace".to_string()),
-        p if p.ends_with("::mem::swap") => Some("mem_swap".to_string()),
-        p if p.ends_with("::mem::take") => Some("mem_take".to_string()),
-        
-        // Pointer operations
-        p if p.ends_with("::ptr::read") => Some("ptr_read".to_string()),
-        p if p.ends_with("::ptr::write") => Some("ptr_write".to_string()),
-        p if p.ends_with("::ptr::read_volatile") => Some("ptr_read_volatile".to_string()),
-        p if p.ends_with("::ptr::write_volatile") => Some("ptr_write_volatile".to_string()),
-        p if p.ends_with("::ptr::copy") => Some("ptr_copy".to_string()),
-        p if p.ends_with("::ptr::copy_nonoverlapping") => Some("ptr_copy_nonoverlapping".to_string()),
-        
-        _ => None,
+/// Extract variable names captured by a closure
+fn extract_closure_captures(closure: &ast::ClosureExpr) -> Vec<String> {
+    let mut captures = Vec::new();
+    
+    // Get closure parameter names to exclude them
+    let mut param_names: Vec<String> = Vec::new();
+    if let Some(param_list) = closure.param_list() {
+        for param in param_list.params() {
+            if let Some(pat) = param.pat() {
+                if let ast::Pat::IdentPat(ident) = pat {
+                    if let Some(name) = ident.name() {
+                        param_names.push(name.text().to_string());
+                    }
+                }
+            }
+        }
     }
+    
+    // Get the closure body
+    let Some(body) = closure.body() else {
+        return captures;
+    };
+    
+    // Find all path expressions in the closure body that reference outer variables
+    for node in body.syntax().descendants() {
+        // Skip nested closure parameters
+        if let Some(nested_closure) = ast::ClosureExpr::cast(node.clone()) {
+            if let Some(nested_params) = nested_closure.param_list() {
+                for param in nested_params.params() {
+                    if let Some(pat) = param.pat() {
+                        if let ast::Pat::IdentPat(ident) = pat {
+                            if let Some(name) = ident.name() {
+                                param_names.push(name.text().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if let Some(path_expr) = ast::PathExpr::cast(node) {
+            if let Some(path) = path_expr.path() {
+                // Only simple identifiers (no :: qualifier)
+                if path.qualifier().is_none() {
+                    if let Some(segment) = path.segment() {
+                        if let Some(name_ref) = segment.name_ref() {
+                            let name = name_ref.text().to_string();
+                            // Skip closure parameters, common non-captures
+                            if !param_names.contains(&name) 
+                                && !is_likely_not_capture(&name) 
+                                && !captures.contains(&name) {
+                                captures.push(name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    captures
+}
+
+/// Check if a name is likely not a captured variable
+fn is_likely_not_capture(name: &str) -> bool {
+    matches!(name, 
+        "self" | "Self" | "true" | "false" | "None" | "Some" | "Ok" | "Err" |
+        "println" | "print" | "eprintln" | "eprint" | "format" | "panic" |
+        "vec" | "assert" | "assert_eq" | "assert_ne" | "debug_assert" |
+        "Box" | "Rc" | "Arc" | "Vec" | "String" | "Option" | "Result"
+    )
 }
 
 /// Get location of a call expression
@@ -1144,10 +1283,12 @@ fn get_call_location(call: &ast::CallExpr, source_file: &ast::SourceFile) -> (u3
 }
 
 /// Extract the receiver variable name from a method call expression
+/// Only returns a name if the receiver is a direct variable reference.
+/// Does NOT recurse into chained method calls - those are intermediate values.
 fn extract_receiver_name(method_call: &ast::MethodCallExpr) -> Option<String> {
     let receiver = method_call.receiver()?;
     
-    // Handle simple identifier: `cell.set(42)`
+    // Handle simple identifier: `cell.set(42)` -> "cell"
     if let ast::Expr::PathExpr(path_expr) = &receiver {
         if let Some(path) = path_expr.path() {
             if path.qualifier().is_none() {
@@ -1156,14 +1297,15 @@ fn extract_receiver_name(method_call: &ast::MethodCallExpr) -> Option<String> {
         }
     }
     
-    // Handle chained method calls: `cell.get().something()` - get the root
-    if let ast::Expr::MethodCallExpr(inner) = &receiver {
-        return extract_receiver_name(inner);
+    // Chained method calls: `mutex.lock().unwrap()` 
+    // The unwrap() is on Result, not on mutex - return None
+    // This is NOT a direct variable reference
+    if matches!(&receiver, ast::Expr::MethodCallExpr(_)) {
+        return None;
     }
     
-    // Handle field access: `self.cell.set(42)`
+    // Handle field access: `self.cell.set(42)` -> "cell"
     if let ast::Expr::FieldExpr(field) = &receiver {
-        // Return the field name as the "variable" for tracking
         return field.name_ref().map(|n| n.text().to_string());
     }
     
@@ -1187,185 +1329,40 @@ fn resolve_self_borrow(
     }
 }
 
-/// Classify method operation based on receiver type and method name
-fn classify_method_operation(receiver_type: &str, method_name: &str) -> Option<String> {
-    // Cell methods
-    if receiver_type.starts_with("Cell<") {
-        return match method_name {
-            "set" => Some("cell_set".to_string()),
-            "get" => Some("cell_get".to_string()),
-            "replace" => Some("cell_replace".to_string()),
-            "take" => Some("cell_take".to_string()),
-            _ => None,
-        };
+/// Resolve the canonical path of a method call using rust-analyzer (fully semantic)
+/// Returns the full path like "alloc::vec::Vec::push" or "core::cell::Cell::set"
+fn resolve_method_path(
+    sema: &Semantics<'_, RootDatabase>,
+    method_call: &ast::MethodCallExpr,
+    db: &RootDatabase,
+) -> Option<String> {
+    let func = sema.resolve_method_call(method_call)?;
+    
+    // Get the module containing this function
+    let module = func.module(db);
+    
+    // Build the module path
+    let mut segments: Vec<String> = module.path_to_root(db)
+        .into_iter()
+        .filter_map(|m| m.name(db).map(|n| n.display_no_db(Edition::Edition2021).to_string()))
+        .collect();
+    segments.reverse();
+    
+    // Get crate name
+    let krate = module.krate();
+    let crate_name = krate.display_name(db)
+        .map(|n| n.to_string())
+        .unwrap_or_default();
+    
+    if !crate_name.is_empty() {
+        segments.insert(0, crate_name);
     }
     
-    // Cow methods
-    if receiver_type.starts_with("Cow<") {
-        return match method_name {
-            "to_mut" => Some("cow_to_mut".to_string()),
-            "into_owned" => Some("cow_into_owned".to_string()),
-            _ => None,
-        };
-    }
+    // Add the function name
+    let fn_name = func.name(db).display_no_db(Edition::Edition2021).to_string();
+    segments.push(fn_name);
     
-    // OnceCell/OnceLock methods
-    if receiver_type.starts_with("OnceCell<") || receiver_type.starts_with("OnceLock<") {
-        return match method_name {
-            "set" => Some("once_cell_set".to_string()),
-            "get" => Some("once_cell_get".to_string()),
-            "get_or_init" => Some("once_cell_get_or_init".to_string()),
-            "get_or_try_init" => Some("once_cell_get_or_try_init".to_string()),
-            _ => None,
-        };
-    }
-    
-    // MaybeUninit methods
-    if receiver_type.starts_with("MaybeUninit<") {
-        return match method_name {
-            "write" => Some("maybe_uninit_write".to_string()),
-            "assume_init" => Some("maybe_uninit_assume_init".to_string()),
-            "assume_init_read" => Some("maybe_uninit_assume_init_read".to_string()),
-            "assume_init_drop" => Some("maybe_uninit_assume_init_drop".to_string()),
-            "assume_init_ref" => Some("maybe_uninit_assume_init_ref".to_string()),
-            "assume_init_mut" => Some("maybe_uninit_assume_init_mut".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Channel Sender methods
-    if receiver_type.starts_with("Sender<") || receiver_type.starts_with("SyncSender<") {
-        return match method_name {
-            "send" => Some("channel_send".to_string()),
-            "try_send" => Some("channel_try_send".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Channel Receiver methods
-    if receiver_type.starts_with("Receiver<") {
-        return match method_name {
-            "recv" => Some("channel_recv".to_string()),
-            "try_recv" => Some("channel_try_recv".to_string()),
-            "recv_timeout" => Some("channel_recv_timeout".to_string()),
-            "iter" => Some("channel_iter".to_string()),
-            _ => None,
-        };
-    }
-    
-    // JoinHandle methods
-    if receiver_type.starts_with("JoinHandle<") {
-        return match method_name {
-            "join" => Some("thread_join".to_string()),
-            "is_finished" => Some("thread_is_finished".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Rc methods
-    if receiver_type.starts_with("Rc<") {
-        return match method_name {
-            "clone" => Some("rc_clone".to_string()),
-            "downgrade" => Some("rc_downgrade".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Arc methods
-    if receiver_type.starts_with("Arc<") {
-        return match method_name {
-            "clone" => Some("arc_clone".to_string()),
-            "downgrade" => Some("arc_downgrade".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Weak (Rc/Arc) methods
-    if receiver_type.starts_with("Weak<") {
-        return match method_name {
-            "upgrade" => Some("weak_upgrade".to_string()),
-            "clone" => Some("weak_clone".to_string()),
-            _ => None,
-        };
-    }
-    
-    // RefCell methods
-    if receiver_type.starts_with("RefCell<") {
-        return match method_name {
-            "borrow" => Some("refcell_borrow".to_string()),
-            "borrow_mut" => Some("refcell_borrow_mut".to_string()),
-            "try_borrow" => Some("refcell_try_borrow".to_string()),
-            "try_borrow_mut" => Some("refcell_try_borrow_mut".to_string()),
-            "into_inner" => Some("refcell_into_inner".to_string()),
-            "replace" => Some("refcell_replace".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Mutex methods
-    if receiver_type.starts_with("Mutex<") {
-        return match method_name {
-            "lock" => Some("mutex_lock".to_string()),
-            "try_lock" => Some("mutex_try_lock".to_string()),
-            "into_inner" => Some("mutex_into_inner".to_string()),
-            _ => None,
-        };
-    }
-    
-    // RwLock methods
-    if receiver_type.starts_with("RwLock<") {
-        return match method_name {
-            "read" => Some("rwlock_read".to_string()),
-            "write" => Some("rwlock_write".to_string()),
-            "try_read" => Some("rwlock_try_read".to_string()),
-            "try_write" => Some("rwlock_try_write".to_string()),
-            "into_inner" => Some("rwlock_into_inner".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Phase 4: Option methods
-    if receiver_type.starts_with("Option<") {
-        return match method_name {
-            "unwrap" => Some("option_unwrap".to_string()),
-            "expect" => Some("option_expect".to_string()),
-            "unwrap_or" => Some("option_unwrap_or".to_string()),
-            "unwrap_or_else" => Some("option_unwrap_or_else".to_string()),
-            "unwrap_or_default" => Some("option_unwrap_or_default".to_string()),
-            "map" => Some("option_map".to_string()),
-            "and_then" => Some("option_and_then".to_string()),
-            "ok_or" => Some("option_ok_or".to_string()),
-            "take" => Some("option_take".to_string()),
-            "replace" => Some("option_replace".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Phase 4: Result methods
-    if receiver_type.starts_with("Result<") {
-        return match method_name {
-            "unwrap" => Some("result_unwrap".to_string()),
-            "expect" => Some("result_expect".to_string()),
-            "unwrap_or" => Some("result_unwrap_or".to_string()),
-            "unwrap_or_else" => Some("result_unwrap_or_else".to_string()),
-            "unwrap_or_default" => Some("result_unwrap_or_default".to_string()),
-            "unwrap_err" => Some("result_unwrap_err".to_string()),
-            "expect_err" => Some("result_expect_err".to_string()),
-            "map" => Some("result_map".to_string()),
-            "map_err" => Some("result_map_err".to_string()),
-            "and_then" => Some("result_and_then".to_string()),
-            "ok" => Some("result_ok".to_string()),
-            "err" => Some("result_err".to_string()),
-            _ => None,
-        };
-    }
-    
-    // Phase 5: Generic clone (for types not covered above)
-    if method_name == "clone" {
-        return Some("clone".to_string());
-    }
-    
-    None
+    Some(segments.join("::"))
 }
 
 /// Get line and column for a method call expression

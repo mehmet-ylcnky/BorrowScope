@@ -54,7 +54,7 @@
             "method": "set",
             "line": 15,
             "column": 4,
-            "operation": "cell_set",
+            "operation": "core::cell::set",
             "self_borrow": "immutable",
             "receiver_type": "Cell<i32>",
             "result_type": "()"
@@ -63,7 +63,7 @@
             "method": "get",
             "line": 16,
             "column": 12,
-            "operation": "cell_get",
+            "operation": "core::cell::get",
             "self_borrow": "immutable",
             "receiver_type": "Cell<i32>",
             "result_type": "i32"
@@ -184,7 +184,7 @@
             "method": "to_mut",
             "line": 21,
             "column": 12,
-            "operation": "cow_to_mut",
+            "operation": "alloc::borrow::to_mut",
             "self_borrow": "mutable",
             "receiver_type": "Cow<'_, str>",
             "result_type": "&mut String"
@@ -305,7 +305,7 @@
             "method": "set",
             "line": 26,
             "column": 12,
-            "operation": "once_cell_set",
+            "operation": "core::cell::once::set",
             "self_borrow": "immutable",
             "receiver_type": "OnceCell<i32>",
             "result_type": "Result<(), i32>"
@@ -314,7 +314,7 @@
             "method": "get",
             "line": 27,
             "column": 12,
-            "operation": "once_cell_get",
+            "operation": "core::cell::once::get",
             "self_borrow": "immutable",
             "receiver_type": "OnceCell<i32>",
             "result_type": "Option<&i32>"
@@ -323,7 +323,7 @@
             "method": "get_or_init",
             "line": 28,
             "column": 12,
-            "operation": "once_cell_get_or_init",
+            "operation": "core::cell::once::get_or_init",
             "self_borrow": "immutable",
             "receiver_type": "OnceCell<i32>",
             "result_type": "&i32"
@@ -554,7 +554,7 @@
             "method": "send",
             "line": 33,
             "column": 12,
-            "operation": "channel_send",
+            "operation": "std::sync::mpsc::send",
             "self_borrow": "immutable",
             "receiver_type": "Sender<i32>",
             "result_type": "Result<(), SendError<i32>>"
@@ -563,7 +563,7 @@
             "method": "recv",
             "line": 34,
             "column": 12,
-            "operation": "channel_recv",
+            "operation": "std::sync::mpsc::recv",
             "self_borrow": "immutable",
             "receiver_type": "Receiver<i32>",
             "result_type": "Result<i32, RecvError>"
@@ -572,7 +572,7 @@
             "method": "try_recv",
             "line": 35,
             "column": 12,
-            "operation": "channel_try_recv",
+            "operation": "std::sync::mpsc::try_recv",
             "self_borrow": "immutable",
             "receiver_type": "Receiver<i32>",
             "result_type": "Result<i32, TryRecvError>"
@@ -803,7 +803,7 @@
             "method": "join",
             "line": 40,
             "column": 12,
-            "operation": "thread_join",
+            "operation": "std::thread::join",
             "self_borrow": "consuming",
             "receiver_type": "JoinHandle<i32>",
             "result_type": "Result<i32, Box<dyn Any + Send, Global>>"
@@ -924,7 +924,7 @@
             "method": "clone",
             "line": 46,
             "column": 12,
-            "operation": "rc_clone",
+            "operation": "alloc::rc::clone",
             "self_borrow": "immutable",
             "receiver_type": "Rc<i32, Global>",
             "result_type": "Rc<i32, Global>"
@@ -1045,7 +1045,7 @@
             "method": "upgrade",
             "line": 48,
             "column": 12,
-            "operation": "weak_upgrade",
+            "operation": "alloc::rc::upgrade",
             "self_borrow": "immutable",
             "receiver_type": "Weak<i32, Global>",
             "result_type": "Option<Rc<i32, Global>>"
@@ -1166,7 +1166,7 @@
             "method": "clone",
             "line": 53,
             "column": 12,
-            "operation": "arc_clone",
+            "operation": "alloc::sync::clone",
             "self_borrow": "immutable",
             "receiver_type": "Arc<i32, Global>",
             "result_type": "Arc<i32, Global>"
@@ -1287,7 +1287,7 @@
             "method": "upgrade",
             "line": 55,
             "column": 12,
-            "operation": "weak_upgrade",
+            "operation": "alloc::sync::upgrade",
             "self_borrow": "immutable",
             "receiver_type": "Weak<i32, Global>",
             "result_type": "Option<Arc<i32, Global>>"
@@ -1408,7 +1408,7 @@
             "method": "borrow",
             "line": 60,
             "column": 12,
-            "operation": "refcell_borrow",
+            "operation": "core::cell::borrow",
             "self_borrow": "immutable",
             "receiver_type": "RefCell<i32>",
             "result_type": "Ref<'_, i32>"
@@ -1417,7 +1417,7 @@
             "method": "borrow_mut",
             "line": 61,
             "column": 12,
-            "operation": "refcell_borrow_mut",
+            "operation": "core::cell::borrow_mut",
             "self_borrow": "immutable",
             "receiver_type": "RefCell<i32>",
             "result_type": "RefMut<'_, i32>"
@@ -1593,7 +1593,7 @@
             "method": "lock",
             "line": 66,
             "column": 12,
-            "operation": "mutex_lock",
+            "operation": "std::sync::poison::mutex::lock",
             "self_borrow": "immutable",
             "receiver_type": "Mutex<i32>",
             "result_type": "Result<MutexGuard<'_, i32>, PoisonError<MutexGuard<'_, i32>>>"
@@ -1602,7 +1602,7 @@
             "method": "try_lock",
             "line": 67,
             "column": 12,
-            "operation": "mutex_try_lock",
+            "operation": "std::sync::poison::mutex::try_lock",
             "self_borrow": "immutable",
             "receiver_type": "Mutex<i32>",
             "result_type": "Result<MutexGuard<'_, i32>, TryLockError<MutexGuard<'_, i32>>>"
@@ -1778,7 +1778,7 @@
             "method": "read",
             "line": 72,
             "column": 12,
-            "operation": "rwlock_read",
+            "operation": "std::sync::poison::rwlock::read",
             "self_borrow": "immutable",
             "receiver_type": "RwLock<i32>",
             "result_type": "Result<RwLockReadGuard<'_, i32>, PoisonError<RwLockReadGuard<'_, i32>>>"
@@ -1787,7 +1787,7 @@
             "method": "write",
             "line": 73,
             "column": 12,
-            "operation": "rwlock_write",
+            "operation": "std::sync::poison::rwlock::write",
             "self_borrow": "immutable",
             "receiver_type": "RwLock<i32>",
             "result_type": "Result<RwLockWriteGuard<'_, i32>, PoisonError<RwLockWriteGuard<'_, i32>>>"
@@ -2128,7 +2128,7 @@
             "method": "unwrap",
             "line": 91,
             "column": 12,
-            "operation": "option_unwrap",
+            "operation": "core::option::unwrap",
             "self_borrow": "consuming",
             "receiver_type": "Option<i32>",
             "result_type": "i32"
@@ -2249,7 +2249,7 @@
             "method": "expect",
             "line": 94,
             "column": 12,
-            "operation": "option_expect",
+            "operation": "core::option::expect",
             "self_borrow": "consuming",
             "receiver_type": "Option<i32>",
             "result_type": "i32"
@@ -2370,7 +2370,7 @@
             "method": "unwrap_or",
             "line": 97,
             "column": 12,
-            "operation": "option_unwrap_or",
+            "operation": "core::option::unwrap_or",
             "self_borrow": "consuming",
             "receiver_type": "Option<i32>",
             "result_type": "i32"
@@ -2491,7 +2491,7 @@
             "method": "unwrap",
             "line": 102,
             "column": 12,
-            "operation": "result_unwrap",
+            "operation": "core::result::unwrap",
             "self_borrow": "consuming",
             "receiver_type": "Result<i32, &str>",
             "result_type": "i32"
@@ -2612,7 +2612,7 @@
             "method": "expect",
             "line": 105,
             "column": 12,
-            "operation": "result_expect",
+            "operation": "core::result::expect",
             "self_borrow": "consuming",
             "receiver_type": "Result<i32, &str>",
             "result_type": "i32"
@@ -2733,7 +2733,7 @@
             "method": "clone",
             "line": 111,
             "column": 12,
-            "operation": "clone",
+            "operation": "alloc::string::clone",
             "self_borrow": "immutable",
             "receiver_type": "String",
             "result_type": "String"
@@ -2854,7 +2854,7 @@
             "method": "clone",
             "line": 114,
             "column": 12,
-            "operation": "clone",
+            "operation": "alloc::vec::clone",
             "self_borrow": "immutable",
             "receiver_type": "Vec<i32, Global>",
             "result_type": "Vec<i32, Global>"
@@ -2933,8 +2933,8 @@
         "column": 17,
         "kind": "function_call",
         "path": "std::thread::spawn",
-        "operation": "thread_spawn",
-        "argument": null,
+        "operation": "std::thread::spawn",
+        "argument": "<closure>",
         "result_type": "JoinHandle<i32>"
       },
       {
@@ -2942,7 +2942,7 @@
         "column": 4,
         "kind": "function_call",
         "path": "core::mem::drop",
-        "operation": "drop",
+        "operation": "core::mem::drop",
         "argument": "x",
         "result_type": "()"
       },
@@ -2951,7 +2951,7 @@
         "column": 4,
         "kind": "function_call",
         "path": "core::mem::forget",
-        "operation": "forget",
+        "operation": "core::mem::forget",
         "argument": "y",
         "result_type": "()"
       },
@@ -2960,8 +2960,8 @@
         "column": 12,
         "kind": "function_call",
         "path": "std::thread::spawn",
-        "operation": "thread_spawn",
-        "argument": null,
+        "operation": "std::thread::spawn",
+        "argument": "<closure>",
         "result_type": "JoinHandle<i32>"
       }
     ]
