@@ -3,7 +3,7 @@
 //! This module provides type analysis by leveraging rust-analyzer's
 //! full semantic analysis capabilities. No heuristics are used.
 
-use crate::output::{ProjectTypeInfo, VariableTypeInfo};
+use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo};
 use anyhow::{Context, Result};
 use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics};
 use ra_ap_ide_db::RootDatabase;
@@ -154,6 +154,9 @@ fn analyze_file(
         }
     }
 
+    // Analyze method calls on tracked variables
+    analyze_method_calls(sema, db, &source_file, &mut variables);
+
     variables
 }
 
@@ -171,7 +174,9 @@ fn analyze_let_stmt(
 
     let range = pat.syntax().text_range();
     let (line, column) = get_location(&range, source_file);
-    let name = pat.syntax().text().to_string();
+    
+    // Extract the actual variable name (without 'mut' keyword)
+    let name = extract_pattern_name(&pat);
     let mut var_info = VariableTypeInfo::new(name, relative_path.to_string(), line, column);
 
     // Set span offsets
@@ -682,6 +687,32 @@ fn get_location(range: &ra_ap_syntax::TextRange, source_file: &ast::SourceFile) 
     (line, column)
 }
 
+/// Extract the variable name from a pattern (handles mut, tuple, etc.)
+fn extract_pattern_name(pat: &ast::Pat) -> String {
+    match pat {
+        ast::Pat::IdentPat(ident) => {
+            // Get just the identifier name, not "mut x"
+            ident.name().map(|n| n.text().to_string()).unwrap_or_else(|| pat.syntax().text().to_string())
+        }
+        ast::Pat::TuplePat(_) => {
+            // For tuples, keep the full pattern text for now
+            pat.syntax().text().to_string()
+        }
+        _ => pat.syntax().text().to_string(),
+    }
+}
+
+/// Extract individual element names from a tuple pattern string like "(tx, rx)"
+fn extract_tuple_elements(tuple_pat: &str) -> Vec<String> {
+    tuple_pat
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != "_")
+        .collect()
+}
+
 /// Populate type info from a resolved type using semantic analysis only
 fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase) {
     use ra_ap_hir::Adt;
@@ -879,4 +910,217 @@ fn classify_by_path(var_info: &mut VariableTypeInfo, path: &str) {
         || path == "core::ffi::CStr" || path == "std::ffi::CStr"
         || path == "alloc::ffi::CString" || path == "std::ffi::CString"
         || path == "std::ffi::OsStr" || path == "std::ffi::OsString";
+}
+
+// =============================================================================
+// METHOD CALL TRACKING (Phase 1 of Semantic Expansion)
+// =============================================================================
+
+/// Analyze method calls on tracked variables and populate their method_calls field
+pub fn analyze_method_calls(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+    variables: &mut [VariableTypeInfo],
+) {
+    // Build a map of variable name -> indices for quick lookup
+    let mut var_indices: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    for (idx, var) in variables.iter().enumerate() {
+        var_indices.entry(var.name.clone()).or_default().push(idx);
+        // Also index individual tuple elements: "(tx, rx)" -> "tx", "rx"
+        if var.is_tuple_binding {
+            for elem in extract_tuple_elements(&var.name) {
+                var_indices.entry(elem).or_default().push(idx);
+            }
+        }
+    }
+
+    for node in source_file.syntax().descendants() {
+        let Some(method_call) = ast::MethodCallExpr::cast(node) else {
+            continue;
+        };
+
+        // Extract receiver name
+        let Some(receiver_name) = extract_receiver_name(&method_call) else {
+            continue;
+        };
+
+        // Find matching variable(s)
+        let Some(indices) = var_indices.get(&receiver_name) else {
+            continue;
+        };
+
+        // Get method info
+        let Some(method_name) = method_call.name_ref().map(|n| n.text().to_string()) else {
+            continue;
+        };
+
+        let (call_line, column) = get_method_call_location(&method_call, source_file);
+
+        // Get receiver type
+        let receiver_type = method_call
+            .receiver()
+            .and_then(|r| sema.type_of_expr(&r))
+            .map(|ti| ti.original.display(db, Edition::Edition2021).to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Get result type
+        let result_type = sema
+            .type_of_expr(&ast::Expr::MethodCallExpr(method_call.clone()))
+            .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+
+        // Resolve self borrow type
+        let self_borrow = resolve_self_borrow(sema, &method_call, db);
+
+        // Classify the operation
+        let operation = classify_method_operation(&receiver_type, &method_name);
+
+        let method_info = MethodCallInfo {
+            method: method_name,
+            line: call_line,
+            column,
+            operation,
+            self_borrow,
+            receiver_type,
+            result_type,
+        };
+
+        // Find the most recent variable declared before this method call
+        // This handles shadowing correctly
+        let best_idx = indices.iter()
+            .filter(|&&idx| variables[idx].line <= call_line)
+            .max_by_key(|&&idx| variables[idx].line);
+        
+        if let Some(&idx) = best_idx {
+            variables[idx].method_calls.push(method_info);
+        }
+    }
+}
+
+/// Extract the receiver variable name from a method call expression
+fn extract_receiver_name(method_call: &ast::MethodCallExpr) -> Option<String> {
+    let receiver = method_call.receiver()?;
+    
+    // Handle simple identifier: `cell.set(42)`
+    if let ast::Expr::PathExpr(path_expr) = &receiver {
+        if let Some(path) = path_expr.path() {
+            if path.qualifier().is_none() {
+                return path.segment()?.name_ref().map(|n| n.text().to_string());
+            }
+        }
+    }
+    
+    // Handle chained method calls: `cell.get().something()` - get the root
+    if let ast::Expr::MethodCallExpr(inner) = &receiver {
+        return extract_receiver_name(inner);
+    }
+    
+    // Handle field access: `self.cell.set(42)`
+    if let ast::Expr::FieldExpr(field) = &receiver {
+        // Return the field name as the "variable" for tracking
+        return field.name_ref().map(|n| n.text().to_string());
+    }
+    
+    None
+}
+
+/// Resolve the self borrow type of a method call using rust-analyzer
+fn resolve_self_borrow(
+    sema: &Semantics<'_, RootDatabase>,
+    method_call: &ast::MethodCallExpr,
+    db: &RootDatabase,
+) -> Option<String> {
+    let func = sema.resolve_method_call(method_call)?;
+    let self_param = func.self_param(db)?;
+    
+    use ra_ap_hir::Access;
+    match self_param.access(db) {
+        Access::Shared => Some("immutable".to_string()),
+        Access::Exclusive => Some("mutable".to_string()),
+        Access::Owned => Some("consuming".to_string()),
+    }
+}
+
+/// Classify method operation based on receiver type and method name
+fn classify_method_operation(receiver_type: &str, method_name: &str) -> Option<String> {
+    // Cell methods
+    if receiver_type.starts_with("Cell<") {
+        return match method_name {
+            "set" => Some("cell_set".to_string()),
+            "get" => Some("cell_get".to_string()),
+            "replace" => Some("cell_replace".to_string()),
+            "take" => Some("cell_take".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Cow methods
+    if receiver_type.starts_with("Cow<") {
+        return match method_name {
+            "to_mut" => Some("cow_to_mut".to_string()),
+            "into_owned" => Some("cow_into_owned".to_string()),
+            _ => None,
+        };
+    }
+    
+    // OnceCell/OnceLock methods
+    if receiver_type.starts_with("OnceCell<") || receiver_type.starts_with("OnceLock<") {
+        return match method_name {
+            "set" => Some("once_cell_set".to_string()),
+            "get" => Some("once_cell_get".to_string()),
+            "get_or_init" => Some("once_cell_get_or_init".to_string()),
+            "get_or_try_init" => Some("once_cell_get_or_try_init".to_string()),
+            _ => None,
+        };
+    }
+    
+    // MaybeUninit methods
+    if receiver_type.starts_with("MaybeUninit<") {
+        return match method_name {
+            "write" => Some("maybe_uninit_write".to_string()),
+            "assume_init" => Some("maybe_uninit_assume_init".to_string()),
+            "assume_init_read" => Some("maybe_uninit_assume_init_read".to_string()),
+            "assume_init_drop" => Some("maybe_uninit_assume_init_drop".to_string()),
+            "assume_init_ref" => Some("maybe_uninit_assume_init_ref".to_string()),
+            "assume_init_mut" => Some("maybe_uninit_assume_init_mut".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Channel Sender methods
+    if receiver_type.starts_with("Sender<") || receiver_type.starts_with("SyncSender<") {
+        return match method_name {
+            "send" => Some("channel_send".to_string()),
+            "try_send" => Some("channel_try_send".to_string()),
+            _ => None,
+        };
+    }
+    
+    // Channel Receiver methods
+    if receiver_type.starts_with("Receiver<") {
+        return match method_name {
+            "recv" => Some("channel_recv".to_string()),
+            "try_recv" => Some("channel_try_recv".to_string()),
+            "recv_timeout" => Some("channel_recv_timeout".to_string()),
+            "iter" => Some("channel_iter".to_string()),
+            _ => None,
+        };
+    }
+    
+    // JoinHandle methods
+    if receiver_type.starts_with("JoinHandle<") {
+        return match method_name {
+            "join" => Some("thread_join".to_string()),
+            "is_finished" => Some("thread_is_finished".to_string()),
+            _ => None,
+        };
+    }
+    
+    None
+}
+
+/// Get line and column for a method call expression
+fn get_method_call_location(method_call: &ast::MethodCallExpr, source_file: &ast::SourceFile) -> (u32, u32) {
+    let range = method_call.syntax().text_range();
+    get_location(&range, source_file)
 }

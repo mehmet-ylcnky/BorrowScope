@@ -5,6 +5,26 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Information about a method call on a tracked variable
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodCallInfo {
+    /// Method name (e.g., "set", "send", "join")
+    pub method: String,
+    /// Line number where the call occurs
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Semantic operation classification (e.g., "cell_set", "channel_send")
+    /// None if the method doesn't map to a tracked operation
+    pub operation: Option<String>,
+    /// How the method borrows self: "immutable", "mutable", or "consuming"
+    pub self_borrow: Option<String>,
+    /// Fully qualified receiver type
+    pub receiver_type: String,
+    /// Fully qualified result type (if any)
+    pub result_type: Option<String>,
+}
+
 /// Type information for a single variable binding
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableTypeInfo {
@@ -84,6 +104,10 @@ pub struct VariableTypeInfo {
     // Initializer kind for tracking strategy
     pub initializer_kind: Option<String>,
 
+    /// Method calls made on this variable
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub method_calls: Vec<MethodCallInfo>,
+
     /// Source location
     pub file: String,
     pub line: u32,
@@ -151,6 +175,7 @@ impl VariableTypeInfo {
             is_mut_binding: false,
             is_impl_trait: false,
             initializer_kind: None,
+            method_calls: Vec::new(),
             file,
             line,
             column,
@@ -183,7 +208,7 @@ pub struct ProjectTypeInfo {
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "2.3".to_string(),
+            version: "2.4".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
             by_name: HashMap::new(),
