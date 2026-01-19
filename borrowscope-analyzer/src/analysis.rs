@@ -3,14 +3,16 @@
 //! This module provides type analysis by leveraging rust-analyzer's
 //! full semantic analysis capabilities. No heuristics are used.
 
-use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo};
+use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo, UnsafeOperationInfo, VariableUsageInfo, BorrowSpanInfo, DestructuringInfo, MatchBindingInfo, PatternBindingInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt, HasContainer};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro};
 use ra_ap_ide_db::RootDatabase;
+use ra_ap_ide_db::defs::Definition;
+use ra_ap_ide_db::search::ReferenceCategory;
 use ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig, ProcMacroServerChoice};
 use ra_ap_project_model::CargoConfig;
 use ra_ap_syntax::{ast, AstNode, Edition, SyntaxKind};
-use ra_ap_syntax::ast::{HasName, HasArgList};
+use ra_ap_syntax::ast::{HasName, HasArgList, HasGenericArgs, HasLoopBody};
 use std::collections::HashMap;
 use std::path::Path;
 use tracing::{info, warn};
@@ -51,6 +53,11 @@ pub(crate) struct KnownTypes {
     string: Option<Adt>,
     hashmap: Option<Adt>,
     hashset: Option<Adt>,
+    btreemap: Option<Adt>,
+    btreeset: Option<Adt>,
+    vecdeque: Option<Adt>,
+    linkedlist: Option<Adt>,
+    binaryheap: Option<Adt>,
     
     // Wrappers
     pin: Option<Adt>,
@@ -67,9 +74,47 @@ pub(crate) struct KnownTypes {
     pathbuf: Option<Adt>,
     osstring: Option<Adt>,
     cstring: Option<Adt>,
+    cstr: Option<Adt>,
     
     // NonNull
     nonnull: Option<Adt>,
+    
+    // Threading
+    join_handle: Option<Adt>,
+    
+    // Time
+    duration: Option<Adt>,
+    instant: Option<Adt>,
+    
+    // Async
+    poll: Option<Adt>,
+    context: Option<Adt>,
+    
+    // Ranges
+    range: Option<Adt>,
+    range_from: Option<Adt>,
+    range_to: Option<Adt>,
+    range_full: Option<Adt>,
+    range_inclusive: Option<Adt>,
+    range_to_inclusive: Option<Adt>,
+    
+    // Other lang items
+    phantom_data: Option<Adt>,
+    alloc_layout: Option<Adt>,
+    
+    // Atomics
+    atomic_bool: Option<Adt>,
+    atomic_i8: Option<Adt>,
+    atomic_i16: Option<Adt>,
+    atomic_i32: Option<Adt>,
+    atomic_i64: Option<Adt>,
+    atomic_isize: Option<Adt>,
+    atomic_u8: Option<Adt>,
+    atomic_u16: Option<Adt>,
+    atomic_u32: Option<Adt>,
+    atomic_u64: Option<Adt>,
+    atomic_usize: Option<Adt>,
+    atomic_ptr: Option<Adt>,
 }
 
 /// Get full module path as string (e.g., "std::sync::poison::mutex")
@@ -86,66 +131,176 @@ fn get_module_path(module: &ra_ap_hir::Module, db: &RootDatabase) -> String {
     parts.join("::")
 }
 
+
+
 impl KnownTypes {
-    /// Build the set of known types by looking them up semantically
+    /// Build the set of known types by looking them up semantically.
+    /// Uses LangItem for types that are lang items (fully semantic, no string matching).
+    /// Falls back to import_map search for types without lang items.
     fn new(db: &RootDatabase) -> Self {
         use ra_ap_hir::{import_map, ModuleDef, Crate};
         
         let mut known = Self::default();
         
-        // Types to find: (type_name, expected_module, field_setter)
+        // Get any crate for lang item lookup (lang items are the same across all crates)
+        let Some(krate) = Crate::all(db).first().copied() else {
+            return known;
+        };
+        let krate_id = krate.into();
+        
+        // === Phase 1: Look up types via LangItem (fully semantic, zero string matching) ===
+        
+        // Box (OwnedBox lang item) - as_struct returns StructId, .into() converts to Struct
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::OwnedBox).and_then(|t| t.as_struct()) {
+            known.box_ = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // UnsafeCell lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::UnsafeCell).and_then(|t| t.as_struct()) {
+            known.unsafe_cell = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // Pin lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::Pin).and_then(|t| t.as_struct()) {
+            known.pin = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // Option lang item (it's an enum)
+        if let Some(enum_id) = db.lang_item(krate_id, LangItem::Option).and_then(|t| t.as_enum()) {
+            known.option = Some(Adt::Enum(enum_id.into()));
+        }
+        
+        // String lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::String).and_then(|t| t.as_struct()) {
+            known.string = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // ManuallyDrop lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::ManuallyDrop).and_then(|t| t.as_struct()) {
+            known.manually_drop = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // MaybeUninit lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::MaybeUninit).and_then(|t| t.as_struct()) {
+            known.maybe_uninit = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // PhantomData lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::PhantomData).and_then(|t| t.as_struct()) {
+            known.phantom_data = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // Poll lang item (async - it's an enum)
+        if let Some(enum_id) = db.lang_item(krate_id, LangItem::Poll).and_then(|t| t.as_enum()) {
+            known.poll = Some(Adt::Enum(enum_id.into()));
+        }
+        
+        // Context lang item (async)
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::Context).and_then(|t| t.as_struct()) {
+            known.context = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // Range types (all lang items)
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::Range).and_then(|t| t.as_struct()) {
+            known.range = Some(Adt::Struct(struct_id.into()));
+        }
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeFrom).and_then(|t| t.as_struct()) {
+            known.range_from = Some(Adt::Struct(struct_id.into()));
+        }
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeTo).and_then(|t| t.as_struct()) {
+            known.range_to = Some(Adt::Struct(struct_id.into()));
+        }
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeFull).and_then(|t| t.as_struct()) {
+            known.range_full = Some(Adt::Struct(struct_id.into()));
+        }
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeInclusiveStruct).and_then(|t| t.as_struct()) {
+            known.range_inclusive = Some(Adt::Struct(struct_id.into()));
+        }
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeToInclusive).and_then(|t| t.as_struct()) {
+            known.range_to_inclusive = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // CStr lang item (FFI)
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::CStr).and_then(|t| t.as_struct()) {
+            known.cstr = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // AllocLayout lang item
+        if let Some(struct_id) = db.lang_item(krate_id, LangItem::AllocLayout).and_then(|t| t.as_struct()) {
+            known.alloc_layout = Some(Adt::Struct(struct_id.into()));
+        }
+        
+        // === Phase 2: Look up remaining types via import_map (types without lang items) ===
+        // These require module path filtering since they're not lang items
+        
         let types_to_find: &[(&str, &str, fn(&mut KnownTypes, Adt))] = &[
-            // Smart pointers
+            // Smart pointers (no lang items for Rc, Arc, Weak)
             ("Rc", "rc", |k, a| k.rc = Some(a)),
             ("Arc", "sync", |k, a| k.arc = Some(a)),
-            ("Box", "boxed", |k, a| k.box_ = Some(a)),
             ("Weak", "rc", |k, a| k.weak_rc = Some(a)),
-            // Note: Weak in sync module handled separately
             
-            // Interior mutability
+            // Interior mutability (UnsafeCell is lang item, others are not)
             ("Cell", "cell", |k, a| k.cell = Some(a)),
             ("RefCell", "cell", |k, a| k.refcell = Some(a)),
-            ("UnsafeCell", "cell", |k, a| k.unsafe_cell = Some(a)),
             ("Mutex", "sync", |k, a| k.mutex = Some(a)),
             ("RwLock", "sync", |k, a| k.rwlock = Some(a)),
             ("OnceCell", "cell", |k, a| k.once_cell = Some(a)),
             ("OnceLock", "sync", |k, a| k.once_lock = Some(a)),
             
-            // Guards
+            // Guards (no lang items)
             ("Ref", "cell", |k, a| k.ref_guard = Some(a)),
             ("RefMut", "cell", |k, a| k.refmut_guard = Some(a)),
             ("MutexGuard", "sync", |k, a| k.mutex_guard = Some(a)),
             ("RwLockReadGuard", "sync", |k, a| k.rwlock_read_guard = Some(a)),
             ("RwLockWriteGuard", "sync", |k, a| k.rwlock_write_guard = Some(a)),
             
-            // Memory
-            ("MaybeUninit", "mem", |k, a| k.maybe_uninit = Some(a)),
-            ("ManuallyDrop", "mem", |k, a| k.manually_drop = Some(a)),
-            
-            // Collections
+            // Collections (no lang items except String)
             ("Vec", "vec", |k, a| k.vec = Some(a)),
-            ("String", "string", |k, a| k.string = Some(a)),
             ("HashMap", "hash", |k, a| k.hashmap = Some(a)),
             ("HashSet", "hash", |k, a| k.hashset = Some(a)),
+            ("BTreeMap", "btree", |k, a| k.btreemap = Some(a)),
+            ("BTreeSet", "btree", |k, a| k.btreeset = Some(a)),
+            ("VecDeque", "vec_deque", |k, a| k.vecdeque = Some(a)),
+            ("LinkedList", "linked_list", |k, a| k.linkedlist = Some(a)),
+            ("BinaryHeap", "binary_heap", |k, a| k.binaryheap = Some(a)),
             
-            // Wrappers
-            ("Pin", "pin", |k, a| k.pin = Some(a)),
+            // Wrappers (Pin and Option are lang items)
             ("Cow", "borrow", |k, a| k.cow = Some(a)),
-            ("Option", "option", |k, a| k.option = Some(a)),
             ("Result", "result", |k, a| k.result = Some(a)),
             
-            // Channels
+            // Channels (no lang items)
             ("Sender", "mpsc", |k, a| k.sender = Some(a)),
             ("Receiver", "mpsc", |k, a| k.receiver = Some(a)),
             ("SyncSender", "mpsc", |k, a| k.sync_sender = Some(a)),
             
-            // Paths/FFI
+            // Paths/FFI (no lang items)
             ("PathBuf", "path", |k, a| k.pathbuf = Some(a)),
             ("OsString", "ffi", |k, a| k.osstring = Some(a)),
             ("CString", "ffi", |k, a| k.cstring = Some(a)),
             
-            // NonNull
+            // NonNull (no lang item)
             ("NonNull", "ptr", |k, a| k.nonnull = Some(a)),
+            
+            // Threading (no lang item)
+            ("JoinHandle", "thread", |k, a| k.join_handle = Some(a)),
+            
+            // Time (no lang items)
+            ("Duration", "time", |k, a| k.duration = Some(a)),
+            ("Instant", "time", |k, a| k.instant = Some(a)),
+            
+            // Atomics (no lang items)
+            ("AtomicBool", "atomic", |k, a| k.atomic_bool = Some(a)),
+            ("AtomicI8", "atomic", |k, a| k.atomic_i8 = Some(a)),
+            ("AtomicI16", "atomic", |k, a| k.atomic_i16 = Some(a)),
+            ("AtomicI32", "atomic", |k, a| k.atomic_i32 = Some(a)),
+            ("AtomicI64", "atomic", |k, a| k.atomic_i64 = Some(a)),
+            ("AtomicIsize", "atomic", |k, a| k.atomic_isize = Some(a)),
+            ("AtomicU8", "atomic", |k, a| k.atomic_u8 = Some(a)),
+            ("AtomicU16", "atomic", |k, a| k.atomic_u16 = Some(a)),
+            ("AtomicU32", "atomic", |k, a| k.atomic_u32 = Some(a)),
+            ("AtomicU64", "atomic", |k, a| k.atomic_u64 = Some(a)),
+            ("AtomicUsize", "atomic", |k, a| k.atomic_usize = Some(a)),
+            ("AtomicPtr", "atomic", |k, a| k.atomic_ptr = Some(a)),
         ];
         
         for krate in Crate::all(db) {
@@ -153,7 +308,6 @@ impl KnownTypes {
                 let query = import_map::Query::new(type_name.to_string()).exact();
                 for item in krate.query_external_importables(db, query) {
                     if let either::Either::Left(ModuleDef::Adt(adt)) = item {
-                        // Build full module path to check against expected_module
                         let module_path = get_module_path(&adt.module(db), db);
                         if module_path.contains(expected_module) {
                             setter(&mut known, adt);
@@ -228,11 +382,72 @@ impl KnownTypes {
         if self.pathbuf.as_ref() == Some(adt) { return Some("pathbuf"); }
         if self.osstring.as_ref() == Some(adt) { return Some("osstring"); }
         if self.cstring.as_ref() == Some(adt) { return Some("cstring"); }
+        if self.cstr.as_ref() == Some(adt) { return Some("cstr"); }
         
         // NonNull
         if self.nonnull.as_ref() == Some(adt) { return Some("nonnull"); }
         
+        // Additional collections
+        if self.btreemap.as_ref() == Some(adt) { return Some("btreemap"); }
+        if self.btreeset.as_ref() == Some(adt) { return Some("btreeset"); }
+        if self.vecdeque.as_ref() == Some(adt) { return Some("vecdeque"); }
+        if self.linkedlist.as_ref() == Some(adt) { return Some("linkedlist"); }
+        if self.binaryheap.as_ref() == Some(adt) { return Some("binaryheap"); }
+        
+        // Threading
+        if self.join_handle.as_ref() == Some(adt) { return Some("join_handle"); }
+        
+        // Time
+        if self.duration.as_ref() == Some(adt) { return Some("duration"); }
+        if self.instant.as_ref() == Some(adt) { return Some("instant"); }
+        
+        // Async
+        if self.poll.as_ref() == Some(adt) { return Some("poll"); }
+        if self.context.as_ref() == Some(adt) { return Some("context"); }
+        
+        // Ranges
+        if self.range.as_ref() == Some(adt) { return Some("range"); }
+        if self.range_from.as_ref() == Some(adt) { return Some("range_from"); }
+        if self.range_to.as_ref() == Some(adt) { return Some("range_to"); }
+        if self.range_full.as_ref() == Some(adt) { return Some("range_full"); }
+        if self.range_inclusive.as_ref() == Some(adt) { return Some("range_inclusive"); }
+        if self.range_to_inclusive.as_ref() == Some(adt) { return Some("range_to_inclusive"); }
+        
+        // Other lang items
+        if self.phantom_data.as_ref() == Some(adt) { return Some("phantom_data"); }
+        if self.alloc_layout.as_ref() == Some(adt) { return Some("alloc_layout"); }
+        
+        // Atomics
+        if self.atomic_bool.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_i8.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_i16.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_i32.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_i64.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_isize.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_u8.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_u16.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_u32.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_u64.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_usize.as_ref() == Some(adt) { return Some("atomic"); }
+        if self.atomic_ptr.as_ref() == Some(adt) { return Some("atomic"); }
+        
         None
+    }
+    
+    /// Check if an ADT is an atomic type
+    fn is_atomic(&self, adt: &Adt) -> bool {
+        self.atomic_bool.as_ref() == Some(adt)
+            || self.atomic_i8.as_ref() == Some(adt)
+            || self.atomic_i16.as_ref() == Some(adt)
+            || self.atomic_i32.as_ref() == Some(adt)
+            || self.atomic_i64.as_ref() == Some(adt)
+            || self.atomic_isize.as_ref() == Some(adt)
+            || self.atomic_u8.as_ref() == Some(adt)
+            || self.atomic_u16.as_ref() == Some(adt)
+            || self.atomic_u32.as_ref() == Some(adt)
+            || self.atomic_u64.as_ref() == Some(adt)
+            || self.atomic_usize.as_ref() == Some(adt)
+            || self.atomic_ptr.as_ref() == Some(adt)
     }
     
     /// Set boolean flags on VariableTypeInfo by comparing AdtId directly
@@ -255,6 +470,10 @@ impl KnownTypes {
         
         var_info.is_vec = self.vec.as_ref() == Some(adt);
         var_info.is_string = self.string.as_ref() == Some(adt);
+        var_info.is_atomic = self.is_atomic(adt);
+        var_info.is_join_handle = self.join_handle.as_ref() == Some(adt);
+        var_info.is_duration = self.duration.as_ref() == Some(adt);
+        var_info.is_instant = self.instant.as_ref() == Some(adt);
         
         var_info.is_pin = self.pin.as_ref() == Some(adt);
         var_info.is_cow = self.cow.as_ref() == Some(adt);
@@ -284,6 +503,10 @@ impl KnownTypes {
             || self.rwlock_write_guard.as_ref() == Some(adt);
         var_info.is_vec |= self.vec.as_ref() == Some(adt);
         var_info.is_string |= self.string.as_ref() == Some(adt);
+        var_info.is_atomic |= self.is_atomic(adt);
+        var_info.is_join_handle |= self.join_handle.as_ref() == Some(adt);
+        var_info.is_duration |= self.duration.as_ref() == Some(adt);
+        var_info.is_instant |= self.instant.as_ref() == Some(adt);
         var_info.is_pin |= self.pin.as_ref() == Some(adt);
         var_info.is_cow |= self.cow.as_ref() == Some(adt);
         var_info.is_option |= self.option.as_ref() == Some(adt);
@@ -293,6 +516,165 @@ impl KnownTypes {
         var_info.is_channel |= self.sender.as_ref() == Some(adt) 
             || self.receiver.as_ref() == Some(adt)
             || self.sync_sender.as_ref() == Some(adt);
+    }
+}
+
+/// Known macros looked up once at startup by semantic identity (MacroId).
+/// Used for macro classification without string matching.
+#[derive(Default)]
+pub(crate) struct KnownMacros {
+    // Standard library macros
+    vec: Option<Macro>,
+    format: Option<Macro>,
+    format_args: Option<Macro>,
+    println: Option<Macro>,
+    print: Option<Macro>,
+    eprintln: Option<Macro>,
+    eprint: Option<Macro>,
+    panic: Option<Macro>,
+    assert: Option<Macro>,
+    assert_eq: Option<Macro>,
+    assert_ne: Option<Macro>,
+    debug_assert: Option<Macro>,
+    debug_assert_eq: Option<Macro>,
+    debug_assert_ne: Option<Macro>,
+    write: Option<Macro>,
+    writeln: Option<Macro>,
+    todo: Option<Macro>,
+    unimplemented: Option<Macro>,
+    unreachable: Option<Macro>,
+    dbg: Option<Macro>,
+    env: Option<Macro>,
+    option_env: Option<Macro>,
+    concat: Option<Macro>,
+    stringify: Option<Macro>,
+    include: Option<Macro>,
+    include_str: Option<Macro>,
+    include_bytes: Option<Macro>,
+    cfg: Option<Macro>,
+    line: Option<Macro>,
+    column: Option<Macro>,
+    file: Option<Macro>,
+    module_path: Option<Macro>,
+}
+
+impl KnownMacros {
+    /// Build the set of known macros by looking them up semantically
+    fn new(db: &RootDatabase) -> Self {
+        use ra_ap_hir::{import_map, ModuleDef, Crate};
+        
+        let mut known = Self::default();
+        
+        // Macros to find: (macro_name, field_setter)
+        let macros_to_find: &[(&str, fn(&mut KnownMacros, Macro))] = &[
+            ("vec", |k, m| k.vec = Some(m)),
+            ("format", |k, m| k.format = Some(m)),
+            ("format_args", |k, m| k.format_args = Some(m)),
+            ("println", |k, m| k.println = Some(m)),
+            ("print", |k, m| k.print = Some(m)),
+            ("eprintln", |k, m| k.eprintln = Some(m)),
+            ("eprint", |k, m| k.eprint = Some(m)),
+            ("panic", |k, m| k.panic = Some(m)),
+            ("assert", |k, m| k.assert = Some(m)),
+            ("assert_eq", |k, m| k.assert_eq = Some(m)),
+            ("assert_ne", |k, m| k.assert_ne = Some(m)),
+            ("debug_assert", |k, m| k.debug_assert = Some(m)),
+            ("debug_assert_eq", |k, m| k.debug_assert_eq = Some(m)),
+            ("debug_assert_ne", |k, m| k.debug_assert_ne = Some(m)),
+            ("write", |k, m| k.write = Some(m)),
+            ("writeln", |k, m| k.writeln = Some(m)),
+            ("todo", |k, m| k.todo = Some(m)),
+            ("unimplemented", |k, m| k.unimplemented = Some(m)),
+            ("unreachable", |k, m| k.unreachable = Some(m)),
+            ("dbg", |k, m| k.dbg = Some(m)),
+            ("env", |k, m| k.env = Some(m)),
+            ("option_env", |k, m| k.option_env = Some(m)),
+            ("concat", |k, m| k.concat = Some(m)),
+            ("stringify", |k, m| k.stringify = Some(m)),
+            ("include", |k, m| k.include = Some(m)),
+            ("include_str", |k, m| k.include_str = Some(m)),
+            ("include_bytes", |k, m| k.include_bytes = Some(m)),
+            ("cfg", |k, m| k.cfg = Some(m)),
+            ("line", |k, m| k.line = Some(m)),
+            ("column", |k, m| k.column = Some(m)),
+            ("file", |k, m| k.file = Some(m)),
+            ("module_path", |k, m| k.module_path = Some(m)),
+        ];
+        
+        for krate in Crate::all(db) {
+            for (macro_name, setter) in macros_to_find {
+                let query = import_map::Query::new(macro_name.to_string()).exact();
+                for item in krate.query_external_importables(db, query) {
+                    if let either::Either::Left(ModuleDef::Macro(mac)) = item {
+                        // Only take function-like macros (not derives or attributes)
+                        if mac.is_fn_like(db) {
+                            setter(&mut known, mac);
+                        }
+                    }
+                }
+            }
+        }
+        
+        known
+    }
+    
+    /// Classify a macro by comparing MacroId directly (fully semantic)
+    fn classify(&self, mac: &Macro) -> Option<&'static str> {
+        // Collection macros
+        if self.vec.as_ref() == Some(mac) { return Some("vec_macro"); }
+        
+        // Formatting macros
+        if self.format.as_ref() == Some(mac) { return Some("format_macro"); }
+        if self.format_args.as_ref() == Some(mac) { return Some("format_args_macro"); }
+        
+        // Print macros
+        if self.println.as_ref() == Some(mac) { return Some("println_macro"); }
+        if self.print.as_ref() == Some(mac) { return Some("print_macro"); }
+        if self.eprintln.as_ref() == Some(mac) { return Some("eprintln_macro"); }
+        if self.eprint.as_ref() == Some(mac) { return Some("eprint_macro"); }
+        
+        // Panic/assert macros
+        if self.panic.as_ref() == Some(mac) { return Some("panic_macro"); }
+        if self.assert.as_ref() == Some(mac) { return Some("assert_macro"); }
+        if self.assert_eq.as_ref() == Some(mac) { return Some("assert_eq_macro"); }
+        if self.assert_ne.as_ref() == Some(mac) { return Some("assert_ne_macro"); }
+        if self.debug_assert.as_ref() == Some(mac) { return Some("debug_assert_macro"); }
+        if self.debug_assert_eq.as_ref() == Some(mac) { return Some("debug_assert_eq_macro"); }
+        if self.debug_assert_ne.as_ref() == Some(mac) { return Some("debug_assert_ne_macro"); }
+        
+        // Write macros
+        if self.write.as_ref() == Some(mac) { return Some("write_macro"); }
+        if self.writeln.as_ref() == Some(mac) { return Some("writeln_macro"); }
+        
+        // Placeholder macros
+        if self.todo.as_ref() == Some(mac) { return Some("todo_macro"); }
+        if self.unimplemented.as_ref() == Some(mac) { return Some("unimplemented_macro"); }
+        if self.unreachable.as_ref() == Some(mac) { return Some("unreachable_macro"); }
+        
+        // Debug macro
+        if self.dbg.as_ref() == Some(mac) { return Some("dbg_macro"); }
+        
+        // Environment macros
+        if self.env.as_ref() == Some(mac) { return Some("env_macro"); }
+        if self.option_env.as_ref() == Some(mac) { return Some("option_env_macro"); }
+        
+        // String macros
+        if self.concat.as_ref() == Some(mac) { return Some("concat_macro"); }
+        if self.stringify.as_ref() == Some(mac) { return Some("stringify_macro"); }
+        
+        // Include macros
+        if self.include.as_ref() == Some(mac) { return Some("include_macro"); }
+        if self.include_str.as_ref() == Some(mac) { return Some("include_str_macro"); }
+        if self.include_bytes.as_ref() == Some(mac) { return Some("include_bytes_macro"); }
+        
+        // Compile-time info macros
+        if self.cfg.as_ref() == Some(mac) { return Some("cfg_macro"); }
+        if self.line.as_ref() == Some(mac) { return Some("line_macro"); }
+        if self.column.as_ref() == Some(mac) { return Some("column_macro"); }
+        if self.file.as_ref() == Some(mac) { return Some("file_macro"); }
+        if self.module_path.as_ref() == Some(mac) { return Some("module_path_macro"); }
+        
+        None
     }
 }
 
@@ -414,9 +796,10 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
     let mut info = ProjectTypeInfo::new();
     let sema = Semantics::new(&db);
     
-    // Look up tracked functions and types once by semantic identity
+    // Look up tracked functions, types, and macros once by semantic identity
     let tracked_functions = TrackedFunctions::new(&db);
     let known_types = KnownTypes::new(&db);
+    let known_macros = KnownMacros::new(&db);
 
     for (file_id, vfs_path) in vfs.iter() {
         let path_str = match vfs_path.as_path() {
@@ -453,12 +836,27 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions) = analyze_file(&sema, &db, &tracked_functions, &known_types, file_id, &relative);
+        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings) = analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, file_id, &relative);
         if !variables.is_empty() {
             info.files.insert(relative.clone(), variables);
         }
         if !expressions.is_empty() {
-            info.expressions.insert(relative, expressions);
+            info.expressions.insert(relative.clone(), expressions);
+        }
+        if !await_points.is_empty() {
+            info.await_points.insert(relative.clone(), await_points);
+        }
+        if !unsafe_ops.is_empty() {
+            info.unsafe_operations.insert(relative.clone(), unsafe_ops);
+        }
+        if !borrow_spans.is_empty() {
+            info.borrow_spans.insert(relative.clone(), borrow_spans);
+        }
+        if !destructuring.is_empty() {
+            info.destructuring.insert(relative.clone(), destructuring);
+        }
+        if !match_bindings.is_empty() {
+            info.match_bindings.insert(relative, match_bindings);
         }
     }
 
@@ -471,15 +869,21 @@ fn analyze_file(
     db: &RootDatabase,
     tracked_functions: &TrackedFunctions,
     known_types: &KnownTypes,
+    known_macros: &KnownMacros,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
-) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>) {
+) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>) {
     let mut variables = Vec::new();
+    let mut await_points = Vec::new();
+    let mut unsafe_ops = Vec::new();
+    let mut borrow_spans = Vec::new();
+    let mut destructuring = Vec::new();
+    let mut match_bindings = Vec::new();
     let mut scope_id: u32 = 0;
 
     let Some(editioned_file_id) = sema.attach_first_edition(file_id) else {
         warn!("File {} not in crate graph, skipping", relative_path);
-        return (variables, Vec::new());
+        return (variables, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     };
 
     let source_file = sema.parse(editioned_file_id);
@@ -500,7 +904,7 @@ fn analyze_file(
         
         match node.kind() {
             SyntaxKind::LET_STMT => {
-                if let Some(mut var_info) = analyze_let_stmt(sema, db, known_types, &node, relative_path, &source_file, &mut scope_id) {
+                if let Some(mut var_info) = analyze_let_stmt(sema, db, known_types, known_macros, &node, relative_path, &source_file, &mut scope_id) {
                     // Set function context
                     var_info.function_name = current_fn.clone();
                     if let Some(ref fn_name) = current_fn {
@@ -511,18 +915,36 @@ fn analyze_file(
                     variables.push(var_info);
                     scope_id += 1;
                 }
+                // Also check for destructuring patterns
+                if let Some(destr_info) = analyze_destructuring_pattern(sema, db, &node, &source_file) {
+                    destructuring.push(destr_info);
+                }
             }
             SyntaxKind::STATIC => {
-                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, &node, relative_path, &source_file) {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, known_macros, &node, relative_path, &source_file) {
                     var_info.is_static = true;
                     variables.push(var_info);
                 }
             }
             SyntaxKind::CONST => {
-                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, &node, relative_path, &source_file) {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, known_macros, &node, relative_path, &source_file) {
                     var_info.is_const = true;
                     variables.push(var_info);
                 }
+            }
+            SyntaxKind::AWAIT_EXPR => {
+                if let Some(await_info) = analyze_await_expr(sema, db, &node, &source_file) {
+                    await_points.push(await_info);
+                }
+            }
+            SyntaxKind::MATCH_EXPR => {
+                analyze_match_bindings(sema, db, &node, &source_file, &mut match_bindings);
+            }
+            SyntaxKind::IF_EXPR => {
+                analyze_if_let_bindings(sema, db, &node, &source_file, &mut match_bindings);
+            }
+            SyntaxKind::WHILE_EXPR => {
+                analyze_while_let_bindings(sema, db, &node, &source_file, &mut match_bindings);
             }
             _ => {}
         }
@@ -531,10 +953,19 @@ fn analyze_file(
     // Analyze method calls on tracked variables
     analyze_method_calls(sema, db, &source_file, &mut variables);
     
+    // Analyze variable usages (reads and writes)
+    analyze_variable_usages(sema, &source_file, &mut variables);
+    
     // Analyze standalone expressions (using semantic function lookup)
     let expressions = analyze_expressions(sema, db, tracked_functions, &source_file);
+    
+    // Analyze unsafe operations
+    analyze_unsafe_operations(sema, db, &source_file, &mut unsafe_ops);
+    
+    // Analyze borrow spans
+    analyze_borrow_spans(sema, editioned_file_id, &source_file, &mut borrow_spans);
 
-    (variables, expressions)
+    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings)
 }
 
 /// Analyze a let statement
@@ -542,6 +973,7 @@ fn analyze_let_stmt(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     known_types: &KnownTypes,
+    known_macros: &KnownMacros,
     node: &ra_ap_syntax::SyntaxNode,
     relative_path: &str,
     source_file: &ast::SourceFile,
@@ -564,24 +996,47 @@ fn analyze_let_stmt(
     // Detect tuple binding pattern
     var_info.is_tuple_binding = matches!(&pat, ast::Pat::TuplePat(_));
 
-    // Detect mut binding
+    // Detect mut binding and binding mode
     if let ast::Pat::IdentPat(ident_pat) = &pat {
         var_info.is_mut_binding = ident_pat.mut_token().is_some();
+        
+        // Get semantic binding mode (move, ref, ref_mut)
+        if let Some(mode) = sema.binding_mode_of_pat(&ident_pat) {
+            var_info.binding_mode = Some(match mode {
+                BindingMode::Move => "move".to_string(),
+                BindingMode::Ref(Mutability::Shared) => "ref".to_string(),
+                BindingMode::Ref(Mutability::Mut) => "ref_mut".to_string(),
+            });
+        }
     }
 
     if let Some(type_info) = sema.type_of_pat(&pat) {
         populate_type_info(&mut var_info, &type_info.original, db, known_types);
     }
 
-    // Detect impl Trait in type annotation
+    // Detect impl Trait and extract lifetime from type annotation
     if let Some(ty) = let_stmt.ty() {
         var_info.is_impl_trait = matches!(ty, ast::Type::ImplTraitType(_));
+        
+        // Extract explicit lifetime from reference type annotation
+        var_info.lifetime = extract_lifetime_from_type(&ty);
     }
 
     // Detect initializer kind semantically using resolved type
     if let Some(init) = let_stmt.initializer() {
         let resolved_type = sema.type_of_pat(&pat).map(|ti| ti.original);
-        var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, &init, resolved_type.as_ref()));
+        var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, known_macros, &init, resolved_type.as_ref()));
+        
+        // Extract closure captures if initializer is a closure
+        if let ast::Expr::ClosureExpr(closure) = &init {
+            var_info.closure_captures = extract_closure_captures_semantic(sema, db, closure);
+        }
+    }
+
+    // Detect drop point - find the enclosing block and get its end position
+    if let Some((drop_line, drop_column)) = find_drop_point(let_stmt.syntax(), source_file) {
+        var_info.drop_line = Some(drop_line);
+        var_info.drop_column = Some(drop_column);
     }
 
     // Assign scope ID (simple incrementing for now)
@@ -599,6 +1054,7 @@ fn classify_initializer_semantic(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     known_types: &KnownTypes,
+    known_macros: &KnownMacros,
     expr: &ast::Expr,
     resolved_type: Option<&ra_ap_hir::Type>,
 ) -> String {
@@ -612,9 +1068,9 @@ fn classify_initializer_semantic(
         }
     }
     
-    // Fallback to macro-specific classification for macros (semantic)
+    // Fallback to macro-specific classification for macros (semantic via MacroId)
     if let ast::Expr::MacroExpr(mac) = expr {
-        return classify_macro_expr_semantic(sema, db, mac);
+        return classify_macro_expr_semantic(sema, db, known_macros, mac);
     }
     
     // Final fallback: expression structure
@@ -745,6 +1201,7 @@ fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownT
             // Option/Result
             ("option", "call") => "option_some",
             ("option", "path") => "option_variant",
+            ("option", "macro") => "option_macro",
             ("result", "call") => "result_variant",
             ("result", "path") => "result_variant",
             
@@ -756,9 +1213,47 @@ fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownT
             ("pathbuf", "call") => "pathbuf_new",
             ("osstring", "call") => "osstring_new",
             ("cstring", "call") => "cstring_new",
+            ("cstr", _) => "cstr",
             
             // NonNull
             ("nonnull", "call") => "nonnull_new",
+            
+            // Additional collections
+            ("btreemap", "call") => "btreemap_new",
+            ("btreeset", "call") => "btreeset_new",
+            ("vecdeque", "call") => "vecdeque_new",
+            ("linkedlist", "call") => "linkedlist_new",
+            ("binaryheap", "call") => "binaryheap_new",
+            
+            // Threading
+            ("join_handle", _) => "join_handle",
+            
+            // Time
+            ("duration", "call") => "duration_new",
+            ("duration", _) => "duration",
+            ("instant", "call") => "instant_new",
+            ("instant", _) => "instant",
+            
+            // Async
+            ("poll", _) => "poll",
+            ("context", _) => "async_context",
+            
+            // Ranges
+            ("range", _) => "range",
+            ("range_from", _) => "range_from",
+            ("range_to", _) => "range_to",
+            ("range_full", _) => "range_full",
+            ("range_inclusive", _) => "range_inclusive",
+            ("range_to_inclusive", _) => "range_to_inclusive",
+            
+            // Other lang items
+            ("phantom_data", _) => "phantom_data",
+            ("alloc_layout", "call") => "alloc_layout_new",
+            ("alloc_layout", _) => "alloc_layout",
+            
+            // Atomics
+            ("atomic", "call") => "atomic_new",
+            ("atomic", _) => "atomic",
             
             // User-defined types
             ("user_struct", _) => "user_struct",
@@ -824,36 +1319,31 @@ fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownT
     None
 }
 
-/// Classify macro expressions
-/// Classify macro expression using semantic resolution
+/// Classify macro expressions using semantic MacroId comparison
 fn classify_macro_expr_semantic(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
+    known_macros: &KnownMacros,
     mac: &ast::MacroExpr,
 ) -> String {
     let Some(macro_call) = mac.macro_call() else {
         return "macro".to_string();
     };
     
-    // Try semantic resolution first
+    // Try semantic resolution via MacroId comparison (fully semantic)
     if let Some(resolved) = sema.resolve_macro_call(&macro_call) {
+        // First try direct MacroId comparison via KnownMacros
+        if let Some(classification) = known_macros.classify(&resolved) {
+            return classification.to_string();
+        }
+        
+        // For unknown macros, return the canonical path
         let module_path = get_module_path(&resolved.module(db), db);
         let name = resolved.name(db).display_no_db(Edition::Edition2021).to_string();
-        
-        // Classify by semantic path
-        return match (module_path.as_str(), name.as_str()) {
-            (m, "vec") if m.contains("vec") => "vec_macro".to_string(),
-            (m, "format") if m.contains("fmt") => "format_macro".to_string(),
-            (m, "format_args") if m.contains("fmt") => "format_macro".to_string(),
-            (m, n) if m.contains("io") && matches!(n, "println" | "print" | "eprintln" | "eprint") => "print_macro".to_string(),
-            (m, "panic") if m.contains("panic") => "panic_macro".to_string(),
-            (m, n) if m.contains("assert") && n.starts_with("assert") => "assert_macro".to_string(),
-            (m, "pin") if m.contains("pin") => "pin_macro".to_string(),
-            _ => format!("{}::{}", module_path, name),
-        };
+        return format!("{}::{}", module_path, name);
     }
     
-    // Fallback to syntactic if resolution fails
+    // Fallback to syntactic only if semantic resolution completely fails
     let Some(path) = macro_call.path() else {
         return "macro".to_string();
     };
@@ -862,10 +1352,42 @@ fn classify_macro_expr_semantic(
 }
 
 /// Analyze a static or const declaration
+/// Analyze an await expression
+fn analyze_await_expr(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    source_file: &ast::SourceFile,
+) -> Option<crate::output::AwaitPointInfo> {
+    let await_expr = ast::AwaitExpr::cast(node.clone())?;
+    let inner_expr = await_expr.expr()?;
+    
+    let range = await_expr.syntax().text_range();
+    let (line, column) = get_location(&range, source_file);
+    
+    // Get the type of the awaited expression (the Future type)
+    let awaited_type = sema.type_of_expr(&inner_expr)
+        .map(|ti| ti.original.display(db, Edition::Edition2021).to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    // Get the result type (what the await resolves to)
+    let result_type = sema.type_of_expr(&ast::Expr::from(await_expr.clone()))
+        .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+    
+    Some(crate::output::AwaitPointInfo {
+        line,
+        column,
+        awaited_type,
+        result_type,
+        live_variables: Vec::new(), // TODO: implement live variable analysis
+    })
+}
+
 fn analyze_static_or_const(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     known_types: &KnownTypes,
+    known_macros: &KnownMacros,
     node: &ra_ap_syntax::SyntaxNode,
     relative_path: &str,
     source_file: &ast::SourceFile,
@@ -895,7 +1417,7 @@ fn analyze_static_or_const(
             
             // Classify initializer if body exists
             if let Some(expr) = body_expr {
-                var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, &expr, Some(&ty)));
+                var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, known_macros, &expr, Some(&ty)));
             }
         } else {
             // Fallback: use the syntax text, no classification without semantic info
@@ -904,6 +1426,84 @@ fn analyze_static_or_const(
     }
 
     Some(var_info)
+}
+
+/// Find the drop point for a variable by locating the end of its enclosing scope.
+/// The drop point is where the variable goes out of scope (end of enclosing block).
+fn find_drop_point(node: &ra_ap_syntax::SyntaxNode, source_file: &ast::SourceFile) -> Option<(u32, u32)> {
+    // Walk up the syntax tree to find the enclosing block expression
+    for ancestor in node.ancestors() {
+        // Check for block expressions: { ... }
+        if let Some(block) = ast::BlockExpr::cast(ancestor.clone()) {
+            // Get the closing brace position
+            if let Some(r_curly) = block.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                let range = r_curly.text_range();
+                return Some(get_location(&range, source_file));
+            }
+        }
+        
+        // Check for function body
+        if let Some(fn_def) = ast::Fn::cast(ancestor.clone()) {
+            if let Some(body) = fn_def.body() {
+                if let Some(r_curly) = body.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                    let range = r_curly.text_range();
+                    return Some(get_location(&range, source_file));
+                }
+            }
+        }
+        
+        // Check for closure body
+        if let Some(closure) = ast::ClosureExpr::cast(ancestor.clone()) {
+            if let Some(body) = closure.body() {
+                // For block body closures
+                if let ast::Expr::BlockExpr(block) = body {
+                    if let Some(r_curly) = block.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                        let range = r_curly.text_range();
+                        return Some(get_location(&range, source_file));
+                    }
+                }
+            }
+        }
+        
+        // Check for if/else, match, loop bodies
+        if let Some(if_expr) = ast::IfExpr::cast(ancestor.clone()) {
+            if let Some(then_branch) = if_expr.then_branch() {
+                if let Some(r_curly) = then_branch.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                    let range = r_curly.text_range();
+                    return Some(get_location(&range, source_file));
+                }
+            }
+        }
+        
+        if let Some(loop_expr) = ast::LoopExpr::cast(ancestor.clone()) {
+            if let Some(body) = loop_expr.loop_body() {
+                if let Some(r_curly) = body.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                    let range = r_curly.text_range();
+                    return Some(get_location(&range, source_file));
+                }
+            }
+        }
+        
+        if let Some(while_expr) = ast::WhileExpr::cast(ancestor.clone()) {
+            if let Some(body) = while_expr.loop_body() {
+                if let Some(r_curly) = body.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                    let range = r_curly.text_range();
+                    return Some(get_location(&range, source_file));
+                }
+            }
+        }
+        
+        if let Some(for_expr) = ast::ForExpr::cast(ancestor.clone()) {
+            if let Some(body) = for_expr.loop_body() {
+                if let Some(r_curly) = body.stmt_list().and_then(|sl| sl.r_curly_token()) {
+                    let range = r_curly.text_range();
+                    return Some(get_location(&range, source_file));
+                }
+            }
+        }
+    }
+    
+    None
 }
 
 /// Get line and column from a text range
@@ -916,6 +1516,47 @@ fn get_location(range: &ra_ap_syntax::TextRange, source_file: &ast::SourceFile) 
     let line = text_before.lines().count() as u32;
     let column = text_before.lines().last().map(|l| l.len()).unwrap_or(0) as u32;
     (line, column)
+}
+
+/// Extract explicit lifetime from a type annotation (recursively searches nested types)
+fn extract_lifetime_from_type(ty: &ast::Type) -> Option<String> {
+    match ty {
+        ast::Type::RefType(ref_ty) => {
+            // Direct reference type - check for lifetime
+            if let Some(lifetime) = ref_ty.lifetime() {
+                return Some(lifetime.syntax().text().to_string());
+            }
+            // Check inner type for nested lifetimes
+            ref_ty.ty().and_then(|inner| extract_lifetime_from_type(&inner))
+        }
+        ast::Type::PathType(path_ty) => {
+            // Check generic arguments for lifetimes (e.g., Cow<'a, str>)
+            path_ty.path()
+                .and_then(|p| p.segments().last())
+                .and_then(|seg| seg.generic_arg_list())
+                .and_then(|args| {
+                    args.lifetime_args().next()
+                        .and_then(|la| la.lifetime())
+                        .map(|lt| lt.syntax().text().to_string())
+                })
+        }
+        ast::Type::SliceType(slice_ty) => {
+            slice_ty.ty().and_then(|inner| extract_lifetime_from_type(&inner))
+        }
+        ast::Type::ArrayType(arr_ty) => {
+            arr_ty.ty().and_then(|inner| extract_lifetime_from_type(&inner))
+        }
+        ast::Type::PtrType(ptr_ty) => {
+            ptr_ty.ty().and_then(|inner| extract_lifetime_from_type(&inner))
+        }
+        ast::Type::TupleType(tuple_ty) => {
+            tuple_ty.fields().find_map(|f| extract_lifetime_from_type(&f))
+        }
+        ast::Type::ParenType(paren_ty) => {
+            paren_ty.ty().and_then(|inner| extract_lifetime_from_type(&inner))
+        }
+        _ => None,
+    }
 }
 
 /// Extract the variable name from a pattern (handles mut, tuple, etc.)
@@ -949,6 +1590,11 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     use ra_ap_hir::Adt;
     
     var_info.ty = ty.display(db, Edition::Edition2021).to_string();
+    
+    // Extract generic type arguments (e.g., ["String", "i32"] for HashMap<String, i32>)
+    var_info.type_arguments = ty.type_arguments()
+        .map(|arg| arg.display(db, Edition::Edition2021).to_string())
+        .collect();
     
     // Get krate for lang item lookups - prefer from ADT, fallback to first crate
     // Lang items are the same across all crates, so any krate works for lookup
@@ -1093,6 +1739,81 @@ fn get_adt_path(adt: &ra_ap_hir::Adt, db: &RootDatabase) -> Option<String> {
     }
     
     Some(segments.join("::"))
+}
+
+// =============================================================================
+// VARIABLE USAGE TRACKING
+// =============================================================================
+
+/// Analyze variable usages (reads and writes) using semantic Definition::usages() API
+fn analyze_variable_usages(
+    sema: &Semantics<'_, RootDatabase>,
+    source_file: &ast::SourceFile,
+    variables: &mut [VariableTypeInfo],
+) {
+    // For each variable, find its Local definition and get usages
+    for var_info in variables.iter_mut() {
+        // Skip statics and consts - they don't have Local definitions
+        if var_info.is_static || var_info.is_const {
+            continue;
+        }
+        
+        // Find the IdentPat for this variable by span
+        let Some(ident_pat) = find_ident_pat_at_span(source_file, var_info.span_start, var_info.span_end) else {
+            continue;
+        };
+        
+        // Resolve to Local
+        let Some(local) = sema.to_def(&ident_pat) else {
+            continue;
+        };
+        
+        // Create Definition from Local and find usages
+        let def = Definition::Local(local);
+        let usages = def.usages(sema).all();
+        
+        // Convert usages to VariableUsageInfo
+        for (_file_id, refs) in usages.references {
+            for reference in refs {
+                let range = reference.range;
+                let (line, column) = get_location(&range, source_file);
+                
+                // Determine usage kind from ReferenceCategory
+                let kind = if reference.category.contains(ReferenceCategory::WRITE) && reference.category.contains(ReferenceCategory::READ) {
+                    "read_write"
+                } else if reference.category.contains(ReferenceCategory::WRITE) {
+                    "write"
+                } else {
+                    "read"
+                }.to_string();
+                
+                var_info.usages.push(VariableUsageInfo { line, column, kind });
+            }
+        }
+    }
+}
+
+/// Find an IdentPat at the given span
+fn find_ident_pat_at_span(source_file: &ast::SourceFile, span_start: u32, span_end: u32) -> Option<ast::IdentPat> {
+    use ra_ap_syntax::TextRange;
+    use ra_ap_syntax::TextSize;
+    
+    let start = TextSize::from(span_start);
+    let end = TextSize::from(span_end);
+    let range = TextRange::new(start, end);
+    
+    // Find the token at this range and walk up to find IdentPat
+    let token = source_file.syntax().token_at_offset(start).right_biased()?;
+    
+    for ancestor in token.parent_ancestors() {
+        if let Some(ident_pat) = ast::IdentPat::cast(ancestor.clone()) {
+            if ident_pat.syntax().text_range() == range || ident_pat.syntax().text_range().contains_range(range) {
+                return Some(ident_pat);
+            }
+        }
+    }
+    
+    None
 }
 
 // =============================================================================
@@ -1454,6 +2175,121 @@ fn get_call_location(call: &ast::CallExpr, source_file: &ast::SourceFile) -> (u3
     get_location(&range, source_file)
 }
 
+/// Analyze unsafe operations in a file using semantic analysis
+fn analyze_unsafe_operations(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+    unsafe_ops: &mut Vec<UnsafeOperationInfo>,
+) {
+    for node in source_file.syntax().descendants() {
+        // 1. Raw pointer dereference: *ptr
+        if let Some(prefix_expr) = ast::PrefixExpr::cast(node.clone()) {
+            if prefix_expr.op_kind() == Some(ast::UnaryOp::Deref) {
+                if let Some(inner) = prefix_expr.expr() {
+                    // Check if the inner expression is a raw pointer type
+                    if let Some(ty) = sema.type_of_expr(&inner) {
+                        if ty.original.is_raw_ptr() {
+                            let range = prefix_expr.syntax().text_range();
+                            let (line, column) = get_location(&range, source_file);
+                            let inside_unsafe = sema.is_inside_unsafe(&ast::Expr::PrefixExpr(prefix_expr.clone()));
+                            unsafe_ops.push(UnsafeOperationInfo {
+                                line,
+                                column,
+                                kind: "deref_raw_ptr".to_string(),
+                                inside_unsafe_block: inside_unsafe,
+                                context: Some(ty.original.display(db, Edition::Edition2021).to_string()),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 2. Unsafe function calls
+        if let Some(call) = ast::CallExpr::cast(node.clone()) {
+            if let Some(callee) = call.expr() {
+                if let ast::Expr::PathExpr(path_expr) = callee {
+                    if let Some(path) = path_expr.path() {
+                        if let Some(resolved) = sema.resolve_path(&path) {
+                            if let ra_ap_hir::PathResolution::Def(ra_ap_hir::ModuleDef::Function(func)) = resolved {
+                                let is_unsafe = func.is_unsafe_to_call(db);
+                                let is_ffi = matches!(func.container(db), ItemContainer::ExternBlock());
+                                
+                                if is_unsafe || is_ffi {
+                                    let range = call.syntax().text_range();
+                                    let (line, column) = get_location(&range, source_file);
+                                    let inside_unsafe = sema.is_inside_unsafe(&ast::Expr::CallExpr(call.clone()));
+                                    let func_name = func.name(db).display_no_db(Edition::Edition2021).to_string();
+                                    
+                                    let kind = if is_ffi { "ffi_call" } else { "call_unsafe_fn" };
+                                    
+                                    unsafe_ops.push(UnsafeOperationInfo {
+                                        line,
+                                        column,
+                                        kind: kind.to_string(),
+                                        inside_unsafe_block: inside_unsafe,
+                                        context: Some(func_name),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 3. Unsafe method calls
+        if let Some(method_call) = ast::MethodCallExpr::cast(node.clone()) {
+            if let Some(func) = sema.resolve_method_call(&method_call) {
+                if func.is_unsafe_to_call(db) {
+                    let range = method_call.syntax().text_range();
+                    let (line, column) = get_location(&range, source_file);
+                    let inside_unsafe = sema.is_inside_unsafe(&ast::Expr::MethodCallExpr(method_call.clone()));
+                    let method_name = func.name(db).display_no_db(Edition::Edition2021).to_string();
+                    
+                    unsafe_ops.push(UnsafeOperationInfo {
+                        line,
+                        column,
+                        kind: "call_unsafe_method".to_string(),
+                        inside_unsafe_block: inside_unsafe,
+                        context: Some(method_name),
+                    });
+                }
+            }
+        }
+        
+        // 4. Mutable static access
+        if let Some(path_expr) = ast::PathExpr::cast(node.clone()) {
+            if let Some(path) = path_expr.path() {
+                if let Some(resolved) = sema.resolve_path(&path) {
+                    if let ra_ap_hir::PathResolution::Def(ra_ap_hir::ModuleDef::Static(static_def)) = resolved {
+                        if static_def.is_mut(db) {
+                            let range = path_expr.syntax().text_range();
+                            let (line, column) = get_location(&range, source_file);
+                            // Check if we're inside an unsafe block
+                            // For path expressions, we need to find the parent expression
+                            let inside_unsafe = path_expr.syntax().ancestors()
+                                .find_map(|n| ast::Expr::cast(n))
+                                .map(|e| sema.is_inside_unsafe(&e))
+                                .unwrap_or(false);
+                            let static_name = static_def.name(db).display_no_db(Edition::Edition2021).to_string();
+                            
+                            unsafe_ops.push(UnsafeOperationInfo {
+                                line,
+                                column,
+                                kind: "access_mutable_static".to_string(),
+                                inside_unsafe_block: inside_unsafe,
+                                context: Some(static_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Extract the receiver variable name from a method call expression
 /// Only returns a name if the receiver is a direct variable reference.
 /// Does NOT recurse into chained method calls - those are intermediate values.
@@ -1541,4 +2377,203 @@ fn resolve_method_path(
 fn get_method_call_location(method_call: &ast::MethodCallExpr, source_file: &ast::SourceFile) -> (u32, u32) {
     let range = method_call.syntax().text_range();
     get_location(&range, source_file)
+}
+
+
+/// Analyze borrow spans
+fn analyze_borrow_spans(
+    sema: &Semantics<'_, RootDatabase>,
+    file_id: ra_ap_ide_db::EditionedFileId,
+    source_file: &ast::SourceFile,
+    borrow_spans: &mut Vec<BorrowSpanInfo>,
+) {
+    for node in source_file.syntax().descendants() {
+        // Look for let statements with reference initializers: let r = &x or let r = &mut x
+        if let Some(let_stmt) = ast::LetStmt::cast(node.clone()) {
+            let Some(pat) = let_stmt.pat() else { continue };
+            let Some(init) = let_stmt.initializer() else { continue };
+            
+            // Check if initializer is a reference expression
+            let Some(ref_expr) = ast::RefExpr::cast(init.syntax().clone()) else { continue };
+            let Some(borrowed_expr) = ref_expr.expr() else { continue };
+            
+            // Get the binding from the pattern
+            let Some(ident_pat) = ast::IdentPat::cast(pat.syntax().clone()) else { continue };
+            let Some(local) = sema.to_def(&ident_pat) else { continue };
+            
+            let range = ref_expr.syntax().text_range();
+            let (start_line, start_column) = get_location(&range, source_file);
+            let kind = if ref_expr.mut_token().is_some() { "mutable" } else { "shared" };
+            let variable = borrowed_expr.syntax().text().to_string();
+            
+            // Find all usages of the reference variable to determine borrow span
+            let def = Definition::Local(local);
+            let mut use_sites = Vec::new();
+            let mut end_line: Option<u32> = None;
+            let mut end_column: Option<u32> = None;
+            
+            let search_scope = ra_ap_ide_db::search::SearchScope::single_file(file_id);
+            for (_, refs) in def.usages(sema).in_scope(&search_scope).all() {
+                for r in refs {
+                    let (use_line, use_col) = get_location(&r.range, source_file);
+                    use_sites.push((use_line, use_col));
+                    
+                    // Track the last use (highest line, or highest column on same line)
+                    let is_later = match (end_line, end_column) {
+                        (None, _) => true,
+                        (Some(el), Some(ec)) => use_line > el || (use_line == el && use_col > ec),
+                        (Some(el), None) => use_line >= el,
+                    };
+                    if is_later {
+                        end_line = Some(use_line);
+                        end_column = Some(use_col);
+                    }
+                }
+            }
+            
+            // Sort use sites by line then column
+            use_sites.sort();
+            
+            borrow_spans.push(BorrowSpanInfo {
+                variable,
+                kind: kind.to_string(),
+                start_line,
+                start_column,
+                end_line,
+                end_column,
+                use_sites,
+            });
+        }
+    }
+}
+
+/// Analyze destructuring patterns
+fn analyze_destructuring_pattern(
+    sema: &Semantics<'_, RootDatabase>,
+    _db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    source_file: &ast::SourceFile,
+) -> Option<DestructuringInfo> {
+    let let_stmt = ast::LetStmt::cast(node.clone())?;
+    let pat = let_stmt.pat()?;
+    let range = pat.syntax().text_range();
+    let (line, column) = get_location(&range, source_file);
+    
+    let (kind, bindings) = match &pat {
+        ast::Pat::TuplePat(_) => ("tuple", extract_bindings(&pat)),
+        ast::Pat::RecordPat(_) => ("struct", extract_bindings(&pat)),
+        ast::Pat::SlicePat(_) => ("slice", extract_bindings(&pat)),
+        ast::Pat::TupleStructPat(_) => ("tuple_struct", extract_bindings(&pat)),
+        _ => return None,
+    };
+    
+    if bindings.is_empty() { return None; }
+    
+    Some(DestructuringInfo {
+        line, column,
+        kind: kind.to_string(),
+        source_expr: let_stmt.initializer().map(|i| i.syntax().text().to_string()),
+        bindings,
+    })
+}
+
+fn extract_bindings(pat: &ast::Pat) -> Vec<String> {
+    let mut bindings = Vec::new();
+    for node in pat.syntax().descendants() {
+        if let Some(ident) = ast::IdentPat::cast(node) {
+            if let Some(name) = ident.name() {
+                bindings.push(name.text().to_string());
+            }
+        }
+    }
+    bindings
+}
+
+/// Analyze match bindings
+fn analyze_match_bindings(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    source_file: &ast::SourceFile,
+    match_bindings: &mut Vec<MatchBindingInfo>,
+) {
+    let Some(match_expr) = ast::MatchExpr::cast(node.clone()) else { return };
+    let Some(arm_list) = match_expr.match_arm_list() else { return };
+    
+    for arm in arm_list.arms() {
+        if let Some(pat) = arm.pat() {
+            if let Some(info) = make_match_binding_info(sema, db, &pat, source_file, "match") {
+                match_bindings.push(info);
+            }
+        }
+    }
+}
+
+/// Analyze if-let bindings
+fn analyze_if_let_bindings(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    source_file: &ast::SourceFile,
+    match_bindings: &mut Vec<MatchBindingInfo>,
+) {
+    let Some(if_expr) = ast::IfExpr::cast(node.clone()) else { return };
+    let Some(cond) = if_expr.condition() else { return };
+    if let Some(let_expr) = ast::LetExpr::cast(cond.syntax().clone()) {
+        if let Some(pat) = let_expr.pat() {
+            if let Some(info) = make_match_binding_info(sema, db, &pat, source_file, "if_let") {
+                match_bindings.push(info);
+            }
+        }
+    }
+}
+
+/// Analyze while-let bindings
+fn analyze_while_let_bindings(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    node: &ra_ap_syntax::SyntaxNode,
+    source_file: &ast::SourceFile,
+    match_bindings: &mut Vec<MatchBindingInfo>,
+) {
+    let Some(while_expr) = ast::WhileExpr::cast(node.clone()) else { return };
+    let Some(cond) = while_expr.condition() else { return };
+    if let Some(let_expr) = ast::LetExpr::cast(cond.syntax().clone()) {
+        if let Some(pat) = let_expr.pat() {
+            if let Some(info) = make_match_binding_info(sema, db, &pat, source_file, "while_let") {
+                match_bindings.push(info);
+            }
+        }
+    }
+}
+
+fn make_match_binding_info(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    pat: &ast::Pat,
+    source_file: &ast::SourceFile,
+    context: &str,
+) -> Option<MatchBindingInfo> {
+    let range = pat.syntax().text_range();
+    let (line, column) = get_location(&range, source_file);
+    let mut bindings = Vec::new();
+    
+    for node in pat.syntax().descendants() {
+        if let Some(ident) = ast::IdentPat::cast(node) {
+            if let Some(name) = ident.name() {
+                let mode = sema.binding_mode_of_pat(&ident)
+                    .map(|m| match m {
+                        BindingMode::Move => "move",
+                        BindingMode::Ref(Mutability::Shared) => "ref",
+                        BindingMode::Ref(Mutability::Mut) => "ref_mut",
+                    })
+                    .unwrap_or("move").to_string();
+                let ty = sema.to_def(&ident).map(|l| l.ty(db).display(db, Edition::Edition2021).to_string());
+                bindings.push(PatternBindingInfo { name: name.text().to_string(), mode, ty });
+            }
+        }
+    }
+    
+    if bindings.is_empty() { return None; }
+    Some(MatchBindingInfo { line, column, pattern: pat.syntax().text().to_string(), bindings, context: context.to_string() })
 }

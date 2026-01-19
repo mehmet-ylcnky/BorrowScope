@@ -34,6 +34,17 @@ pub struct MethodCallInfo {
     pub is_unsafe: Option<bool>,
 }
 
+/// Information about a variable usage (read or write)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariableUsageInfo {
+    /// Line number of the usage
+    pub line: u32,
+    /// Column number of the usage
+    pub column: u32,
+    /// Kind of usage: "read", "write", "read_write"
+    pub kind: String,
+}
+
 /// Information about a closure capture
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClosureCaptureInfo {
@@ -44,6 +55,103 @@ pub struct ClosureCaptureInfo {
     /// Type of the captured variable
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ty: Option<String>,
+}
+
+/// Information about an await point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AwaitPointInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Type of the awaited expression (the Future type)
+    pub awaited_type: String,
+    /// Result type after awaiting
+    pub result_type: Option<String>,
+    /// Variables that are live across this await point
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub live_variables: Vec<String>,
+}
+
+/// Information about a borrow span
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BorrowSpanInfo {
+    /// Variable being borrowed
+    pub variable: String,
+    /// Borrow kind: "shared", "mutable"
+    pub kind: String,
+    /// Line where borrow starts
+    pub start_line: u32,
+    /// Column where borrow starts
+    pub start_column: u32,
+    /// Line where borrow ends (last use)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_line: Option<u32>,
+    /// Column where borrow ends
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_column: Option<u32>,
+    /// Lines where borrow is used
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub use_sites: Vec<(u32, u32)>,
+}
+
+/// Information about a destructuring binding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DestructuringInfo {
+    /// Line number of the destructuring pattern
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Kind of destructuring: "tuple", "struct", "slice", "tuple_struct"
+    pub kind: String,
+    /// Source expression being destructured (if available)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_expr: Option<String>,
+    /// Bindings created by this destructuring
+    pub bindings: Vec<String>,
+}
+
+/// Information about a match arm binding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchBindingInfo {
+    /// Line number of the match arm
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Pattern text
+    pub pattern: String,
+    /// Bindings created in this arm
+    pub bindings: Vec<PatternBindingInfo>,
+    /// Whether this is from match, if-let, or while-let
+    pub context: String,
+}
+
+/// Information about a single binding in a pattern
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PatternBindingInfo {
+    /// Binding name
+    pub name: String,
+    /// Binding mode: "move", "ref", "ref_mut"
+    pub mode: String,
+    /// Type of the binding
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ty: Option<String>,
+}
+
+/// Information about an unsafe operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnsafeOperationInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Kind of unsafe operation: "deref_raw_ptr", "call_unsafe_fn", "access_mutable_static", "call_unsafe_method", "ffi_call"
+    pub kind: String,
+    /// Whether this operation is inside an unsafe block
+    pub inside_unsafe_block: bool,
+    /// Additional context (e.g., function name for calls, static name for access)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
 }
 
 /// Information about a standalone expression (not a method call on a variable)
@@ -125,6 +233,16 @@ pub struct VariableTypeInfo {
     pub is_maybe_uninit: bool,
     pub is_channel: bool,
 
+    // Atomics (semantic via ADT)
+    pub is_atomic: bool,
+    
+    // Threading (semantic via ADT)
+    pub is_join_handle: bool,
+    
+    // Time (semantic via ADT)
+    pub is_duration: bool,
+    pub is_instant: bool,
+
     // Callable/async types (semantic via Type methods and trait impl)
     pub is_closure: bool,
     pub is_fn_ptr: bool,
@@ -147,12 +265,34 @@ pub struct VariableTypeInfo {
     pub is_mut_binding: bool,
     pub is_impl_trait: bool,
 
+    // Explicit lifetime annotation from source (e.g., "'static", "'a")
+    // Extracted from type annotation AST, not from inferred type
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifetime: Option<String>,
+
+    // Binding mode (semantic via sema.binding_mode_of_pat)
+    // Values: "move", "ref", "ref_mut"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_mode: Option<String>,
+
+    // Generic type arguments (e.g., ["String", "i32"] for HashMap<String, i32>)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub type_arguments: Vec<String>,
+
     // Initializer kind for tracking strategy
     pub initializer_kind: Option<String>,
+
+    /// Closure captures with their capture modes (for closure variables)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closure_captures: Vec<ClosureCaptureInfo>,
 
     /// Method calls made on this variable
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub method_calls: Vec<MethodCallInfo>,
+
+    /// Variable usages (reads and writes)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub usages: Vec<VariableUsageInfo>,
 
     /// Source location
     pub file: String,
@@ -162,6 +302,12 @@ pub struct VariableTypeInfo {
     // Byte offsets for precise matching
     pub span_start: u32,
     pub span_end: u32,
+    
+    // Drop point - where the variable goes out of scope (semantic via enclosing block)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop_line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop_column: Option<u32>,
     
     // Scope tracking
     pub scope_id: Option<u32>,
@@ -208,6 +354,10 @@ impl VariableTypeInfo {
             is_once_cell: false,
             is_maybe_uninit: false,
             is_channel: false,
+            is_atomic: false,
+            is_join_handle: false,
+            is_duration: false,
+            is_instant: false,
             is_closure: false,
             is_fn_ptr: false,
             is_future: false,
@@ -220,13 +370,20 @@ impl VariableTypeInfo {
             is_tuple_binding: false,
             is_mut_binding: false,
             is_impl_trait: false,
+            lifetime: None,
+            binding_mode: None,
+            type_arguments: Vec::new(),
             initializer_kind: None,
+            closure_captures: Vec::new(),
             method_calls: Vec::new(),
+            usages: Vec::new(),
             file,
             line,
             column,
             span_start: 0,
             span_end: 0,
+            drop_line: None,
+            drop_column: None,
             scope_id: None,
             function_name: None,
             decl_index: None,
@@ -246,6 +403,21 @@ pub struct ProjectTypeInfo {
     /// Standalone expressions by file (thread::spawn, transmute, drop, etc.)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub expressions: HashMap<String, Vec<ExpressionInfo>>,
+    /// Await points by file
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub await_points: HashMap<String, Vec<AwaitPointInfo>>,
+    /// Unsafe operations by file
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub unsafe_operations: HashMap<String, Vec<UnsafeOperationInfo>>,
+    /// Borrow spans by file
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub borrow_spans: HashMap<String, Vec<BorrowSpanInfo>>,
+    /// Destructuring patterns by file
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub destructuring: HashMap<String, Vec<DestructuringInfo>>,
+    /// Match bindings by file
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub match_bindings: HashMap<String, Vec<MatchBindingInfo>>,
     /// Index by variable name for macro lookup (stable Rust compatible)
     #[serde(default)]
     pub by_name: HashMap<String, Vec<VariableTypeInfo>>,
@@ -257,10 +429,15 @@ pub struct ProjectTypeInfo {
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "2.5".to_string(),
+            version: "2.8".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
             expressions: HashMap::new(),
+            await_points: HashMap::new(),
+            unsafe_operations: HashMap::new(),
+            borrow_spans: HashMap::new(),
+            destructuring: HashMap::new(),
+            match_bindings: HashMap::new(),
             by_name: HashMap::new(),
             by_function: HashMap::new(),
         }

@@ -54,11 +54,11 @@ fn test_type_aliases() {
 // Binding patterns (for macro transformation decisions)
 // ============================================================================
 fn test_binding_patterns() {
-    // Tuple bindings (ERR-002)
+    // Tuple bindings
     let (tuple_a, tuple_b) = (1, 2);
     let (tuple_x, tuple_y, tuple_z) = ("a", "b", "c");
 
-    // Mutable bindings (ERR-003)
+    // Mutable bindings
     let mut mut_int = 42;
     let mut mut_vec = vec![1, 2, 3];
     let mut mut_string = String::new();
@@ -66,22 +66,48 @@ fn test_binding_patterns() {
     // Nested tuple
     let ((nested_a, nested_b), nested_c) = ((1, 2), 3);
 
+    // Binding modes - explicit ref patterns
+    let ref ref_pattern_1 = 42;
+    let ref ref_pattern_2 = String::from("ref");
+    let ref ref_pattern_3 = vec![1, 2, 3];
+    
+    // Binding modes - explicit ref mut patterns
+    let ref mut ref_mut_1 = 42;
+    let ref mut ref_mut_2 = String::from("ref_mut");
+    let ref mut ref_mut_3 = vec![1, 2, 3];
+
     // Use them to avoid warnings
     mut_int += 1;
     mut_vec.push(4);
     mut_string.push_str("hello");
+    *ref_mut_1 += 1;
+    ref_mut_2.push_str("!");
+    ref_mut_3.push(4);
     println!("{} {} {} {} {} {} {} {} {}", tuple_a, tuple_b, tuple_x, tuple_y, tuple_z, mut_int, mut_vec.len(), mut_string, nested_a + nested_b + nested_c);
+    println!("{} {} {} {} {} {}", ref_pattern_1, ref_pattern_2, ref_pattern_3.len(), ref_mut_1, ref_mut_2, ref_mut_3.len());
 }
 
 fn test_lifetime_types() {
-    // Explicit lifetime in type (ERR-013)
+    // Explicit 'static lifetime
     let static_str: &'static str = "static";
+    let static_bytes: &'static [u8] = b"bytes";
     
     // References with inferred lifetimes
     let local = String::from("local");
     let local_ref: &str = &local;
 
-    println!("{} {}", static_str, local_ref);
+    println!("{} {:?} {}", static_str, static_bytes, local_ref);
+}
+
+// Lifetime in struct - tests lifetime extraction from generic args
+struct BorrowedData<'a> {
+    data: &'a str,
+}
+
+fn test_lifetime_in_generics() {
+    let owned = String::from("owned");
+    let borrowed: BorrowedData<'_> = BorrowedData { data: &owned };
+    println!("{}", borrowed.data);
 }
 
 // ============================================================================
@@ -456,10 +482,23 @@ async fn async_fn() -> i32 {
     42
 }
 
+async fn async_returns_string() -> String {
+    String::from("async result")
+}
+
+async fn async_with_multiple_awaits() -> i32 {
+    let a = async_fn().await;
+    let b = async_fn().await;
+    let c = async { a + b }.await;
+    let _s = async_returns_string().await;
+    c
+}
+
 fn test_futures_and_iterators() {
     // Future
     let future = async_fn();
     let future_block = async { 42 };
+    let future_with_await = async_with_multiple_awaits();
 
     // Iterators - use into_iter to avoid lifetime issues
     let iter_vec = vec![1, 2, 3].into_iter();
@@ -1271,4 +1310,211 @@ fn test_macro_initializers() {
         vec_init, format_init, formatted, concat_init, env_init, 
         stringify_init, line_init, column_init, file_init, option_env_init);
     println!("{}", module_init);
+}
+
+// ============================================================================
+// Unsafe operations - comprehensive test cases
+// ============================================================================
+
+// External FFI function declaration
+extern "C" {
+    fn abs(x: i32) -> i32;
+}
+
+fn test_unsafe_operations() {
+    // 1. Raw pointer dereference
+    let value = 42i32;
+    let ptr: *const i32 = &value;
+    let mut_value = 100i32;
+    let mut_ptr: *mut i32 = &mut mut_value as *mut i32;
+    
+    unsafe {
+        // Dereference raw pointers (inside unsafe block)
+        let deref_const = *ptr;
+        let deref_mut = *mut_ptr;
+        *mut_ptr = 200;
+        println!("Dereferenced: {} {}", deref_const, deref_mut);
+    }
+    
+    // 2. FFI call
+    unsafe {
+        let abs_result = abs(-42);
+        println!("abs(-42) = {}", abs_result);
+    }
+    
+    // 3. Mutable static access
+    unsafe {
+        STATIC_MUT = 42;
+        let static_val = STATIC_MUT;
+        println!("Mutable static: {}", static_val);
+    }
+    
+    // 4. Unsafe method calls (e.g., get_unchecked)
+    let vec = vec![1, 2, 3, 4, 5];
+    unsafe {
+        let unchecked = vec.get_unchecked(2);
+        println!("Unchecked access: {}", unchecked);
+    }
+    
+    // 5. Transmute (unsafe function)
+    unsafe {
+        let bytes: [u8; 4] = std::mem::transmute(42i32);
+        println!("Transmuted bytes: {:?}", bytes);
+    }
+}
+
+// Test unsafe outside of unsafe block (would be compile error, but we track it)
+fn test_unsafe_detection() {
+    let x = 42i32;
+    let ptr: *const i32 = &x;
+    
+    // This would be a compile error without unsafe, but we want to detect it
+    // Commenting out to allow compilation, but the analyzer should detect raw ptr creation
+    // let _deref = *ptr; // ERROR: requires unsafe
+    
+    println!("Raw pointer created: {:?}", ptr);
+}
+
+
+// ============================================================================
+// Drop point test cases - variables in different scopes
+// ============================================================================
+fn test_drop_points() {
+    // Variable in function scope - drops at end of function
+    let func_scope_var = String::from("function scope");
+    
+    // Variable in block scope - drops at end of block
+    {
+        let block_scope_var = String::from("block scope");
+        println!("{}", block_scope_var);
+    } // block_scope_var drops here
+    
+    // Variable in if block
+    if true {
+        let if_scope_var = String::from("if scope");
+        println!("{}", if_scope_var);
+    } // if_scope_var drops here
+    
+    // Variable in loop
+    for i in 0..1 {
+        let loop_scope_var = String::from("loop scope");
+        println!("{} {}", i, loop_scope_var);
+    } // loop_scope_var drops here each iteration
+    
+    // Variable in while loop
+    let mut counter = 0;
+    while counter < 1 {
+        let while_scope_var = String::from("while scope");
+        println!("{}", while_scope_var);
+        counter += 1;
+    } // while_scope_var drops here each iteration
+    
+    // Nested scopes
+    {
+        let outer_var = String::from("outer");
+        {
+            let inner_var = String::from("inner");
+            println!("{} {}", outer_var, inner_var);
+        } // inner_var drops here
+        println!("{}", outer_var);
+    } // outer_var drops here
+    
+    println!("{}", func_scope_var);
+} // func_scope_var drops here
+
+
+// ============================================================================
+// Variable usage test cases - reads and writes
+// ============================================================================
+fn test_variable_usages() {
+    // Simple read
+    let read_only = 42;
+    println!("{}", read_only); // read
+    
+    // Multiple reads
+    let multi_read = String::from("hello");
+    println!("{}", multi_read); // read 1
+    println!("{}", multi_read); // read 2
+    println!("{}", multi_read); // read 3
+    
+    // Write then read
+    let mut write_then_read = 0;
+    write_then_read = 42; // write
+    println!("{}", write_then_read); // read
+    
+    // Multiple writes
+    let mut multi_write = 0;
+    multi_write = 1; // write 1
+    multi_write = 2; // write 2
+    multi_write = 3; // write 3
+    println!("{}", multi_write);
+    
+    // Read-modify-write (compound assignment)
+    let mut compound = 10;
+    compound += 5; // read + write
+    compound *= 2; // read + write
+    println!("{}", compound);
+    
+    // Method call that mutates
+    let mut vec_usage = vec![1, 2, 3];
+    vec_usage.push(4); // write via method
+    let _len = vec_usage.len(); // read via method
+    println!("{:?}", vec_usage);
+}
+
+
+// ============================================================================
+// Borrow Span Tests
+// ============================================================================
+
+fn test_borrow_spans() {
+    // Borrow with multiple uses - end should be at last use
+    let data = vec![1, 2, 3, 4, 5];
+    let borrow_multi = &data;
+    println!("{:?}", borrow_multi);  // use 1
+    println!("{}", borrow_multi.len());  // use 2
+    let _first = borrow_multi.first();  // use 3 - this should be the end
+    
+    // Mutable borrow with multiple uses
+    let mut mutable_data = String::from("hello");
+    let borrow_mut_multi = &mut mutable_data;
+    borrow_mut_multi.push_str(" world");  // use 1
+    borrow_mut_multi.push('!');  // use 2 - this should be the end
+    
+    // Nested borrows
+    let outer = vec![1, 2, 3];
+    let outer_ref = &outer;
+    let _inner = &outer_ref[0];  // borrow of borrow
+    println!("{:?}", outer_ref);  // outer_ref ends here
+}
+
+
+// ============================================================================
+// Macro Classification Tests (Semantic via MacroId)
+// ============================================================================
+
+fn test_macro_classification() {
+    // Collection macros
+    let vec_test = vec![1, 2, 3];
+    
+    // Format macros
+    let formatted = format!("hello {}", "world");
+    
+    // Concat macro
+    let concatenated = concat!("hello", " ", "world");
+    
+    // Stringify macro
+    let stringified = stringify!(some_identifier);
+    
+    // Env macro (compile-time)
+    let cargo_pkg = env!("CARGO_PKG_NAME");
+    
+    // Line/column/file macros
+    let current_line = line!();
+    let current_column = column!();
+    let current_file = file!();
+    let current_module = module_path!();
+    
+    println!("{:?} {} {} {} {} {} {} {}", vec_test, formatted, concatenated, stringified, cargo_pkg, current_line, current_column, current_file);
+    println!("{}", current_module);
 }
