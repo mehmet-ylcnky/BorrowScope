@@ -3,9 +3,9 @@
 //! This module provides type analysis by leveraging rust-analyzer's
 //! full semantic analysis capabilities. No heuristics are used.
 
-use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo, UnsafeOperationInfo, VariableUsageInfo, BorrowSpanInfo, DestructuringInfo, MatchBindingInfo, PatternBindingInfo};
+use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo, UnsafeOperationInfo, VariableUsageInfo, BorrowSpanInfo, DestructuringInfo, MatchBindingInfo, PatternBindingInfo, FieldAccessInfo, ClosureTraitInfo, VariantInfo, LifetimeInfo, LabelInfo, ConstPatternInfo, CallableInfo, RecordFieldExprInfo, RecordFieldPatInfo, LayoutInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro, StructKind, HasSource};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_ide_db::defs::Definition;
 use ra_ap_ide_db::search::ReferenceCategory;
@@ -836,7 +836,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings) = analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, file_id, &relative);
+        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, file_id, &relative);
         if !variables.is_empty() {
             info.files.insert(relative.clone(), variables);
         }
@@ -856,7 +856,34 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
             info.destructuring.insert(relative.clone(), destructuring);
         }
         if !match_bindings.is_empty() {
-            info.match_bindings.insert(relative, match_bindings);
+            info.match_bindings.insert(relative.clone(), match_bindings);
+        }
+        if !field_accesses.is_empty() {
+            info.field_accesses.insert(relative.clone(), field_accesses);
+        }
+        if !closure_traits.is_empty() {
+            info.closure_traits.insert(relative.clone(), closure_traits);
+        }
+        if !variants.is_empty() {
+            info.variants.insert(relative.clone(), variants);
+        }
+        if !lifetimes.is_empty() {
+            info.lifetimes.insert(relative.clone(), lifetimes);
+        }
+        if !labels.is_empty() {
+            info.labels.insert(relative.clone(), labels);
+        }
+        if !const_patterns.is_empty() {
+            info.const_patterns.insert(relative.clone(), const_patterns);
+        }
+        if !callables.is_empty() {
+            info.callables.insert(relative.clone(), callables);
+        }
+        if !record_field_exprs.is_empty() {
+            info.record_field_exprs.insert(relative.clone(), record_field_exprs);
+        }
+        if !record_field_pats.is_empty() {
+            info.record_field_pats.insert(relative, record_field_pats);
         }
     }
 
@@ -872,7 +899,7 @@ fn analyze_file(
     known_macros: &KnownMacros,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
-) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>) {
+) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>, Vec<FieldAccessInfo>, Vec<ClosureTraitInfo>, Vec<VariantInfo>, Vec<LifetimeInfo>, Vec<LabelInfo>, Vec<ConstPatternInfo>, Vec<CallableInfo>, Vec<RecordFieldExprInfo>, Vec<RecordFieldPatInfo>) {
     let mut variables = Vec::new();
     let mut await_points = Vec::new();
     let mut unsafe_ops = Vec::new();
@@ -883,7 +910,7 @@ fn analyze_file(
 
     let Some(editioned_file_id) = sema.attach_first_edition(file_id) else {
         warn!("File {} not in crate graph, skipping", relative_path);
-        return (variables, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        return (variables, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     };
 
     let source_file = sema.parse(editioned_file_id);
@@ -964,8 +991,38 @@ fn analyze_file(
     
     // Analyze borrow spans
     analyze_borrow_spans(sema, editioned_file_id, &source_file, &mut borrow_spans);
+    
+    // Analyze field accesses (for partial borrow tracking)
+    let field_accesses = analyze_field_accesses(sema, db, &source_file);
+    
+    // Analyze closure traits (Fn/FnMut/FnOnce)
+    let closure_traits = analyze_closure_traits(sema, db, &source_file);
+    
+    // Analyze enum variant constructions (semantic via sema.resolve_variant)
+    let variants = analyze_variants(sema, db, &source_file);
+    
+    // Analyze lifetime parameters (semantic via sema.resolve_lifetime_param)
+    let lifetimes = analyze_lifetimes(sema, db, &source_file);
+    
+    // Analyze loop labels (semantic via sema.resolve_label)
+    let labels = analyze_labels(sema, db, &source_file);
+    
+    // Analyze const pattern bindings (semantic via sema.resolve_bind_pat_to_const)
+    let const_patterns = analyze_const_patterns(sema, db, &source_file);
+    
+    // Analyze callable expressions (semantic via Type::as_callable, impls_fnonce)
+    let callables = analyze_callables(sema, db, &source_file);
+    
+    // Analyze record field expressions (semantic via sema.resolve_record_field)
+    let record_field_exprs = analyze_record_field_exprs(sema, db, &source_file);
+    
+    // Analyze record field patterns (semantic via sema.resolve_record_pat_field)
+    let record_field_pats = analyze_record_field_pats(sema, db, &source_file);
+    
+    // Update await points with poll function resolution
+    update_await_points_with_poll(sema, db, &source_file, &mut await_points);
 
-    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings)
+    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats)
 }
 
 /// Analyze a let statement
@@ -1008,6 +1065,17 @@ fn analyze_let_stmt(
                 BindingMode::Ref(Mutability::Mut) => "ref_mut".to_string(),
             });
         }
+        
+        // Check if this is a ref binding (semantic via Local::is_ref)
+        if let Some(local) = sema.to_def(ident_pat) {
+            var_info.is_ref_binding = local.is_ref(db);
+        }
+        
+        // Get pattern adjustments (semantic via sema.pattern_adjustments)
+        var_info.pattern_adjustments = sema.pattern_adjustments(&ast::Pat::IdentPat(ident_pat.clone()))
+            .into_iter()
+            .map(|ty| ty.display(db, Edition::Edition2021).to_string())
+            .collect();
     }
 
     if let Some(type_info) = sema.type_of_pat(&pat) {
@@ -1026,6 +1094,29 @@ fn analyze_let_stmt(
     if let Some(init) = let_stmt.initializer() {
         let resolved_type = sema.type_of_pat(&pat).map(|ti| ti.original);
         var_info.initializer_kind = Some(classify_initializer_semantic(sema, db, known_types, known_macros, &init, resolved_type.as_ref()));
+        
+        // Extract expression adjustments (semantic via sema.expr_adjustments)
+        if let Some(adjustments) = sema.expr_adjustments(&init) {
+            var_info.adjustments = adjustments.into_iter()
+                .map(|adj| {
+                    let kind = match adj.kind {
+                        ra_ap_hir::Adjust::NeverToAny => "never_to_any",
+                        ra_ap_hir::Adjust::Deref(_) => "deref",
+                        ra_ap_hir::Adjust::Borrow(ra_ap_hir::AutoBorrow::Ref(m)) => {
+                            if m.is_mut() { "borrow_mut" } else { "borrow_shared" }
+                        }
+                        ra_ap_hir::Adjust::Borrow(ra_ap_hir::AutoBorrow::RawPtr(m)) => {
+                            if m.is_mut() { "raw_ptr_mut" } else { "raw_ptr_shared" }
+                        }
+                        ra_ap_hir::Adjust::Pointer(_) => "pointer_cast",
+                    };
+                    crate::output::AdjustmentInfo {
+                        kind: kind.to_string(),
+                        target: adj.target.display(db, Edition::Edition2021).to_string(),
+                    }
+                })
+                .collect();
+        }
         
         // Extract closure captures if initializer is a closure
         if let ast::Expr::ClosureExpr(closure) = &init {
@@ -1380,6 +1471,7 @@ fn analyze_await_expr(
         awaited_type,
         result_type,
         live_variables: Vec::new(), // TODO: implement live variable analysis
+        poll_function: None, // Will be populated by update_await_points_with_poll
     })
 }
 
@@ -1623,15 +1715,40 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
         // Future trait
         if let Some(future_trait) = db.lang_item(krate_id, LangItem::Future).and_then(|li| li.as_trait()) {
             var_info.is_future = ty.impls_trait(db, future_trait.into(), &[]);
+            // Future output type (semantic via Type::future_output)
+            if var_info.is_future {
+                if let Some(output_ty) = ty.clone().future_output(db) {
+                    var_info.future_output_type = Some(output_ty.display(db, Edition::Edition2021).to_string());
+                }
+            }
         }
         // Iterator trait  
         if let Some(iterator_trait) = db.lang_item(krate_id, LangItem::Iterator).and_then(|li| li.as_trait()) {
             var_info.is_iterator = ty.impls_trait(db, iterator_trait.into(), &[]);
+            // Iterator item type (semantic via Type::iterator_item)
+            if var_info.is_iterator {
+                if let Some(item_ty) = ty.clone().iterator_item(db) {
+                    var_info.iterator_item_type = Some(item_ty.display(db, Edition::Edition2021).to_string());
+                }
+            }
         }
         
         // Send trait - not a lang item, must be found via import_map search
         if let Some(send_trait) = find_send_trait(db, krate) {
             var_info.is_send = ty.impls_trait(db, send_trait, &[]);
+        }
+    }
+    
+    // Callable check (semantic via Type::impls_fnonce)
+    var_info.is_callable = ty.impls_fnonce(db);
+    
+    // Memory layout (semantic via Adt::layout)
+    if let Some(adt) = ty.as_adt() {
+        if let Ok(layout) = adt.layout(db) {
+            var_info.layout = Some(LayoutInfo {
+                size: layout.size(),
+                align: layout.align(),
+            });
         }
     }
     
@@ -1641,6 +1758,29 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     var_info.is_raw_ptr = ty.is_raw_ptr();
     var_info.is_closure = ty.is_closure();
     var_info.is_fn_ptr = ty.is_fn();
+    
+    // Reference analysis (semantic via Type methods)
+    var_info.contains_reference = ty.contains_reference(db);
+    if let Some((_, mutability)) = ty.as_reference() {
+        var_info.reference_mutability = Some(if mutability.is_mut() { "mutable" } else { "shared" }.to_string());
+    }
+    
+    // Deref chain (semantic via Type::autoderef)
+    var_info.deref_chain = ty.autoderef(db)
+        .skip(1) // Skip the type itself
+        .map(|t| t.display(db, Edition::Edition2021).to_string())
+        .collect();
+    
+    // Struct fields (semantic via Type::fields)
+    var_info.fields = ty.fields(db)
+        .into_iter()
+        .map(|(field, field_ty)| {
+            crate::output::FieldInfo {
+                name: field.name(db).display_no_db(Edition::Edition2021).to_string(),
+                ty: field_ty.display(db, Edition::Edition2021).to_string(),
+            }
+        })
+        .collect();
     
     // Check for slice - either bare [T] or contained in reference/smart pointer
     var_info.is_slice = ty.is_slice() || ty.strip_reference().is_slice()
@@ -2287,6 +2427,578 @@ fn analyze_unsafe_operations(
                 }
             }
         }
+        
+        // 5. Unsafe ref expressions (semantic via sema.is_unsafe_ref_expr)
+        if let Some(ref_expr) = ast::RefExpr::cast(node.clone()) {
+            if sema.is_unsafe_ref_expr(&ref_expr) {
+                let range = ref_expr.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                let inside_unsafe = ref_expr.syntax().ancestors()
+                    .find_map(|n| ast::Expr::cast(n))
+                    .map(|e| sema.is_inside_unsafe(&e))
+                    .unwrap_or(false);
+                
+                unsafe_ops.push(UnsafeOperationInfo {
+                    line,
+                    column,
+                    kind: "unsafe_ref_expr".to_string(),
+                    inside_unsafe_block: inside_unsafe,
+                    context: None,
+                });
+            }
+        }
+        
+        // 6. Unsafe ident patterns (semantic via sema.is_unsafe_ident_pat) - union field access
+        if let Some(ident_pat) = ast::IdentPat::cast(node.clone()) {
+            if sema.is_unsafe_ident_pat(&ident_pat) {
+                let range = ident_pat.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                let inside_unsafe = ident_pat.syntax().ancestors()
+                    .find_map(|n| ast::Expr::cast(n))
+                    .map(|e| sema.is_inside_unsafe(&e))
+                    .unwrap_or(false);
+                let name = ident_pat.name().map(|n| n.text().to_string());
+                
+                unsafe_ops.push(UnsafeOperationInfo {
+                    line,
+                    column,
+                    kind: "unsafe_ident_pat".to_string(),
+                    inside_unsafe_block: inside_unsafe,
+                    context: name,
+                });
+            }
+        }
+    }
+}
+
+/// Analyze field accesses for partial borrow tracking (semantic via sema.resolve_field)
+fn analyze_field_accesses(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<FieldAccessInfo> {
+    let mut field_accesses = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(field_expr) = ast::FieldExpr::cast(node.clone()) {
+            if let Some(resolved) = sema.resolve_field(&field_expr) {
+                let range = field_expr.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                
+                // Get the variable name from the receiver
+                let variable = field_expr.expr()
+                    .and_then(|e| {
+                        if let ast::Expr::PathExpr(path) = e {
+                            path.path()?.segment()?.name_ref().map(|n| n.text().to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| "<expr>".to_string());
+                
+                let (field_name, field_type) = match resolved {
+                    either::Either::Left(field) => (
+                        field.name(db).display_no_db(Edition::Edition2021).to_string(),
+                        field.ty(db).display(db, Edition::Edition2021).to_string(),
+                    ),
+                    either::Either::Right(tuple_field) => (
+                        format!("{}", tuple_field.index),
+                        tuple_field.ty(db).display(db, Edition::Edition2021).to_string(),
+                    ),
+                };
+                
+                // Determine access kind based on context
+                let access_kind = determine_field_access_kind(&field_expr);
+                
+                field_accesses.push(FieldAccessInfo {
+                    line,
+                    column,
+                    variable,
+                    field: field_name,
+                    field_type,
+                    access_kind,
+                });
+            }
+        }
+    }
+    
+    field_accesses
+}
+
+/// Determine the kind of field access (read, write, borrow_shared, borrow_mut)
+fn determine_field_access_kind(field_expr: &ast::FieldExpr) -> String {
+    // Check if this field access is the target of an assignment
+    if let Some(parent) = field_expr.syntax().parent() {
+        if let Some(bin_expr) = ast::BinExpr::cast(parent.clone()) {
+            if bin_expr.op_kind() == Some(ast::BinaryOp::Assignment { op: None }) {
+                if let Some(lhs) = bin_expr.lhs() {
+                    if lhs.syntax().text_range() == field_expr.syntax().text_range() {
+                        return "write".to_string();
+                    }
+                }
+            }
+        }
+        // Check if it's being borrowed
+        if let Some(ref_expr) = ast::RefExpr::cast(parent) {
+            if ref_expr.mut_token().is_some() {
+                return "borrow_mut".to_string();
+            } else {
+                return "borrow_shared".to_string();
+            }
+        }
+    }
+    "read".to_string()
+}
+
+/// Analyze closure traits (Fn/FnMut/FnOnce) using semantic Closure::fn_trait
+fn analyze_closure_traits(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<ClosureTraitInfo> {
+    let mut closure_traits = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(closure_expr) = ast::ClosureExpr::cast(node.clone()) {
+            // Get the type of the closure expression
+            if let Some(type_info) = sema.type_of_expr(&ast::Expr::ClosureExpr(closure_expr.clone())) {
+                // Check if it's a closure type and get the fn_trait
+                if let Some(closure) = type_info.original.as_closure() {
+                    // Use display_with_impl to get the Fn trait info
+                    let impl_display = closure.display_with_impl(db, Edition::Edition2021);
+                    let fn_trait_str = if impl_display.contains("FnOnce") {
+                        "FnOnce"
+                    } else if impl_display.contains("FnMut") {
+                        "FnMut"
+                    } else if impl_display.contains("Fn") {
+                        "Fn"
+                    } else {
+                        "unknown"
+                    };
+                    
+                    let range = closure_expr.syntax().text_range();
+                    let (line, column) = get_location(&range, source_file);
+                    
+                    // Get captures
+                    let captures = extract_closure_captures_semantic(sema, db, &closure_expr);
+                    
+                    closure_traits.push(ClosureTraitInfo {
+                        line,
+                        column,
+                        fn_trait: fn_trait_str.to_string(),
+                        captures,
+                    });
+                }
+            }
+        }
+    }
+    
+    closure_traits
+}
+
+/// Analyze enum variant constructions (semantic via sema.resolve_variant)
+fn analyze_variants(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<VariantInfo> {
+    let mut variants = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(record_expr) = ast::RecordExpr::cast(node.clone()) {
+            if let Some(variant_def) = sema.resolve_variant(record_expr.clone()) {
+                let range = record_expr.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                
+                let (enum_type, variant_name, variant_kind, field_types) = match variant_def {
+                    ra_ap_hir::VariantDef::Variant(v) => {
+                        let enum_def = v.parent_enum(db);
+                        let kind = match v.kind(db) {
+                            StructKind::Record => "struct",
+                            StructKind::Tuple => "tuple",
+                            StructKind::Unit => "unit",
+                        };
+                        let fields: Vec<String> = v.fields(db)
+                            .into_iter()
+                            .map(|f| f.ty(db).display(db, Edition::Edition2021).to_string())
+                            .collect();
+                        (
+                            enum_def.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            v.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            kind.to_string(),
+                            fields,
+                        )
+                    }
+                    ra_ap_hir::VariantDef::Struct(s) => {
+                        let kind = match s.kind(db) {
+                            StructKind::Record => "struct",
+                            StructKind::Tuple => "tuple",
+                            StructKind::Unit => "unit",
+                        };
+                        let fields: Vec<String> = s.fields(db)
+                            .into_iter()
+                            .map(|f| f.ty(db).display(db, Edition::Edition2021).to_string())
+                            .collect();
+                        (
+                            s.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            s.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            kind.to_string(),
+                            fields,
+                        )
+                    }
+                    ra_ap_hir::VariantDef::Union(u) => {
+                        let fields: Vec<String> = u.fields(db)
+                            .into_iter()
+                            .map(|f| f.ty(db).display(db, Edition::Edition2021).to_string())
+                            .collect();
+                        (
+                            u.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            u.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            "union".to_string(),
+                            fields,
+                        )
+                    }
+                };
+                
+                variants.push(VariantInfo {
+                    line,
+                    column,
+                    enum_type,
+                    variant_name,
+                    variant_kind,
+                    field_types,
+                });
+            }
+        }
+    }
+    
+    variants
+}
+
+/// Analyze lifetime parameters (semantic via sema.resolve_lifetime_param)
+fn analyze_lifetimes(
+    sema: &Semantics<'_, RootDatabase>,
+    _db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<LifetimeInfo> {
+    let mut lifetimes = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(lifetime) = ast::Lifetime::cast(node.clone()) {
+            if let Some(_lifetime_param) = sema.resolve_lifetime_param(&lifetime) {
+                let range = lifetime.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                
+                let name = lifetime.text().to_string();
+                
+                // Determine context from parent
+                let context = lifetime.syntax().ancestors()
+                    .find_map(|ancestor| {
+                        if ast::Fn::can_cast(ancestor.kind()) {
+                            Some("function")
+                        } else if ast::Struct::can_cast(ancestor.kind()) {
+                            Some("struct")
+                        } else if ast::Enum::can_cast(ancestor.kind()) {
+                            Some("enum")
+                        } else if ast::Impl::can_cast(ancestor.kind()) {
+                            Some("impl")
+                        } else if ast::Trait::can_cast(ancestor.kind()) {
+                            Some("trait")
+                        } else if ast::TypeAlias::can_cast(ancestor.kind()) {
+                            Some("type_alias")
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or("unknown");
+                
+                lifetimes.push(LifetimeInfo {
+                    line,
+                    column,
+                    name,
+                    context: context.to_string(),
+                });
+            }
+        }
+    }
+    
+    lifetimes
+}
+
+/// Analyze loop labels (semantic via sema.resolve_label)
+fn analyze_labels(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<LabelInfo> {
+    let mut labels = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        // Check for label references in break/continue
+        if let Some(lifetime) = ast::Lifetime::cast(node.clone()) {
+            if let Some(label) = sema.resolve_label(&lifetime) {
+                let range = lifetime.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                
+                let name = lifetime.text().to_string();
+                
+                // Get the loop kind from the label's source
+                let loop_kind = label.source(db)
+                    .and_then(|src| src.value.syntax().parent())
+                    .and_then(|parent| {
+                        if ast::LoopExpr::can_cast(parent.kind()) {
+                            Some("loop")
+                        } else if ast::WhileExpr::can_cast(parent.kind()) {
+                            Some("while")
+                        } else if ast::ForExpr::can_cast(parent.kind()) {
+                            Some("for")
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or("unknown");
+                
+                labels.push(LabelInfo {
+                    line,
+                    column,
+                    name,
+                    loop_kind: loop_kind.to_string(),
+                });
+            }
+        }
+    }
+    
+    labels
+}
+
+/// Analyze const pattern bindings (semantic via sema.resolve_bind_pat_to_const)
+fn analyze_const_patterns(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<ConstPatternInfo> {
+    let mut const_patterns = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(ident_pat) = ast::IdentPat::cast(node.clone()) {
+            if let Some(module_def) = sema.resolve_bind_pat_to_const(&ident_pat) {
+                let range = ident_pat.syntax().text_range();
+                let (line, column) = get_location(&range, source_file);
+                
+                let (const_name, const_type) = match module_def {
+                    ra_ap_hir::ModuleDef::Const(c) => (
+                        c.name(db).map(|n| n.display_no_db(Edition::Edition2021).to_string()).unwrap_or_default(),
+                        c.ty(db).display(db, Edition::Edition2021).to_string(),
+                    ),
+                    _ => continue,
+                };
+                
+                const_patterns.push(ConstPatternInfo {
+                    line,
+                    column,
+                    const_name,
+                    const_type,
+                    const_value: None, // Value extraction would require const evaluation
+                });
+            }
+        }
+    }
+    
+    const_patterns
+}
+
+/// Analyze callable expressions (semantic via Type::as_callable, impls_fnonce)
+fn analyze_callables(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<CallableInfo> {
+    let mut callables = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        // Check call expressions where the callee might be a closure or fn pointer
+        if let Some(call_expr) = ast::CallExpr::cast(node.clone()) {
+            if let Some(callee) = call_expr.expr() {
+                if let Some(type_info) = sema.type_of_expr(&callee) {
+                    let ty = type_info.original;
+                    
+                    // Check if it's callable
+                    if ty.impls_fnonce(db) {
+                        if let Some(callable) = ty.as_callable(db) {
+                            let range = call_expr.syntax().text_range();
+                            let (line, column) = get_location(&range, source_file);
+                            
+                            let kind = if ty.is_closure() {
+                                "closure"
+                            } else if ty.is_fn() {
+                                "fn_ptr"
+                            } else {
+                                "fn_trait"
+                            };
+                            
+                            let param_types: Vec<String> = callable.params()
+                                .into_iter()
+                                .map(|p| p.ty().display(db, Edition::Edition2021).to_string())
+                                .collect();
+                            
+                            let return_type = Some(callable.return_type().display(db, Edition::Edition2021).to_string());
+                            
+                            callables.push(CallableInfo {
+                                line,
+                                column,
+                                kind: kind.to_string(),
+                                param_types,
+                                return_type,
+                                is_callable: true,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    callables
+}
+
+/// Analyze record field expressions (semantic via sema.resolve_record_field)
+fn analyze_record_field_exprs(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<RecordFieldExprInfo> {
+    let mut record_fields = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(record_expr) = ast::RecordExpr::cast(node.clone()) {
+            if let Some(field_list) = record_expr.record_expr_field_list() {
+                for field in field_list.fields() {
+                    if let Some((resolved_field, _, ty)) = sema.resolve_record_field(&field) {
+                        let range = field.syntax().text_range();
+                        let (line, column) = get_location(&range, source_file);
+                        
+                        let parent_type = resolved_field.parent_def(db);
+                        let parent_type_name = match parent_type {
+                            ra_ap_hir::VariantDef::Struct(s) => s.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            ra_ap_hir::VariantDef::Variant(v) => {
+                                format!("{}::{}", 
+                                    v.parent_enum(db).name(db).display_no_db(Edition::Edition2021),
+                                    v.name(db).display_no_db(Edition::Edition2021))
+                            }
+                            ra_ap_hir::VariantDef::Union(u) => u.name(db).display_no_db(Edition::Edition2021).to_string(),
+                        };
+                        
+                        let value_type = field.expr()
+                            .and_then(|e| sema.type_of_expr(&e))
+                            .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+                        
+                        record_fields.push(RecordFieldExprInfo {
+                            line,
+                            column,
+                            parent_type: parent_type_name,
+                            field_name: resolved_field.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            field_type: ty.display(db, Edition::Edition2021).to_string(),
+                            value_type,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    record_fields
+}
+
+/// Analyze record field patterns (semantic via sema.resolve_record_pat_field)
+fn analyze_record_field_pats(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<RecordFieldPatInfo> {
+    let mut record_fields = Vec::new();
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(record_pat) = ast::RecordPat::cast(node.clone()) {
+            if let Some(field_list) = record_pat.record_pat_field_list() {
+                for field in field_list.fields() {
+                    if let Some((resolved_field, ty)) = sema.resolve_record_pat_field(&field) {
+                        let range = field.syntax().text_range();
+                        let (line, column) = get_location(&range, source_file);
+                        
+                        let parent_type = resolved_field.parent_def(db);
+                        let parent_type_name = match parent_type {
+                            ra_ap_hir::VariantDef::Struct(s) => s.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            ra_ap_hir::VariantDef::Variant(v) => {
+                                format!("{}::{}", 
+                                    v.parent_enum(db).name(db).display_no_db(Edition::Edition2021),
+                                    v.name(db).display_no_db(Edition::Edition2021))
+                            }
+                            ra_ap_hir::VariantDef::Union(u) => u.name(db).display_no_db(Edition::Edition2021).to_string(),
+                        };
+                        
+                        record_fields.push(RecordFieldPatInfo {
+                            line,
+                            column,
+                            parent_type: parent_type_name,
+                            field_name: resolved_field.name(db).display_no_db(Edition::Edition2021).to_string(),
+                            field_type: ty.display(db, Edition::Edition2021).to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    record_fields
+}
+
+/// Update await points with poll function resolution (semantic via sema.resolve_await_to_poll)
+fn update_await_points_with_poll(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+    await_points: &mut Vec<crate::output::AwaitPointInfo>,
+) {
+    // Build a map of (line, column) -> await_point index for quick lookup
+    let mut await_map: std::collections::HashMap<(u32, u32), usize> = std::collections::HashMap::new();
+    for (idx, ap) in await_points.iter().enumerate() {
+        await_map.insert((ap.line, ap.column), idx);
+    }
+    
+    for node in source_file.syntax().descendants() {
+        if let Some(await_expr) = ast::AwaitExpr::cast(node.clone()) {
+            let range = await_expr.syntax().text_range();
+            let (line, column) = get_location(&range, source_file);
+            
+            // Find the corresponding await point
+            if let Some(&idx) = await_map.get(&(line, column)) {
+                // Resolve the poll function (semantic via sema.resolve_await_to_poll)
+                if let Some(poll_fn) = sema.resolve_await_to_poll(&await_expr) {
+                    let poll_fn_name = poll_fn.name(db).display_no_db(Edition::Edition2021).to_string();
+                    let container = poll_fn.container(db);
+                    let full_path = match container {
+                        ItemContainer::Trait(t) => {
+                            format!("{}::{}", t.name(db).display_no_db(Edition::Edition2021), poll_fn_name)
+                        }
+                        ItemContainer::Impl(i) => {
+                            if let Some(trait_ref) = i.trait_(db) {
+                                format!("<{} as {}>::{}", 
+                                    i.self_ty(db).display(db, Edition::Edition2021),
+                                    trait_ref.name(db).display_no_db(Edition::Edition2021),
+                                    poll_fn_name)
+                            } else {
+                                format!("<{}>::{}", 
+                                    i.self_ty(db).display(db, Edition::Edition2021),
+                                    poll_fn_name)
+                            }
+                        }
+                        _ => poll_fn_name,
+                    };
+                    
+                    await_points[idx].poll_function = Some(full_path);
+                }
+            }
+        }
     }
 }
 
@@ -2449,7 +3161,7 @@ fn analyze_borrow_spans(
 
 /// Analyze destructuring patterns
 fn analyze_destructuring_pattern(
-    sema: &Semantics<'_, RootDatabase>,
+    _sema: &Semantics<'_, RootDatabase>,
     _db: &RootDatabase,
     node: &ra_ap_syntax::SyntaxNode,
     source_file: &ast::SourceFile,

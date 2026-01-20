@@ -1101,6 +1101,964 @@ fn test_standalone_expressions() {
     }
 }
 
+// ============================================================================
+// Semantic Expansion Tests (New APIs)
+// ============================================================================
+
+/// Test struct for field access tracking
+struct FieldPoint {
+    x: i32,
+    y: i32,
+}
+
+/// Test struct with nested fields
+struct FieldRectangle {
+    top_left: FieldPoint,
+    bottom_right: FieldPoint,
+}
+
+fn test_field_access_tracking() {
+    // Field read access
+    let p = FieldPoint { x: 10, y: 20 };
+    let _x = p.x;  // read
+    let _y = p.y;  // read
+    
+    // Field write access
+    let mut p2 = FieldPoint { x: 0, y: 0 };
+    p2.x = 100;  // write
+    p2.y = 200;  // write
+    
+    // Field borrow (shared)
+    let p3 = FieldPoint { x: 1, y: 2 };
+    let _x_ref = &p3.x;  // borrow_shared
+    let _y_ref = &p3.y;  // borrow_shared
+    
+    // Field borrow (mutable)
+    let mut p4 = FieldPoint { x: 5, y: 6 };
+    let x_mut = &mut p4.x;  // borrow_mut
+    *x_mut = 50;
+    let y_mut = &mut p4.y;  // borrow_mut
+    *y_mut = 60;
+    
+    // Nested field access
+    let rect = FieldRectangle {
+        top_left: FieldPoint { x: 0, y: 0 },
+        bottom_right: FieldPoint { x: 100, y: 100 },
+    };
+    let _tl_x = rect.top_left.x;  // nested read
+    let _br_y = rect.bottom_right.y;  // nested read
+    
+    // Tuple field access
+    let tuple = (1, "hello", 3.14);
+    let _first = tuple.0;
+    let _second = tuple.1;
+    let _third = tuple.2;
+    
+    println!("{} {} {:?} {:?}", p.x, p2.x, p3.x, rect.top_left.x);
+}
+
+fn test_expression_adjustments() {
+    // Autoref: value to reference
+    let s = String::from("hello");
+    let _len = s.len();  // autoref: String -> &String -> &str (deref) -> len()
+    
+    // Autoderef: reference to value
+    let boxed = Box::new(42);
+    let _val: i32 = *boxed;  // deref Box<i32> -> i32
+    
+    // Multiple derefs
+    let rc_box = Rc::new(Box::new(String::from("nested")));
+    let _inner: &str = &***rc_box;  // Rc -> Box -> String -> str
+    
+    // Unsize coercion: [T; N] -> [T]
+    let arr: [i32; 5] = [1, 2, 3, 4, 5];
+    let _slice: &[i32] = &arr;  // unsize coercion
+    
+    // Trait object coercion
+    let vec: Vec<i32> = vec![1, 2, 3];
+    let _iter: &dyn Iterator<Item = &i32> = &mut vec.iter();
+    
+    // Pointer coercion
+    let x = 42;
+    let _ptr: *const i32 = &x;  // &T -> *const T
+    
+    let mut y = 42;
+    let _mut_ptr: *mut i32 = &mut y;  // &mut T -> *mut T
+    
+    println!("{} {} {} {:?}", s, boxed, rc_box, arr);
+}
+
+fn test_pattern_adjustments() {
+    // Match with ref patterns
+    let opt = Some(String::from("value"));
+    match &opt {
+        Some(s) => println!("Got: {}", s),  // s is &String due to match ergonomics
+        None => println!("None"),
+    }
+    
+    // Match with explicit ref
+    let data = (1, String::from("tuple"));
+    match data {
+        (n, ref s) => println!("{} {}", n, s),  // explicit ref binding
+    }
+    
+    // If-let with pattern adjustment
+    let result: Result<String, i32> = Ok(String::from("ok"));
+    if let Ok(ref val) = result {
+        println!("Value: {}", val);
+    }
+    
+    // Slice patterns with ref
+    let arr = [1, 2, 3, 4, 5];
+    match &arr[..] {
+        [first, rest @ ..] => println!("First: {}, rest: {:?}", first, rest),
+        [] => println!("Empty"),
+    }
+}
+
+fn test_binding_modes() {
+    // Move binding (default)
+    let owned = String::from("owned");
+    let moved = owned;  // move binding
+    
+    // Ref binding
+    let value = 42;
+    let ref borrowed = value;  // ref binding
+    let _: &i32 = borrowed;
+    
+    // Ref mut binding
+    let mut mutable = 100;
+    let ref mut borrowed_mut = mutable;  // ref mut binding
+    *borrowed_mut += 1;
+    
+    // Match with binding modes
+    let pair = (String::from("a"), String::from("b"));
+    match pair {
+        (ref a, ref b) => println!("{} {}", a, b),  // ref bindings in pattern
+    }
+    
+    // Destructuring with mixed modes
+    let tuple = (1, String::from("str"), vec![1, 2, 3]);
+    let (copy_val, ref str_ref, ref vec_ref) = tuple;
+    println!("{} {} {:?}", copy_val, str_ref, vec_ref);
+    
+    println!("{} {} {}", moved, borrowed, borrowed_mut);
+}
+
+fn test_deref_chains() {
+    // Simple deref chain: Box<T> -> T
+    let boxed: Box<i32> = Box::new(42);
+    let _: i32 = *boxed;
+    
+    // Rc deref chain: Rc<T> -> T
+    let rc: Rc<String> = Rc::new(String::from("rc"));
+    let _: &str = &*rc;  // Rc -> String -> str
+    
+    // Arc deref chain: Arc<T> -> T
+    let arc: Arc<Vec<i32>> = Arc::new(vec![1, 2, 3]);
+    let _: &[i32] = &*arc;  // Arc -> Vec -> [i32]
+    
+    // Nested smart pointers
+    let nested: Box<Rc<String>> = Box::new(Rc::new(String::from("nested")));
+    let _: &str = &**nested;  // Box -> Rc -> String -> str
+    
+    // RefCell deref (via borrow)
+    let refcell = RefCell::new(String::from("refcell"));
+    let guard = refcell.borrow();
+    let _: &str = &*guard;  // Ref -> String -> str
+    
+    // Mutex deref (via lock)
+    let mutex = Mutex::new(vec![1, 2, 3]);
+    let lock = mutex.lock().unwrap();
+    let _: &[i32] = &*lock;  // MutexGuard -> Vec -> [i32]
+    
+    println!("{} {} {:?} {} {:?} {:?}", boxed, rc, arc, nested, guard, lock);
+}
+
+fn test_closure_fn_traits() {
+    // Fn closure - only reads captured variables
+    let x = 10;
+    let fn_closure = || x + 1;  // Fn: captures x by shared ref
+    println!("{}", fn_closure());
+    println!("{}", fn_closure());  // can call multiple times
+    
+    // FnMut closure - mutates captured variables
+    let mut counter = 0;
+    let mut fn_mut_closure = || {
+        counter += 1;  // FnMut: captures counter by mutable ref
+        counter
+    };
+    println!("{}", fn_mut_closure());
+    println!("{}", fn_mut_closure());
+    
+    // FnOnce closure - consumes captured variables
+    let owned = String::from("consumed");
+    let fn_once_closure = || {
+        drop(owned);  // FnOnce: moves owned into closure
+    };
+    fn_once_closure();  // can only call once
+    
+    // Closure with move keyword (forces FnOnce for non-Copy)
+    let data = vec![1, 2, 3];
+    let move_closure = move || {
+        println!("{:?}", data);  // data is moved
+    };
+    move_closure();
+    
+    // Closure that could be Fn but is FnMut due to mutation
+    let mut sum = 0;
+    let mut accumulator = |n: i32| {
+        sum += n;  // FnMut
+    };
+    for &n in [1, 2, 3].iter() {
+        accumulator(n);
+    }
+    
+    // Higher-order function accepting different Fn traits
+    fn call_fn<F: Fn() -> i32>(f: F) -> i32 { f() }
+    fn call_fn_mut<F: FnMut() -> i32>(mut f: F) -> i32 { f() }
+    fn call_fn_once<F: FnOnce() -> i32>(f: F) -> i32 { f() }
+    
+    let val = 42;
+    let _ = call_fn(|| val);
+    let mut cnt = 0;
+    let _ = call_fn_mut(|| { cnt += 1; cnt });
+    let s = String::from("once");
+    let _ = call_fn_once(|| { drop(s); 0 });
+}
+
+fn test_contains_reference() {
+    // Types that contain references
+    let s = "hello";  // &str contains reference
+    let slice: &[i32] = &[1, 2, 3];  // slice is a reference
+    
+    // Struct containing reference
+    struct WithRef<'a> {
+        data: &'a str,
+    }
+    let with_ref = WithRef { data: "test" };
+    
+    // Tuple containing reference
+    let tuple_with_ref: (i32, &str) = (1, "tuple");
+    
+    // Option containing reference
+    let opt_ref: Option<&str> = Some("option");
+    
+    // Vec does NOT contain reference (owns its data)
+    let vec: Vec<i32> = vec![1, 2, 3];
+    
+    // Box does NOT contain reference (owns its data)
+    let boxed: Box<str> = "boxed".into();
+    
+    println!("{} {:?} {} {:?} {:?} {:?} {}", s, slice, with_ref.data, tuple_with_ref, opt_ref, vec, boxed);
+}
+
+// ============================================================================
+// Packed Structs (unsafe_ref_expr)
+// ============================================================================
+
+#[repr(packed)]
+#[derive(Copy, Clone)]
+struct PackedStruct {
+    a: u8,
+    b: u32,  // Unaligned field
+    c: u16,
+}
+
+fn test_packed_structs() {
+    let packed = PackedStruct { a: 1, b: 2, c: 3 };
+    
+    // Reading packed fields is safe (copies the value)
+    let _a = packed.a;
+    let _b = packed.b;
+    let _c = packed.c;
+    
+    // Taking reference to unaligned field is now a hard error in Rust
+    // Instead, we demonstrate the safe pattern: copy first, then reference
+    let b_copy = packed.b;
+    let c_copy = packed.c;
+    let _b_ref_safe = &b_copy;  // safe - aligned
+    let _c_ref_safe = &c_copy;  // safe - aligned
+    
+    // Use raw pointers for unaligned access (unsafe)
+    unsafe {
+        let b_ptr = std::ptr::addr_of!(packed.b);
+        let c_ptr = std::ptr::addr_of!(packed.c);
+        let b_val = std::ptr::read_unaligned(b_ptr);
+        let c_val = std::ptr::read_unaligned(c_ptr);
+        println!("Unaligned read: {} {}", b_val, c_val);
+    }
+    
+    // Copy values before printing to avoid unaligned references
+    let a_val = packed.a;
+    let b_val = packed.b;
+    let c_val = packed.c;
+    println!("{} {} {} {} {}", a_val, b_val, c_val, _b_ref_safe, _c_ref_safe);
+}
+
+// ============================================================================
+// Union Pattern Matching (unsafe_ident_pat)
+// ============================================================================
+
+union IntOrFloatUnion {
+    i: i32,
+    f: f32,
+}
+
+fn test_union_pattern_matching() {
+    let u = IntOrFloatUnion { i: 42 };
+    
+    // Union field access in patterns requires unsafe (unsafe_ident_pat)
+    unsafe {
+        // Match on union - unsafe_ident_pat
+        match u {
+            IntOrFloatUnion { i } => println!("As int: {}", i),
+        }
+        
+        // If-let with union - unsafe_ident_pat
+        if let IntOrFloatUnion { f } = u {
+            println!("As float: {}", f);
+        }
+        
+        // Destructuring union - unsafe_ident_pat
+        let IntOrFloatUnion { i: val } = u;
+        println!("Destructured: {}", val);
+    }
+}
+
+// ============================================================================
+// Advanced Async Patterns
+// ============================================================================
+
+use std::future::Future;
+
+async fn async_operation(id: u32) -> u32 {
+    id * 2
+}
+
+async fn async_with_timeout() -> Option<u32> {
+    // Simulated timeout pattern
+    let result = async_operation(1).await;
+    Some(result)
+}
+
+async fn async_select_pattern() {
+    // Multiple futures - select-like pattern
+    let fut1 = async_operation(1);
+    let fut2 = async_operation(2);
+    
+    // Sequential await (real select would need tokio/futures)
+    let r1 = fut1.await;
+    let r2 = fut2.await;
+    
+    println!("{} {}", r1, r2);
+}
+
+async fn async_join_pattern() {
+    // Join pattern - await multiple futures
+    let fut1 = async_operation(1);
+    let fut2 = async_operation(2);
+    let fut3 = async_operation(3);
+    
+    let (r1, r2, r3) = (fut1.await, fut2.await, fut3.await);
+    println!("{} {} {}", r1, r2, r3);
+}
+
+async fn async_loop_pattern() {
+    // Await in loop
+    for i in 0..3 {
+        let result = async_operation(i).await;
+        println!("Loop result: {}", result);
+    }
+}
+
+async fn async_conditional_await() {
+    let condition = true;
+    
+    // Conditional await
+    let result = if condition {
+        async_operation(1).await
+    } else {
+        async_operation(2).await
+    };
+    
+    println!("Conditional: {}", result);
+}
+
+fn test_advanced_async() {
+    // Create futures (don't poll them in sync context)
+    let _timeout_fut = async_with_timeout();
+    let _select_fut = async_select_pattern();
+    let _join_fut = async_join_pattern();
+    let _loop_fut = async_loop_pattern();
+    let _cond_fut = async_conditional_await();
+}
+
+// ============================================================================
+// Advanced Destructuring Patterns
+// ============================================================================
+
+fn test_advanced_destructuring() {
+    // Slice patterns with @ bindings
+    let arr = [1, 2, 3, 4, 5];
+    match &arr[..] {
+        [first, second, rest @ ..] => {
+            println!("First: {}, Second: {}, Rest: {:?}", first, second, rest);
+        }
+        _ => {}
+    }
+    
+    // Array pattern with @ binding
+    let [a, b @ .., c] = arr;
+    println!("a={}, b={:?}, c={}", a, b, c);
+    
+    // Nested destructuring with @ binding
+    let nested = ((1, 2), (3, 4));
+    let (first @ (a, b), second @ (c, d)) = nested;
+    println!("{:?} {} {} {:?} {} {}", first, a, b, second, c, d);
+    
+    // Struct destructuring with @ binding
+    struct Named { x: i32, y: i32 }
+    let named = Named { x: 10, y: 20 };
+    let Named { x: x_val @ 1..=100, y } = named else { panic!() };
+    println!("x={}, y={}", x_val, y);
+    
+    // Or patterns in destructuring
+    let opt: Option<i32> = Some(42);
+    match opt {
+        Some(n @ 1..=50) | Some(n @ 100..=150) => println!("In range: {}", n),
+        Some(n) => println!("Out of range: {}", n),
+        None => println!("None"),
+    }
+    
+    // Slice pattern with fixed and variable parts
+    let slice: &[i32] = &[1, 2, 3, 4, 5, 6];
+    match slice {
+        [first, .., last] => println!("First: {}, Last: {}", first, last),
+        [single] => println!("Single: {}", single),
+        [] => println!("Empty"),
+    }
+    
+    // Tuple struct destructuring
+    struct Wrapper(i32, String);
+    let wrapped = Wrapper(42, String::from("hello"));
+    let Wrapper(num, ref text) = wrapped;
+    println!("{} {}", num, text);
+}
+
+// ============================================================================
+// More Match Ergonomics
+// ============================================================================
+
+fn test_match_ergonomics() {
+    // Match ergonomics with nested references
+    let opt_string: Option<String> = Some(String::from("hello"));
+    match &opt_string {
+        Some(s) => println!("Got: {}", s),  // s is &String
+        None => {}
+    }
+    
+    // Match ergonomics with Result
+    let result: Result<Vec<i32>, String> = Ok(vec![1, 2, 3]);
+    match &result {
+        Ok(v) => println!("Vec: {:?}", v),  // v is &Vec<i32>
+        Err(e) => println!("Error: {}", e),
+    }
+    
+    // Double reference match ergonomics
+    let data = vec![1, 2, 3];
+    let ref_data = &data;
+    match ref_data {
+        v => println!("Vec: {:?}", v),  // v is &Vec<i32>
+    }
+    
+    // Match ergonomics in if-let chains
+    let opt1: Option<String> = Some(String::from("a"));
+    let opt2: Option<i32> = Some(42);
+    if let (Some(s), Some(n)) = (&opt1, &opt2) {
+        println!("{} {}", s, n);
+    }
+    
+    // Match ergonomics with slice patterns
+    let vec = vec![String::from("a"), String::from("b")];
+    match &vec[..] {
+        [first, rest @ ..] => println!("First: {}, Rest: {:?}", first, rest),
+        [] => {}
+    }
+}
+
+// ============================================================================
+// Additional Expressions (ManuallyDrop, Box::leak)
+// ============================================================================
+
+fn test_additional_expressions() {
+    // ManuallyDrop::into_inner
+    let md = ManuallyDrop::new(String::from("manually dropped"));
+    let recovered = ManuallyDrop::into_inner(md);
+    println!("{}", recovered);
+    
+    // Box::leak - converts Box<T> to &'static mut T
+    let boxed = Box::new(vec![1, 2, 3]);
+    let leaked: &'static mut Vec<i32> = Box::leak(boxed);
+    leaked.push(4);
+    println!("{:?}", leaked);
+    // Note: This leaks memory intentionally
+    
+    // ManuallyDrop with take (unsafe)
+    let mut md2 = ManuallyDrop::new(String::from("take me"));
+    unsafe {
+        let taken = ManuallyDrop::take(&mut md2);
+        println!("{}", taken);
+    }
+    
+    // Box::from_raw (unsafe, paired with into_raw)
+    let boxed2 = Box::new(42);
+    let raw = Box::into_raw(boxed2);
+    unsafe {
+        let recovered2 = Box::from_raw(raw);
+        println!("{}", recovered2);
+    }
+}
+
+// ============================================================================
+// Sync Primitives (Condvar, Barrier)
+// ============================================================================
+
+use std::sync::{Condvar, Barrier};
+
+fn test_sync_primitives() {
+    // Condvar
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let pair_clone = Arc::clone(&pair);
+    
+    std::thread::spawn(move || {
+        let (lock, cvar) = &*pair_clone;
+        let mut started = lock.lock().unwrap();
+        *started = true;
+        cvar.notify_one();
+    });
+    
+    let (lock, cvar) = &*pair;
+    let mut started = lock.lock().unwrap();
+    while !*started {
+        started = cvar.wait(started).unwrap();
+    }
+    println!("Condvar signaled");
+    
+    // Barrier
+    let barrier = Arc::new(Barrier::new(2));
+    let barrier_clone = Arc::clone(&barrier);
+    
+    let handle = std::thread::spawn(move || {
+        barrier_clone.wait();
+        println!("Thread passed barrier");
+    });
+    
+    barrier.wait();
+    println!("Main passed barrier");
+    handle.join().unwrap();
+}
+
+// ============================================================================
+// IO Types (BufReader, BufWriter)
+// ============================================================================
+
+use std::io::{BufReader, BufWriter, Read, Write, Cursor};
+
+fn test_io_types_extended() {
+    // BufReader
+    let data = b"Hello, World!";
+    let cursor = Cursor::new(data);
+    let mut reader = BufReader::new(cursor);
+    let mut buffer = String::new();
+    reader.read_to_string(&mut buffer).unwrap();
+    println!("Read: {}", buffer);
+    
+    // BufWriter
+    let mut output = Vec::new();
+    {
+        let mut writer = BufWriter::new(&mut output);
+        writer.write_all(b"Buffered output").unwrap();
+        writer.flush().unwrap();
+    }
+    println!("Written: {:?}", String::from_utf8_lossy(&output));
+    
+    // BufReader with lines
+    let lines_data = b"line1\nline2\nline3";
+    let cursor2 = Cursor::new(lines_data);
+    let reader2 = BufReader::new(cursor2);
+    use std::io::BufRead;
+    for line in reader2.lines() {
+        println!("Line: {}", line.unwrap());
+    }
+}
+
+// ============================================================================
+// Process Types (Command)
+// ============================================================================
+
+use std::process::Command;
+
+fn test_process_types() {
+    // Command builder pattern
+    let output = Command::new("echo")
+        .arg("hello")
+        .output();
+    
+    match output {
+        Ok(out) => println!("Output: {:?}", String::from_utf8_lossy(&out.stdout)),
+        Err(e) => println!("Failed to execute: {}", e),
+    }
+    
+    // Command with environment
+    let _cmd = Command::new("env")
+        .env("MY_VAR", "my_value")
+        .current_dir("/tmp");
+}
+
+// ============================================================================
+// Thread Builder
+// ============================================================================
+
+use std::thread::Builder;
+
+fn test_thread_builder() {
+    // Thread with custom name and stack size
+    let builder = Builder::new()
+        .name("custom-thread".into())
+        .stack_size(32 * 1024);
+    
+    let handle = builder.spawn(|| {
+        println!("Running in custom thread: {:?}", std::thread::current().name());
+    });
+    
+    if let Ok(h) = handle {
+        h.join().unwrap();
+    }
+}
+
+// ============================================================================
+// Panic Support (AssertUnwindSafe)
+// ============================================================================
+
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+fn test_panic_support_extended() {
+    // AssertUnwindSafe wrapper
+    let mut counter = 0;
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        counter += 1;
+        if counter > 0 {
+            // Would panic, but we catch it
+        }
+        counter
+    }));
+    
+    match result {
+        Ok(val) => println!("Completed with: {}", val),
+        Err(_) => println!("Panicked"),
+    }
+    
+    // AssertUnwindSafe with closure capturing mutable ref
+    let mut data = vec![1, 2, 3];
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        data.push(4);
+    }));
+    println!("Data after catch: {:?}", data);
+}
+
+// ============================================================================
+// Pin Projections
+// ============================================================================
+
+use std::marker::PhantomPinned;
+
+struct Unmovable {
+    data: String,
+    // This field is a self-reference
+    slice: Option<*const String>,
+    _pin: PhantomPinned,
+}
+
+impl Unmovable {
+    fn new(data: String) -> Self {
+        Unmovable {
+            data,
+            slice: None,
+            _pin: PhantomPinned,
+        }
+    }
+    
+    fn init(self: Pin<&mut Self>) {
+        let self_ptr: *const String = &self.data;
+        unsafe {
+            self.get_unchecked_mut().slice = Some(self_ptr);
+        }
+    }
+    
+    fn data(self: Pin<&Self>) -> &str {
+        &self.get_ref().data
+    }
+}
+
+fn test_pin_projections() {
+    // Pin on stack
+    let mut unmovable = Unmovable::new(String::from("pinned data"));
+    // SAFETY: We don't move unmovable after pinning
+    let mut pinned = unsafe { Pin::new_unchecked(&mut unmovable) };
+    pinned.as_mut().init();
+    println!("Pinned data: {}", pinned.as_ref().data());
+    
+    // Pin on heap (safe)
+    let boxed = Box::pin(Unmovable::new(String::from("heap pinned")));
+    println!("Heap pinned: {}", boxed.as_ref().data());
+    
+    // Pin projection example
+    struct Container {
+        field1: String,
+        field2: i32,
+    }
+    
+    let mut container = Container {
+        field1: String::from("hello"),
+        field2: 42,
+    };
+    let pinned_container = Pin::new(&mut container);
+    
+    // Safe projection to Copy field
+    let _field2: i32 = pinned_container.field2;
+    
+    // Projection to non-Copy field requires care
+    let field1_ref: &String = &pinned_container.field1;
+    println!("Projected: {} {}", field1_ref, _field2);
+}
+
+// ============================================================================
+// Task/Waker Types
+// ============================================================================
+
+use std::task::{Context as TaskContext, Waker, RawWaker, RawWakerVTable};
+
+fn test_task_types() {
+    // Create a no-op waker
+    fn noop_clone(_: *const ()) -> RawWaker {
+        noop_raw_waker()
+    }
+    fn noop(_: *const ()) {}
+    
+    fn noop_raw_waker() -> RawWaker {
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(noop_clone, noop, noop, noop);
+        RawWaker::new(std::ptr::null(), &VTABLE)
+    }
+    
+    let waker = unsafe { Waker::from_raw(noop_raw_waker()) };
+    let mut cx = TaskContext::from_waker(&waker);
+    
+    // Use context with a simple future
+    let mut fut = std::future::ready(42);
+    let pinned = Pin::new(&mut fut);
+    match pinned.poll(&mut cx) {
+        Poll::Ready(val) => println!("Future ready: {}", val),
+        Poll::Pending => println!("Future pending"),
+    }
+    
+    // Waker operations
+    waker.wake_by_ref();
+    let cloned = waker.clone();
+    cloned.wake();
+}
+
+// ============================================================================
+// Recursive Types
+// ============================================================================
+
+// Recursive type with Box
+enum List<T> {
+    Cons(T, Box<List<T>>),
+    Nil,
+}
+
+// Binary tree
+struct TreeNode<T> {
+    value: T,
+    left: Option<Box<TreeNode<T>>>,
+    right: Option<Box<TreeNode<T>>>,
+}
+
+// Linked list node
+struct LinkedNode<T> {
+    value: T,
+    next: Option<Box<LinkedNode<T>>>,
+}
+
+fn test_recursive_types() {
+    // Cons list
+    let list: List<i32> = List::Cons(1, 
+        Box::new(List::Cons(2, 
+            Box::new(List::Cons(3, 
+                Box::new(List::Nil))))));
+    
+    fn sum_list(list: &List<i32>) -> i32 {
+        match list {
+            List::Cons(val, rest) => val + sum_list(rest),
+            List::Nil => 0,
+        }
+    }
+    println!("List sum: {}", sum_list(&list));
+    
+    // Binary tree
+    let tree = TreeNode {
+        value: 1,
+        left: Some(Box::new(TreeNode {
+            value: 2,
+            left: None,
+            right: None,
+        })),
+        right: Some(Box::new(TreeNode {
+            value: 3,
+            left: None,
+            right: None,
+        })),
+    };
+    
+    fn tree_sum(node: &TreeNode<i32>) -> i32 {
+        let left_sum = node.left.as_ref().map_or(0, |n| tree_sum(n));
+        let right_sum = node.right.as_ref().map_or(0, |n| tree_sum(n));
+        node.value + left_sum + right_sum
+    }
+    println!("Tree sum: {}", tree_sum(&tree));
+    
+    // Linked list
+    let linked = LinkedNode {
+        value: 1,
+        next: Some(Box::new(LinkedNode {
+            value: 2,
+            next: Some(Box::new(LinkedNode {
+                value: 3,
+                next: None,
+            })),
+        })),
+    };
+    
+    fn linked_sum(node: &LinkedNode<i32>) -> i32 {
+        node.value + node.next.as_ref().map_or(0, |n| linked_sum(n))
+    }
+    println!("Linked sum: {}", linked_sum(&linked));
+}
+
+// ============================================================================
+// Async Cancellation (Drop during await)
+// ============================================================================
+
+struct DropGuard {
+    name: String,
+}
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        println!("Dropping: {}", self.name);
+    }
+}
+
+async fn async_with_drop_guard() {
+    let _guard = DropGuard { name: String::from("async guard") };
+    
+    // If this future is dropped before completion,
+    // the guard will still be dropped
+    async_operation(1).await;
+    
+    println!("Async completed with guard");
+}
+
+async fn async_cancellation_example() {
+    let guard = DropGuard { name: String::from("outer guard") };
+    
+    // Nested async with guards
+    let inner = async {
+        let _inner_guard = DropGuard { name: String::from("inner guard") };
+        async_operation(2).await
+    };
+    
+    let _ = inner.await;
+    drop(guard);
+}
+
+fn test_async_cancellation() {
+    // Create futures that would drop guards if cancelled
+    let _fut1 = async_with_drop_guard();
+    let _fut2 = async_cancellation_example();
+    
+    // In real code, these would be spawned and potentially cancelled
+    println!("Async cancellation futures created");
+}
+
+// ============================================================================
+// LABELED LOOPS (for analyze_labels)
+// ============================================================================
+
+fn test_labeled_loops() {
+    let mut count = 0;
+    
+    // Labeled loop
+    'outer: loop {
+        count += 1;
+        if count > 2 {
+            break 'outer;
+        }
+    }
+    
+    // Labeled while
+    count = 0;
+    'while_label: while count < 3 {
+        count += 1;
+        if count == 2 {
+            continue 'while_label;
+        }
+    }
+    
+    // Labeled for
+    'for_label: for i in 0..5 {
+        if i == 3 {
+            break 'for_label;
+        }
+    }
+    
+    // Nested labeled loops
+    'outer_nested: for i in 0..3 {
+        'inner_nested: for j in 0..3 {
+            if i == 1 && j == 1 {
+                break 'outer_nested;
+            }
+            if j == 2 {
+                continue 'inner_nested;
+            }
+        }
+    }
+}
+
+// ============================================================================
+// CONST PATTERNS (for analyze_const_patterns)
+// ============================================================================
+
+const CONST_PATTERN_VALUE: i32 = 42;
+const CONST_PATTERN_STR: &str = "match_me";
+
+fn test_const_patterns() {
+    let value = 42;
+    
+    // Match against const
+    match value {
+        CONST_PATTERN_VALUE => println!("Matched const!"),
+        _ => println!("No match"),
+    }
+    
+    let text = "match_me";
+    match text {
+        CONST_PATTERN_STR => println!("Matched string const!"),
+        _ => println!("No match"),
+    }
+}
+
 fn main() {
     test_type_aliases();
     test_binding_patterns();
@@ -1146,6 +2104,37 @@ fn main() {
     test_closure_capture_modes();
     test_trait_vs_inherent_methods();
     test_unsafe_operations();
+    test_unsafe_operations_basic();
+    
+    // Semantic expansion tests
+    test_field_access_tracking();
+    test_expression_adjustments();
+    test_pattern_adjustments();
+    test_binding_modes();
+    test_deref_chains();
+    test_closure_fn_traits();
+    test_contains_reference();
+    
+    // New comprehensive tests
+    test_packed_structs();
+    test_union_pattern_matching();
+    test_advanced_async();
+    test_advanced_destructuring();
+    test_match_ergonomics();
+    test_additional_expressions();
+    test_sync_primitives();
+    test_io_types_extended();
+    test_process_types();
+    test_thread_builder();
+    test_panic_support_extended();
+    test_pin_projections();
+    test_task_types();
+    test_recursive_types();
+    test_async_cancellation();
+    
+    // New semantic API tests
+    test_labeled_loops();
+    test_const_patterns();
 }
 
 // ============================================================================
@@ -1237,7 +2226,7 @@ fn test_trait_vs_inherent_methods() {
 // ============================================================================
 // Unsafe operations tracking (semantic via is_unsafe_to_call)
 // ============================================================================
-fn test_unsafe_operations() {
+fn test_unsafe_operations_basic() {
     // Unsafe function calls (tracked in expressions)
     let mut value = 42i32;
     let ptr = &mut value as *mut i32;
@@ -1325,7 +2314,7 @@ fn test_unsafe_operations() {
     // 1. Raw pointer dereference
     let value = 42i32;
     let ptr: *const i32 = &value;
-    let mut_value = 100i32;
+    let mut mut_value = 100i32;
     let mut_ptr: *mut i32 = &mut mut_value as *mut i32;
     
     unsafe {

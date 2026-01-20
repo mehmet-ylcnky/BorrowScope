@@ -66,11 +66,136 @@ pub struct AwaitPointInfo {
     pub column: u32,
     /// Type of the awaited expression (the Future type)
     pub awaited_type: String,
-    /// Result type after awaiting
+    /// Result type after awaiting (semantic via Type::future_output)
     pub result_type: Option<String>,
     /// Variables that are live across this await point
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub live_variables: Vec<String>,
+    /// Resolved Poll function (semantic via sema.resolve_await_to_poll)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll_function: Option<String>,
+}
+
+/// Information about an enum variant construction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Enum type name
+    pub enum_type: String,
+    /// Variant name
+    pub variant_name: String,
+    /// Variant kind: "unit", "tuple", "struct"
+    pub variant_kind: String,
+    /// Field types (for tuple/struct variants)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_types: Vec<String>,
+}
+
+/// Information about a lifetime parameter
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifetimeInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Lifetime name (e.g., "'a", "'static")
+    pub name: String,
+    /// Context: "function", "struct", "impl", "trait"
+    pub context: String,
+}
+
+/// Information about a loop label
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LabelInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Label name (e.g., "'outer")
+    pub name: String,
+    /// Loop kind: "loop", "while", "for"
+    pub loop_kind: String,
+}
+
+/// Information about a const pattern binding
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstPatternInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Const name
+    pub const_name: String,
+    /// Const type
+    pub const_type: String,
+    /// Const value (if available)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub const_value: Option<String>,
+}
+
+/// Memory layout information for a type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutInfo {
+    /// Size in bytes
+    pub size: u64,
+    /// Alignment in bytes
+    pub align: u64,
+}
+
+/// Information about a callable (function pointer, closure, etc.)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CallableInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Callable kind: "fn_ptr", "closure", "fn_def", "fn_trait"
+    pub kind: String,
+    /// Parameter types
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub param_types: Vec<String>,
+    /// Return type
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_type: Option<String>,
+    /// Whether it implements FnOnce (semantic via Type::impls_fnonce)
+    #[serde(default)]
+    pub is_callable: bool,
+}
+
+/// Information about a record field access in expression
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordFieldExprInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Struct/enum type
+    pub parent_type: String,
+    /// Field name
+    pub field_name: String,
+    /// Field type
+    pub field_type: String,
+    /// Expression being assigned (if any)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_type: Option<String>,
+}
+
+/// Information about a record field in pattern
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordFieldPatInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Struct/enum type
+    pub parent_type: String,
+    /// Field name
+    pub field_name: String,
+    /// Field type
+    pub field_type: String,
 }
 
 /// Information about a borrow span
@@ -145,13 +270,44 @@ pub struct UnsafeOperationInfo {
     pub line: u32,
     /// Column number
     pub column: u32,
-    /// Kind of unsafe operation: "deref_raw_ptr", "call_unsafe_fn", "access_mutable_static", "call_unsafe_method", "ffi_call"
+    /// Kind of unsafe operation: "deref_raw_ptr", "call_unsafe_fn", "access_mutable_static", "call_unsafe_method", "ffi_call", "unsafe_ident_pat"
     pub kind: String,
     /// Whether this operation is inside an unsafe block
     pub inside_unsafe_block: bool,
     /// Additional context (e.g., function name for calls, static name for access)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+}
+
+/// Information about a field access (for partial borrow tracking)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldAccessInfo {
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Variable being accessed
+    pub variable: String,
+    /// Field name or tuple index
+    pub field: String,
+    /// Field type
+    pub field_type: String,
+    /// Access kind: "read", "write", "borrow_shared", "borrow_mut"
+    pub access_kind: String,
+}
+
+/// Information about a closure's Fn trait
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClosureTraitInfo {
+    /// Line number where closure is defined
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+    /// Fn trait: "Fn", "FnMut", "FnOnce"
+    pub fn_trait: String,
+    /// Captures with their modes
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub captures: Vec<ClosureCaptureInfo>,
 }
 
 /// Information about a standalone expression (not a method call on a variable)
@@ -177,6 +333,24 @@ pub struct ExpressionInfo {
     /// Closure captures with their capture modes (for spawn, etc.)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub closure_captures: Vec<ClosureCaptureInfo>,
+}
+
+/// Information about a field in a struct/enum
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldInfo {
+    /// Field name
+    pub name: String,
+    /// Field type
+    pub ty: String,
+}
+
+/// Information about an adjustment (coercion)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdjustmentInfo {
+    /// Adjustment kind: "deref", "borrow_shared", "borrow_mut", "deref_mut", "unsize", "pointer_cast"
+    pub kind: String,
+    /// Target type after adjustment
+    pub target: String,
 }
 
 /// Type information for a single variable binding
@@ -249,6 +423,22 @@ pub struct VariableTypeInfo {
     pub is_future: bool,
     pub is_iterator: bool,
     
+    // Callable check (semantic via Type::impls_fnonce)
+    #[serde(default)]
+    pub is_callable: bool,
+    
+    // Future output type (semantic via Type::future_output)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub future_output_type: Option<String>,
+    
+    // Iterator item type (semantic via Type::iterator_item)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iterator_item_type: Option<String>,
+    
+    // Memory layout (semantic via Adt::layout)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<LayoutInfo>,
+    
     // Trait objects (semantic via as_dyn_trait)
     pub is_dyn_trait: bool,
 
@@ -274,6 +464,32 @@ pub struct VariableTypeInfo {
     // Values: "move", "ref", "ref_mut"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_mode: Option<String>,
+    
+    // Reference analysis (semantic via Type methods)
+    #[serde(default)]
+    pub contains_reference: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference_mutability: Option<String>, // "shared" or "mutable" if is_reference
+    
+    // Binding flags (semantic via Local methods)
+    #[serde(default)]
+    pub is_ref_binding: bool, // ref or ref mut pattern
+    
+    // Deref chain (semantic via Type::autoderef)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deref_chain: Vec<String>,
+    
+    // Struct fields (semantic via Type::fields)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FieldInfo>,
+    
+    // Expression adjustments (semantic via sema.expr_adjustments)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adjustments: Vec<AdjustmentInfo>,
+    
+    // Pattern adjustments (semantic via sema.pattern_adjustments)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pattern_adjustments: Vec<String>,
 
     // Generic type arguments (e.g., ["String", "i32"] for HashMap<String, i32>)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -362,6 +578,10 @@ impl VariableTypeInfo {
             is_fn_ptr: false,
             is_future: false,
             is_iterator: false,
+            is_callable: false,
+            future_output_type: None,
+            iterator_item_type: None,
+            layout: None,
             is_dyn_trait: false,
             is_union: false,
             is_extern_type: false,
@@ -372,6 +592,13 @@ impl VariableTypeInfo {
             is_impl_trait: false,
             lifetime: None,
             binding_mode: None,
+            contains_reference: false,
+            reference_mutability: None,
+            is_ref_binding: false,
+            deref_chain: Vec::new(),
+            fields: Vec::new(),
+            adjustments: Vec::new(),
+            pattern_adjustments: Vec::new(),
             type_arguments: Vec::new(),
             initializer_kind: None,
             closure_captures: Vec::new(),
@@ -418,6 +645,33 @@ pub struct ProjectTypeInfo {
     /// Match bindings by file
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub match_bindings: HashMap<String, Vec<MatchBindingInfo>>,
+    /// Field accesses by file (for partial borrow tracking)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub field_accesses: HashMap<String, Vec<FieldAccessInfo>>,
+    /// Closure trait info by file
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub closure_traits: HashMap<String, Vec<ClosureTraitInfo>>,
+    /// Enum variant constructions by file (semantic via sema.resolve_variant)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub variants: HashMap<String, Vec<VariantInfo>>,
+    /// Lifetime parameters by file (semantic via sema.resolve_lifetime_param)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub lifetimes: HashMap<String, Vec<LifetimeInfo>>,
+    /// Loop labels by file (semantic via sema.resolve_label)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub labels: HashMap<String, Vec<LabelInfo>>,
+    /// Const pattern bindings by file (semantic via sema.resolve_bind_pat_to_const)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub const_patterns: HashMap<String, Vec<ConstPatternInfo>>,
+    /// Callable expressions by file (semantic via Type::as_callable, impls_fnonce)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub callables: HashMap<String, Vec<CallableInfo>>,
+    /// Record field expressions by file (semantic via sema.resolve_record_field)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub record_field_exprs: HashMap<String, Vec<RecordFieldExprInfo>>,
+    /// Record field patterns by file (semantic via sema.resolve_record_pat_field)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub record_field_pats: HashMap<String, Vec<RecordFieldPatInfo>>,
     /// Index by variable name for macro lookup (stable Rust compatible)
     #[serde(default)]
     pub by_name: HashMap<String, Vec<VariableTypeInfo>>,
@@ -429,7 +683,7 @@ pub struct ProjectTypeInfo {
 impl ProjectTypeInfo {
     pub fn new() -> Self {
         Self {
-            version: "2.8".to_string(),
+            version: "3.0".to_string(),
             analyzer_version: env!("CARGO_PKG_VERSION").to_string(),
             files: HashMap::new(),
             expressions: HashMap::new(),
@@ -438,6 +692,15 @@ impl ProjectTypeInfo {
             borrow_spans: HashMap::new(),
             destructuring: HashMap::new(),
             match_bindings: HashMap::new(),
+            field_accesses: HashMap::new(),
+            closure_traits: HashMap::new(),
+            variants: HashMap::new(),
+            lifetimes: HashMap::new(),
+            labels: HashMap::new(),
+            const_patterns: HashMap::new(),
+            callables: HashMap::new(),
+            record_field_exprs: HashMap::new(),
+            record_field_pats: HashMap::new(),
             by_name: HashMap::new(),
             by_function: HashMap::new(),
         }
