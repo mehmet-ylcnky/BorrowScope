@@ -1106,22 +1106,24 @@ fn analyze_let_stmt(
         if let Some(local) = sema.to_def(ident_pat) {
             var_info.is_ref_binding = local.is_ref(db);
         }
-        
-        // Get pattern adjustments (semantic via sema.pattern_adjustments)
-        var_info.pattern_adjustments = sema.pattern_adjustments(&ast::Pat::IdentPat(ident_pat.clone()))
-            .into_iter()
-            .map(|ty| ty.display(db, Edition::Edition2021).to_string())
-            .collect();
     }
+    
+    // Get pattern adjustments on the outer pattern (semantic via sema.pattern_adjustments)
+    // Pattern adjustments happen when match ergonomics peels off references
+    var_info.pattern_adjustments = sema.pattern_adjustments(&pat)
+        .into_iter()
+        .map(|ty| ty.display(db, Edition::Edition2021).to_string())
+        .collect();
 
     if let Some(type_info) = sema.type_of_pat(&pat) {
         populate_type_info(&mut var_info, &type_info.original, db, known_types);
+        
+        // Detect impl Trait semantically via Type::as_impl_traits
+        var_info.is_impl_trait = type_info.original.as_impl_traits(db).is_some();
     }
 
-    // Detect impl Trait and extract lifetime from type annotation
+    // Extract lifetime from explicit type annotation
     if let Some(ty) = let_stmt.ty() {
-        var_info.is_impl_trait = matches!(ty, ast::Type::ImplTraitType(_));
-        
         // Extract explicit lifetime from reference type annotation
         var_info.lifetime = extract_lifetime_from_type(&ty);
     }
@@ -2606,17 +2608,9 @@ fn analyze_closure_traits(
             if let Some(type_info) = sema.type_of_expr(&ast::Expr::ClosureExpr(closure_expr.clone())) {
                 // Check if it's a closure type and get the fn_trait
                 if let Some(closure) = type_info.original.as_closure() {
-                    // Use display_with_impl to get the Fn trait info
-                    let impl_display = closure.display_with_impl(db, Edition::Edition2021);
-                    let fn_trait_str = if impl_display.contains("FnOnce") {
-                        "FnOnce"
-                    } else if impl_display.contains("FnMut") {
-                        "FnMut"
-                    } else if impl_display.contains("Fn") {
-                        "Fn"
-                    } else {
-                        "unknown"
-                    };
+                    // Use semantic Closure::fn_trait() API - returns FnTrait enum
+                    // FnTrait implements Display: Fn -> "Fn", FnMut -> "FnMut", FnOnce -> "FnOnce"
+                    let fn_trait_str = closure.fn_trait(db).to_string();
                     
                     let range = closure_expr.syntax().text_range();
                     let (line, column) = get_location(&range, source_file);
@@ -2627,7 +2621,7 @@ fn analyze_closure_traits(
                     closure_traits.push(ClosureTraitInfo {
                         line,
                         column,
-                        fn_trait: fn_trait_str.to_string(),
+                        fn_trait: fn_trait_str,
                         captures,
                     });
                 }

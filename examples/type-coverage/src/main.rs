@@ -1214,6 +1214,15 @@ fn test_pattern_adjustments() {
         [first, rest @ ..] => println!("First: {}, rest: {:?}", first, rest),
         [] => println!("Empty"),
     }
+    
+    // Pattern adjustments on let statements (match ergonomics)
+    let tuple_ref = &(1, String::from("hello"));
+    let (adj_a, adj_b) = tuple_ref;  // pattern adjustment: &(i32, String) peeled off
+    println!("{} {}", adj_a, adj_b);
+    
+    let opt_ref = &Some(42);
+    let Some(adj_val) = opt_ref else { return };  // pattern adjustment on let-else
+    println!("{}", adj_val);
 }
 
 fn test_binding_modes() {
