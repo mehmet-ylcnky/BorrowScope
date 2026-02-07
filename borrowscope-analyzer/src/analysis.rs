@@ -139,94 +139,130 @@ impl KnownTypes {
     /// Falls back to import_map search for types without lang items.
     fn new(db: &RootDatabase) -> Self {
         use ra_ap_hir::{import_map, ModuleDef, Crate};
+        use ra_ap_hir_def::StructId;
         
         let mut known = Self::default();
         
-        // Get any crate for lang item lookup (lang items are the same across all crates)
-        let Some(krate) = Crate::all(db).first().copied() else {
-            return known;
+        // Lang items must be looked up from a crate that has them (e.g., alloc, core, std)
+        // Try all crates until we find one with the lang item
+        let all_crates = Crate::all(db);
+        
+        // Helper to find struct lang item across all crates
+        let find_struct_lang_item = |item: LangItem| -> Option<StructId> {
+            for krate in &all_crates {
+                if let Some(target) = db.lang_item((*krate).into(), item) {
+                    if let Some(struct_id) = target.as_struct() {
+                        return Some(struct_id);
+                    }
+                }
+            }
+            None
         };
-        let krate_id = krate.into();
+        
+        // Helper to find enum lang item across all crates
+        let find_enum_lang_item = |item: LangItem| -> Option<ra_ap_hir_def::EnumId> {
+            for krate in &all_crates {
+                if let Some(target) = db.lang_item((*krate).into(), item) {
+                    if let Some(enum_id) = target.as_enum() {
+                        return Some(enum_id);
+                    }
+                }
+            }
+            None
+        };
+        
+        // Helper to find union lang item across all crates
+        let find_union_lang_item = |item: LangItem| -> Option<ra_ap_hir_def::UnionId> {
+            use ra_ap_hir_def::lang_item::LangItemTarget;
+            for krate in &all_crates {
+                if let Some(target) = db.lang_item((*krate).into(), item) {
+                    if let LangItemTarget::Union(union_id) = target {
+                        return Some(union_id);
+                    }
+                }
+            }
+            None
+        };
         
         // === Phase 1: Look up types via LangItem (fully semantic, zero string matching) ===
         
-        // Box (OwnedBox lang item) - as_struct returns StructId, .into() converts to Struct
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::OwnedBox).and_then(|t| t.as_struct()) {
+        // Box (OwnedBox lang item)
+        if let Some(struct_id) = find_struct_lang_item(LangItem::OwnedBox) {
             known.box_ = Some(Adt::Struct(struct_id.into()));
         }
         
         // UnsafeCell lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::UnsafeCell).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::UnsafeCell) {
             known.unsafe_cell = Some(Adt::Struct(struct_id.into()));
         }
         
         // Pin lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::Pin).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::Pin) {
             known.pin = Some(Adt::Struct(struct_id.into()));
         }
         
         // Option lang item (it's an enum)
-        if let Some(enum_id) = db.lang_item(krate_id, LangItem::Option).and_then(|t| t.as_enum()) {
+        if let Some(enum_id) = find_enum_lang_item(LangItem::Option) {
             known.option = Some(Adt::Enum(enum_id.into()));
         }
         
         // String lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::String).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::String) {
             known.string = Some(Adt::Struct(struct_id.into()));
         }
         
         // ManuallyDrop lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::ManuallyDrop).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::ManuallyDrop) {
             known.manually_drop = Some(Adt::Struct(struct_id.into()));
         }
         
-        // MaybeUninit lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::MaybeUninit).and_then(|t| t.as_struct()) {
-            known.maybe_uninit = Some(Adt::Struct(struct_id.into()));
+        // MaybeUninit lang item (it's a union, not a struct)
+        if let Some(union_id) = find_union_lang_item(LangItem::MaybeUninit) {
+            known.maybe_uninit = Some(Adt::Union(union_id.into()));
         }
         
         // PhantomData lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::PhantomData).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::PhantomData) {
             known.phantom_data = Some(Adt::Struct(struct_id.into()));
         }
         
         // Poll lang item (async - it's an enum)
-        if let Some(enum_id) = db.lang_item(krate_id, LangItem::Poll).and_then(|t| t.as_enum()) {
+        if let Some(enum_id) = find_enum_lang_item(LangItem::Poll) {
             known.poll = Some(Adt::Enum(enum_id.into()));
         }
         
         // Context lang item (async)
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::Context).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::Context) {
             known.context = Some(Adt::Struct(struct_id.into()));
         }
         
         // Range types (all lang items)
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::Range).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::Range) {
             known.range = Some(Adt::Struct(struct_id.into()));
         }
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeFrom).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeFrom) {
             known.range_from = Some(Adt::Struct(struct_id.into()));
         }
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeTo).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeTo) {
             known.range_to = Some(Adt::Struct(struct_id.into()));
         }
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeFull).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeFull) {
             known.range_full = Some(Adt::Struct(struct_id.into()));
         }
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeInclusiveStruct).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeInclusiveStruct) {
             known.range_inclusive = Some(Adt::Struct(struct_id.into()));
         }
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::RangeToInclusive).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeToInclusive) {
             known.range_to_inclusive = Some(Adt::Struct(struct_id.into()));
         }
         
         // CStr lang item (FFI)
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::CStr).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::CStr) {
             known.cstr = Some(Adt::Struct(struct_id.into()));
         }
         
         // AllocLayout lang item
-        if let Some(struct_id) = db.lang_item(krate_id, LangItem::AllocLayout).and_then(|t| t.as_struct()) {
+        if let Some(struct_id) = find_struct_lang_item(LangItem::AllocLayout) {
             known.alloc_layout = Some(Adt::Struct(struct_id.into()));
         }
         
@@ -1793,9 +1829,15 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     }
     var_info.is_primitive = var_info.is_primitive || ty.is_unit();
     
-    // str type (the unsized string slice type)
+    // str type (the unsized string slice type) - check both direct and referenced
     if let Some(builtin) = ty.as_builtin() {
         var_info.is_str = builtin.is_str();
+    }
+    // Also check if it's a reference to str (e.g., &str)
+    if let Some(inner) = ty.as_reference() {
+        if let Some(builtin) = inner.0.as_builtin() {
+            var_info.is_str = builtin.is_str();
+        }
     }
     
     // === ADT-based classification using AdtId comparison (fully semantic) ===

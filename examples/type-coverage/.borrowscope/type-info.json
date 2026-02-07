@@ -90,7 +90,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -1229,7 +1229,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -1275,7 +1275,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "push_str",
@@ -1471,7 +1471,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -1517,7 +1517,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 87,
@@ -1726,7 +1726,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -1772,7 +1772,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "push_str",
@@ -1943,7 +1943,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -2106,7 +2106,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -2152,7 +2152,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 97,
@@ -2196,7 +2196,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -2281,7 +2281,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -2327,7 +2327,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 109,
@@ -5293,7 +5293,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -5355,7 +5355,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 237,
@@ -5386,7 +5386,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -5449,7 +5449,7 @@
           "String",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 238,
@@ -5480,7 +5480,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -5543,7 +5543,7 @@
           "Vec<i32, Global>",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 239,
@@ -5574,7 +5574,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -5637,7 +5637,7 @@
           "Box<i32, Global>",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 240,
@@ -7866,7 +7866,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -7912,7 +7912,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 347,
@@ -7951,7 +7951,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -7997,7 +7997,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 348,
@@ -8036,7 +8036,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -8082,7 +8082,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_to_string",
         "usages": [
           {
             "line": 349,
@@ -8121,7 +8121,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -8167,7 +8167,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_to_owned",
         "usages": [
           {
             "line": 350,
@@ -9324,7 +9324,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -9370,7 +9370,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 376,
@@ -9781,7 +9781,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -10033,7 +10033,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -10079,7 +10079,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 388,
@@ -12487,7 +12487,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -12533,7 +12533,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_await",
         "file": "src/main.rs",
         "line": 493,
         "column": 8,
@@ -13485,7 +13485,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -13549,7 +13549,7 @@
           "Rc<String, Global>",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 544,
@@ -15340,7 +15340,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -15386,7 +15386,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 627,
@@ -15521,7 +15521,7 @@
         "is_option": false,
         "is_result": false,
         "is_once_cell": false,
-        "is_maybe_uninit": false,
+        "is_maybe_uninit": true,
         "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
@@ -15556,7 +15556,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "user_union",
+        "initializer_kind": "maybe_uninit_new",
         "usages": [
           {
             "line": 665,
@@ -15606,7 +15606,7 @@
         "is_option": false,
         "is_result": false,
         "is_once_cell": false,
-        "is_maybe_uninit": false,
+        "is_maybe_uninit": true,
         "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
@@ -15641,7 +15641,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "user_union",
+        "initializer_kind": "maybe_uninit_new",
         "usages": [
           {
             "line": 665,
@@ -15691,7 +15691,7 @@
         "is_option": false,
         "is_result": false,
         "is_once_cell": false,
-        "is_maybe_uninit": false,
+        "is_maybe_uninit": true,
         "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
@@ -15726,7 +15726,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "user_union",
+        "initializer_kind": "maybe_uninit_new",
         "method_calls": [
           {
             "method": "write",
@@ -15869,7 +15869,7 @@
         "is_option": false,
         "is_result": false,
         "is_once_cell": false,
-        "is_maybe_uninit": false,
+        "is_maybe_uninit": true,
         "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
@@ -15904,7 +15904,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "user_union",
+        "initializer_kind": "maybe_uninit_new",
         "method_calls": [
           {
             "method": "assume_init_read",
@@ -16032,7 +16032,7 @@
         "is_option": false,
         "is_result": false,
         "is_once_cell": false,
-        "is_maybe_uninit": false,
+        "is_maybe_uninit": true,
         "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
@@ -16067,7 +16067,7 @@
         "type_arguments": [
           "String"
         ],
-        "initializer_kind": "user_union",
+        "initializer_kind": "maybe_uninit_new",
         "method_calls": [
           {
             "method": "assume_init_drop",
@@ -19107,7 +19107,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -19175,7 +19175,7 @@
           "dyn Animal",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 748,
@@ -19412,7 +19412,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -19474,7 +19474,7 @@
           "[i32]",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_into_boxed_slice",
         "usages": [
           {
             "line": 749,
@@ -19505,7 +19505,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -19567,7 +19567,7 @@
           "str",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_into_boxed_str",
         "usages": [
           {
             "line": 749,
@@ -19598,7 +19598,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -19660,7 +19660,7 @@
           "[i32; 3]",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 749,
@@ -19794,7 +19794,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -22239,7 +22239,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -22446,7 +22446,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -22508,7 +22508,7 @@
           "dyn Fn(&PanicHookInfo<'_>) + Send + Sync",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 914,
@@ -22552,7 +22552,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -27227,7 +27227,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -27273,7 +27273,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "clone",
@@ -27324,7 +27324,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -27369,7 +27369,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_clone",
         "file": "src/main.rs",
         "line": 1041,
         "column": 8,
@@ -27583,7 +27583,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -27645,7 +27645,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1050,
@@ -27676,7 +27676,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -27738,7 +27738,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1051,
@@ -28108,7 +28108,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -28154,7 +28154,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1066,
@@ -28193,7 +28193,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -28239,7 +28239,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1067,
@@ -28278,7 +28278,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -28323,7 +28323,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_path",
         "file": "src/main.rs",
         "line": 1067,
         "column": 8,
@@ -28355,7 +28355,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -28401,7 +28401,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1071,
@@ -28440,7 +28440,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -28486,7 +28486,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1071,
@@ -30653,7 +30653,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -30782,7 +30782,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -30828,7 +30828,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "len",
@@ -30941,7 +30941,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -31003,7 +31003,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1167,
@@ -31221,7 +31221,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -32012,7 +32012,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -32236,7 +32236,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -32282,7 +32282,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1222,
@@ -32321,7 +32321,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -32367,7 +32367,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_path",
         "usages": [
           {
             "line": 1245,
@@ -32782,7 +32782,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -32858,7 +32858,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": true,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -32935,7 +32935,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": true,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -32996,7 +32996,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -33058,7 +33058,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1251,
@@ -33274,7 +33274,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -33528,7 +33528,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -33592,7 +33592,7 @@
           "Rc<String, Global>",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1263,
@@ -33641,7 +33641,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -33918,7 +33918,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -34593,7 +34593,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -34639,7 +34639,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1297,
@@ -35357,7 +35357,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -35403,7 +35403,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1327,
@@ -35511,7 +35511,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -35990,7 +35990,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -36052,7 +36052,7 @@
           "str",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_into",
         "usages": [
           {
             "line": 1353,
@@ -40022,7 +40022,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -40068,7 +40068,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1598,
@@ -40099,7 +40099,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -40162,7 +40162,7 @@
           "Vec<i32, Global>",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1602,
@@ -40395,7 +40395,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -40441,7 +40441,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1611,
@@ -40472,7 +40472,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -40534,7 +40534,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1616,
@@ -40637,7 +40637,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -40699,7 +40699,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 1619,
@@ -41889,7 +41889,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -41935,7 +41935,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 1674,
@@ -45429,7 +45429,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -45567,7 +45567,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -45810,7 +45810,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -45856,7 +45856,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "push_str",
@@ -45991,7 +45991,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -46037,7 +46037,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2161,
@@ -46324,7 +46324,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -46386,7 +46386,7 @@
           "i32",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "usages": [
           {
             "line": 2172,
@@ -47048,7 +47048,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -47094,7 +47094,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "clone",
@@ -47145,7 +47145,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -47191,7 +47191,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_clone",
         "usages": [
           {
             "line": 2222,
@@ -47512,7 +47512,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -47558,7 +47558,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_to_string",
         "usages": [
           {
             "line": 2222,
@@ -47804,7 +47804,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -47850,7 +47850,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "method_calls": [
           {
             "method": "push_str",
@@ -48057,7 +48057,7 @@
         "is_primitive": false,
         "is_rc": false,
         "is_arc": false,
-        "is_box": false,
+        "is_box": true,
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
@@ -48120,7 +48120,7 @@
           "String",
           "Global"
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "box_new",
         "method_calls": [
           {
             "method": "len",
@@ -48547,7 +48547,7 @@
         "is_option": false,
         "is_result": false,
         "is_once_cell": false,
-        "is_maybe_uninit": false,
+        "is_maybe_uninit": true,
         "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
@@ -48582,7 +48582,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "user_union",
+        "initializer_kind": "maybe_uninit_new",
         "method_calls": [
           {
             "method": "as_mut_ptr",
@@ -49101,7 +49101,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -49147,7 +49147,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_macro",
         "usages": [
           {
             "line": 2299,
@@ -49186,7 +49186,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -49232,7 +49232,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_macro",
         "usages": [
           {
             "line": 2299,
@@ -49276,7 +49276,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -49352,7 +49352,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -49428,7 +49428,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -49648,7 +49648,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -49724,7 +49724,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -50869,7 +50869,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -50915,7 +50915,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2411,
@@ -50954,7 +50954,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51000,7 +51000,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2378,
@@ -51039,7 +51039,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51085,7 +51085,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2384,
@@ -51124,7 +51124,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51170,7 +51170,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2390,
@@ -51286,7 +51286,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51332,7 +51332,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2397,
@@ -51371,7 +51371,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51417,7 +51417,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2406,
@@ -51461,7 +51461,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51507,7 +51507,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2406,
@@ -51618,7 +51618,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -51664,7 +51664,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2425,
@@ -52413,7 +52413,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -52459,7 +52459,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_new",
         "usages": [
           {
             "line": 2469,
@@ -52943,7 +52943,7 @@
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
-        "is_string": false,
+        "is_string": true,
         "is_raw_ptr": false,
         "is_reference": false,
         "is_mutable_reference": false,
@@ -52989,7 +52989,7 @@
             "ty": "Vec<u8, Global>"
           }
         ],
-        "initializer_kind": "user_struct",
+        "initializer_kind": "string_macro",
         "usages": [
           {
             "line": 2507,
@@ -53033,7 +53033,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -53109,7 +53109,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -53185,7 +53185,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -53405,7 +53405,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
@@ -53481,7 +53481,7 @@
         "is_reference": true,
         "is_mutable_reference": false,
         "is_slice": false,
-        "is_str": false,
+        "is_str": true,
         "is_pin": false,
         "is_cow": false,
         "is_option": false,
