@@ -5,7 +5,7 @@
 
 use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo, UnsafeOperationInfo, VariableUsageInfo, BorrowSpanInfo, DestructuringInfo, MatchBindingInfo, PatternBindingInfo, FieldAccessInfo, ClosureTraitInfo, VariantInfo, LifetimeInfo, LabelInfo, ConstPatternInfo, CallableInfo, RecordFieldExprInfo, RecordFieldPatInfo, LayoutInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, LangItem, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro, StructKind, HasSource};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro, StructKind, HasSource};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_ide_db::defs::Definition;
 use ra_ap_ide_db::search::ReferenceCategory;
@@ -139,131 +139,36 @@ impl KnownTypes {
     /// Falls back to import_map search for types without lang items.
     fn new(db: &RootDatabase) -> Self {
         use ra_ap_hir::{import_map, ModuleDef, Crate};
-        use ra_ap_hir_def::StructId;
+        use ra_ap_hir_def::lang_item::lang_items;
         
         let mut known = Self::default();
-        
-        // Lang items must be looked up from a crate that has them (e.g., alloc, core, std)
-        // Try all crates until we find one with the lang item
         let all_crates = Crate::all(db);
         
-        // Helper to find struct lang item across all crates
-        let find_struct_lang_item = |item: LangItem| -> Option<StructId> {
-            for krate in &all_crates {
-                if let Some(target) = db.lang_item((*krate).into(), item) {
-                    if let Some(struct_id) = target.as_struct() {
-                        return Some(struct_id);
-                    }
-                }
+        // === Phase 1: Look up types via lang_items (fully semantic, zero string matching) ===
+        // lang_items() traverses dependencies, so use first crate that yields results
+        for krate in &all_crates {
+            let li = lang_items(db, (*krate).into());
+            if li.OwnedBox.is_some() {
+                if let Some(id) = li.OwnedBox { known.box_ = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.UnsafeCell { known.unsafe_cell = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.Pin { known.pin = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.Option { known.option = Some(Adt::Enum(id.into())); }
+                if let Some(id) = li.String { known.string = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.ManuallyDrop { known.manually_drop = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.MaybeUninit { known.maybe_uninit = Some(Adt::Union(id.into())); }
+                if let Some(id) = li.PhantomData { known.phantom_data = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.Poll { known.poll = Some(Adt::Enum(id.into())); }
+                if let Some(id) = li.Context { known.context = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.Range { known.range = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.RangeFrom { known.range_from = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.RangeTo { known.range_to = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.RangeFull { known.range_full = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.RangeInclusiveStruct { known.range_inclusive = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.RangeToInclusive { known.range_to_inclusive = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.CStr { known.cstr = Some(Adt::Struct(id.into())); }
+                if let Some(id) = li.AllocLayout { known.alloc_layout = Some(Adt::Struct(id.into())); }
+                break;
             }
-            None
-        };
-        
-        // Helper to find enum lang item across all crates
-        let find_enum_lang_item = |item: LangItem| -> Option<ra_ap_hir_def::EnumId> {
-            for krate in &all_crates {
-                if let Some(target) = db.lang_item((*krate).into(), item) {
-                    if let Some(enum_id) = target.as_enum() {
-                        return Some(enum_id);
-                    }
-                }
-            }
-            None
-        };
-        
-        // Helper to find union lang item across all crates
-        let find_union_lang_item = |item: LangItem| -> Option<ra_ap_hir_def::UnionId> {
-            use ra_ap_hir_def::lang_item::LangItemTarget;
-            for krate in &all_crates {
-                if let Some(target) = db.lang_item((*krate).into(), item) {
-                    if let LangItemTarget::Union(union_id) = target {
-                        return Some(union_id);
-                    }
-                }
-            }
-            None
-        };
-        
-        // === Phase 1: Look up types via LangItem (fully semantic, zero string matching) ===
-        
-        // Box (OwnedBox lang item)
-        if let Some(struct_id) = find_struct_lang_item(LangItem::OwnedBox) {
-            known.box_ = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // UnsafeCell lang item
-        if let Some(struct_id) = find_struct_lang_item(LangItem::UnsafeCell) {
-            known.unsafe_cell = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // Pin lang item
-        if let Some(struct_id) = find_struct_lang_item(LangItem::Pin) {
-            known.pin = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // Option lang item (it's an enum)
-        if let Some(enum_id) = find_enum_lang_item(LangItem::Option) {
-            known.option = Some(Adt::Enum(enum_id.into()));
-        }
-        
-        // String lang item
-        if let Some(struct_id) = find_struct_lang_item(LangItem::String) {
-            known.string = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // ManuallyDrop lang item
-        if let Some(struct_id) = find_struct_lang_item(LangItem::ManuallyDrop) {
-            known.manually_drop = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // MaybeUninit lang item (it's a union, not a struct)
-        if let Some(union_id) = find_union_lang_item(LangItem::MaybeUninit) {
-            known.maybe_uninit = Some(Adt::Union(union_id.into()));
-        }
-        
-        // PhantomData lang item
-        if let Some(struct_id) = find_struct_lang_item(LangItem::PhantomData) {
-            known.phantom_data = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // Poll lang item (async - it's an enum)
-        if let Some(enum_id) = find_enum_lang_item(LangItem::Poll) {
-            known.poll = Some(Adt::Enum(enum_id.into()));
-        }
-        
-        // Context lang item (async)
-        if let Some(struct_id) = find_struct_lang_item(LangItem::Context) {
-            known.context = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // Range types (all lang items)
-        if let Some(struct_id) = find_struct_lang_item(LangItem::Range) {
-            known.range = Some(Adt::Struct(struct_id.into()));
-        }
-        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeFrom) {
-            known.range_from = Some(Adt::Struct(struct_id.into()));
-        }
-        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeTo) {
-            known.range_to = Some(Adt::Struct(struct_id.into()));
-        }
-        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeFull) {
-            known.range_full = Some(Adt::Struct(struct_id.into()));
-        }
-        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeInclusiveStruct) {
-            known.range_inclusive = Some(Adt::Struct(struct_id.into()));
-        }
-        if let Some(struct_id) = find_struct_lang_item(LangItem::RangeToInclusive) {
-            known.range_to_inclusive = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // CStr lang item (FFI)
-        if let Some(struct_id) = find_struct_lang_item(LangItem::CStr) {
-            known.cstr = Some(Adt::Struct(struct_id.into()));
-        }
-        
-        // AllocLayout lang item
-        if let Some(struct_id) = find_struct_lang_item(LangItem::AllocLayout) {
-            known.alloc_layout = Some(Adt::Struct(struct_id.into()));
         }
         
         // === Phase 2: Look up remaining types via import_map (types without lang items) ===
@@ -342,7 +247,7 @@ impl KnownTypes {
         for krate in Crate::all(db) {
             for (type_name, expected_module, setter) in types_to_find {
                 let query = import_map::Query::new(type_name.to_string()).exact();
-                for item in krate.query_external_importables(db, query) {
+                for (item, _) in krate.query_external_importables(db, query) {
                     if let either::Either::Left(ModuleDef::Adt(adt)) = item {
                         let module_path = get_module_path(&adt.module(db), db);
                         if module_path.contains(expected_module) {
@@ -356,7 +261,7 @@ impl KnownTypes {
         // Handle Weak in sync module (Arc's Weak)
         for krate in Crate::all(db) {
             let query = import_map::Query::new("Weak".to_string()).exact();
-            for item in krate.query_external_importables(db, query) {
+            for (item, _) in krate.query_external_importables(db, query) {
                 if let either::Either::Left(ModuleDef::Adt(adt)) = item {
                     let module_path = get_module_path(&adt.module(db), db);
                     if module_path.contains("sync") && !module_path.contains("rc") {
@@ -640,7 +545,7 @@ impl KnownMacros {
         for krate in Crate::all(db) {
             for (macro_name, setter) in macros_to_find {
                 let query = import_map::Query::new(macro_name.to_string()).exact();
-                for item in krate.query_external_importables(db, query) {
+                for (item, _) in krate.query_external_importables(db, query) {
                     if let either::Either::Left(ModuleDef::Macro(mac)) = item {
                         // Only take function-like macros (not derives or attributes)
                         if mac.is_fn_like(db) {
@@ -751,7 +656,7 @@ impl TrackedFunctions {
         for krate in Crate::all(db) {
             for (fn_name, acceptable_modules) in functions_to_find {
                 let query = import_map::Query::new(fn_name.to_string()).exact();
-                for item in krate.query_external_importables(db, query) {
+                for (item, _) in krate.query_external_importables(db, query) {
                     if let either::Either::Left(ModuleDef::Function(f)) = item {
                         let module_path = get_module_path(&f.module(db), db);
                         if acceptable_modules.iter().any(|m| module_path.contains(m)) {
@@ -779,7 +684,7 @@ impl TrackedFunctions {
 /// Get the canonical path of a function
 fn get_function_path(f: &Function, db: &RootDatabase) -> String {
     let module = f.module(db);
-    let krate = module.krate().display_name(db)
+    let krate = module.krate(db).display_name(db)
         .map(|n| n.to_string())
         .unwrap_or_default();
     let mod_path: Vec<String> = module.path_to_root(db)
@@ -813,6 +718,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
         load_out_dirs_from_check: true,
         with_proc_macro_server: ProcMacroServerChoice::None,
         prefill_caches: true,
+        proc_macro_processes: 0,
     };
 
     let (db, vfs, _proc_macro) = load_workspace_at(
@@ -836,6 +742,13 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
     let tracked_functions = TrackedFunctions::new(&db);
     let known_types = KnownTypes::new(&db);
     let known_macros = KnownMacros::new(&db);
+    
+    // Create DisplayTarget for type display (use first crate's edition)
+    use ra_ap_hir::DisplayTarget;
+    let display_target = ra_ap_hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, *k))
+        .unwrap_or_else(|| DisplayTarget::from_crate(&db, ra_ap_hir::Crate::all(&db)[0]));
 
     for (file_id, vfs_path) in vfs.iter() {
         let path_str = match vfs_path.as_path() {
@@ -872,7 +785,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, file_id, &relative);
+        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, &display_target, file_id, &relative);
         if !variables.is_empty() {
             info.files.insert(relative.clone(), variables);
         }
@@ -933,6 +846,7 @@ fn analyze_file(
     tracked_functions: &TrackedFunctions,
     known_types: &KnownTypes,
     known_macros: &KnownMacros,
+    display_target: &ra_ap_hir::DisplayTarget,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
 ) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>, Vec<FieldAccessInfo>, Vec<ClosureTraitInfo>, Vec<VariantInfo>, Vec<LifetimeInfo>, Vec<LabelInfo>, Vec<ConstPatternInfo>, Vec<CallableInfo>, Vec<RecordFieldExprInfo>, Vec<RecordFieldPatInfo>) {
@@ -967,7 +881,7 @@ fn analyze_file(
         
         match node.kind() {
             SyntaxKind::LET_STMT => {
-                if let Some(mut var_info) = analyze_let_stmt(sema, db, known_types, known_macros, &node, relative_path, &source_file, &mut scope_id) {
+                if let Some(mut var_info) = analyze_let_stmt(sema, db, known_types, known_macros, display_target, &node, relative_path, &source_file, &mut scope_id) {
                     // Set function context
                     var_info.function_name = current_fn.clone();
                     if let Some(ref fn_name) = current_fn {
@@ -984,19 +898,19 @@ fn analyze_file(
                 }
             }
             SyntaxKind::STATIC => {
-                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, known_macros, &node, relative_path, &source_file) {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, known_macros, display_target, &node, relative_path, &source_file) {
                     var_info.is_static = true;
                     variables.push(var_info);
                 }
             }
             SyntaxKind::CONST => {
-                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, known_macros, &node, relative_path, &source_file) {
+                if let Some(mut var_info) = analyze_static_or_const(sema, db, known_types, known_macros, display_target, &node, relative_path, &source_file) {
                     var_info.is_const = true;
                     variables.push(var_info);
                 }
             }
             SyntaxKind::AWAIT_EXPR => {
-                if let Some(await_info) = analyze_await_expr(sema, db, &node, &source_file) {
+                if let Some(await_info) = analyze_await_expr(sema, db, &node, &source_file, display_target) {
                     await_points.push(await_info);
                 }
             }
@@ -1014,7 +928,7 @@ fn analyze_file(
     }
 
     // Analyze method calls on tracked variables
-    analyze_method_calls(sema, db, &source_file, &mut variables);
+    analyze_method_calls(sema, db, &source_file, &mut variables, display_target);
     
     // Analyze variable usages (reads and writes)
     analyze_variable_usages(sema, &source_file, &mut variables);
@@ -1023,19 +937,19 @@ fn analyze_file(
     let expressions = analyze_expressions(sema, db, tracked_functions, &source_file);
     
     // Analyze unsafe operations
-    analyze_unsafe_operations(sema, db, &source_file, &mut unsafe_ops);
+    analyze_unsafe_operations(sema, db, &source_file, display_target, &mut unsafe_ops);
     
     // Analyze borrow spans
     analyze_borrow_spans(sema, editioned_file_id, &source_file, &mut borrow_spans);
     
     // Analyze field accesses (for partial borrow tracking)
-    let field_accesses = analyze_field_accesses(sema, db, &source_file);
+    let field_accesses = analyze_field_accesses(sema, db, &source_file, display_target);
     
     // Analyze closure traits (Fn/FnMut/FnOnce)
     let closure_traits = analyze_closure_traits(sema, db, &source_file);
     
     // Analyze enum variant constructions (semantic via sema.resolve_variant)
-    let variants = analyze_variants(sema, db, &source_file);
+    let variants = analyze_variants(sema, db, &source_file, display_target);
     
     // Analyze lifetime parameters (semantic via sema.resolve_lifetime_param)
     let lifetimes = analyze_lifetimes(sema, db, &source_file);
@@ -1044,19 +958,19 @@ fn analyze_file(
     let labels = analyze_labels(sema, db, &source_file);
     
     // Analyze const pattern bindings (semantic via sema.resolve_bind_pat_to_const)
-    let const_patterns = analyze_const_patterns(sema, db, &source_file);
+    let const_patterns = analyze_const_patterns(sema, db, &source_file, display_target);
     
     // Analyze callable expressions (semantic via Type::as_callable, impls_fnonce)
-    let callables = analyze_callables(sema, db, &source_file);
+    let callables = analyze_callables(sema, db, &source_file, display_target);
     
     // Analyze record field expressions (semantic via sema.resolve_record_field)
-    let record_field_exprs = analyze_record_field_exprs(sema, db, &source_file);
+    let record_field_exprs = analyze_record_field_exprs(sema, db, &source_file, display_target);
     
     // Analyze record field patterns (semantic via sema.resolve_record_pat_field)
-    let record_field_pats = analyze_record_field_pats(sema, db, &source_file);
+    let record_field_pats = analyze_record_field_pats(sema, db, &source_file, display_target);
     
     // Update await points with poll function resolution
-    update_await_points_with_poll(sema, db, &source_file, &mut await_points);
+    update_await_points_with_poll(sema, db, &source_file, display_target, &mut await_points);
 
     (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats)
 }
@@ -1067,6 +981,7 @@ fn analyze_let_stmt(
     db: &RootDatabase,
     known_types: &KnownTypes,
     known_macros: &KnownMacros,
+    display_target: &ra_ap_hir::DisplayTarget,
     node: &ra_ap_syntax::SyntaxNode,
     relative_path: &str,
     source_file: &ast::SourceFile,
@@ -1112,11 +1027,11 @@ fn analyze_let_stmt(
     // Pattern adjustments happen when match ergonomics peels off references
     var_info.pattern_adjustments = sema.pattern_adjustments(&pat)
         .into_iter()
-        .map(|ty| ty.display(db, Edition::Edition2021).to_string())
+        .map(|ty| ty.display(db, display_target).to_string())
         .collect();
 
     if let Some(type_info) = sema.type_of_pat(&pat) {
-        populate_type_info(&mut var_info, &type_info.original, db, known_types);
+        populate_type_info(&mut var_info, &type_info.original, db, known_types, display_target);
         
         // Detect impl Trait semantically via Type::as_impl_traits
         var_info.is_impl_trait = type_info.original.as_impl_traits(db).is_some();
@@ -1150,7 +1065,7 @@ fn analyze_let_stmt(
                     };
                     crate::output::AdjustmentInfo {
                         kind: kind.to_string(),
-                        target: adj.target.display(db, Edition::Edition2021).to_string(),
+                        target: adj.target.display(db, display_target).to_string(),
                     }
                 })
                 .collect();
@@ -1487,6 +1402,8 @@ fn analyze_await_expr(
     db: &RootDatabase,
     node: &ra_ap_syntax::SyntaxNode,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Option<crate::output::AwaitPointInfo> {
     let await_expr = ast::AwaitExpr::cast(node.clone())?;
     let inner_expr = await_expr.expr()?;
@@ -1496,12 +1413,12 @@ fn analyze_await_expr(
     
     // Get the type of the awaited expression (the Future type)
     let awaited_type = sema.type_of_expr(&inner_expr)
-        .map(|ti| ti.original.display(db, Edition::Edition2021).to_string())
+        .map(|ti| ti.original.display(db, display_target).to_string())
         .unwrap_or_else(|| "unknown".to_string());
     
     // Get the result type (what the await resolves to)
     let result_type = sema.type_of_expr(&ast::Expr::from(await_expr.clone()))
-        .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+        .map(|ti| ti.original.display(db, display_target).to_string());
     
     Some(crate::output::AwaitPointInfo {
         line,
@@ -1518,6 +1435,7 @@ fn analyze_static_or_const(
     db: &RootDatabase,
     known_types: &KnownTypes,
     known_macros: &KnownMacros,
+    display_target: &ra_ap_hir::DisplayTarget,
     node: &ra_ap_syntax::SyntaxNode,
     relative_path: &str,
     source_file: &ast::SourceFile,
@@ -1543,7 +1461,7 @@ fn analyze_static_or_const(
     // Try to resolve the type from the type annotation
     if let Some(ty_node) = ty_node {
         if let Some(ty) = sema.resolve_type(&ty_node) {
-            populate_type_info(&mut var_info, &ty, db, known_types);
+            populate_type_info(&mut var_info, &ty, db, known_types, display_target);
             
             // Classify initializer if body exists
             if let Some(expr) = body_expr {
@@ -1716,57 +1634,55 @@ fn extract_tuple_elements(tuple_pat: &str) -> Vec<String> {
 }
 
 /// Populate type info from a resolved type using semantic analysis only
-fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase, known_types: &KnownTypes) {
+fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db: &RootDatabase, known_types: &KnownTypes, display_target: &ra_ap_hir::DisplayTarget) {
     use ra_ap_hir::Adt;
     
-    var_info.ty = ty.display(db, Edition::Edition2021).to_string();
+    var_info.ty = ty.display(db, display_target).to_string();
     
     // Extract generic type arguments (e.g., ["String", "i32"] for HashMap<String, i32>)
     var_info.type_arguments = ty.type_arguments()
-        .map(|arg| arg.display(db, Edition::Edition2021).to_string())
+        .map(|arg| arg.display(db, display_target).to_string())
         .collect();
     
     // Get krate for lang item lookups - prefer from ADT, fallback to first crate
-    // Lang items are the same across all crates, so any krate works for lookup
     let krate = ty.as_adt()
-        .map(|adt| adt.module(db).krate())
+        .map(|adt| adt.module(db).krate(db))
         .or_else(|| ra_ap_hir::Crate::all(db).first().copied());
     
     // === Core trait implementations (semantic) ===
     var_info.is_copy = ty.is_copy(db);
     
     if let Some(krate) = krate {
-        let krate_id = krate.into();
+        use ra_ap_hir_def::lang_item::lang_items;
+        let li = lang_items(db, krate.into());
         
-        if let Some(clone_trait) = db.lang_item(krate_id, LangItem::Clone).and_then(|li| li.as_trait()) {
-            var_info.is_clone = ty.impls_trait(db, clone_trait.into(), &[]);
+        if let Some(trait_id) = li.Clone {
+            var_info.is_clone = ty.impls_trait(db, trait_id.into(), &[]);
         }
-        if let Some(drop_trait) = db.lang_item(krate_id, LangItem::Drop).and_then(|li| li.as_trait()) {
-            var_info.is_drop = ty.impls_trait(db, drop_trait.into(), &[]);
+        if let Some(trait_id) = li.Drop {
+            var_info.is_drop = ty.impls_trait(db, trait_id.into(), &[]);
         }
-        if let Some(sync_trait) = db.lang_item(krate_id, LangItem::Sync).and_then(|li| li.as_trait()) {
-            var_info.is_sync = ty.impls_trait(db, sync_trait.into(), &[]);
+        if let Some(trait_id) = li.Sync {
+            var_info.is_sync = ty.impls_trait(db, trait_id.into(), &[]);
         }
-        if let Some(sized_trait) = db.lang_item(krate_id, LangItem::Sized).and_then(|li| li.as_trait()) {
-            var_info.is_sized = ty.impls_trait(db, sized_trait.into(), &[]);
+        if let Some(trait_id) = li.Sized {
+            var_info.is_sized = ty.impls_trait(db, trait_id.into(), &[]);
         }
         // Future trait
-        if let Some(future_trait) = db.lang_item(krate_id, LangItem::Future).and_then(|li| li.as_trait()) {
-            var_info.is_future = ty.impls_trait(db, future_trait.into(), &[]);
-            // Future output type (semantic via Type::future_output)
+        if let Some(trait_id) = li.Future {
+            var_info.is_future = ty.impls_trait(db, trait_id.into(), &[]);
             if var_info.is_future {
                 if let Some(output_ty) = ty.clone().future_output(db) {
-                    var_info.future_output_type = Some(output_ty.display(db, Edition::Edition2021).to_string());
+                    var_info.future_output_type = Some(output_ty.display(db, display_target).to_string());
                 }
             }
         }
         // Iterator trait  
-        if let Some(iterator_trait) = db.lang_item(krate_id, LangItem::Iterator).and_then(|li| li.as_trait()) {
-            var_info.is_iterator = ty.impls_trait(db, iterator_trait.into(), &[]);
-            // Iterator item type (semantic via Type::iterator_item)
+        if let Some(trait_id) = li.Iterator {
+            var_info.is_iterator = ty.impls_trait(db, trait_id.into(), &[]);
             if var_info.is_iterator {
                 if let Some(item_ty) = ty.clone().iterator_item(db) {
-                    var_info.iterator_item_type = Some(item_ty.display(db, Edition::Edition2021).to_string());
+                    var_info.iterator_item_type = Some(item_ty.display(db, display_target).to_string());
                 }
             }
         }
@@ -1806,7 +1722,7 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     // Deref chain (semantic via Type::autoderef)
     var_info.deref_chain = ty.autoderef(db)
         .skip(1) // Skip the type itself
-        .map(|t| t.display(db, Edition::Edition2021).to_string())
+        .map(|t| t.display(db, display_target).to_string())
         .collect();
     
     // Struct fields (semantic via Type::fields)
@@ -1815,7 +1731,7 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
         .map(|(field, field_ty)| {
             crate::output::FieldInfo {
                 name: field.name(db).display_no_db(Edition::Edition2021).to_string(),
-                ty: field_ty.display(db, Edition::Edition2021).to_string(),
+                ty: field_ty.display(db, display_target).to_string(),
             }
         })
         .collect();
@@ -1870,7 +1786,7 @@ fn find_send_trait(db: &RootDatabase, krate: ra_ap_hir::Crate) -> Option<ra_ap_h
     // Helper to search a krate for Send trait
     let search_krate = |k: ra_ap_hir::Crate| -> Option<ra_ap_hir::Trait> {
         let query = import_map::Query::new("Send".to_string()).exact();
-        for item in k.query_external_importables(db, query) {
+        for (item, _) in k.query_external_importables(db, query) {
             if let either::Either::Left(ModuleDef::Trait(t)) = item {
                 let module = t.module(db);
                 let module_name = module.name(db).map(|n| n.display_no_db(Edition::Edition2021).to_string());
@@ -2010,6 +1926,7 @@ pub fn analyze_method_calls(
     db: &RootDatabase,
     source_file: &ast::SourceFile,
     variables: &mut [VariableTypeInfo],
+    display_target: &ra_ap_hir::DisplayTarget,
 ) {
     // Build a map of variable name -> indices for quick lookup
     let mut var_indices: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
@@ -2054,13 +1971,13 @@ pub fn analyze_method_calls(
         // Get receiver type display string for output
         let receiver_type = receiver_ty
             .as_ref()
-            .map(|ty| ty.display(db, Edition::Edition2021).to_string())
+            .map(|ty| ty.display(db, display_target).to_string())
             .unwrap_or_else(|| "unknown".to_string());
 
         // Get result type
         let result_type = sema
             .type_of_expr(&ast::Expr::MethodCallExpr(method_call.clone()))
-            .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+            .map(|ti| ti.original.display(db, display_target).to_string());
 
         // Resolve self borrow type (semantic)
         let self_borrow = resolve_self_borrow(sema, &method_call, db);
@@ -2157,6 +2074,8 @@ fn analyze_call_expr(
     tracked_functions: &TrackedFunctions,
     call: &ast::CallExpr,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Option<ExpressionInfo> {
     let callee = call.expr()?;
     
@@ -2199,7 +2118,7 @@ fn analyze_call_expr(
     
     // Get result type
     let result_type = sema.type_of_expr(&ast::Expr::CallExpr(call.clone()))
-        .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+        .map(|ti| ti.original.display(db, display_target).to_string());
 
     // Check if this function is unsafe (semantic)
     let is_unsafe = if func.is_unsafe_to_call(db) {
@@ -2226,6 +2145,8 @@ fn extract_closure_captures_semantic(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     closure: &ast::ClosureExpr,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<crate::output::ClosureCaptureInfo> {
     use ra_ap_hir::CaptureKind;
     
@@ -2250,7 +2171,7 @@ fn extract_closure_captures_semantic(
                 CaptureKind::Move => "move",
             }.to_string();
             // Get the type of the local variable
-            let ty = Some(local.ty(db).display(db, Edition::Edition2021).to_string());
+            let ty = Some(local.ty(db).display(db, display_target).to_string());
             
             crate::output::ClosureCaptureInfo { name, capture_kind, ty }
         })
@@ -2364,6 +2285,7 @@ fn analyze_unsafe_operations(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+    display_target: &ra_ap_hir::DisplayTarget,
     unsafe_ops: &mut Vec<UnsafeOperationInfo>,
 ) {
     for node in source_file.syntax().descendants() {
@@ -2382,7 +2304,7 @@ fn analyze_unsafe_operations(
                                 column,
                                 kind: "deref_raw_ptr".to_string(),
                                 inside_unsafe_block: inside_unsafe,
-                                context: Some(ty.original.display(db, Edition::Edition2021).to_string()),
+                                context: Some(ty.original.display(db, display_target).to_string()),
                             });
                         }
                     }
@@ -2472,46 +2394,8 @@ fn analyze_unsafe_operations(
             }
         }
         
-        // 5. Unsafe ref expressions (semantic via sema.is_unsafe_ref_expr)
-        if let Some(ref_expr) = ast::RefExpr::cast(node.clone()) {
-            if sema.is_unsafe_ref_expr(&ref_expr) {
-                let range = ref_expr.syntax().text_range();
-                let (line, column) = get_location(&range, source_file);
-                let inside_unsafe = ref_expr.syntax().ancestors()
-                    .find_map(|n| ast::Expr::cast(n))
-                    .map(|e| sema.is_inside_unsafe(&e))
-                    .unwrap_or(false);
-                
-                unsafe_ops.push(UnsafeOperationInfo {
-                    line,
-                    column,
-                    kind: "unsafe_ref_expr".to_string(),
-                    inside_unsafe_block: inside_unsafe,
-                    context: None,
-                });
-            }
-        }
-        
-        // 6. Unsafe ident patterns (semantic via sema.is_unsafe_ident_pat) - union field access
-        if let Some(ident_pat) = ast::IdentPat::cast(node.clone()) {
-            if sema.is_unsafe_ident_pat(&ident_pat) {
-                let range = ident_pat.syntax().text_range();
-                let (line, column) = get_location(&range, source_file);
-                let inside_unsafe = ident_pat.syntax().ancestors()
-                    .find_map(|n| ast::Expr::cast(n))
-                    .map(|e| sema.is_inside_unsafe(&e))
-                    .unwrap_or(false);
-                let name = ident_pat.name().map(|n| n.text().to_string());
-                
-                unsafe_ops.push(UnsafeOperationInfo {
-                    line,
-                    column,
-                    kind: "unsafe_ident_pat".to_string(),
-                    inside_unsafe_block: inside_unsafe,
-                    context: name,
-                });
-            }
-        }
+        // 5. Unsafe ref expressions - removed in ra_ap_hir 0.0.318
+        // 6. Unsafe ident patterns - removed in ra_ap_hir 0.0.318
     }
 }
 
@@ -2520,6 +2404,7 @@ fn analyze_field_accesses(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<FieldAccessInfo> {
     let mut field_accesses = Vec::new();
     
@@ -2543,11 +2428,11 @@ fn analyze_field_accesses(
                 let (field_name, field_type) = match resolved {
                     either::Either::Left(field) => (
                         field.name(db).display_no_db(Edition::Edition2021).to_string(),
-                        field.ty(db).display(db, Edition::Edition2021).to_string(),
+                        field.ty(db).display(db, display_target).to_string(),
                     ),
                     either::Either::Right(tuple_field) => (
                         format!("{}", tuple_field.index),
-                        tuple_field.ty(db).display(db, Edition::Edition2021).to_string(),
+                        tuple_field.ty(db).display(db, display_target).to_string(),
                     ),
                 };
                 
@@ -2637,6 +2522,8 @@ fn analyze_variants(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<VariantInfo> {
     let mut variants = Vec::new();
     
@@ -2656,7 +2543,7 @@ fn analyze_variants(
                         };
                         let fields: Vec<String> = v.fields(db)
                             .into_iter()
-                            .map(|f| f.ty(db).display(db, Edition::Edition2021).to_string())
+                            .map(|f| f.ty(db).display(db, display_target).to_string())
                             .collect();
                         (
                             enum_def.name(db).display_no_db(Edition::Edition2021).to_string(),
@@ -2673,7 +2560,7 @@ fn analyze_variants(
                         };
                         let fields: Vec<String> = s.fields(db)
                             .into_iter()
-                            .map(|f| f.ty(db).display(db, Edition::Edition2021).to_string())
+                            .map(|f| f.ty(db).display(db, display_target).to_string())
                             .collect();
                         (
                             s.name(db).display_no_db(Edition::Edition2021).to_string(),
@@ -2685,7 +2572,7 @@ fn analyze_variants(
                     ra_ap_hir::VariantDef::Union(u) => {
                         let fields: Vec<String> = u.fields(db)
                             .into_iter()
-                            .map(|f| f.ty(db).display(db, Edition::Edition2021).to_string())
+                            .map(|f| f.ty(db).display(db, display_target).to_string())
                             .collect();
                         (
                             u.name(db).display_no_db(Edition::Edition2021).to_string(),
@@ -2812,6 +2699,8 @@ fn analyze_const_patterns(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<ConstPatternInfo> {
     let mut const_patterns = Vec::new();
     
@@ -2824,7 +2713,7 @@ fn analyze_const_patterns(
                 let (const_name, const_type) = match module_def {
                     ra_ap_hir::ModuleDef::Const(c) => (
                         c.name(db).map(|n| n.display_no_db(Edition::Edition2021).to_string()).unwrap_or_default(),
-                        c.ty(db).display(db, Edition::Edition2021).to_string(),
+                        c.ty(db).display(db, display_target).to_string(),
                     ),
                     _ => continue,
                 };
@@ -2848,6 +2737,8 @@ fn analyze_callables(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<CallableInfo> {
     let mut callables = Vec::new();
     
@@ -2874,10 +2765,10 @@ fn analyze_callables(
                             
                             let param_types: Vec<String> = callable.params()
                                 .into_iter()
-                                .map(|p| p.ty().display(db, Edition::Edition2021).to_string())
+                                .map(|p| p.ty().display(db, display_target).to_string())
                                 .collect();
                             
-                            let return_type = Some(callable.return_type().display(db, Edition::Edition2021).to_string());
+                            let return_type = Some(callable.return_type().display(db, display_target).to_string());
                             
                             callables.push(CallableInfo {
                                 line,
@@ -2902,6 +2793,8 @@ fn analyze_record_field_exprs(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<RecordFieldExprInfo> {
     let mut record_fields = Vec::new();
     
@@ -2926,14 +2819,14 @@ fn analyze_record_field_exprs(
                         
                         let value_type = field.expr()
                             .and_then(|e| sema.type_of_expr(&e))
-                            .map(|ti| ti.original.display(db, Edition::Edition2021).to_string());
+                            .map(|ti| ti.original.display(db, display_target).to_string());
                         
                         record_fields.push(RecordFieldExprInfo {
                             line,
                             column,
                             parent_type: parent_type_name,
                             field_name: resolved_field.name(db).display_no_db(Edition::Edition2021).to_string(),
-                            field_type: ty.display(db, Edition::Edition2021).to_string(),
+                            field_type: ty.display(db, display_target).to_string(),
                             value_type,
                         });
                     }
@@ -2950,6 +2843,8 @@ fn analyze_record_field_pats(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<RecordFieldPatInfo> {
     let mut record_fields = Vec::new();
     
@@ -2977,7 +2872,7 @@ fn analyze_record_field_pats(
                             column,
                             parent_type: parent_type_name,
                             field_name: resolved_field.name(db).display_no_db(Edition::Edition2021).to_string(),
-                            field_type: ty.display(db, Edition::Edition2021).to_string(),
+                            field_type: ty.display(db, display_target).to_string(),
                         });
                     }
                 }
@@ -2993,6 +2888,7 @@ fn update_await_points_with_poll(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     source_file: &ast::SourceFile,
+    display_target: &ra_ap_hir::DisplayTarget,
     await_points: &mut Vec<crate::output::AwaitPointInfo>,
 ) {
     // Build a map of (line, column) -> await_point index for quick lookup
@@ -3019,12 +2915,12 @@ fn update_await_points_with_poll(
                         ItemContainer::Impl(i) => {
                             if let Some(trait_ref) = i.trait_(db) {
                                 format!("<{} as {}>::{}", 
-                                    i.self_ty(db).display(db, Edition::Edition2021),
+                                    i.self_ty(db).display(db, display_target),
                                     trait_ref.name(db).display_no_db(Edition::Edition2021),
                                     poll_fn_name)
                             } else {
                                 format!("<{}>::{}", 
-                                    i.self_ty(db).display(db, Edition::Edition2021),
+                                    i.self_ty(db).display(db, display_target),
                                     poll_fn_name)
                             }
                         }
@@ -3301,6 +3197,8 @@ fn make_match_binding_info(
     pat: &ast::Pat,
     source_file: &ast::SourceFile,
     context: &str,
+,
+    display_target: &ra_ap_hir::DisplayTarget,
 ) -> Option<MatchBindingInfo> {
     let range = pat.syntax().text_range();
     let (line, column) = get_location(&range, source_file);
@@ -3316,7 +3214,7 @@ fn make_match_binding_info(
                         BindingMode::Ref(Mutability::Mut) => "ref_mut",
                     })
                     .unwrap_or("move").to_string();
-                let ty = sema.to_def(&ident).map(|l| l.ty(db).display(db, Edition::Edition2021).to_string());
+                let ty = sema.to_def(&ident).map(|l| l.ty(db).display(db, display_target).to_string());
                 bindings.push(PatternBindingInfo { name: name.text().to_string(), mode, ty });
             }
         }
