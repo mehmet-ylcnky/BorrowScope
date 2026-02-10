@@ -1,0 +1,2562 @@
+{
+  "version": "3.0",
+  "analyzer_version": "0.1.0",
+  "files": {
+    "src/main.rs": [
+      {
+        "name": "path",
+        "ty": "PathBuf",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Path"
+        ],
+        "fields": [
+          {
+            "name": "inner",
+            "ty": "OsString"
+          }
+        ],
+        "initializer_kind": "pathbuf_join",
+        "usages": [
+          {
+            "line": 27,
+            "column": 17,
+            "kind": "read"
+          },
+          {
+            "line": 28,
+            "column": 34,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 26,
+        "column": 8,
+        "span_start": 626,
+        "span_end": 630,
+        "drop_line": 28,
+        "drop_column": 50,
+        "scope_id": 0,
+        "function_name": "main",
+        "decl_index": 0
+      },
+      {
+        "name": "s1",
+        "ty": "String",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": true,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "str"
+        ],
+        "fields": [
+          {
+            "name": "vec",
+            "ty": "Vec<u8, Global>"
+          }
+        ],
+        "initializer_kind": "string_new",
+        "usages": [
+          {
+            "line": 36,
+            "column": 31,
+            "kind": "read"
+          },
+          {
+            "line": 39,
+            "column": 36,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 35,
+        "column": 8,
+        "span_start": 894,
+        "span_end": 896,
+        "drop_line": 43,
+        "drop_column": 15,
+        "scope_id": 1,
+        "function_name": "demo_basic_ownership",
+        "decl_index": 0
+      },
+      {
+        "name": "s2",
+        "ty": "String",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": true,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "str"
+        ],
+        "fields": [
+          {
+            "name": "vec",
+            "ty": "Vec<u8, Global>"
+          }
+        ],
+        "initializer_kind": "string_new",
+        "usages": [
+          {
+            "line": 40,
+            "column": 32,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 39,
+        "column": 8,
+        "span_start": 1006,
+        "span_end": 1008,
+        "drop_line": 43,
+        "drop_column": 15,
+        "scope_id": 2,
+        "function_name": "demo_basic_ownership",
+        "decl_index": 1
+      },
+      {
+        "name": "data",
+        "ty": "TrackGuard<Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "ty": "&'static str"
+          },
+          {
+            "name": "value",
+            "ty": "Vec<i32, Global>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "user_struct",
+        "usages": [
+          {
+            "line": 53,
+            "column": 48,
+            "kind": "read"
+          },
+          {
+            "line": 57,
+            "column": 56,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 52,
+        "column": 12,
+        "span_start": 1336,
+        "span_end": 1340,
+        "drop_line": 63,
+        "drop_column": 4,
+        "scope_id": 3,
+        "function_name": "demo_raii_guards",
+        "decl_index": 0
+      },
+      {
+        "name": "r",
+        "ty": "BorrowGuard<'_, Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "name",
+            "ty": "&'static str"
+          },
+          {
+            "name": "value",
+            "ty": "&Vec<i32, Global>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "user_struct",
+        "usages": [
+          {
+            "line": 58,
+            "column": 50,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 57,
+        "column": 16,
+        "span_start": 1526,
+        "span_end": 1527,
+        "drop_line": 59,
+        "drop_column": 8,
+        "scope_id": 4,
+        "function_name": "demo_raii_guards",
+        "decl_index": 1
+      },
+      {
+        "name": "data",
+        "ty": "Vec<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": true,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": true,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "buf",
+            "ty": "RawVec<i32, Global>"
+          },
+          {
+            "name": "len",
+            "ty": "usize"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "vec_new",
+        "usages": [
+          {
+            "line": 76,
+            "column": 37,
+            "kind": "read"
+          },
+          {
+            "line": 77,
+            "column": 37,
+            "kind": "read"
+          },
+          {
+            "line": 85,
+            "column": 51,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 72,
+        "column": 8,
+        "span_start": 2036,
+        "span_end": 2044,
+        "drop_line": 92,
+        "drop_column": 15,
+        "scope_id": 5,
+        "function_name": "demo_borrowing",
+        "decl_index": 0
+      },
+      {
+        "name": "r1",
+        "ty": "&Vec<i32, Global>",
+        "is_copy": true,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": true,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": true,
+        "reference_mutability": "shared",
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "ref",
+        "usages": [
+          {
+            "line": 78,
+            "column": 50,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 76,
+        "column": 12,
+        "span_start": 2134,
+        "span_end": 2136,
+        "drop_line": 81,
+        "drop_column": 4,
+        "scope_id": 6,
+        "function_name": "demo_borrowing",
+        "decl_index": 1
+      },
+      {
+        "name": "r2",
+        "ty": "&Vec<i32, Global>",
+        "is_copy": true,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": true,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": true,
+        "reference_mutability": "shared",
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "ref",
+        "usages": [
+          {
+            "line": 78,
+            "column": 54,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 77,
+        "column": 12,
+        "span_start": 2178,
+        "span_end": 2180,
+        "drop_line": 81,
+        "drop_column": 4,
+        "scope_id": 7,
+        "function_name": "demo_borrowing",
+        "decl_index": 2
+      },
+      {
+        "name": "r_mut",
+        "ty": "&mut Vec<i32, Global>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": true,
+        "is_mutable_reference": true,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": true,
+        "reference_mutability": "mutable",
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "ref_mut",
+        "method_calls": [
+          {
+            "method": "push",
+            "line": 86,
+            "column": 8,
+            "operation": "alloc::vec::push",
+            "self_borrow": "mutable",
+            "receiver_type": "&mut Vec<i32, Global>",
+            "result_type": "()",
+            "is_trait_method": false
+          }
+        ],
+        "usages": [
+          {
+            "line": 86,
+            "column": 8,
+            "kind": "read"
+          },
+          {
+            "line": 87,
+            "column": 47,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 85,
+        "column": 12,
+        "span_start": 2368,
+        "span_end": 2373,
+        "drop_line": 89,
+        "drop_column": 4,
+        "scope_id": 8,
+        "function_name": "demo_borrowing",
+        "decl_index": 3
+      },
+      {
+        "name": "rc1",
+        "ty": "Rc<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 8,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "ptr",
+            "ty": "NonNull<RcInner<i32>>"
+          },
+          {
+            "name": "phantom",
+            "ty": "PhantomData<RcInner<i32>>"
+          },
+          {
+            "name": "alloc",
+            "ty": "Global"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "rc_new",
+        "usages": [
+          {
+            "line": 100,
+            "column": 34,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 99,
+        "column": 8,
+        "span_start": 2688,
+        "span_end": 2691,
+        "drop_line": 118,
+        "drop_column": 15,
+        "scope_id": 9,
+        "function_name": "demo_shared_ownership",
+        "decl_index": 0
+      },
+      {
+        "name": "rc1",
+        "ty": "Rc<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 8,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "ptr",
+            "ty": "NonNull<RcInner<i32>>"
+          },
+          {
+            "name": "phantom",
+            "ty": "PhantomData<RcInner<i32>>"
+          },
+          {
+            "name": "alloc",
+            "ty": "Global"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "rc_new",
+        "usages": [
+          {
+            "line": 101,
+            "column": 55,
+            "kind": "read"
+          },
+          {
+            "line": 103,
+            "column": 25,
+            "kind": "read"
+          },
+          {
+            "line": 107,
+            "column": 26,
+            "kind": "read"
+          },
+          {
+            "line": 111,
+            "column": 25,
+            "kind": "read"
+          },
+          {
+            "line": 113,
+            "column": 66,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 100,
+        "column": 8,
+        "span_start": 2715,
+        "span_end": 2718,
+        "drop_line": 118,
+        "drop_column": 15,
+        "scope_id": 10,
+        "function_name": "demo_shared_ownership",
+        "decl_index": 1
+      },
+      {
+        "name": "rc2",
+        "ty": "Rc<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 8,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "ptr",
+            "ty": "NonNull<RcInner<i32>>"
+          },
+          {
+            "name": "phantom",
+            "ty": "PhantomData<RcInner<i32>>"
+          },
+          {
+            "name": "alloc",
+            "ty": "Global"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "rc_new",
+        "usages": [
+          {
+            "line": 104,
+            "column": 43,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 103,
+        "column": 8,
+        "span_start": 2818,
+        "span_end": 2821,
+        "drop_line": 118,
+        "drop_column": 15,
+        "scope_id": 11,
+        "function_name": "demo_shared_ownership",
+        "decl_index": 2
+      },
+      {
+        "name": "rc2",
+        "ty": "Rc<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 8,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "ptr",
+            "ty": "NonNull<RcInner<i32>>"
+          },
+          {
+            "name": "phantom",
+            "ty": "PhantomData<RcInner<i32>>"
+          },
+          {
+            "name": "alloc",
+            "ty": "Global"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "rc_new",
+        "usages": [
+          {
+            "line": 108,
+            "column": 26,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 104,
+        "column": 8,
+        "span_start": 2849,
+        "span_end": 2852,
+        "drop_line": 118,
+        "drop_column": 15,
+        "scope_id": 12,
+        "function_name": "demo_shared_ownership",
+        "decl_index": 3
+      },
+      {
+        "name": "rc3",
+        "ty": "Rc<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 8,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "ptr",
+            "ty": "NonNull<RcInner<i32>>"
+          },
+          {
+            "name": "phantom",
+            "ty": "PhantomData<RcInner<i32>>"
+          },
+          {
+            "name": "alloc",
+            "ty": "Global"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "rc_new",
+        "usages": [
+          {
+            "line": 112,
+            "column": 44,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 111,
+        "column": 8,
+        "span_start": 3037,
+        "span_end": 3040,
+        "drop_line": 118,
+        "drop_column": 15,
+        "scope_id": 13,
+        "function_name": "demo_shared_ownership",
+        "decl_index": 4
+      },
+      {
+        "name": "_rc3",
+        "ty": "Rc<i32, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": true,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 8,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "ptr",
+            "ty": "NonNull<RcInner<i32>>"
+          },
+          {
+            "name": "phantom",
+            "ty": "PhantomData<RcInner<i32>>"
+          },
+          {
+            "name": "alloc",
+            "ty": "Global"
+          }
+        ],
+        "type_arguments": [
+          "i32",
+          "Global"
+        ],
+        "initializer_kind": "rc_new",
+        "file": "src/main.rs",
+        "line": 112,
+        "column": 8,
+        "span_start": 3068,
+        "span_end": 3072,
+        "drop_line": 118,
+        "drop_column": 15,
+        "scope_id": 14,
+        "function_name": "demo_shared_ownership",
+        "decl_index": 5
+      },
+      {
+        "name": "cell",
+        "ty": "RefCell<Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": true,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "fields": [
+          {
+            "name": "borrow",
+            "ty": "Cell<isize>"
+          },
+          {
+            "name": "value",
+            "ty": "UnsafeCell<Vec<i32, Global>>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "refcell_new",
+        "usages": [
+          {
+            "line": 126,
+            "column": 41,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 125,
+        "column": 8,
+        "span_start": 3408,
+        "span_end": 3412,
+        "drop_line": 144,
+        "drop_column": 15,
+        "scope_id": 15,
+        "function_name": "demo_interior_mutability",
+        "decl_index": 0
+      },
+      {
+        "name": "cell",
+        "ty": "RefCell<Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": false,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": true,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "fields": [
+          {
+            "name": "borrow",
+            "ty": "Cell<isize>"
+          },
+          {
+            "name": "value",
+            "ty": "UnsafeCell<Vec<i32, Global>>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "refcell_new",
+        "usages": [
+          {
+            "line": 130,
+            "column": 59,
+            "kind": "read"
+          },
+          {
+            "line": 137,
+            "column": 67,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 126,
+        "column": 8,
+        "span_start": 3452,
+        "span_end": 3456,
+        "drop_line": 144,
+        "drop_column": 15,
+        "scope_id": 16,
+        "function_name": "demo_interior_mutability",
+        "decl_index": 1
+      },
+      {
+        "name": "borrowed",
+        "ty": "Ref<'_, Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": true,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 16,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "value",
+            "ty": "NonNull<Vec<i32, Global>>"
+          },
+          {
+            "name": "borrow",
+            "ty": "BorrowRef<'_>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "ref_guard_macro",
+        "usages": [
+          {
+            "line": 131,
+            "column": 44,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 130,
+        "column": 12,
+        "span_start": 3551,
+        "span_end": 3559,
+        "drop_line": 133,
+        "drop_column": 4,
+        "scope_id": 17,
+        "function_name": "demo_interior_mutability",
+        "decl_index": 2
+      },
+      {
+        "name": "borrowed",
+        "ty": "RefMut<'_, Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": true,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 16,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": true,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "value",
+            "ty": "NonNull<Vec<i32, Global>>"
+          },
+          {
+            "name": "borrow",
+            "ty": "BorrowRefMut<'_>"
+          },
+          {
+            "name": "marker",
+            "ty": "PhantomData<&mut Vec<i32, Global>>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "refmut_guard_macro",
+        "method_calls": [
+          {
+            "method": "push",
+            "line": 138,
+            "column": 8,
+            "operation": "alloc::vec::push",
+            "self_borrow": "mutable",
+            "receiver_type": "RefMut<'_, Vec<i32, Global>>",
+            "result_type": "()",
+            "is_trait_method": false
+          }
+        ],
+        "usages": [
+          {
+            "line": 138,
+            "column": 8,
+            "kind": "read"
+          },
+          {
+            "line": 139,
+            "column": 52,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 137,
+        "column": 12,
+        "span_start": 3767,
+        "span_end": 3779,
+        "drop_line": 141,
+        "drop_column": 4,
+        "scope_id": 18,
+        "function_name": "demo_interior_mutability",
+        "decl_index": 3
+      },
+      {
+        "name": "(new, borrow, mov, drop)",
+        "ty": "(usize, usize, usize, usize)",
+        "is_copy": true,
+        "is_clone": true,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": true,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "type_arguments": [
+          "usize",
+          "usize",
+          "usize",
+          "usize"
+        ],
+        "initializer_kind": "tuple",
+        "file": "src/main.rs",
+        "line": 152,
+        "column": 8,
+        "span_start": 4143,
+        "span_end": 4167,
+        "drop_line": 166,
+        "drop_column": 15,
+        "scope_id": 19,
+        "function_name": "demo_filtering_api",
+        "decl_index": 0
+      },
+      {
+        "name": "borrows",
+        "ty": "Vec<Event, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": true,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "[Event]"
+        ],
+        "fields": [
+          {
+            "name": "buf",
+            "ty": "RawVec<Event, Global>"
+          },
+          {
+            "name": "len",
+            "ty": "usize"
+          }
+        ],
+        "type_arguments": [
+          "Event",
+          "Global"
+        ],
+        "initializer_kind": "vec_new",
+        "usages": [
+          {
+            "line": 157,
+            "column": 40,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 156,
+        "column": 8,
+        "span_start": 4325,
+        "span_end": 4332,
+        "drop_line": 166,
+        "drop_column": 15,
+        "scope_id": 20,
+        "function_name": "demo_filtering_api",
+        "decl_index": 1
+      },
+      {
+        "name": "rc1_events",
+        "ty": "Vec<Event, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": true,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "[Event]"
+        ],
+        "fields": [
+          {
+            "name": "buf",
+            "ty": "RawVec<Event, Global>"
+          },
+          {
+            "name": "len",
+            "ty": "usize"
+          }
+        ],
+        "type_arguments": [
+          "Event",
+          "Global"
+        ],
+        "initializer_kind": "vec_new",
+        "usages": [
+          {
+            "line": 161,
+            "column": 37,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 160,
+        "column": 8,
+        "span_start": 4461,
+        "span_end": 4471,
+        "drop_line": 166,
+        "drop_column": 15,
+        "scope_id": 21,
+        "function_name": "demo_filtering_api",
+        "decl_index": 2
+      },
+      {
+        "name": "rc_events",
+        "ty": "Vec<Event, Global>",
+        "is_copy": false,
+        "is_clone": true,
+        "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": true,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 24,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_static": false,
+        "is_const": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "[Event]"
+        ],
+        "fields": [
+          {
+            "name": "buf",
+            "ty": "RawVec<Event, Global>"
+          },
+          {
+            "name": "len",
+            "ty": "usize"
+          }
+        ],
+        "type_arguments": [
+          "Event",
+          "Global"
+        ],
+        "initializer_kind": "vec_new",
+        "usages": [
+          {
+            "line": 165,
+            "column": 34,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 164,
+        "column": 8,
+        "span_start": 4587,
+        "span_end": 4596,
+        "drop_line": 166,
+        "drop_column": 15,
+        "scope_id": 22,
+        "function_name": "demo_filtering_api",
+        "decl_index": 3
+      }
+    ]
+  },
+  "destructuring": {
+    "src/main.rs": [
+      {
+        "line": 152,
+        "column": 8,
+        "kind": "tuple",
+        "source_expr": "get_event_counts()",
+        "bindings": [
+          "new",
+          "borrow",
+          "mov",
+          "drop"
+        ]
+      }
+    ]
+  },
+  "closure_traits": {
+    "src/main.rs": [
+      {
+        "line": 164,
+        "column": 40,
+        "fn_trait": "Fn"
+      }
+    ]
+  },
+  "callables": {
+    "src/main.rs": [
+      {
+        "line": 11,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 14,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 15,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 16,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 17,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 18,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 19,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 23,
+        "column": 4,
+        "kind": "fn_ptr",
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 26,
+        "column": 15,
+        "kind": "fn_ptr",
+        "return_type": "PathBuf",
+        "is_callable": true
+      },
+      {
+        "line": 27,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&PathBuf"
+        ],
+        "return_type": "Result<(), Error>",
+        "is_callable": true
+      },
+      {
+        "line": 35,
+        "column": 13,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "String"
+        ],
+        "return_type": "String",
+        "is_callable": true
+      },
+      {
+        "line": 35,
+        "column": 29,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "String",
+        "is_callable": true
+      },
+      {
+        "line": 39,
+        "column": 13,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "&str",
+          "String"
+        ],
+        "return_type": "String",
+        "is_callable": true
+      },
+      {
+        "line": 42,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 52,
+        "column": 19,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&'static str",
+          "Vec<i32, Global>"
+        ],
+        "return_type": "TrackGuard<Vec<i32, Global>>",
+        "is_callable": true
+      },
+      {
+        "line": 57,
+        "column": 20,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&'static str",
+          "&Vec<i32, Global>"
+        ],
+        "return_type": "BorrowGuard<'_, Vec<i32, Global>>",
+        "is_callable": true
+      },
+      {
+        "line": 72,
+        "column": 19,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "Vec<i32, Global>"
+        ],
+        "return_type": "Vec<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 76,
+        "column": 17,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "&Vec<i32, Global>"
+        ],
+        "return_type": "&Vec<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 77,
+        "column": 17,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "&Vec<i32, Global>"
+        ],
+        "return_type": "&Vec<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 79,
+        "column": 8,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 80,
+        "column": 8,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 85,
+        "column": 20,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "&mut Vec<i32, Global>"
+        ],
+        "return_type": "&mut Vec<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 88,
+        "column": 8,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 91,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 99,
+        "column": 14,
+        "kind": "fn_ptr",
+        "param_types": [
+          "i32"
+        ],
+        "return_type": "Rc<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 100,
+        "column": 14,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "Rc<i32, Global>"
+        ],
+        "return_type": "Rc<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 103,
+        "column": 14,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&Rc<i32, Global>"
+        ],
+        "return_type": "Rc<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 104,
+        "column": 14,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "&str",
+          "Rc<i32, Global>"
+        ],
+        "return_type": "Rc<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 111,
+        "column": 14,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&Rc<i32, Global>"
+        ],
+        "return_type": "Rc<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 112,
+        "column": 15,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "&str",
+          "Rc<i32, Global>"
+        ],
+        "return_type": "Rc<i32, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 115,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 116,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 117,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 125,
+        "column": 15,
+        "kind": "fn_ptr",
+        "param_types": [
+          "Vec<i32, Global>"
+        ],
+        "return_type": "RefCell<Vec<i32, Global>>",
+        "is_callable": true
+      },
+      {
+        "line": 126,
+        "column": 15,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str",
+          "RefCell<Vec<i32, Global>>"
+        ],
+        "return_type": "RefCell<Vec<i32, Global>>",
+        "is_callable": true
+      },
+      {
+        "line": 143,
+        "column": 4,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "()",
+        "is_callable": true
+      },
+      {
+        "line": 152,
+        "column": 35,
+        "kind": "fn_ptr",
+        "return_type": "(usize, usize, usize, usize)",
+        "is_callable": true
+      },
+      {
+        "line": 156,
+        "column": 18,
+        "kind": "fn_ptr",
+        "return_type": "Vec<Event, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 160,
+        "column": 21,
+        "kind": "fn_ptr",
+        "param_types": [
+          "&str"
+        ],
+        "return_type": "Vec<Event, Global>",
+        "is_callable": true
+      },
+      {
+        "line": 164,
+        "column": 20,
+        "kind": "fn_ptr",
+        "param_types": [
+          "impl Fn(&Event) -> bool"
+        ],
+        "return_type": "Vec<Event, Global>",
+        "is_callable": true
+      }
+    ]
+  },
+  "by_name": {},
+  "by_function": {}
+}

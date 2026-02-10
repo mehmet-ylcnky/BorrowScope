@@ -6,6 +6,7 @@
 use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo, UnsafeOperationInfo, VariableUsageInfo, BorrowSpanInfo, DestructuringInfo, MatchBindingInfo, PatternBindingInfo, FieldAccessInfo, ClosureTraitInfo, VariantInfo, LifetimeInfo, LabelInfo, ConstPatternInfo, CallableInfo, RecordFieldExprInfo, RecordFieldPatInfo, LayoutInfo};
 use anyhow::{Context, Result};
 use ra_ap_hir::{db::DefDatabase, HirDisplay, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro, StructKind, HasSource};
+use ra_ap_hir_ty::attach_db;
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_ide_db::defs::Definition;
 use ra_ap_ide_db::search::ReferenceCategory;
@@ -785,7 +786,9 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, &display_target, file_id, &relative);
+        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = attach_db(&db, || {
+            analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, &display_target, file_id, &relative)
+        });
         if !variables.is_empty() {
             info.files.insert(relative.clone(), variables);
         }
