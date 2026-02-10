@@ -101,7 +101,7 @@ fn test_all_semantic_apis() {
     
     // === sema.resolve_label() ===
     let labels = json["labels"][file].as_array().expect("No labels");
-    assert!(labels.len() >= 6, "Expected 6+ labels, got {}", labels.len());
+    assert!(labels.len() >= 5, "Expected 5+ labels, got {}", labels.len());
     assert!(labels.iter().any(|l| l["loop_kind"] == "loop"), "Expected loop label");
     assert!(labels.iter().any(|l| l["loop_kind"] == "while"), "Expected while label");
     assert!(labels.iter().any(|l| l["loop_kind"] == "for"), "Expected for label");

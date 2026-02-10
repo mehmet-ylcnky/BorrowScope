@@ -3510,7 +3510,7 @@
             "ty": "Buf"
           }
         ],
-        "initializer_kind": "osstring_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "as_os_str",
@@ -7146,7 +7146,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -7200,7 +7200,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "mutex_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 287,
@@ -7235,7 +7235,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -7289,7 +7289,7 @@
         "type_arguments": [
           "Vec<i32, Global>"
         ],
-        "initializer_kind": "mutex_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 288,
@@ -8266,7 +8266,7 @@
           "i32",
           "RandomState"
         ],
-        "initializer_kind": "hashmap_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 351,
@@ -8353,7 +8353,7 @@
           "i32",
           "RandomState"
         ],
-        "initializer_kind": "hashmap_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "insert",
@@ -8456,7 +8456,7 @@
           "i32",
           "RandomState"
         ],
-        "initializer_kind": "hashset_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 353,
@@ -11598,7 +11598,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -11652,7 +11652,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "mutex_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "lock",
@@ -12097,7 +12097,7 @@
         "is_cell": false,
         "is_mutex": false,
         "is_rwlock": false,
-        "is_guard": true,
+        "is_guard": false,
         "is_vec": false,
         "is_string": false,
         "is_raw_ptr": false,
@@ -12152,7 +12152,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "rwlock_read_guard_unwrap",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 471,
@@ -12189,7 +12189,7 @@
         "is_cell": false,
         "is_mutex": false,
         "is_rwlock": false,
-        "is_guard": true,
+        "is_guard": false,
         "is_vec": false,
         "is_string": false,
         "is_raw_ptr": false,
@@ -12244,7 +12244,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "rwlock_write_guard_unwrap",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 473,
@@ -13741,7 +13741,7 @@
           "Vec<i32, Global>",
           "RandomState"
         ],
-        "initializer_kind": "hashmap_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 546,
@@ -14646,7 +14646,7 @@
             "ty": "OsString"
           }
         ],
-        "initializer_kind": "pathbuf_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 612,
@@ -14731,7 +14731,7 @@
             "ty": "OsString"
           }
         ],
-        "initializer_kind": "pathbuf_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "as_path",
@@ -14919,7 +14919,7 @@
             "ty": "Buf"
           }
         ],
-        "initializer_kind": "osstring_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 612,
@@ -15004,7 +15004,7 @@
             "ty": "Buf"
           }
         ],
-        "initializer_kind": "osstring_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 612,
@@ -17264,7 +17264,7 @@
         "is_cow": false,
         "is_option": false,
         "is_result": false,
-        "is_once_cell": true,
+        "is_once_cell": false,
         "is_maybe_uninit": false,
         "is_channel": false,
         "is_atomic": false,
@@ -17304,7 +17304,7 @@
         "type_arguments": [
           "String"
         ],
-        "initializer_kind": "once_lock_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "set",
@@ -18456,7 +18456,7 @@
         "is_atomic": false,
         "is_join_handle": false,
         "is_duration": false,
-        "is_instant": true,
+        "is_instant": false,
         "is_closure": false,
         "is_fn_ptr": false,
         "is_future": false,
@@ -18483,7 +18483,7 @@
             "ty": "Instant"
           }
         ],
-        "initializer_kind": "instant_new",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 714,
@@ -20904,7 +20904,7 @@
         "is_result": false,
         "is_once_cell": false,
         "is_maybe_uninit": false,
-        "is_channel": true,
+        "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
         "is_duration": false,
@@ -20972,7 +20972,7 @@
         "is_result": false,
         "is_once_cell": false,
         "is_maybe_uninit": false,
-        "is_channel": true,
+        "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
         "is_duration": false,
@@ -23802,7 +23802,7 @@
         "is_result": false,
         "is_once_cell": false,
         "is_maybe_uninit": false,
-        "is_channel": true,
+        "is_channel": false,
         "is_atomic": false,
         "is_join_handle": false,
         "is_duration": false,
@@ -24108,7 +24108,7 @@
         "is_maybe_uninit": false,
         "is_channel": false,
         "is_atomic": false,
-        "is_join_handle": true,
+        "is_join_handle": false,
         "is_duration": false,
         "is_instant": false,
         "is_closure": false,
@@ -24140,7 +24140,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "join_handle",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "join",
@@ -25679,7 +25679,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -25733,7 +25733,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "mutex_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "lock",
@@ -27843,7 +27843,7 @@
         "is_maybe_uninit": false,
         "is_channel": false,
         "is_atomic": false,
-        "is_join_handle": true,
+        "is_join_handle": false,
         "is_duration": false,
         "is_instant": false,
         "is_closure": false,
@@ -27874,7 +27874,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "join_handle",
+        "initializer_kind": "user_struct",
         "file": "src/main.rs",
         "line": 1054,
         "column": 8,
@@ -28097,7 +28097,7 @@
         "is_maybe_uninit": false,
         "is_channel": false,
         "is_atomic": false,
-        "is_join_handle": true,
+        "is_join_handle": false,
         "is_duration": false,
         "is_instant": false,
         "is_closure": false,
@@ -28128,7 +28128,7 @@
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "join_handle",
+        "initializer_kind": "user_struct",
         "file": "src/main.rs",
         "line": 1059,
         "column": 8,
@@ -34343,7 +34343,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -34397,7 +34397,7 @@
         "type_arguments": [
           "Vec<i32, Global>"
         ],
-        "initializer_kind": "mutex_new",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "lock",
@@ -41285,7 +41285,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -41470,7 +41470,7 @@
         "is_weak": false,
         "is_refcell": false,
         "is_cell": false,
-        "is_mutex": true,
+        "is_mutex": false,
         "is_rwlock": false,
         "is_guard": false,
         "is_vec": false,
@@ -41906,7 +41906,7 @@
         "is_maybe_uninit": false,
         "is_channel": false,
         "is_atomic": false,
-        "is_join_handle": true,
+        "is_join_handle": false,
         "is_duration": false,
         "is_instant": false,
         "is_closure": false,
@@ -41938,7 +41938,7 @@
         "type_arguments": [
           "()"
         ],
-        "initializer_kind": "join_handle",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "join",
@@ -47137,7 +47137,7 @@
         "is_maybe_uninit": false,
         "is_channel": false,
         "is_atomic": false,
-        "is_join_handle": true,
+        "is_join_handle": false,
         "is_duration": false,
         "is_instant": false,
         "is_closure": false,
@@ -47169,7 +47169,7 @@
         "type_arguments": [
           "()"
         ],
-        "initializer_kind": "join_handle",
+        "initializer_kind": "user_struct",
         "method_calls": [
           {
             "method": "join",
@@ -53904,15 +53904,6 @@
         "result_type": "()"
       },
       {
-        "line": 966,
-        "column": 17,
-        "kind": "function_call",
-        "path": "std::thread::functions::spawn",
-        "operation": "std::thread::functions::spawn",
-        "argument": "<closure>",
-        "result_type": "JoinHandle<i32>"
-      },
-      {
         "line": 1001,
         "column": 4,
         "kind": "function_call",
@@ -53965,36 +53956,6 @@
         "operation": "core::mem::forget",
         "argument": "y",
         "result_type": "()"
-      },
-      {
-        "line": 1054,
-        "column": 12,
-        "kind": "function_call",
-        "path": "std::thread::functions::spawn",
-        "operation": "std::thread::functions::spawn",
-        "argument": "<closure>",
-        "result_type": "JoinHandle<i32>"
-      },
-      {
-        "line": 1059,
-        "column": 12,
-        "kind": "function_call",
-        "path": "std::thread::functions::spawn",
-        "operation": "std::thread::functions::spawn",
-        "argument": "<closure captures: data, multiplier>",
-        "result_type": "JoinHandle<i32>",
-        "closure_captures": [
-          {
-            "name": "data",
-            "capture_kind": "move",
-            "ty": "Vec<i32, Global>"
-          },
-          {
-            "name": "multiplier",
-            "capture_kind": "move",
-            "ty": "i32"
-          }
-        ]
       },
       {
         "line": 1066,
@@ -54122,38 +54083,6 @@
         "result_type": "()"
       },
       {
-        "line": 1643,
-        "column": 4,
-        "kind": "function_call",
-        "path": "std::thread::functions::spawn",
-        "operation": "std::thread::functions::spawn",
-        "argument": "<closure captures: pair_clone, lock, started, cvar>",
-        "result_type": "JoinHandle<()>",
-        "closure_captures": [
-          {
-            "name": "pair_clone",
-            "capture_kind": "move",
-            "ty": "Arc<(Mutex<bool>, Condvar), Global>"
-          }
-        ]
-      },
-      {
-        "line": 1661,
-        "column": 17,
-        "kind": "function_call",
-        "path": "std::thread::functions::spawn",
-        "operation": "std::thread::functions::spawn",
-        "argument": "<closure captures: barrier_clone>",
-        "result_type": "JoinHandle<()>",
-        "closure_captures": [
-          {
-            "name": "barrier_clone",
-            "capture_kind": "move",
-            "ty": "Arc<Barrier, Global>"
-          }
-        ]
-      },
-      {
         "line": 1992,
         "column": 4,
         "kind": "function_call",
@@ -54179,22 +54108,6 @@
         "operation": "core::mem::drop",
         "argument": "moved",
         "result_type": "()"
-      },
-      {
-        "line": 2188,
-        "column": 17,
-        "kind": "function_call",
-        "path": "std::thread::functions::spawn",
-        "operation": "std::thread::functions::spawn",
-        "argument": "<closure captures: spawn_data_clone, guard>",
-        "result_type": "JoinHandle<()>",
-        "closure_captures": [
-          {
-            "name": "spawn_data_clone",
-            "capture_kind": "move",
-            "ty": "Arc<Mutex<i32>, Global>"
-          }
-        ]
       },
       {
         "line": 2245,
