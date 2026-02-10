@@ -11,26 +11,27 @@ Analysis of a small project (single file, ~100 variables) shows the following ti
 │                      PERFORMANCE BREAKDOWN                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Total Time: ~45-50 seconds                                                 │
+│  Total Time: ~3.5-4 seconds                                                 │
 │                                                                             │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│    │
-│  │            Workspace Loading (~32s, 65%)                           │    │
+│  │            Workspace Loading (~3.5s, 90%)                          │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────┐                                    │
-│  │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│                                    │
-│  │    Type Analysis (~12s, 25%)       │                                    │
-│  └─────────────────────────────────────┘                                    │
-│  ┌──────────────┐                                                           │
-│  │░░░░░░░░░░░░░░│                                                           │
-│  │ Compile (~5s)│                                                           │
-│  └──────────────┘                                                           │
+│  ┌────┐                                                                     │
+│  │░░░░│                                                                     │
+│  │<1ms│ TrackedFunctions/KnownTypes/KnownMacros initialization              │
+│  └────┘                                                                     │
+│  ┌──────────┐                                                               │
+│  │░░░░░░░░░░│                                                               │
+│  │ Analysis │ (~0.3s, 8%)                                                   │
+│  └──────────┘                                                               │
 │                                                                             │
 │  Workspace Loading includes:                                                │
 │    • Sysroot discovery (rustc --print sysroot)                              │
 │    • Standard library metadata loading                                      │
 │    • Cargo.toml parsing and dependency resolution                           │
 │    • Building the semantic database                                         │
+│    • Cache prefilling (prefill_caches: true)                                │
 │                                                                             │
 │  Type Analysis includes:                                                    │
 │    • Parsing source files                                                   │
@@ -43,15 +44,23 @@ Analysis of a small project (single file, ~100 variables) shows the following ti
 
 The workspace loading phase is expensive because rust-analyzer must build a complete semantic model of the project and its dependencies. This includes loading metadata for the entire standard library, which contains thousands of types and trait implementations.
 
+### Optimizations Applied (0.0.318)
+
+Several optimizations significantly improved performance from ~45-50s to ~3.5-4s:
+
+- **Cache prefilling**: `prefill_caches: true` pre-populates rust-analyzer caches during workspace loading
+- **Scoped crate search**: `TrackedFunctions`, `KnownTypes`, and `KnownMacros` search only the `std` crate instead of all ~46 crates
+- **Thread-local DB attachment**: `attach_db(&db, || ...)` wrapper from `ra_ap_hir_ty` for proper database attachment
+
 ### Scaling Characteristics
 
 Analysis time scales primarily with project complexity rather than line count:
 
 | Project Size | Dependencies | Variables | Load Time | Analysis Time | Total |
 |--------------|--------------|-----------|-----------|---------------|-------|
-| Small (1 file) | std only | ~100 | ~32s | ~12s | ~45s |
-| Medium (10 files) | 5-10 crates | ~500 | ~35s | ~15s | ~50s |
-| Large (100 files) | 50+ crates | ~2000 | ~60s | ~30s | ~90s |
+| Small (1 file) | std only | ~100 | ~3.5s | ~0.3s | ~3.9s |
+| Medium (10 files) | 5-10 crates | ~500 | ~4s | ~0.5s | ~4.5s |
+| Large (100 files) | 50+ crates | ~2000 | ~8s | ~2s | ~10s |
 
 The workspace loading time increases modestly with dependency count because rust-analyzer must resolve and load metadata for each crate. The analysis time scales roughly linearly with the number of variables.
 

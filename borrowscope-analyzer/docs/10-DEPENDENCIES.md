@@ -6,14 +6,17 @@ The borrowscope-analyzer relies on rust-analyzer's published crate ecosystem for
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| `ra_ap_hir` | 0.0.232 | High-level intermediate representation and semantic queries |
-| `ra_ap_ide_db` | 0.0.232 | IDE database infrastructure and root database type |
-| `ra_ap_load-cargo` | 0.0.232 | Cargo workspace loading and sysroot discovery |
-| `ra_ap_project_model` | 0.0.232 | Project structure modeling and configuration |
-| `ra_ap_syntax` | 0.0.232 | Syntax tree representation and AST types |
-| `ra_ap_vfs` | 0.0.232 | Virtual file system for source file management |
+| `ra_ap_hir` | 0.0.318 | High-level intermediate representation and semantic queries |
+| `ra_ap_hir_ty` | 0.0.318 | Type inference and `attach_db` for thread-local database attachment |
+| `ra_ap_ide_db` | 0.0.318 | IDE database infrastructure and root database type |
+| `ra_ap_load-cargo` | 0.0.318 | Cargo workspace loading and sysroot discovery |
+| `ra_ap_project_model` | 0.0.318 | Project structure modeling and configuration |
+| `ra_ap_syntax` | 0.0.318 | Syntax tree representation and AST types |
+| `ra_ap_vfs` | 0.0.318 | Virtual file system for source file management |
 
-These crates are published to crates.io with each rust-analyzer release. The version number `0.0.232` corresponds to a specific rust-analyzer release. All `ra_ap_*` crates must use the same version to ensure ABI compatibility.
+These crates are published to crates.io with each rust-analyzer release. The version number `0.0.318` corresponds to a specific rust-analyzer release. All `ra_ap_*` crates must use the same version to ensure ABI compatibility.
+
+**Note on `ra_ap_hir_ty`**: Starting with version 0.0.318, rust-analyzer uses thread-local storage for database attachment. The `attach_db(&db, || ...)` function from `ra_ap_hir_ty` must wrap any code that calls `display()` or other methods requiring database access.
 
 **Version Pinning Rationale**: The `ra_ap_*` crates follow rust-analyzer's rapid release cycle and do not maintain semver compatibility between versions. Internal APIs change frequently as rust-analyzer evolves. Pinning to a specific version ensures reproducible builds and avoids unexpected breakage from API changes.
 

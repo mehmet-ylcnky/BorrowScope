@@ -106,12 +106,13 @@ Phase 2: Instrumented Build (cargo build)
 ## Dependencies
 
 ```toml
-ra_ap_hir = "0.0.232"
-ra_ap_ide_db = "0.0.232"
-ra_ap_load-cargo = "0.0.232"
-ra_ap_project_model = "0.0.232"
-ra_ap_syntax = "0.0.232"
-ra_ap_vfs = "0.0.232"
+ra_ap_hir = "0.0.318"
+ra_ap_hir_ty = "0.0.318"
+ra_ap_ide_db = "0.0.318"
+ra_ap_load-cargo = "0.0.318"
+ra_ap_project_model = "0.0.318"
+ra_ap_syntax = "0.0.318"
+ra_ap_vfs = "0.0.318"
 ```
 
 ## License

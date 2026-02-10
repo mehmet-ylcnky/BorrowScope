@@ -4,38 +4,51 @@
 
 The borrowscope-analyzer leverages rust-analyzer's semantic analysis engine through its published crate ecosystem. These crates, prefixed with `ra_ap_`, provide the same analysis capabilities that power IDE features like go-to-definition, type hints, and refactoring. By using these crates directly, we obtain production-grade type resolution without reimplementing Rust's complex type system.
 
-The analyzer depends on six core crates from the rust-analyzer project:
+The analyzer depends on seven core crates from the rust-analyzer project:
 
 ```toml
-ra_ap_hir = "0.0.232"          # High-level intermediate representation
-ra_ap_ide_db = "0.0.232"       # IDE database infrastructure  
-ra_ap_load-cargo = "0.0.232"   # Cargo workspace loading
-ra_ap_project_model = "0.0.232" # Project structure modeling
-ra_ap_syntax = "0.0.232"       # Syntax tree representation
-ra_ap_vfs = "0.0.232"          # Virtual file system
+ra_ap_hir = "0.0.318"          # High-level intermediate representation
+ra_ap_hir_ty = "0.0.318"       # Type inference and attach_db for thread-local DB
+ra_ap_ide_db = "0.0.318"       # IDE database infrastructure  
+ra_ap_load-cargo = "0.0.318"   # Cargo workspace loading
+ra_ap_project_model = "0.0.318" # Project structure modeling
+ra_ap_syntax = "0.0.318"       # Syntax tree representation
+ra_ap_vfs = "0.0.318"          # Virtual file system
 ```
 
-The `ra_ap_hir` crate provides the `Semantics` struct, which serves as the primary API for semantic queries. Given a syntax node, `Semantics` can resolve its type, determine trait implementations, and navigate semantic relationships. The key methods used by the analyzer include:
+The `ra_ap_hir` crate provides the `Semantics` struct, which serves as the primary API for semantic queries. Given a syntax node, `Semantics` can resolve its type, determine trait implementations, and navigate semantic relationships.
+
+**Important (0.0.318+)**: Starting with version 0.0.318, rust-analyzer uses thread-local storage for database attachment. All code that calls `display()` or other methods requiring database access must be wrapped with `attach_db`:
 
 ```rust
 use ra_ap_hir::{Semantics, HirDisplay};
+use ra_ap_hir_ty::attach_db;
 use ra_ap_ide_db::RootDatabase;
 
 let sema = Semantics::new(&db);
 
-// Get the type of a pattern (variable binding)
-if let Some(type_info) = sema.type_of_pat(&pattern) {
-    let ty = type_info.original;
-    
-    // Display the type as a string
-    let type_string = ty.display(db, Edition::Edition2021).to_string();
-    
-    // Query type properties
-    let is_copy = ty.is_copy(db);           // Does it implement Copy?
-    let is_reference = ty.is_reference();    // Is it &T or &mut T?
-    let is_mutable_ref = ty.is_mutable_reference();
-    let is_raw_ptr = ty.is_raw_ptr();       // Is it *const T or *mut T?
-}
+// Wrap analysis code with attach_db
+let results = attach_db(&db, || {
+    // Get the type of a pattern (variable binding)
+    if let Some(type_info) = sema.type_of_pat(&pattern) {
+        let ty = type_info.original;
+        
+        // Display the type as a string (requires attached db)
+        let type_string = ty.display(db, DisplayTarget::from_crate(db, krate)).to_string();
+        
+        // Query type properties
+        let is_copy = ty.is_copy(db);           // Does it implement Copy?
+        let is_reference = ty.is_reference();    // Is it &T or &mut T?
+        let is_mutable_ref = ty.is_mutable_reference();
+        let is_raw_ptr = ty.is_raw_ptr();       // Is it *const T or *mut T?
+    }
+});
+```
+
+Note the API changes from 0.0.232:
+- `display(db, Edition::Edition2021)` → `display(db, DisplayTarget::from_crate(db, krate))`
+- `db.lang_item(krate, LangItem::X)` → `lang_items(db, krate).X`
+- `module.krate()` → `module.krate(db)`
 ```
 
 The `type_of_pat` method is particularly important. An earlier implementation used `type_of_expr` on the initializer expression, but this returned the type of the expression before coercion. For example, in `let ptr: *const i32 = &value;`, the expression `&value` has type `&i32`, but the pattern `ptr` has type `*const i32` after implicit coercion. Using `type_of_pat` correctly captures the variable's actual type after all coercions are applied.
@@ -113,7 +126,7 @@ fn extract_with_semantics(
         // Get type from semantic analysis
         if let Some(type_info) = sema.type_of_pat(&pat) {
             let ty = type_info.original;
-            var_info.ty = ty.display(db, Edition::Edition2021).to_string();
+            var_info.ty = ty.display(db, display_target.clone()).to_string();
             var_info.is_copy = ty.is_copy(db);
             var_info.is_reference = ty.is_reference();
             var_info.is_mutable_reference = ty.is_mutable_reference();
@@ -136,7 +149,7 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     var_info.is_copy = ty.is_copy(db);  // Direct API
     
     // Lookup traits via lang items and check implementation
-    if let Some(clone_trait) = db.lang_item(krate_id, LangItem::Clone).and_then(|li| li.as_trait()) {
+    if let Some(clone_trait) = lang_items(db, krate_id).clone_trait() {
         var_info.is_clone = ty.impls_trait(db, clone_trait.into(), &[]);
     }
     // Same pattern for: Drop, Sync, Sized, Future, Iterator
