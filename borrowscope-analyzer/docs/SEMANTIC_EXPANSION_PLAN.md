@@ -1,18 +1,15 @@
 # Semantic Analysis Expansion Plan
 
-## Goal
+## Status: COMPLETE ✅
 
-Eliminate ALL heuristic and syntactic detection in `borrowscope-macro` by expanding `borrowscope-analyzer` to provide semantic classification for every pattern currently detected via string matching.
+This document is now historical. All goals have been achieved.
 
-**Current State:**
-- Analyzer covers 36/109 patterns (33%) - initializer classification only
-- Macro uses 66 syntactic patterns for method calls on existing variables
-- 7 patterns partially covered
+## Final State
 
-**Target State:**
-- Analyzer covers 100% of patterns semantically
-- Macro uses ZERO string matching for type/operation detection
+- Analyzer covers **192+ patterns** (100%) - full semantic coverage
+- Macro uses **ZERO** string matching for type/operation detection
 - All classification based on rust-analyzer's resolved types
+- AsyncFn/AsyncFnMut/AsyncFnOnce detection enabled (ra_ap_* 0.0.318+)
 
 ---
 

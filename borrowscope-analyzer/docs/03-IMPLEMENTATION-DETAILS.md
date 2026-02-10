@@ -49,7 +49,6 @@ Note the API changes from 0.0.232:
 - `display(db, Edition::Edition2021)` → `display(db, DisplayTarget::from_crate(db, krate))`
 - `db.lang_item(krate, LangItem::X)` → `lang_items(db, krate).X`
 - `module.krate()` → `module.krate(db)`
-```
 
 The `type_of_pat` method is particularly important. An earlier implementation used `type_of_expr` on the initializer expression, but this returned the type of the expression before coercion. For example, in `let ptr: *const i32 = &value;`, the expression `&value` has type `&i32`, but the pattern `ptr` has type `*const i32` after implicit coercion. Using `type_of_pat` correctly captures the variable's actual type after all coercions are applied.
 
