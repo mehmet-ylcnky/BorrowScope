@@ -69,7 +69,7 @@
             "ty": "OsString"
           }
         ],
-        "initializer_kind": "pathbuf_join",
+        "initializer_kind": "user_struct",
         "usages": [
           {
             "line": 27,

@@ -245,7 +245,15 @@ impl KnownTypes {
             ("AtomicPtr", "atomic", |k, a| k.atomic_ptr = Some(a)),
         ];
         
-        for krate in Crate::all(db) {
+        // Only search std/core/alloc for standard library types
+        let std_crates: Vec<_> = all_crates.iter()
+            .filter(|k| {
+                let name = k.display_name(db).map(|n| n.to_string()).unwrap_or_default();
+                name == "core" || name == "std" || name == "alloc"
+            })
+            .collect();
+        
+        for krate in &std_crates {
             for (type_name, expected_module, setter) in types_to_find {
                 let query = import_map::Query::new(type_name.to_string()).exact();
                 for (item, _) in krate.query_external_importables(db, query) {
@@ -260,7 +268,7 @@ impl KnownTypes {
         }
         
         // Handle Weak in sync module (Arc's Weak)
-        for krate in Crate::all(db) {
+        for krate in &std_crates {
             let query = import_map::Query::new("Weak".to_string()).exact();
             for (item, _) in krate.query_external_importables(db, query) {
                 if let either::Either::Left(ModuleDef::Adt(adt)) = item {
@@ -543,7 +551,15 @@ impl KnownMacros {
             ("module_path", |k, m| k.module_path = Some(m)),
         ];
         
-        for krate in Crate::all(db) {
+        // Only search std/core for standard macros
+        let std_crates: Vec<_> = Crate::all(db).into_iter()
+            .filter(|k| {
+                let name = k.display_name(db).map(|n| n.to_string()).unwrap_or_default();
+                name == "core" || name == "std" || name == "alloc"
+            })
+            .collect();
+        
+        for krate in &std_crates {
             for (macro_name, setter) in macros_to_find {
                 let query = import_map::Query::new(macro_name.to_string()).exact();
                 for (item, _) in krate.query_external_importables(db, query) {
@@ -636,7 +652,6 @@ impl TrackedFunctions {
         let mut tracked = Self::default();
         
         // Functions to track: (function_name, acceptable_modules)
-        // Some functions are intrinsics re-exported to mem/ptr
         let functions_to_find: &[(&str, &[&str])] = &[
             ("drop", &["mem"]),
             ("forget", &["mem"]),
@@ -654,7 +669,12 @@ impl TrackedFunctions {
             ("copy_nonoverlapping", &["ptr", "intrinsics"]),
         ];
         
-        for krate in Crate::all(db) {
+        // Search std crate (re-exports core functions)
+        let all_crates = Crate::all(db);
+        let std_crate = all_crates.iter()
+            .find(|k| k.display_name(db).map(|n| n.to_string()).unwrap_or_default() == "std");
+        
+        if let Some(krate) = std_crate {
             for (fn_name, acceptable_modules) in functions_to_find {
                 let query = import_map::Query::new(fn_name.to_string()).exact();
                 for (item, _) in krate.query_external_importables(db, query) {
