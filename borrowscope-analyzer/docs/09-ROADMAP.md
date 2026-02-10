@@ -10,9 +10,19 @@ This section documents the evolution of borrowscope-analyzer from initializer-fo
 | Method calls on variables | 47+ | ✅ 100% semantic |
 | Standalone expressions | 14 | ✅ 100% semantic |
 | Self-borrow inference | 47 | ✅ 100% semantic |
-| **TOTAL** | **186+** | **✅ 100% semantic** |
+| Closure traits | 6 | ✅ 100% semantic |
+| **TOTAL** | **192+** | **✅ 100% semantic** |
 
 **Zero heuristic pattern matching required.** All operations classified via rust-analyzer's type system.
+
+### 9.1.1 Async Closure Traits (ra_ap_* 0.0.318+)
+
+The upgrade to rust-analyzer 0.0.318 enabled detection of async closure traits:
+- `AsyncFn` - async closure with immutable borrows
+- `AsyncFnMut` - async closure with mutable borrows
+- `AsyncFnOnce` - async closure that consumes captures
+
+These complement the existing `Fn`/`FnMut`/`FnOnce` detection.
 
 ### 9.2 Implemented Architecture
 

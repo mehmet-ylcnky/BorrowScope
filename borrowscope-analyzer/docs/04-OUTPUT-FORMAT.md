@@ -80,11 +80,35 @@ The analyzer produces a JSON file containing type information for all variable b
 | replace | `core::mem::replace` |
 | swap | `core::mem::swap` |
 | take | `core::mem::take` |
-| spawn | `std::thread::spawn` |
 | ptr::read | `core::ptr::read` |
 | ptr::write | `core::ptr::write` |
 | ptr::copy | `core::intrinsics::copy` |
 | ptr::copy_nonoverlapping | `core::intrinsics::copy_nonoverlapping` |
+
+### Closure Traits (v2.5+)
+
+The `closure_traits` field tracks which `Fn*` trait closures implement:
+
+```json
+{
+  "closure_traits": {
+    "src/main.rs": [
+      {"line": 4, "column": 13, "fn_trait": "Fn"},
+      {"line": 9, "column": 17, "fn_trait": "AsyncFn"},
+      {"line": 10, "column": 18, "fn_trait": "AsyncFnMut"}
+    ]
+  }
+}
+```
+
+| Trait | Description |
+|-------|-------------|
+| `Fn` | Closure that borrows captured variables immutably |
+| `FnMut` | Closure that borrows captured variables mutably |
+| `FnOnce` | Closure that consumes captured variables |
+| `AsyncFn` | Async closure with immutable borrows (requires ra_ap_* 0.0.318+) |
+| `AsyncFnMut` | Async closure with mutable borrows (requires ra_ap_* 0.0.318+) |
+| `AsyncFnOnce` | Async closure that consumes captures (requires ra_ap_* 0.0.318+) |
 
 ---
 
