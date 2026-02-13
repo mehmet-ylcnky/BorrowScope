@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Problem Statement - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .failure-mode {
+            border: 1px solid #f0c78a;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 1rem 0;
+            background: #fff8f0;
+        }
+    </style>
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="problem-statement">
+            <h1>1. Problem Statement</h1>
+
+            <p>BorrowScope's <code>#[trace_borrow]</code> procedural macro automatically instruments Rust functions to track ownership events at runtime. The macro transforms source code by injecting tracking calls around variable bindings, borrows, and drops. However, procedural macros in Rust operate under a fundamental constraint: they execute during the early stages of compilation, before type inference and resolution have occurred.</p>
+
+            <h2 id="the-proc-macro-type-blindness-problem">The Proc-Macro Type Blindness Problem</h2>
+
+            <p>When <code>rustc</code> invokes a procedural macro, it provides only the raw token stream of the annotated item. At this point in the compilation pipeline, the compiler has not yet performed type checking. Consider the following function:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-macro">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>() {
+    <span class="rust-keyword">let</span> data = <span class="rust-type">Rc</span>::new(<span class="rust-type">RefCell</span>::new(<span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]));
+    <span class="rust-keyword">let</span> borrowed = data.borrow();
+    process(&amp;borrowed);
+}</pre>
+            </div>
+
+            <p>The <code>#[trace_borrow]</code> macro receives tokens representing <code>Rc::new(RefCell::new(vec![1, 2, 3]))</code> but has no way to determine:</p>
+
+            <ol>
+                <li>That <code>data</code> has type <code>Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;</code></li>
+                <li>That <code>Rc&lt;T&gt;</code> is a reference-counted smart pointer requiring <code>track_rc_new</code></li>
+                <li>That the inner <code>RefCell&lt;T&gt;</code> provides interior mutability</li>
+                <li>That <code>borrowed</code> is a <code>Ref&lt;Vec&lt;i32&gt;&gt;</code> guard from <code>RefCell::borrow()</code></li>
+                <li>Whether any of these types implement <code>Copy</code></li>
+            </ol>
+
+            <p>The macro can only perform syntactic pattern matching on the token stream. It can recognize <code>Rc::new(...)</code> by matching the literal tokens, but this approach fails for:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">let</span> data = std::rc::<span class="rust-type">Rc</span>::new(value);     <span class="rust-comment">// Different path</span>
+<span class="rust-keyword">let</span> data = <span class="rust-type">MyRc</span>::new(value);            <span class="rust-comment">// Type alias</span>
+<span class="rust-keyword">let</span> data = create_shared(value);        <span class="rust-comment">// Factory function returning Rc</span>
+<span class="rust-keyword">let</span> data = <span class="rust-keyword">if</span> cond { <span class="rust-type">Rc</span>::new(a) } <span class="rust-keyword">else</span> { <span class="rust-type">Rc</span>::new(b) };  <span class="rust-comment">// Conditional</span></pre>
+            </div>
+
+            <p>The scale of this problem is significant. The macro currently relies on <strong>109 syntactic patterns</strong> to classify ownership-related operations, of which 66 (61%) are pure string-based heuristics with no semantic grounding. As the number of tracked types grows, this approach becomes increasingly fragile and unmaintainable.</p>
+
+            <h2 id="compilation-pipeline-and-type-resolution-timing">Compilation Pipeline and Type Resolution Timing</h2>
+
+            <p>The Rust compilation process follows a strict ordering where macro expansion precedes type resolution:</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.8rem; line-height: 1.3;">┌──────────────────────────────────────────────────────────────────────────┐
+│                      RUST COMPILATION PIPELINE                           │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌───────────┐     ┌───────────┐    ┌───────────┐     ┌───────────┐      │
+│  │  PARSING  │───▶│   MACRO   │───▶│   NAME    │───▶│   TYPE    │      │
+│  │           │     │ EXPANSION │    │RESOLUTION │     │ CHECKING  │      │
+│  └───────────┘     └───────────┘    └───────────┘     └───────────┘      │
+│       │                │                │                │               │
+│       ▼                ▼                ▼                ▼               │
+│  Token Stream    Expanded AST      Resolved         Typed HIR            │
+│                                     Names                                │
+│                                                                          │
+│                    ▲                                                     │
+│                    │                                                     │
+│             #[trace_borrow]                                              │
+│             EXECUTES HERE                                                │
+│                                                                          │
+│             ✗ No type information available                             │
+│             ✗ No trait implementation data                              │
+│             ✗ No generic instantiation info                             │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>This architectural constraint is not a limitation of BorrowScope's implementation but rather a fundamental property of Rust's compilation model. Procedural macros are intentionally isolated from type information to maintain compilation determinism and enable parallel macro expansion.</p>
+
+            <h2 id="consequences-for-borrowscope">Consequences for BorrowScope</h2>
+
+            <p>Without type information, <code>borrowscope-macro</code> must rely on heuristic pattern matching to select appropriate tracking functions. The current implementation uses syntactic patterns:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// In borrowscope-macro's transform_visitor.rs</span>
+<span class="rust-keyword">if</span> text.contains(<span class="rust-string">"Rc::new"</span>) {
+    <span class="rust-comment">// Assume this is Rc&lt;T&gt; and use track_rc_new</span>
+}</pre>
+            </div>
+
+            <p>This heuristic approach leads to several failure modes:</p>
+
+            <div class="failure-mode">
+                <p><strong>False Negatives:</strong> The macro fails to recognize smart pointers created through non-standard patterns, resulting in generic <code>track_new</code> calls instead of specialized <code>track_rc_new</code> or <code>track_arc_new</code> calls. This loses semantic information about reference counting behavior. For example, a factory function <code>create_shared(value)</code> returning <code>Rc&lt;T&gt;</code> produces:</p>
+            </div>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// What the macro emits (incorrect — no Rc semantics):</span>
+<span class="rust-keyword">let</span> data = track_new_with_id(<span class="rust-string">1</span>, <span class="rust-string">"data"</span>, <span class="rust-string">"unknown"</span>, create_shared(value));
+
+<span class="rust-comment">// What it should emit (correct — tracks reference count):</span>
+<span class="rust-keyword">let</span> data = track_rc_new_with_id(<span class="rust-string">1</span>, <span class="rust-string">"data"</span>, <span class="rust-string">"Rc&lt;MyStruct&gt;"</span>, create_shared(value));</pre>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>False Positives:</strong> A variable named <code>Rc_new_value</code> or a comment containing <code>Rc::new</code> could theoretically trigger incorrect classification.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Missing Copy Semantics:</strong> The <code>Copy</code> trait fundamentally changes ownership semantics—copying instead of moving. Without knowing whether a type implements <code>Copy</code>, the macro cannot accurately represent whether an assignment transfers ownership or creates a copy.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Incomplete Smart Pointer Coverage:</strong> Types like <code>Weak&lt;T&gt;</code>, <code>MutexGuard&lt;T&gt;</code>, <code>RwLockReadGuard&lt;T&gt;</code>, and user-defined smart pointers cannot be detected through syntax alone.</p>
+            </div>
+
+            <p>The borrowscope-analyzer addresses these limitations by performing semantic analysis as a separate build step, extracting complete type information that the macro can consume at expansion time. The following section describes the two-phase architecture that makes this possible.</p>
+        </div>
+    </div>
+</body>
+</html>

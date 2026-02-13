@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="integration">
+            <h1>5. Integration with borrowscope-macro</h1>
+
+            <p>The type information produced by the analyzer enables <code>borrowscope-macro</code> to make informed decisions during code transformation. This section describes the integration architecture and the enhanced tracking capabilities it enables.</p>
+
+            <h2 id="type-information-lookup">Type Information Lookup</h2>
+
+            <p>When the <code>#[trace_borrow]</code> macro processes a function, it needs to determine the appropriate tracking function for each variable binding. With the analyzer's output available, the macro can perform precise lookups using function context and declaration order:</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                    MACRO TYPE LOOKUP FLOW (v2.2)                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Source Code                    Macro Processing                            │
+│  ───────────                    ────────────────                            │
+│                                                                             │
+│  #[trace_borrow]                                                            │
+│  fn example() {                 ┌────────────────────────────────────┐      │
+│      let data = Rc::new(x); ──▶ │ 1. Set function context: "example"│      │
+│      ...                        │ 2. Lookup in by_function index     │      │
+│  }                              │    key: ("example", "data", 0)     │      │
+│                                 │ 3. Find: initializer_kind="rc_new" │      │
+│                                 │ 4. Emit: track_rc_new_with_id(     │      │
+│                                 │          id, "data", type, loc,    │      │
+│                                 │          Rc::new(x))               │      │
+│                                 └────────────────────────────────────┘      │
+│                                                                             │
+│  type-info.json                                                             │
+│  ──────────────                                                             │
+│  {                                                                          │
+│    "by_function": {             ◄─── Primary lookup index (v2.2)            │
+│      "example": {                                                           │
+│        "data": [{                                                           │
+│          "name": "data",                                                    │
+│          "function_name": "example",                                        │
+│          "decl_index": 0,       ◄─── Disambiguates shadowed vars            │
+│          "initializer_kind": "rc_new",  ◄─── Determines tracking fn         │
+│          "is_rc": true                                                      │
+│        }]                                                                   │
+│      }                                                                      │
+│    },                                                                       │
+│    "by_name": {                 ◄─── Fallback index                         │
+│      "data": [...]                                                          │
+│    }                                                                        │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>The macro uses a two-tier lookup strategy:</p>
+            <ol>
+                <li><strong>Primary</strong>: <code>lookup_in_function(fn_name, var_name, decl_index)</code> - Uses the <code>by_function</code> index for precise matching</li>
+                <li><strong>Fallback</strong>: <code>lookup_by_name(var_name)</code> - Uses the <code>by_name</code> index when function context is unavailable</li>
+            </ol>
+
+            <p>This approach handles variable shadowing correctly:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-macro">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">shadowing_example</span>() {
+    <span class="rust-keyword">let</span> x = <span class="rust-string">1</span>;           <span class="rust-comment">// decl_index: 0, type: i32</span>
+    <span class="rust-keyword">let</span> x = <span class="rust-string">"hello"</span>;     <span class="rust-comment">// decl_index: 1, type: &amp;str</span>
+    <span class="rust-keyword">let</span> x = <span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>];  <span class="rust-comment">// decl_index: 2, type: Vec&lt;i32&gt;</span>
+    <span class="rust-keyword">let</span> x = <span class="rust-type">Rc</span>::new(x);  <span class="rust-comment">// decl_index: 3, type: Rc&lt;Vec&lt;i32&gt;&gt;</span>
+}</pre>
+            </div>
+
+            <p>Each <code>x</code> is correctly identified by its <code>decl_index</code>, allowing the macro to select the appropriate tracking function for each.</p>
+
+            <h2 id="enhanced-tracking-function-selection">Enhanced Tracking Function Selection</h2>
+
+            <p>With complete type information including <code>initializer_kind</code>, the macro can select the most appropriate tracking function for each variable. The decision is now based on semantic analysis rather than heuristics:</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                 TRACKING FUNCTION SELECTION LOGIC (v2.2)                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Given: VariableTypeInfo for binding                                        │
+│                                                                             │
+│  // === Primary: Use initializer_kind for precise tracking ===              │
+│                                                                             │
+│  match initializer_kind:                                                    │
+│      "rc_new"           → track_rc_new_with_id(...)                         │
+│      "rc_clone"         → track_rc_clone_with_id(...)                       │
+│      "arc_new"          → track_arc_new_with_id(...)                        │
+│      "arc_clone"        → track_arc_clone_with_id(...)                      │
+│      "box_new"          → track_box_new(...)                                │
+│      "refcell_new"      → track_refcell_new(...)                            │
+│      "refcell_borrow"   → track_refcell_borrow(...)                         │
+│      "refcell_borrow_mut" → track_refcell_borrow_mut(...)                   │
+│      "cell_new"         → track_cell_new(...)                               │
+│      "mutex_lock"       → track_lock_guard_acquire(...)                     │
+│      "channel_new"      → track_channel(...)                                │
+│      "weak_new"         → track_weak_new(...)                               │
+│      "pin_new"          → track_pin_new(...)                                │
+│      "cow_borrowed"     → track_cow_borrowed(...)                           │
+│      "cow_owned"        → track_cow_owned(...)                              │
+│      "ref"              → track_borrow_with_id(...)                         │
+│      "ref_mut"          → track_borrow_mut_with_id(...)                     │
+│                                                                             │
+│  // === Fallback: Use type flags for generic initializers ===               │
+│                                                                             │
+│  if is_rc:              → track_rc_new_with_id(...)                         │
+│  else if is_arc:        → track_arc_new_with_id(...)                        │
+│  else if is_box:        → track_box_new(...)                                │
+│  else if is_refcell:    → track_refcell_new(...)                            │
+│  else if is_cell:       → track_cell_new(...)                               │
+│  else if is_raw_ptr:    → track_raw_ptr_create(...)                         │
+│                                                                             │
+│  // === Default: Generic tracking ===                                       │
+│                                                                             │
+│  else:                  → track_new_with_id(...)                            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>The <code>initializer_kind</code> field enables precise tracking even for type aliases and factory functions:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">type</span> <span class="rust-type">MyRc</span>&lt;T&gt; = <span class="rust-type">Rc</span>&lt;T&gt;;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>() {
+    <span class="rust-comment">// Without initializer_kind: macro sees "MyRc::new" - doesn't match "Rc::new"</span>
+    <span class="rust-comment">// With initializer_kind: analyzer resolves type to Rc, sets is_rc=true</span>
+    <span class="rust-keyword">let</span> x = <span class="rust-type">MyRc</span>::new(<span class="rust-string">42</span>);  <span class="rust-comment">// Correctly tracked as Rc</span>
+    
+    <span class="rust-comment">// Factory function returning Rc</span>
+    <span class="rust-keyword">let</span> y = create_shared(<span class="rust-string">42</span>);  <span class="rust-comment">// initializer_kind="call", but is_rc=true</span>
+                                <span class="rust-comment">// Falls back to type-based tracking</span>
+}</pre>
+            </div>
+
+            <h2 id="fallback-behavior">Fallback Behavior</h2>
+
+            <p>The macro must handle cases where type information is unavailable. This occurs when:</p>
+            <ol>
+                <li>The analyzer has not been run on the project</li>
+                <li>The source file was modified after analysis</li>
+                <li>The binding location doesn't match any entry (line number drift)</li>
+            </ol>
+
+            <p>The fallback strategy preserves backward compatibility:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">get_tracking_call</span>(binding: &amp;<span class="rust-type">LetBinding</span>, type_info: <span class="rust-type">Option</span>&lt;&amp;<span class="rust-type">VariableTypeInfo</span>&gt;) -&gt; <span class="rust-type">TokenStream</span> {
+    <span class="rust-keyword">match</span> type_info {
+        <span class="rust-type">Some</span>(info) =&gt; {
+            <span class="rust-comment">// Use precise type information</span>
+            select_tracking_function(info)
+        }
+        <span class="rust-type">None</span> =&gt; {
+            <span class="rust-comment">// Fall back to syntactic heuristics (current behavior)</span>
+            infer_from_syntax(binding)
+        }
+    }
+}</pre>
+            </div>
+
+            <p>When falling back, the macro logs a warning indicating that type information was not found, encouraging users to run the analyzer for complete tracking accuracy.</p>
+
+            <h2 id="benefits-over-syntactic">Benefits Over Syntactic Analysis</h2>
+
+            <p>The integration provides several concrete improvements:</p>
+
+            <p><strong>Accurate Smart Pointer Detection</strong>: Any expression that evaluates to <code>Rc&lt;T&gt;</code> is correctly identified, regardless of how it was constructed. Factory functions, conditional expressions, and match arms all resolve to their actual types.</p>
+
+            <p><strong>Copy Semantics</strong>: The runtime can now distinguish between ownership transfers and copies. This is essential for accurate visualization—a copy creates a new independent value, while a move transfers the original.</p>
+
+            <p><strong>Nested Type Awareness</strong>: A type like <code>Arc&lt;Mutex&lt;Vec&lt;String&gt;&gt;&gt;</code> has multiple classification flags set, allowing the runtime to track all relevant aspects: atomic reference counting, mutex locking, vector operations, and string allocations.</p>
+
+            <p><strong>User-Defined Types</strong>: While the analyzer cannot automatically classify user-defined smart pointers, the full type string is available. Future versions could support user-provided classification rules or trait-based detection.</p>
+
+            <p><strong>Closure Types</strong>: Closures have opaque types like <code>impl Fn(i32) -&gt; i32</code>. The analyzer captures these types, enabling tracking of closure creation and potential capture analysis.</p>
+
+            <h2 id="runtime-event-enhancement">Runtime Event Enhancement</h2>
+
+            <p>With type information available, the runtime events become more informative:</p>
+
+            <div class="code-block">
+                <pre style="font-size: 0.85rem;"><span class="rust-comment">// Without type info</span>
+{<span class="rust-string">"event"</span>: <span class="rust-string">"new"</span>, <span class="rust-string">"name"</span>: <span class="rust-string">"data"</span>, <span class="rust-string">"type"</span>: <span class="rust-string">"unknown"</span>}
+
+<span class="rust-comment">// With type info</span>
+{<span class="rust-string">"event"</span>: <span class="rust-string">"rc_new"</span>, <span class="rust-string">"name"</span>: <span class="rust-string">"data"</span>, <span class="rust-string">"type"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32, Global&gt;&gt;, Global&gt;"</span>,
+ <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">false</span>, <span class="rust-string">"ref_count"</span>: <span class="rust-string">1</span>}</pre>
+            </div>
+
+            <p>The enhanced events enable richer visualization and analysis. A visualization tool can render reference-counted pointers differently from owned values, show interior mutability boundaries, and accurately depict copy vs move semantics.</p>
+
+
+            <h2 id="the-complete-borrowscope-pipeline">The Complete BorrowScope Pipeline</h2>
+
+            <p>BorrowScope consists of three interconnected projects that form a complete ownership visualization pipeline. Each project addresses a specific limitation in Rust's compilation model, and together they transform invisible ownership semantics into observable runtime events.</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.65rem; line-height: 1.2;">┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                           BORROWSCOPE ARCHITECTURE                                  │
+│                                                                                     │
+│    ┌───────────────────┐      ┌───────────────────┐       ┌───────────────────┐     │
+│    │                   │      │                   │       │                   │     │
+│    │  borrowscope-     │      │  borrowscope-     │       │  borrowscope-     │     │
+│    │    analyzer       │─────▶│     macro         │─────▶│    runtime        │     │
+│    │                   │      │                   │       │                   │     │
+│    │  Static Analysis  │      │  Code Transform   │       │  Event Capture    │     │
+│    │                   │      │                   │       │                   │     │
+│    └───────────────────┘      └───────────────────┘       └───────────────────┘     │
+│            │                          │                          │                  │
+│            ▼                          ▼                          ▼                  │
+│    ┌───────────────────┐      ┌───────────────────┐      ┌───────────────────┐      │
+│    │                   │      │                   │      │                   │      │
+│    │  type-info.json   │      │  Instrumented     │      │  Event Stream     │      │
+│    │                   │      │  Source Code      │      │  + JSON Export    │      │
+│    │                   │      │                   │      │                   │      │
+│    └───────────────────┘      └───────────────────┘      └───────────────────┘      │
+│                                                                                     │
+│    PHASE 1: Pre-Build         PHASE 2: Compile-Time      PHASE 3: Runtime           │
+│    ─────────────────          ──────────────────         ───────────────            │
+│    Extracts semantic          Transforms AST to          Records timestamped        │
+│    type information           inject tracking calls      ownership events           │
+│    using rust-analyzer        using type-info.json       to global tracker          │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>The pipeline solves a fundamental problem: Rust's ownership system operates entirely at compile time, leaving no trace at runtime. The borrow checker enforces rules, rejects invalid programs, and then disappears—the compiled binary contains no record of ownership transfers, borrow scopes, or drop ordering. BorrowScope reconstructs this invisible layer by combining static analysis with runtime instrumentation.</p>
+
+            <h3>Phase 1: Static Analysis with borrowscope-analyzer</h3>
+
+            <p>The analyzer runs as a pre-build step, leveraging rust-analyzer's semantic analysis infrastructure to extract type information that procedural macros cannot access. It processes the entire project and produces a JSON file containing detailed type classifications for every variable binding.</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// User's source code</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>() {
+    <span class="rust-keyword">let</span> shared = <span class="rust-type">Rc</span>::new(<span class="rust-type">RefCell</span>::new(<span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]));
+    <span class="rust-keyword">let</span> guard = shared.borrow();
+    <span class="rust-keyword">let</span> cloned = <span class="rust-type">Rc</span>::clone(&amp;shared);
+}</pre>
+            </div>
+
+            <p>The analyzer resolves each binding to its concrete type and classifies the initializer expression:</p>
+
+            <div class="code-block">
+                <pre style="font-size: 0.85rem;">{
+  <span class="rust-string">"by_function"</span>: {
+    <span class="rust-string">"process_data"</span>: {
+      <span class="rust-string">"shared"</span>: [{
+        <span class="rust-string">"name"</span>: <span class="rust-string">"shared"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_new"</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"decl_index"</span>: 0
+      }],
+      <span class="rust-string">"guard"</span>: [{
+        <span class="rust-string">"name"</span>: <span class="rust-string">"guard"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Ref&lt;Vec&lt;i32&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"refcell_borrow"</span>,
+        <span class="rust-string">"is_guard"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"decl_index"</span>: 0
+      }],
+      <span class="rust-string">"cloned"</span>: [{
+        <span class="rust-string">"name"</span>: <span class="rust-string">"cloned"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_clone"</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"decl_index"</span>: 0
+      }]
+    }
+  }
+}</pre>
+            </div>
+
+            <p>The <code>initializer_kind</code> field captures the semantic pattern of how each variable was created—not just its type, but the specific operation that produced it. This distinction is critical: <code>Rc::new()</code> and <code>Rc::clone()</code> both produce <code>Rc&lt;T&gt;</code>, but they represent fundamentally different ownership operations (allocation vs. shared reference).</p>
+
+            <h3>Phase 2: Code Transformation with borrowscope-macro</h3>
+
+            <p>The <code>#[trace_borrow]</code> procedural macro executes during compilation, transforming annotated functions to inject tracking calls. When type-info.json exists, the macro loads it at compile time and uses the semantic classifications to select precise tracking functions.</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.6rem; line-height: 1.2;">┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                        MACRO TRANSFORMATION PROCESS                                 │
+│                                                                                     │
+│  INPUT: Original Source                OUTPUT: Instrumented Source                  │
+│  ─────────────────────                 ───────────────────────────                  │
+│                                                                                     │
+│  #[trace_borrow]                       fn process_data() {                          │
+│  fn process_data() {                       let shared = borrowscope_runtime::       │
+│      let shared = Rc::new(                     track_rc_new_with_id(                │
+│          RefCell::new(                             1,           // var_id           │
+│              vec![1, 2, 3]                         "shared",    // name             │
+│          )                                         "Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;",         │
+│      );                        ───▶                "src/lib.rs:5",                  │
+│      let guard = shared                            Rc::new(RefCell::new(            │
+│          .borrow();                                    vec![1, 2, 3]                │
+│      let cloned = Rc::clone(                       ))                               │
+│          &amp;shared                                   );                               │
+│      );                                        let guard = borrowscope_runtime::    │
+│  }                                                 track_refcell_borrow(            │
+│                                                        2, 1,    // guard_id, cell_id│
+│                                                        "src/lib.rs:6",              │
+│                                                        shared.borrow()              │
+│                                                    );                               │
+│                                                // ... continues with cloned         │
+│                                            }                                        │
+│                                                                                     │
+│  LOOKUP PROCESS:                                                                    │
+│  ───────────────                                                                    │
+│  1. Macro sets function context: "process_data"                                     │
+│  2. For each let binding, lookup in type-info.json:                                 │
+│     - Key: (function_name, var_name, decl_index)                                    │
+│     - Returns: VariableTypeInfo with initializer_kind                               │
+│  3. Match initializer_kind to tracking function:                                    │
+│     - "rc_new"         → track_rc_new_with_id()                                     │
+│     - "refcell_borrow" → track_refcell_borrow()                                     │
+│     - "rc_clone"       → track_rc_clone_with_id()                                   │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>The macro maintains internal state during transformation: a map of variable names to unique IDs, a scope stack for tracking drop order, and type context sets for special handling of guards, weak references, and other stateful types. This state enables correlation between related events—a borrow event references its owner's ID, a clone event references its source's ID.</p>
+
+            <p>When type-info.json is unavailable, the macro falls back to syntactic pattern matching. It recognizes literal patterns like <code>Rc::new(...)</code> and <code>Arc::clone(&amp;x)</code> but cannot handle type aliases, factory functions, or conditional expressions. The fallback ensures backward compatibility while the analyzer provides enhanced precision.</p>
+
+            <h3>Phase 3: Runtime Event Capture with borrowscope-runtime</h3>
+
+            <p>The runtime library provides the tracking functions that the macro injects. Each function follows a consistent pattern: acquire a lock on the global tracker, generate a monotonic timestamp, record an event with all relevant metadata, and return the original value unchanged.</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// Simplified implementation of track_rc_new_with_id</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">fn</span> <span class="rust-function">track_rc_new_with_id</span>&lt;T&gt;(
+    var_id: <span class="rust-type">usize</span>,
+    name: &amp;<span class="rust-keyword">str</span>,
+    type_name: &amp;<span class="rust-keyword">str</span>,
+    location: &amp;<span class="rust-keyword">str</span>,
+    value: <span class="rust-type">Rc</span>&lt;T&gt;,
+) -&gt; <span class="rust-type">Rc</span>&lt;T&gt; {
+    TRACKER.lock().record_event(<span class="rust-type">Event</span>::RcNew {
+        timestamp: TIMESTAMP.fetch_add(<span class="rust-string">1</span>, <span class="rust-type">Ordering</span>::SeqCst),
+        var_id: <span class="rust-macro">format!</span>(<span class="rust-string">"var_{}"</span>, var_id),
+        var_name: name.to_string(),
+        type_name: type_name.to_string(),
+        location: location.to_string(),
+        strong_count: <span class="rust-type">Rc</span>::strong_count(&amp;value),
+        weak_count: <span class="rust-type">Rc</span>::weak_count(&amp;value),
+    });
+    value  <span class="rust-comment">// Pass-through: tracking is transparent</span>
+}</pre>
+            </div>
+
+            <p>The pass-through design is essential—tracking functions must not alter program behavior. They observe and record, then return the value exactly as received. This transparency allows instrumentation of production code paths without changing semantics.</p>
+
+            <p>The runtime accumulates events in a thread-safe global tracker using <code>parking_lot::Mutex</code> for efficient locking and <code>AtomicU64</code> for lock-free timestamp generation. Events can be queried, exported to JSON, or transformed into an ownership graph for visualization:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// After program execution</span>
+<span class="rust-keyword">let</span> events = borrowscope_runtime::get_events();
+<span class="rust-keyword">let</span> graph = borrowscope_runtime::get_graph();
+
+<span class="rust-comment">// Export for external visualization tools</span>
+borrowscope_runtime::export_json(<span class="rust-string">"ownership_trace.json"</span>)?;</pre>
+            </div>
+
+            <h3>Data Flow Through the Pipeline</h3>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.6rem; line-height: 1.2;">┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                              DATA FLOW DIAGRAM                                      │
+│                                                                                     │
+│  ┌─────────────┐                                                                    │
+│  │   User's    │                                                                    │
+│  │   Source    │                                                                    │
+│  │    Code     │                                                                    │
+│  └──────┬──────┘                                                                    │
+│         │                                                                           │
+│         ▼                                                                           │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │                         ANALYZER (Pre-Build)                                 │   │
+│  │                                                                              │   │
+│  │   rust-analyzer APIs:                                                        │   │
+│  │   ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │   │
+│  │   │  ra_ap_ide  │  │ ra_ap_hir   │  │ra_ap_hir_ty │  │ra_ap_syntax │         │   │
+│  │   └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘         │   │
+│  │          │                │                │                │                │   │
+│  │          └────────────────┴────────────────┴────────────────┘                │   │
+│  │                                    │                                         │   │
+│  │                                    ▼                                         │   │
+│  │                         Semantic Analysis:                                   │   │
+│  │                         - Type resolution                                    │   │
+│  │                         - Trait implementation                               │   │
+│  │                         - ADT classification                                 │   │
+│  │                         - Initializer pattern                                │   │
+│  │                                    │                                         │   │
+│  └────────────────────────────────────┼─────────────────────────────────────────┘   │
+│                                       │                                             │
+│                                       ▼                                             │
+│                          ┌─────────────────────────┐                                │
+│                          │    type-info.json       │                                │
+│                          │    (.borrowscope/)      │                                │
+│                          └────────────┬────────────┘                                │
+│                                       │                                             │
+│         ┌─────────────────────────────┼─────────────────────────────┐               │
+│         │                             │                             │               │
+│         ▼                             ▼                             ▼               │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐    │
+│  │                          MACRO (Compile-Time)                               │    │
+│  │                                                                             │    │
+│  │   TypeInfoCache                    OwnershipVisitor                         │    │
+│  │   ┌─────────────────┐              ┌─────────────────────────────────┐      │    │
+│  │   │ Load JSON once  │              │ Walk AST, for each let binding: │      │    │
+│  │   │ via OnceLock    │─────────────▶│ 1. Lookup type info            │      │    │
+│  │   │                 │              │ 2. Match initializer_kind       │      │   │
+│  │   │ by_function:    │              │ 3. Generate tracking call       │      │   │
+│  │   │   HashMap&lt;...&gt;  │              │ 4. Assign unique var_id         │      │   │
+│  │   │                 │              │ 5. Track scope for drops        │      │   │
+│  │   │ by_name:        │              └─────────────────────────────────┘      │   │
+│  │   │   HashMap&lt;...&gt;  │                              │                        │   │
+│  │   └─────────────────┘                              │                        │   │
+│  │                                                    ▼                        │   │
+│  │                                    Instrumented TokenStream                 │   │
+│  │                                                                             │   │
+│  └─────────────────────────────────────────────────────────────────────────────┘   │
+│                                       │                                            │
+│                                       ▼                                            │
+│                          ┌─────────────────────────┐                               │
+│                          │   Compiled Binary       │                               │
+│                          │   (with tracking calls) │                               │
+│                          └────────────┬────────────┘                               │
+│                                       │                                            │
+│                                       ▼                                            │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐   │
+│  │                          RUNTIME (Execution)                                │   │
+│  │                                                                             │   │
+│  │   Global State                     Event Recording                          │   │
+│  │   ┌─────────────────┐              ┌─────────────────────────────────┐      │   │
+│  │   │ TRACKER:        │              │ Each track_* call:              │      │   │
+│  │   │   Mutex&lt;Tracker&gt;│◀────────────│ 1. Lock TRACKER                 │      │   │
+│  │   │                 │              │ 2. Generate timestamp           │      │   │
+│  │   │ TIMESTAMP:      │              │ 3. Create Event variant         │      │   │
+│  │   │   AtomicU64     │              │ 4. Push to events vector        │      │   │
+│  │   └─────────────────┘              │ 5. Return value unchanged       │      │   │
+│  │          │                         └─────────────────────────────────┘      │   │
+│  │          ▼                                                                  │   │
+│  │   ┌─────────────────┐                                                       │   │
+│  │   │ Vec&lt;Event&gt;      │──────▶ get_events() ──────▶ JSON Export              │   │
+│  │   │ (40+ variants)  │──────▶ get_graph()  ──────▶ OwnershipGraph           │   │
+│  │   └─────────────────┘                                                       │   │
+│  │                                                                             │   │
+│  └─────────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                    │
+└────────────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h2 id="why-three-projects">Why Three Separate Projects?</h2>
+
+            <p>The separation into three projects is not arbitrary—it reflects fundamental constraints in Rust's compilation model and the need for different execution contexts.</p>
+
+            <p>The analyzer must run before compilation because it needs access to rust-analyzer's semantic analysis, which requires a fully-configured workspace with resolved dependencies. This analysis cannot happen inside a procedural macro because macros execute in a sandboxed environment without access to external tools or the filesystem (in a portable way).</p>
+
+            <p>The macro must run during compilation because it transforms source code. It cannot run before compilation (the code doesn't exist in transformed form yet) or after (the binary is already built). The macro bridges the gap between static analysis and runtime by encoding type information into the generated tracking calls.</p>
+
+            <p>The runtime must execute with the program because ownership events occur during execution. Static analysis can determine types, but it cannot observe actual control flow, loop iterations, or conditional branches. The runtime captures what actually happens, not what might happen.</p>
+
+            <h3>Why Static Pre-Build Analysis Instead of a Runtime Type Analyzer?</h3>
+
+            <p>An alternative design would embed a type analysis engine directly into the runtime—essentially shipping a miniature rust-analyzer (or a custom type resolver) that inspects values at execution time via <code>std::any::TypeId</code>, trait object introspection, or debug reflection. This is the approach taken by some dynamic language profilers (e.g., Python's <code>sys.settrace</code> or Ruby's TracePoint), where type information is naturally available at runtime. We deliberately chose the static, file-based approach instead. The reasoning involves trade-offs worth examining honestly.</p>
+
+            <h4>Advantages of the Static Pre-Build Approach</h4>
+
+            <ul>
+                <li><strong>Zero runtime overhead for type resolution.</strong> All type classification happens once, before compilation. The generated tracking calls are monomorphized with string literals—no hash lookups, no <code>TypeId</code> comparisons, no vtable inspection at execution time. For a tool whose purpose is observing ownership behavior, adding measurement overhead would distort the very thing being measured.</li>
+                <li><strong>Access to full semantic context.</strong> rust-analyzer resolves trait implementations, generic bounds, type aliases, and ADT definitions across the entire workspace. A runtime analyzer would only see concrete monomorphized types—it could tell you a value is <code>Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;</code> but not that it was declared as <code>SharedState&lt;T&gt;</code> where <code>type SharedState&lt;T&gt; = Rc&lt;RefCell&lt;T&gt;&gt;</code>. The static approach preserves the programmer's abstractions.</li>
+                <li><strong>Classification of initializer patterns.</strong> The distinction between <code>rc_new</code>, <code>rc_clone</code>, and <code>rc_downgrade</code> depends on analyzing the <em>expression</em> that creates a value, not the value's type at rest. At runtime, all three produce an <code>Rc&lt;T&gt;</code>—the creation semantics are erased. Static analysis captures intent that runtime reflection cannot recover.</li>
+                <li><strong>No dependency on unstable Rust features.</strong> Runtime type introspection in Rust is deliberately limited. <code>TypeId</code> requires <code>'static</code> bounds, there is no stable reflection API, and <code>#[derive(Debug)]</code> output is not machine-parseable. A runtime analyzer would either depend on nightly features or resort to fragile string parsing of debug output.</li>
+                <li><strong>Deterministic, reproducible results.</strong> The JSON file is a stable artifact that can be inspected, version-controlled, and diffed. A runtime analyzer's output would vary with execution paths, making it harder to reason about coverage or regression-test the tool itself.</li>
+            </ul>
+
+            <h4>Disadvantages and Honest Trade-offs</h4>
+
+            <ul>
+                <li><strong>Two-step build workflow.</strong> Users must run the analyzer before <code>cargo build</code>. This is an extra step that can be forgotten, leading to stale type information. A runtime approach would be fully automatic—just annotate and run. We mitigate this with build script integration, but it remains a friction point that a runtime solution would eliminate entirely.</li>
+                <li><strong>Workspace configuration sensitivity.</strong> The analyzer requires a fully-loadable Cargo workspace. If dependencies fail to resolve, if the project uses unusual build configurations, or if conditional compilation (<code>#[cfg(...)]</code>) hides code paths, the analyzer may produce incomplete results. A runtime analyzer would naturally see only the code that actually executes—which is both a limitation and an advantage, since it would never report on dead code paths.</li>
+                <li><strong>Stale data risk.</strong> If the source code changes after analysis but before compilation, the JSON file becomes inconsistent. The macro handles this gracefully (falling back to syntactic heuristics for unrecognized bindings), but the user gets degraded tracking without an obvious error. A runtime analyzer would always reflect the current state of the binary.</li>
+                <li><strong>Cannot observe dynamically-dispatched types.</strong> When a value is accessed through <code>dyn Trait</code>, the static analyzer knows the trait but not the concrete type that will be dispatched at runtime. A runtime analyzer with <code>TypeId</code> access could resolve the concrete type behind the vtable—something static analysis fundamentally cannot do.</li>
+                <li><strong>Increased toolchain coupling.</strong> The analyzer depends on six <code>ra_ap_*</code> crates that track rust-analyzer's internal APIs. These crates have no stability guarantees and break across versions. A runtime-only approach would depend only on stable Rust and avoid this maintenance burden.</li>
+            </ul>
+
+            <div class="failure-mode">
+                <p><strong>Design decision summary:</strong> The static approach was chosen because BorrowScope's primary goal is <em>classifying ownership patterns</em>—distinguishing <code>Rc::new</code> from <code>Rc::clone</code>, identifying guard types, recognizing interior mutability wrappers. These distinctions exist in source code and are erased by compilation. A runtime analyzer would see types but not creation semantics, making it fundamentally unable to provide the granularity that BorrowScope requires. The trade-off is operational complexity (two-step build, stale data risk) in exchange for semantic depth that runtime reflection cannot match in Rust's type system.</p>
+            </div>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                    WHY THREE PROJECTS ARE NECESSARY                                 │
+│                                                                                     │
+│   CONSTRAINT                        SOLUTION                                        │
+│   ──────────                        ────────                                        │
+│                                                                                     │
+│   Proc macros cannot access         borrowscope-analyzer                            │
+│   type information                  Runs pre-build with rust-analyzer               │
+│                                                                                     │
+│   Type info must reach the          type-info.json                                  │
+│   macro somehow                     File-based communication                        │
+│                                                                                     │
+│   Code transformation must          borrowscope-macro                               │
+│   happen at compile time            Procedural macro with JSON loading              │
+│                                                                                     │
+│   Ownership events occur            borrowscope-runtime                             │
+│   during execution                  Library linked into final binary                │
+│                                                                                     │
+│  The three projects form a pipeline that crosses compilation boundaries:            │
+│                                                                                     │
+│       Pre-Build          Compile-Time           Runtime                             │
+│       ─────────          ────────────           ───────                             │
+│       analyzer ────JSON────▶ macro ────Binary────▶ runtime                         │
+│                                                                                     │
+│  Each boundary requires a different communication mechanism:                        │
+│  - Analyzer → Macro: JSON file (survives process boundary)                          │
+│  - Macro → Runtime: Generated code (embedded in binary)                             │
+│                                                                                     │
+└─────────────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h2 id="integration-example">Integration Example: Complete Workflow</h2>
+
+            <p>The following example demonstrates the complete pipeline from source code to runtime events:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// src/lib.rs - User's source code</span>
+<span class="rust-keyword">use</span> std::rc::<span class="rust-type">Rc</span>;
+<span class="rust-keyword">use</span> std::cell::<span class="rust-type">RefCell</span>;
+<span class="rust-keyword">use</span> borrowscope_macro::trace_borrow;
+
+<span class="rust-macro">#[trace_borrow]</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">demonstrate_ownership</span>() {
+    <span class="rust-comment">// Create a reference-counted, interior-mutable container</span>
+    <span class="rust-keyword">let</span> shared = <span class="rust-type">Rc</span>::new(<span class="rust-type">RefCell</span>::new(<span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]));
+    
+    <span class="rust-comment">// Clone the Rc (shared ownership)</span>
+    <span class="rust-keyword">let</span> also_shared = <span class="rust-type">Rc</span>::clone(&amp;shared);
+    
+    <span class="rust-comment">// Borrow the inner value</span>
+    {
+        <span class="rust-keyword">let</span> borrowed = shared.borrow();
+        <span class="rust-macro">println!</span>(<span class="rust-string">"Values: {:?}"</span>, *borrowed);
+    } <span class="rust-comment">// borrowed dropped here, releasing the borrow</span>
+    
+    <span class="rust-comment">// Mutably borrow and modify</span>
+    shared.borrow_mut().push(<span class="rust-string">4</span>);
+}</pre>
+            </div>
+
+            <p><strong>Step 1: Run the analyzer</strong></p>
+
+            <div class="code-block">
+                <pre>$ borrowscope-analyzer .
+
+BorrowScope Analyzer v0.1.0
+═══════════════════════════════════════════
+Project: /home/user/demo
+
+  Loading workspace...
+  Analyzing: src/lib.rs
+
+═══════════════════════════════════════════
+Summary:
+  Files analyzed: 1
+  Variables found: 4
+  Types resolved: 4 (100.0%)
+
+Output: /home/user/demo/.borrowscope/type-info.json</pre>
+            </div>
+
+            <p>The analyzer produces type-info.json with semantic classifications:</p>
+
+            <div class="code-block">
+                <pre style="font-size: 0.85rem;">{
+  <span class="rust-string">"version"</span>: <span class="rust-string">"2.2"</span>,
+  <span class="rust-string">"by_function"</span>: {
+    <span class="rust-string">"demonstrate_ownership"</span>: {
+      <span class="rust-string">"shared"</span>: [{
+        <span class="rust-string">"name"</span>: <span class="rust-string">"shared"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_new"</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"decl_index"</span>: 0
+      }],
+      <span class="rust-string">"also_shared"</span>: [{
+        <span class="rust-string">"name"</span>: <span class="rust-string">"also_shared"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_clone"</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"decl_index"</span>: 0
+      }],
+      <span class="rust-string">"borrowed"</span>: [{
+        <span class="rust-string">"name"</span>: <span class="rust-string">"borrowed"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Ref&lt;Vec&lt;i32&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"refcell_borrow"</span>,
+        <span class="rust-string">"is_guard"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"decl_index"</span>: 0
+      }]
+    }
+  }
+}</pre>
+            </div>
+
+            <p><strong>Step 2: Build the project</strong></p>
+
+            <div class="code-block">
+                <pre>$ cargo build</pre>
+            </div>
+
+            <p>During compilation, the <code>#[trace_borrow]</code> macro loads type-info.json and transforms the function. The macro's internal processing:</p>
+
+            <div class="code-block">
+                <pre style="font-size: 0.85rem;">Processing function: demonstrate_ownership
+  Binding: shared
+    Lookup: ("demonstrate_ownership", "shared", 0)
+    Found: initializer_kind = "rc_new"
+    Emit: track_rc_new_with_id(1, "shared", "Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;", ...)
+  
+  Binding: also_shared  
+    Lookup: ("demonstrate_ownership", "also_shared", 0)
+    Found: initializer_kind = "rc_clone"
+    Emit: track_rc_clone_with_id(2, 1, "also_shared", ...)
+  
+  Binding: borrowed
+    Lookup: ("demonstrate_ownership", "borrowed", 0)
+    Found: initializer_kind = "refcell_borrow"
+    Emit: track_refcell_borrow(3, 1, ...)</pre>
+            </div>
+
+            <p><strong>Step 3: Run the program</strong></p>
+
+            <div class="code-block">
+                <pre>$ cargo run
+Values: [1, 2, 3]</pre>
+            </div>
+
+            <p>The runtime captures events as the program executes. The exported ownership_trace.json contains the complete ownership lifecycle:</p>
+
+            <div class="code-block">
+                <pre style="font-size: 0.8rem;">[
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"RcNew"</span>, <span class="rust-string">"timestamp"</span>: 1, <span class="rust-string">"var_name"</span>: <span class="rust-string">"shared"</span>, <span class="rust-string">"var_id"</span>: <span class="rust-string">"var_1"</span>,
+   <span class="rust-string">"type_name"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;"</span>, <span class="rust-string">"strong_count"</span>: 1, <span class="rust-string">"weak_count"</span>: 0},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"RcClone"</span>, <span class="rust-string">"timestamp"</span>: 2, <span class="rust-string">"var_name"</span>: <span class="rust-string">"also_shared"</span>,
+   <span class="rust-string">"source_id"</span>: <span class="rust-string">"var_1"</span>, <span class="rust-string">"strong_count"</span>: 2, <span class="rust-string">"weak_count"</span>: 0},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"RefCellBorrow"</span>, <span class="rust-string">"timestamp"</span>: 3, <span class="rust-string">"borrow_id"</span>: <span class="rust-string">"var_3"</span>,
+   <span class="rust-string">"refcell_id"</span>: <span class="rust-string">"var_1"</span>, <span class="rust-string">"is_mutable"</span>: <span class="rust-keyword">false</span>},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"RefCellDrop"</span>, <span class="rust-string">"timestamp"</span>: 4, <span class="rust-string">"borrow_id"</span>: <span class="rust-string">"var_3"</span>},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"RefCellBorrow"</span>, <span class="rust-string">"timestamp"</span>: 5, <span class="rust-string">"borrow_id"</span>: <span class="rust-string">"anon_4"</span>,
+   <span class="rust-string">"refcell_id"</span>: <span class="rust-string">"var_1"</span>, <span class="rust-string">"is_mutable"</span>: <span class="rust-keyword">true</span>},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"RefCellDrop"</span>, <span class="rust-string">"timestamp"</span>: 6, <span class="rust-string">"borrow_id"</span>: <span class="rust-string">"anon_4"</span>},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"Drop"</span>, <span class="rust-string">"timestamp"</span>: 7, <span class="rust-string">"var_id"</span>: <span class="rust-string">"var_2"</span>},
+  {<span class="rust-string">"type"</span>: <span class="rust-string">"Drop"</span>, <span class="rust-string">"timestamp"</span>: 8, <span class="rust-string">"var_id"</span>: <span class="rust-string">"var_1"</span>}
+]</pre>
+            </div>
+
+            <div class="solution-statement">
+                <p>The event stream captures the complete ownership lifecycle: Rc allocation, shared cloning, RefCell borrowing and release, and finally the drops in reverse declaration order. Each event includes correlation IDs that link related operations—the <code>RcClone</code> references its source, the <code>RefCellBorrow</code> references its container, and drops reference the original allocations.</p>
+            </div>
+
+            <p>The next section provides a practical usage guide for running the analyzer on your own projects.</p>
+        </div>
+    </div>
+</body>
+</html>

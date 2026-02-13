@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Roadmap - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .coverage-table { margin: 1rem 0; }
+        .coverage-table table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .coverage-table th, .coverage-table td { border: 1px solid var(--border-color); padding: 0.4rem; text-align: left; }
+        .coverage-table th { background: var(--code-bg); }
+        .status-semantic { color: #27ae60; font-weight: bold; }
+        .status-partial { color: #f39c12; font-weight: bold; }
+        .status-syntactic { color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="roadmap">
+            <h1>9. Future Development Roadmap</h1>
+
+            <p>This section presents a comprehensive technical roadmap for evolving the borrowscope-analyzer from its current initializer-focused analysis to a complete semantic analysis system capable of eliminating all heuristic pattern matching from the macro. The goal is to achieve 100% semantic coverage, where every ownership-related operation is classified through rust-analyzer's type system rather than syntactic string matching.</p>
+
+            <h2 id="91-current-coverage-analysis">9.1 Current Coverage Analysis</h2>
+
+            <p>The analyzer currently tracks <strong>variable initializers</strong>—the expressions that create new variables. This covers 36 of 109 patterns (33%) used by the macro for ownership tracking. The remaining patterns involve method calls on existing variables, standalone expressions, and self-borrow type inference, none of which produce new variable bindings.</p>
+
+            <h3>Coverage by Category</h3>
+
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Category</th><th>Total</th><th class="status-semantic">✅ Semantic</th><th class="status-partial">⚠️ Partial</th><th class="status-syntactic">❌ Syntactic</th></tr>
+                    <tr><td>Smart pointer creation</td><td>5</td><td>5</td><td>0</td><td>0</td></tr>
+                    <tr><td>Smart pointer clone</td><td>2</td><td>2</td><td>0</td><td>0</td></tr>
+                    <tr><td>RefCell/Cell methods</td><td>4</td><td>3</td><td>0</td><td>1</td></tr>
+                    <tr><td>Box operations</td><td>3</td><td>3</td><td>0</td><td>0</td></tr>
+                    <tr><td>Pin operations</td><td>2</td><td>1</td><td>1</td><td>0</td></tr>
+                    <tr><td>Cow operations</td><td>3</td><td>2</td><td>0</td><td>1</td></tr>
+                    <tr><td>Weak reference operations</td><td>3</td><td>3</td><td>0</td><td>0</td></tr>
+                    <tr><td>OnceCell/OnceLock operations</td><td>5</td><td>2</td><td>2</td><td>1</td></tr>
+                    <tr><td>MaybeUninit operations</td><td>6</td><td>2</td><td>2</td><td>2</td></tr>
+                    <tr><td>Concurrency operations</td><td>12</td><td>5</td><td>0</td><td>7</td></tr>
+                    <tr><td>Guard method patterns</td><td>9</td><td>8</td><td>1</td><td>0</td></tr>
+                    <tr><td>Self borrow inference (immutable)</td><td>19</td><td>0</td><td>0</td><td>19</td></tr>
+                    <tr><td>Self borrow inference (mutable)</td><td>25</td><td>0</td><td>0</td><td>25</td></tr>
+                    <tr><td>Self borrow inference (consuming)</td><td>3</td><td>0</td><td>0</td><td>3</td></tr>
+                    <tr><td>Unwrap methods</td><td>5</td><td>0</td><td>0</td><td>5</td></tr>
+                    <tr><td>Clone method</td><td>1</td><td>0</td><td>1</td><td>0</td></tr>
+                    <tr><td>Transmute detection</td><td>2</td><td>0</td><td>0</td><td>2</td></tr>
+                    <tr><td><strong>TOTAL</strong></td><td><strong>109</strong></td><td><strong>36</strong></td><td><strong>7</strong></td><td><strong>66</strong></td></tr>
+                </table>
+            </div>
+
+            <h3>The Fundamental Gap</h3>
+
+            <p>The analyzer's current architecture creates a fundamental gap: it tracks what types variables <strong>have</strong>, not what operations are <strong>performed on</strong> those variables:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">let</span> x = <span class="rust-type">Rc</span>::new(<span class="rust-string">1</span>);  <span class="rust-comment">// ✅ Tracked: initializer_kind = "rc_new"</span>
+<span class="rust-keyword">let</span> y = x.clone();   <span class="rust-comment">// ✅ Tracked: initializer_kind = "rc_clone" (via result type)</span>
+x.some_method();     <span class="rust-comment">// ❌ Not tracked: method call, no new variable</span></pre>
+            </div>
+
+            <p>The third line represents the gap—method calls that don't create new variables but still represent significant ownership operations (like <code>Cell::set</code>, <code>Sender::send</code>, or <code>JoinHandle::join</code>).</p>
+
+            <h2 id="92-architecture-evolution">9.2 Architecture Evolution</h2>
+
+            <p>To achieve 100% semantic coverage, the analyzer must evolve from initializer-only analysis to full expression analysis. This requires tracking three additional categories of operations.</p>
+
+            <h3>Current Architecture: Initializer Analysis</h3>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CURRENT: INITIALIZER-ONLY ANALYSIS                       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Source Code                    Analysis Output                             │
+│  ───────────                    ───────────────                             │
+│  let x = Rc::new(1);    ───▶    { name: "x", ty: "Rc&lt;i32&gt;",                │
+│                                   initializer_kind: "rc_new" }              │
+│                                                                             │
+│  let y = x.clone();     ───▶    { name: "y", ty: "Rc&lt;i32&gt;",                │
+│                                   initializer_kind: "rc_clone" }            │
+│                                                                             │
+│  cell.set(42);          ───▶    (not tracked - no new variable)            │
+│                                                                             │
+│  thread::spawn(|| {});  ───▶    (not tracked - no new variable)            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h3>Target Architecture: Full Expression Analysis</h3>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TARGET: FULL EXPRESSION ANALYSIS                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Source Code                    Analysis Output                             │
+│  ───────────                    ───────────────                             │
+│  let x = Rc::new(1);    ───▶    { name: "x", ty: "Rc&lt;i32&gt;",                │
+│                                   initializer_kind: "rc_new",               │
+│                                   method_calls: [...] }                     │
+│                                                                             │
+│  cell.set(42);          ───▶    method_calls on "cell": [{                 │
+│                                   method: "set", line: 5,                   │
+│                                   operation: "cell_set",                    │
+│                                   self_borrow: "mutable" }]                 │
+│                                                                             │
+│  thread::spawn(|| {});  ───▶    expressions: [{                            │
+│                                   kind: "function_call",                    │
+│                                   operation: "thread_spawn",                │
+│                                   line: 7 }]                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h3>New Analysis Capabilities Required</h3>
+
+            <ol>
+                <li><strong>Method Call Tracking</strong>: For each tracked variable, record all method calls made on it, including the method name, resolved receiver type, and semantic operation classification.</li>
+                <li><strong>Standalone Expression Tracking</strong>: Track function calls and expressions that don't create variables but represent significant operations (e.g., <code>thread::spawn</code>, <code>transmute</code>).</li>
+                <li><strong>Self-Borrow Type Resolution</strong>: Use rust-analyzer's method resolution to determine whether methods take <code>&amp;self</code>, <code>&amp;mut self</code>, or <code>self</code>, eliminating 47 heuristic patterns.</li>
+            </ol>
+
+            <h2 id="93-implementation-phases">9.3 Implementation Phases</h2>
+
+            <p>The expansion is organized into five phases, each targeting a specific category of patterns. Phases are ordered by dependency and complexity, allowing incremental progress with testable milestones.</p>
+
+            <h3>Phase 1: Method Call Tracking on Known Variables</h3>
+            <p><strong>Objective:</strong> Track method calls where the receiver is a variable with a known tracked type.</p>
+            <p><strong>Patterns Eliminated:</strong> 13 syntactic patterns</p>
+
+            <p>After collecting variables in <code>analyze_file()</code>, walk all method call expressions in the syntax tree. For each method call, check if the receiver resolves to a tracked variable. If so, classify the method call based on the receiver type and method name:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">analyze_method_calls</span>(
+    sema: &amp;<span class="rust-type">Semantics</span>&lt;<span class="rust-lifetime">'_</span>, <span class="rust-type">RootDatabase</span>&gt;,
+    source_file: &amp;ast::<span class="rust-type">SourceFile</span>,
+    variables: &amp;<span class="rust-keyword">mut</span> <span class="rust-type">HashMap</span>&lt;<span class="rust-type">String</span>, <span class="rust-type">VariableTypeInfo</span>&gt;,
+    db: &amp;<span class="rust-type">RootDatabase</span>,
+) {
+    <span class="rust-keyword">for</span> node <span class="rust-keyword">in</span> source_file.syntax().descendants() {
+        <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(method_call) = ast::<span class="rust-type">MethodCallExpr</span>::cast(node) {
+            <span class="rust-comment">// Extract receiver name (e.g., "cell" from "cell.set(42)")</span>
+            <span class="rust-keyword">let</span> receiver_name = extract_receiver_name(&amp;method_call)?;
+
+            <span class="rust-comment">// Check if receiver is a tracked variable</span>
+            <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(var_info) = variables.get_mut(&amp;receiver_name) {
+                <span class="rust-keyword">let</span> method_name = method_call.name_ref()?.text().to_string();
+                <span class="rust-keyword">let</span> receiver_type = sema.type_of_expr(&amp;method_call.receiver()?)?;
+
+                <span class="rust-comment">// Classify based on receiver type and method</span>
+                <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(operation) = classify_method_call(&amp;receiver_type, &amp;method_name, db) {
+                    var_info.method_calls.push(<span class="rust-type">MethodCallInfo</span> {
+                        method: method_name,
+                        operation,
+                        line: line_number(&amp;method_call),
+                        self_borrow: resolve_self_borrow(sema, &amp;method_call, db),
+                    });
+                }
+            }
+        }
+    }
+}</pre>
+            </div>
+
+            <p><strong>Specific Patterns:</strong></p>
+
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Method</th><th>Receiver Type</th><th>Operation</th><th>Current Detection</th></tr>
+                    <tr><td><code>.set(v)</code></td><td><code>Cell&lt;T&gt;</code></td><td><code>cell_set</code></td><td><code>method_name == "set"</code></td></tr>
+                    <tr><td><code>.to_mut()</code></td><td><code>Cow&lt;T&gt;</code></td><td><code>cow_to_mut</code></td><td><code>method.to_string() == "to_mut"</code></td></tr>
+                    <tr><td><code>.set(v)</code></td><td><code>OnceCell&lt;T&gt;</code></td><td><code>once_cell_set</code></td><td><code>method_name == "set"</code></td></tr>
+                    <tr><td><code>.get()</code></td><td><code>OnceCell&lt;T&gt;</code></td><td><code>once_cell_get</code></td><td><code>method_name == "get"</code></td></tr>
+                    <tr><td><code>.get_or_init(f)</code></td><td><code>OnceCell&lt;T&gt;</code></td><td><code>once_cell_get_or_init</code></td><td><code>method_name == "get_or_init"</code></td></tr>
+                    <tr><td><code>.write(v)</code></td><td><code>MaybeUninit&lt;T&gt;</code></td><td><code>maybe_uninit_write</code></td><td><code>method_name == "write"</code></td></tr>
+                    <tr><td><code>.assume_init()</code></td><td><code>MaybeUninit&lt;T&gt;</code></td><td><code>maybe_uninit_assume_init</code></td><td><code>method_name == "assume_init"</code></td></tr>
+                    <tr><td><code>.assume_init_read()</code></td><td><code>MaybeUninit&lt;T&gt;</code></td><td><code>maybe_uninit_assume_init_read</code></td><td><code>method_name == "assume_init_read"</code></td></tr>
+                    <tr><td><code>.assume_init_drop()</code></td><td><code>MaybeUninit&lt;T&gt;</code></td><td><code>maybe_uninit_assume_init_drop</code></td><td><code>method_name == "assume_init_drop"</code></td></tr>
+                    <tr><td><code>.send(v)</code></td><td><code>Sender&lt;T&gt;</code></td><td><code>channel_send</code></td><td><code>method_name == "send"</code></td></tr>
+                    <tr><td><code>.recv()</code></td><td><code>Receiver&lt;T&gt;</code></td><td><code>channel_recv</code></td><td><code>method_name == "recv"</code></td></tr>
+                    <tr><td><code>.try_recv()</code></td><td><code>Receiver&lt;T&gt;</code></td><td><code>channel_try_recv</code></td><td><code>method_name == "try_recv"</code></td></tr>
+                    <tr><td><code>.join()</code></td><td><code>JoinHandle&lt;T&gt;</code></td><td><code>thread_join</code></td><td><code>method_name == "join"</code></td></tr>
+                </table>
+            </div>
+
+            <p><strong>Estimated Effort:</strong> 2-3 hours</p>
+
+            <h3>Phase 2: Standalone Expression Tracking</h3>
+            <p><strong>Objective:</strong> Track function calls and expressions that don't create variables but represent significant ownership operations.</p>
+            <p><strong>Patterns Eliminated:</strong> 4 syntactic patterns</p>
+
+            <p>Add a new output field <code>expressions</code> that captures standalone calls. Walk all call expressions and check if they resolve to known functions:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">analyze_expressions</span>(
+    sema: &amp;<span class="rust-type">Semantics</span>&lt;<span class="rust-lifetime">'_</span>, <span class="rust-type">RootDatabase</span>&gt;,
+    source_file: &amp;ast::<span class="rust-type">SourceFile</span>,
+    db: &amp;<span class="rust-type">RootDatabase</span>,
+) -&gt; <span class="rust-type">Vec</span>&lt;<span class="rust-type">ExpressionInfo</span>&gt; {
+    <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> expressions = <span class="rust-type">Vec</span>::new();
+
+    <span class="rust-keyword">for</span> node <span class="rust-keyword">in</span> source_file.syntax().descendants() {
+        <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(call) = ast::<span class="rust-type">CallExpr</span>::cast(node) {
+            <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(path_expr) = call.expr().and_then(ast::<span class="rust-type">PathExpr</span>::cast) {
+                <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(resolved) = sema.resolve_path(&amp;path_expr.path()?) {
+                    <span class="rust-keyword">let</span> path = get_function_canonical_path(&amp;resolved, db);
+
+                    <span class="rust-keyword">let</span> operation = <span class="rust-keyword">match</span> path.as_str() {
+                        <span class="rust-string">"std::thread::spawn"</span> | <span class="rust-string">"core::thread::spawn"</span>
+                            =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"thread_spawn"</span>),
+                        <span class="rust-string">"std::mem::transmute"</span> | <span class="rust-string">"core::mem::transmute"</span>
+                            =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"transmute"</span>),
+                        _ =&gt; <span class="rust-type">None</span>,
+                    };
+
+                    <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Some</span>(op) = operation {
+                        expressions.push(<span class="rust-type">ExpressionInfo</span> {
+                            kind: <span class="rust-string">"function_call"</span>.to_string(),
+                            operation: op.to_string(),
+                            line: line_number(&amp;call),
+                            path: <span class="rust-type">Some</span>(path),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    expressions
+}</pre>
+            </div>
+
+            <p><strong>Specific Patterns:</strong></p>
+
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Pattern</th><th>Operation</th><th>Current Detection</th></tr>
+                    <tr><td><code>thread::spawn(...)</code></td><td><code>thread_spawn</code></td><td><code>path_str.contains("thread::spawn")</code></td></tr>
+                    <tr><td><code>std::thread::spawn(...)</code></td><td><code>thread_spawn</code></td><td><code>path_str.contains("std::thread::spawn")</code></td></tr>
+                    <tr><td><code>transmute(...)</code></td><td><code>transmute</code></td><td><code>path_str.contains("transmute")</code></td></tr>
+                    <tr><td><code>std::mem::transmute(...)</code></td><td><code>transmute</code></td><td><code>fn_name.contains("transmute")</code></td></tr>
+                </table>
+            </div>
+
+            <p><strong>Estimated Effort:</strong> 1-2 hours</p>
+
+            <h3>Phase 3: Self-Borrow Type Inference Elimination</h3>
+            <p><strong>Objective:</strong> Replace all heuristic self-borrow inference with semantic method resolution.</p>
+            <p><strong>Patterns Eliminated:</strong> 47 syntactic patterns (the largest category)</p>
+
+            <p><strong>The Problem:</strong> The macro currently infers whether a method takes <code>&amp;self</code>, <code>&amp;mut self</code>, or <code>self</code> based on method name patterns:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// Current heuristic approach in borrowscope-macro</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">infer_self_borrow_type</span>(method_name: &amp;<span class="rust-keyword">str</span>) -&gt; <span class="rust-type">SelfBorrowType</span> {
+    <span class="rust-comment">// Immutable patterns</span>
+    <span class="rust-keyword">if</span> method_name.starts_with(<span class="rust-string">"as_"</span>) || method_name.starts_with(<span class="rust-string">"to_"</span>) ||
+       method_name.starts_with(<span class="rust-string">"is_"</span>) || method_name.starts_with(<span class="rust-string">"get"</span>) ||
+       <span class="rust-macro">matches!</span>(method_name, <span class="rust-string">"len"</span> | <span class="rust-string">"capacity"</span> | <span class="rust-string">"iter"</span> | <span class="rust-string">"clone"</span> | ...) {
+        <span class="rust-keyword">return</span> <span class="rust-type">SelfBorrowType</span>::Immutable;
+    }
+    <span class="rust-comment">// Mutable patterns</span>
+    <span class="rust-keyword">if</span> method_name.starts_with(<span class="rust-string">"push"</span>) || method_name.starts_with(<span class="rust-string">"pop"</span>) ||
+       method_name.starts_with(<span class="rust-string">"insert"</span>) || method_name.starts_with(<span class="rust-string">"set"</span>) ||
+       <span class="rust-macro">matches!</span>(method_name, <span class="rust-string">"clear"</span> | <span class="rust-string">"sort"</span> | <span class="rust-string">"reverse"</span> | ...) {
+        <span class="rust-keyword">return</span> <span class="rust-type">SelfBorrowType</span>::Mutable;
+    }
+    <span class="rust-comment">// Consuming patterns</span>
+    <span class="rust-keyword">if</span> method_name.starts_with(<span class="rust-string">"into_"</span>) ||
+       <span class="rust-macro">matches!</span>(method_name, <span class="rust-string">"unwrap"</span> | <span class="rust-string">"expect"</span>) {
+        <span class="rust-keyword">return</span> <span class="rust-type">SelfBorrowType</span>::Consuming;
+    }
+    <span class="rust-type">SelfBorrowType</span>::Unknown
+}</pre>
+            </div>
+
+            <p>This heuristic approach fails for methods that don't follow naming conventions, user-defined methods with arbitrary names, and trait methods with non-standard signatures.</p>
+
+            <p><strong>The Solution:</strong> Use rust-analyzer's <code>resolve_method_call</code> to get the actual method definition, then inspect its self parameter:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">resolve_self_borrow</span>(
+    sema: &amp;<span class="rust-type">Semantics</span>&lt;<span class="rust-lifetime">'_</span>, <span class="rust-type">RootDatabase</span>&gt;,
+    method_call: &amp;ast::<span class="rust-type">MethodCallExpr</span>,
+    db: &amp;<span class="rust-type">RootDatabase</span>,
+) -&gt; <span class="rust-type">Option</span>&lt;<span class="rust-type">String</span>&gt; {
+    <span class="rust-keyword">let</span> func = sema.resolve_method_call(method_call)?;
+    <span class="rust-keyword">let</span> self_param = func.self_param(db)?;
+    <span class="rust-keyword">match</span> self_param.access(db) {
+        ra_ap_hir::<span class="rust-type">Access</span>::Shared =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"immutable"</span>.to_string()),
+        ra_ap_hir::<span class="rust-type">Access</span>::Exclusive =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"mutable"</span>.to_string()),
+        ra_ap_hir::<span class="rust-type">Access</span>::Owned =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"consuming"</span>.to_string()),
+    }
+}</pre>
+            </div>
+
+            <p><strong>Patterns Eliminated:</strong></p>
+
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Category</th><th>Patterns</th><th>Examples</th></tr>
+                    <tr><td>Immutable (19)</td><td><code>as_*</code>, <code>to_*</code>, <code>is_*</code>, <code>get*</code></td><td><code>len</code>, <code>capacity</code>, <code>iter</code>, <code>chars</code>, <code>bytes</code>, <code>lines</code>, <code>split</code>, <code>trim</code>, <code>contains</code>, <code>starts_with</code>, <code>ends_with</code>, <code>find</code>, <code>clone</code>, <code>first</code>, <code>last</code></td></tr>
+                    <tr><td>Mutable (25)</td><td><code>push*</code>, <code>pop*</code>, <code>insert*</code>, <code>set*</code></td><td><code>clear</code>, <code>truncate</code>, <code>extend</code>, <code>drain</code>, <code>sort</code>, <code>reverse</code>, <code>dedup</code>, <code>retain</code>, <code>tick</code>, <code>recv</code>, <code>send</code>, <code>changed</code>, <code>wait</code>, <code>acquire</code>, <code>lock</code>, <code>write</code></td></tr>
+                    <tr><td>Consuming (3)</td><td><code>into_*</code></td><td><code>unwrap</code>, <code>expect</code></td></tr>
+                </table>
+            </div>
+
+            <p><strong>Estimated Effort:</strong> 3-4 hours</p>
+
+            <h3>Phase 4: Unwrap Method Tracking</h3>
+            <p><strong>Objective:</strong> Track unwrap operations semantically by detecting method calls on <code>Option&lt;T&gt;</code> and <code>Result&lt;T, E&gt;</code>.</p>
+            <p><strong>Patterns Eliminated:</strong> 5 syntactic patterns</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">classify_unwrap_method</span>(
+    receiver_type: &amp;ra_ap_hir::<span class="rust-type">Type</span>,
+    method_name: &amp;<span class="rust-keyword">str</span>,
+    db: &amp;<span class="rust-type">RootDatabase</span>,
+) -&gt; <span class="rust-type">Option</span>&lt;<span class="rust-type">String</span>&gt; {
+    <span class="rust-keyword">if</span> !is_option_or_result(receiver_type, db) {
+        <span class="rust-keyword">return</span> <span class="rust-type">None</span>;
+    }
+    <span class="rust-keyword">match</span> method_name {
+        <span class="rust-string">"unwrap"</span> =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"unwrap"</span>.to_string()),
+        <span class="rust-string">"expect"</span> =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"expect"</span>.to_string()),
+        <span class="rust-string">"unwrap_or"</span> =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"unwrap_or"</span>.to_string()),
+        <span class="rust-string">"unwrap_or_else"</span> =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"unwrap_or_else"</span>.to_string()),
+        <span class="rust-string">"unwrap_or_default"</span> =&gt; <span class="rust-type">Some</span>(<span class="rust-string">"unwrap_or_default"</span>.to_string()),
+        _ =&gt; <span class="rust-type">None</span>,
+    }
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">is_option_or_result</span>(ty: &amp;ra_ap_hir::<span class="rust-type">Type</span>, db: &amp;<span class="rust-type">RootDatabase</span>) -&gt; <span class="rust-type">bool</span> {
+    <span class="rust-keyword">let</span> display = ty.display(db).to_string();
+    display.starts_with(<span class="rust-string">"Option&lt;"</span>) || display.starts_with(<span class="rust-string">"Result&lt;"</span>)
+}</pre>
+            </div>
+
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Method</th><th>Operation</th><th>Current Detection</th></tr>
+                    <tr><td><code>.unwrap()</code></td><td><code>unwrap</code></td><td><code>method_name == "unwrap"</code></td></tr>
+                    <tr><td><code>.expect(msg)</code></td><td><code>expect</code></td><td><code>method_name == "expect"</code></td></tr>
+                    <tr><td><code>.unwrap_or(v)</code></td><td><code>unwrap_or</code></td><td><code>method_name == "unwrap_or"</code></td></tr>
+                    <tr><td><code>.unwrap_or_else(f)</code></td><td><code>unwrap_or_else</code></td><td><code>method_name == "unwrap_or_else"</code></td></tr>
+                    <tr><td><code>.unwrap_or_default()</code></td><td><code>unwrap_or_default</code></td><td><code>method_name == "unwrap_or_default"</code></td></tr>
+                </table>
+            </div>
+
+            <p><strong>Estimated Effort:</strong> 1 hour</p>
+
+            <h3>Phase 5: Clone Tracking</h3>
+            <p><strong>Objective:</strong> Track <code>.clone()</code> calls semantically by verifying the method resolves to <code>Clone::clone</code> (not some other method named <code>clone</code>).</p>
+            <p><strong>Patterns Eliminated:</strong> 1 syntactic pattern</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">is_clone_trait_call</span>(
+    sema: &amp;<span class="rust-type">Semantics</span>&lt;<span class="rust-lifetime">'_</span>, <span class="rust-type">RootDatabase</span>&gt;,
+    method_call: &amp;ast::<span class="rust-type">MethodCallExpr</span>,
+    db: &amp;<span class="rust-type">RootDatabase</span>,
+) -&gt; <span class="rust-type">bool</span> {
+    <span class="rust-keyword">let</span> method_name = method_call.name_ref()?.text().to_string();
+    <span class="rust-keyword">if</span> method_name != <span class="rust-string">"clone"</span> { <span class="rust-keyword">return</span> <span class="rust-keyword">false</span>; }
+
+    <span class="rust-comment">// Resolve to the actual method definition</span>
+    <span class="rust-keyword">let</span> func = sema.resolve_method_call(method_call)?;
+    <span class="rust-keyword">let</span> assoc_item = func.as_assoc_item(db)?;
+    <span class="rust-keyword">let</span> container_trait = assoc_item.container_trait(db)?;
+    <span class="rust-keyword">let</span> trait_path = get_trait_canonical_path(&amp;container_trait, db);
+
+    trait_path == <span class="rust-string">"core::clone::Clone"</span> || trait_path == <span class="rust-string">"std::clone::Clone"</span>
+}</pre>
+            </div>
+
+            <p><strong>Estimated Effort:</strong> 30 minutes</p>
+
+            <h2 id="94-schema-evolution">9.4 Schema Evolution</h2>
+
+            <p>The expanded analysis capabilities require evolving the output schema from v2.2 to v2.4. The new schema adds two major components: method call tracking per variable and standalone expression tracking per file.</p>
+
+            <h3>Current Schema (v2.2)</h3>
+
+            <div class="code-block">
+                <pre style="font-size: 0.8rem;">{
+  <span class="rust-string">"version"</span>: <span class="rust-string">"2.2"</span>,
+  <span class="rust-string">"files"</span>: {
+    <span class="rust-string">"src/main.rs"</span>: [{
+      <span class="rust-string">"name"</span>: <span class="rust-string">"x"</span>,
+      <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;i32&gt;"</span>,
+      <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+      <span class="rust-string">"is_arc"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_refcell"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_cell"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_mutex"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_rwlock"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_box"</span>: <span class="rust-keyword">false</span>,
+      <span class="rust-string">"is_send"</span>: <span class="rust-keyword">true</span>,
+      <span class="rust-string">"is_sync"</span>: <span class="rust-keyword">true</span>,
+      <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_new"</span>,
+      <span class="rust-string">"source_location"</span>: { <span class="rust-string">"line"</span>: 5, <span class="rust-string">"column"</span>: 9 },
+      <span class="rust-string">"function_context"</span>: <span class="rust-string">"main"</span>
+    }]
+  },
+  <span class="rust-string">"by_name"</span>: { ... },
+  <span class="rust-string">"by_function"</span>: { ... }
+}</pre>
+            </div>
+
+            <h3>Target Schema (v2.4)</h3>
+
+            <div class="code-block">
+                <pre style="font-size: 0.75rem;">{
+  <span class="rust-string">"version"</span>: <span class="rust-string">"2.4"</span>,
+  <span class="rust-string">"files"</span>: {
+    <span class="rust-string">"src/main.rs"</span>: [
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"x"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;i32&gt;"</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_new"</span>,
+        <span class="rust-string">"source_location"</span>: { <span class="rust-string">"line"</span>: 5, <span class="rust-string">"column"</span>: 9 },
+        <span class="rust-string">"function_context"</span>: <span class="rust-string">"main"</span>,
+        <span class="rust-string">"method_calls"</span>: [
+          {
+            <span class="rust-string">"method"</span>: <span class="rust-string">"clone"</span>,
+            <span class="rust-string">"line"</span>: 8,
+            <span class="rust-string">"operation"</span>: <span class="rust-string">"rc_clone"</span>,
+            <span class="rust-string">"self_borrow"</span>: <span class="rust-string">"immutable"</span>,
+            <span class="rust-string">"receiver_type"</span>: <span class="rust-string">"Rc&lt;i32&gt;"</span>,
+            <span class="rust-string">"result_type"</span>: <span class="rust-string">"Rc&lt;i32&gt;"</span>
+          },
+          {
+            <span class="rust-string">"method"</span>: <span class="rust-string">"as_ref"</span>,
+            <span class="rust-string">"line"</span>: 10,
+            <span class="rust-string">"operation"</span>: <span class="rust-keyword">null</span>,
+            <span class="rust-string">"self_borrow"</span>: <span class="rust-string">"immutable"</span>,
+            <span class="rust-string">"receiver_type"</span>: <span class="rust-string">"Rc&lt;i32&gt;"</span>,
+            <span class="rust-string">"result_type"</span>: <span class="rust-string">"&amp;i32"</span>
+          }
+        ]
+      },
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"cell"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Cell&lt;i32&gt;"</span>,
+        <span class="rust-string">"is_cell"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"cell_new"</span>,
+        <span class="rust-string">"method_calls"</span>: [
+          {
+            <span class="rust-string">"method"</span>: <span class="rust-string">"set"</span>,
+            <span class="rust-string">"line"</span>: 15,
+            <span class="rust-string">"operation"</span>: <span class="rust-string">"cell_set"</span>,
+            <span class="rust-string">"self_borrow"</span>: <span class="rust-string">"immutable"</span>,
+            <span class="rust-string">"receiver_type"</span>: <span class="rust-string">"Cell&lt;i32&gt;"</span>,
+            <span class="rust-string">"result_type"</span>: <span class="rust-string">"()"</span>
+          },
+          {
+            <span class="rust-string">"method"</span>: <span class="rust-string">"get"</span>,
+            <span class="rust-string">"line"</span>: 16,
+            <span class="rust-string">"operation"</span>: <span class="rust-string">"cell_get"</span>,
+            <span class="rust-string">"self_borrow"</span>: <span class="rust-string">"immutable"</span>,
+            <span class="rust-string">"receiver_type"</span>: <span class="rust-string">"Cell&lt;i32&gt;"</span>,
+            <span class="rust-string">"result_type"</span>: <span class="rust-string">"i32"</span>
+          }
+        ]
+      }
+    ]
+  },
+  <span class="rust-string">"expressions"</span>: {
+    <span class="rust-string">"src/main.rs"</span>: [
+      {
+        <span class="rust-string">"kind"</span>: <span class="rust-string">"function_call"</span>,
+        <span class="rust-string">"line"</span>: 20,
+        <span class="rust-string">"operation"</span>: <span class="rust-string">"thread_spawn"</span>,
+        <span class="rust-string">"path"</span>: <span class="rust-string">"std::thread::spawn"</span>,
+        <span class="rust-string">"result_type"</span>: <span class="rust-string">"JoinHandle&lt;()&gt;"</span>
+      },
+      {
+        <span class="rust-string">"kind"</span>: <span class="rust-string">"function_call"</span>,
+        <span class="rust-string">"line"</span>: 25,
+        <span class="rust-string">"operation"</span>: <span class="rust-string">"transmute"</span>,
+        <span class="rust-string">"path"</span>: <span class="rust-string">"std::mem::transmute"</span>,
+        <span class="rust-string">"from_type"</span>: <span class="rust-string">"u32"</span>,
+        <span class="rust-string">"to_type"</span>: <span class="rust-string">"i32"</span>
+      }
+    ]
+  },
+  <span class="rust-string">"by_name"</span>: { ... },
+  <span class="rust-string">"by_function"</span>: { ... }
+}</pre>
+            </div>
+
+            <h3>New Data Structures</h3>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">/// Information about a method call on a tracked variable</span>
+<span class="rust-macro">#[derive(Debug, Clone, Serialize, Deserialize)]</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">struct</span> <span class="rust-type">MethodCallInfo</span> {
+    <span class="rust-comment">/// Method name (e.g., "clone", "set", "send")</span>
+    <span class="rust-keyword">pub</span> method: <span class="rust-type">String</span>,
+    <span class="rust-comment">/// Line number where the call occurs</span>
+    <span class="rust-keyword">pub</span> line: <span class="rust-type">u32</span>,
+    <span class="rust-comment">/// Semantic operation classification (e.g., "cell_set", "channel_send")</span>
+    <span class="rust-comment">/// None if the method doesn't map to a tracked operation</span>
+    <span class="rust-keyword">pub</span> operation: <span class="rust-type">Option</span>&lt;<span class="rust-type">String</span>&gt;,
+    <span class="rust-comment">/// How the method borrows self: "immutable", "mutable", or "consuming"</span>
+    <span class="rust-keyword">pub</span> self_borrow: <span class="rust-type">Option</span>&lt;<span class="rust-type">String</span>&gt;,
+    <span class="rust-comment">/// Fully qualified receiver type</span>
+    <span class="rust-keyword">pub</span> receiver_type: <span class="rust-type">String</span>,
+    <span class="rust-comment">/// Fully qualified result type (if any)</span>
+    <span class="rust-keyword">pub</span> result_type: <span class="rust-type">Option</span>&lt;<span class="rust-type">String</span>&gt;,
+}
+
+<span class="rust-comment">/// Information about a standalone expression requiring tracking</span>
+<span class="rust-macro">#[derive(Debug, Clone, Serialize, Deserialize)]</span>
+<span class="rust-keyword">pub</span> <span class="rust-keyword">struct</span> <span class="rust-type">ExpressionInfo</span> {
+    <span class="rust-comment">/// Expression kind: "function_call", "method_call", "unsafe_block"</span>
+    <span class="rust-keyword">pub</span> kind: <span class="rust-type">String</span>,
+    <span class="rust-comment">/// Line number where the expression occurs</span>
+    <span class="rust-keyword">pub</span> line: <span class="rust-type">u32</span>,
+    <span class="rust-comment">/// Semantic operation classification</span>
+    <span class="rust-keyword">pub</span> operation: <span class="rust-type">String</span>,
+    <span class="rust-comment">/// Function path for function calls (e.g., "std::thread::spawn")</span>
+    <span class="rust-keyword">pub</span> path: <span class="rust-type">Option</span>&lt;<span class="rust-type">String</span>&gt;,
+    <span class="rust-comment">/// Additional type information for specific operations</span>
+    <span class="rust-macro">#[serde(flatten)]</span>
+    <span class="rust-keyword">pub</span> extra: <span class="rust-type">HashMap</span>&lt;<span class="rust-type">String</span>, <span class="rust-type">String</span>&gt;,
+}</pre>
+            </div>
+
+            <h3>Backward Compatibility</h3>
+
+            <p>The schema evolution maintains backward compatibility:</p>
+            <ol>
+                <li><strong>New fields are optional:</strong> <code>method_calls</code> and <code>expressions</code> default to empty collections</li>
+                <li><strong>Existing fields unchanged:</strong> All v2.2 fields retain their meaning and format</li>
+                <li><strong>Version field updated:</strong> Consumers can check version to determine available features</li>
+                <li><strong>Graceful degradation:</strong> Macros using v2.2 data continue working; they simply don't benefit from new fields</li>
+            </ol>
+
+            <h2 id="95-macro-refactoring">9.5 Macro Refactoring</h2>
+
+            <p>After the analyzer expansion, the macro requires significant refactoring to consume the new semantic data and eliminate syntactic detection.</p>
+
+            <h3>Current Macro Architecture</h3>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CURRENT MACRO DETECTION FLOW                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Input: AST Node                                                            │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Check Analyzer Data │──── Found? ───▶ Use semantic classification       │
+│  └─────────────────────┘                                                    │
+│           │                                                                 │
+│           │ Not found                                                       │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Syntactic Detection │                                                    │
+│  │ (109 patterns)      │                                                    │
+│  └─────────────────────┘                                                    │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Emit Tracking Call  │                                                    │
+│  └─────────────────────┘                                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h3>Target Macro Architecture</h3>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.65rem; line-height: 1.2;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                    TARGET MACRO DETECTION FLOW                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Input: AST Node                                                            │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Query Analyzer Data │                                                    │
+│  │ (type-info.json)    │                                                    │
+│  └─────────────────────┘                                                    │
+│           │                                                                 │
+│           ├── Variable binding? ──▶ Look up by (function, name, occurrence) │
+│           │                              │                                  │
+│           │                              ▼                                  │
+│           │                        Use initializer_kind                     │
+│           │                                                                 │
+│           ├── Method call? ──────▶ Look up receiver variable                │
+│           │                              │                                  │
+│           │                              ▼                                  │
+│           │                        Find matching method_call by line        │
+│           │                              │                                  │
+│           │                              ▼                                  │
+│           │                        Use operation + self_borrow              │
+│           │                                                                 │
+│           └── Standalone expr? ──▶ Look up in expressions by line           │
+│                                          │                                  │
+│                                          ▼                                  │
+│                                    Use operation                            │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────────┐                                                    │
+│  │ Emit Tracking Call  │                                                    │
+│  │ (semantic only)     │                                                    │
+│  └─────────────────────┘                                                    │
+│                                                                             │
+│  NO SYNTACTIC FALLBACK - analyzer data is authoritative                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h3>Files to Modify</h3>
+
+            <p><strong><code>borrowscope-macro/src/smart_pointer.rs</code></strong> — Delete 14 detection functions:</p>
+            <ul>
+                <li><code>detect_smart_pointer_new()</code> — replaced by <code>initializer_kind</code></li>
+                <li><code>detect_rc_clone()</code> — replaced by <code>initializer_kind</code></li>
+                <li><code>detect_refcell_borrow()</code> — replaced by <code>initializer_kind</code></li>
+                <li><code>detect_cell_op()</code> — replaced by <code>method_calls</code></li>
+                <li><code>detect_cow_creation()</code> / <code>detect_cow_to_mut()</code> — replaced by <code>initializer_kind</code> + <code>method_calls</code></li>
+                <li><code>detect_once_cell_new()</code> / <code>detect_once_cell_method()</code> — replaced by <code>initializer_kind</code> + <code>method_calls</code></li>
+                <li><code>detect_maybe_uninit_new()</code> / <code>detect_maybe_uninit_method()</code> — replaced by <code>initializer_kind</code> + <code>method_calls</code></li>
+                <li><code>detect_concurrency_op()</code> — replaced by <code>initializer_kind</code> + <code>method_calls</code> + <code>expressions</code></li>
+                <li><code>detect_pin_operation()</code> / <code>detect_downgrade()</code> / <code>detect_weak_upgrade()</code> — replaced by <code>initializer_kind</code></li>
+            </ul>
+
+            <p><strong><code>borrowscope-macro/src/transform_visitor.rs</code></strong>:</p>
+            <ul>
+                <li>Delete <code>infer_self_borrow_type()</code> — replaced by <code>self_borrow</code> field</li>
+                <li>Modify <code>visit_local_mut()</code> to query <code>initializer_kind</code> directly</li>
+                <li>Modify <code>visit_expr_mut()</code> to query <code>method_calls</code> and <code>expressions</code></li>
+                <li>Remove all <code>method_name ==</code> comparisons and <code>contains()</code> string matching</li>
+            </ul>
+
+            <p><strong><code>borrowscope-macro/src/type_info.rs</code></strong>:</p>
+            <ul>
+                <li>Add <code>MethodCallInfo</code> and <code>ExpressionInfo</code> structs</li>
+                <li>Add lookup methods for method calls and expressions by line number</li>
+                <li>Update <code>VariableTypeInfo</code> to include <code>method_calls</code></li>
+            </ul>
+
+            <h3>Code Transformation Example</h3>
+
+            <p><strong>Before (Syntactic):</strong></p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">transform_method_call</span>(&amp;<span class="rust-keyword">mut</span> <span class="rust-keyword">self</span>, expr: &amp;<span class="rust-type">ExprMethodCall</span>) -&gt; <span class="rust-type">Option</span>&lt;<span class="rust-type">Expr</span>&gt; {
+    <span class="rust-keyword">let</span> method_name = expr.method.to_string();
+    <span class="rust-comment">// Heuristic: check method name patterns</span>
+    <span class="rust-keyword">if</span> method_name == <span class="rust-string">"clone"</span> {
+        <span class="rust-keyword">return</span> <span class="rust-type">Some</span>(<span class="rust-keyword">self</span>.emit_clone_tracking(expr));
+    }
+    <span class="rust-keyword">if</span> method_name == <span class="rust-string">"set"</span> {
+        <span class="rust-comment">// Could be Cell::set, OnceCell::set, or something else — we guess</span>
+        <span class="rust-keyword">return</span> <span class="rust-type">Some</span>(<span class="rust-keyword">self</span>.emit_cell_set_tracking(expr));
+    }
+    <span class="rust-keyword">let</span> borrow_type = infer_self_borrow_type(&amp;method_name);
+    <span class="rust-keyword">self</span>.emit_method_borrow_tracking(expr, borrow_type)
+}</pre>
+            </div>
+
+            <p><strong>After (Semantic):</strong></p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">transform_method_call</span>(&amp;<span class="rust-keyword">mut</span> <span class="rust-keyword">self</span>, expr: &amp;<span class="rust-type">ExprMethodCall</span>) -&gt; <span class="rust-type">Option</span>&lt;<span class="rust-type">Expr</span>&gt; {
+    <span class="rust-keyword">let</span> line = expr.span().start().line <span class="rust-keyword">as</span> <span class="rust-type">u32</span>;
+    <span class="rust-keyword">let</span> receiver_name = extract_receiver_name(expr)?;
+    <span class="rust-keyword">let</span> var_info = <span class="rust-keyword">self</span>.lookup_type_info(&amp;receiver_name)?;
+    <span class="rust-keyword">let</span> method_info = var_info.method_calls.iter()
+        .find(|m| m.line == line)?;
+
+    <span class="rust-keyword">match</span> method_info.operation.as_deref() {
+        <span class="rust-type">Some</span>(<span class="rust-string">"cell_set"</span>) =&gt; <span class="rust-keyword">self</span>.emit_cell_set_tracking(expr),
+        <span class="rust-type">Some</span>(<span class="rust-string">"channel_send"</span>) =&gt; <span class="rust-keyword">self</span>.emit_channel_send_tracking(expr),
+        <span class="rust-type">Some</span>(<span class="rust-string">"rc_clone"</span>) =&gt; <span class="rust-keyword">self</span>.emit_rc_clone_tracking(expr),
+        _ =&gt; {
+            <span class="rust-keyword">let</span> borrow_type = <span class="rust-keyword">match</span> method_info.self_borrow.as_deref() {
+                <span class="rust-type">Some</span>(<span class="rust-string">"immutable"</span>) =&gt; <span class="rust-type">SelfBorrowType</span>::Immutable,
+                <span class="rust-type">Some</span>(<span class="rust-string">"mutable"</span>) =&gt; <span class="rust-type">SelfBorrowType</span>::Mutable,
+                <span class="rust-type">Some</span>(<span class="rust-string">"consuming"</span>) =&gt; <span class="rust-type">SelfBorrowType</span>::Consuming,
+                _ =&gt; <span class="rust-type">SelfBorrowType</span>::Unknown,
+            };
+            <span class="rust-keyword">self</span>.emit_method_borrow_tracking(expr, borrow_type)
+        }
+    }
+}</pre>
+            </div>
+
+            <h3>Estimated Refactoring Effort</h3>
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Component</th><th>Changes</th><th>Estimate</th></tr>
+                    <tr><td><code>smart_pointer.rs</code></td><td>Delete 14 detection functions</td><td>1 hour</td></tr>
+                    <tr><td><code>transform_visitor.rs</code></td><td>Rewrite method call handling</td><td>2 hours</td></tr>
+                    <tr><td><code>type_info.rs</code></td><td>Add new structs and lookups</td><td>1 hour</td></tr>
+                    <tr><td>Testing</td><td>Update tests for new behavior</td><td>1 hour</td></tr>
+                    <tr><td><strong>Total</strong></td><td></td><td><strong>5 hours</strong></td></tr>
+                </table>
+            </div>
+
+            <h2 id="96-success-criteria">9.6 Success Criteria</h2>
+
+            <p>The expansion is complete when all of the following criteria are met:</p>
+
+            <h3>Code Quality Metrics</h3>
+            <ol>
+                <li><strong>Zero syntactic detection in <code>smart_pointer.rs</code></strong>:
+                    <div class="code-block"><pre><span class="rust-comment"># Should return 0 matches</span>
+grep -c "contains\|starts_with\|ends_with\|== \"" borrowscope-macro/src/smart_pointer.rs</pre></div>
+                </li>
+                <li><strong>Zero method name comparisons in <code>transform_visitor.rs</code></strong>:
+                    <div class="code-block"><pre><span class="rust-comment"># Should return 0 matches</span>
+grep -c "method_name ==" borrowscope-macro/src/transform_visitor.rs</pre></div>
+                </li>
+                <li><strong><code>infer_self_borrow_type()</code> function deleted</strong>:
+                    <div class="code-block"><pre><span class="rust-comment"># Should return 0 matches</span>
+grep -c "fn infer_self_borrow_type" borrowscope-macro/src/transform_visitor.rs</pre></div>
+                </li>
+                <li><strong>All 109 patterns marked as covered</strong> — Update <code>SYNTACTIC_PATTERNS.md</code> to show ✅ for all patterns, no ❌ or ⚠️ remaining</li>
+            </ol>
+
+            <h3>Functional Verification</h3>
+            <ol start="5">
+                <li><strong>All tests pass</strong>:
+                    <div class="code-block"><pre>cargo test -p borrowscope-analyzer
+cargo test -p borrowscope-macro</pre></div>
+                </li>
+                <li><strong>Example projects produce identical output</strong> — Run all examples with and without analyzer data, verify tracking events are semantically equivalent, no regression in tracking accuracy</li>
+                <li><strong>Type coverage example achieves 100%</strong>:
+                    <div class="code-block"><pre>cargo run -p borrowscope-analyzer -- examples/type-coverage
+<span class="rust-comment"># Verify all variables have initializer_kind</span>
+<span class="rust-comment"># Verify all method calls have operation or self_borrow</span>
+<span class="rust-comment"># Verify all standalone expressions are captured</span></pre></div>
+                </li>
+            </ol>
+
+            <h3>Documentation Updates</h3>
+            <ol start="8">
+                <li>Schema documentation updated to v2.4</li>
+                <li>README updated with new capabilities</li>
+                <li><code>SYNTACTIC_PATTERNS.md</code> archived (no longer needed)</li>
+            </ol>
+
+            <h2 id="97-milestones">9.7 Milestones</h2>
+
+            <p><strong>M1: Method Call Infrastructure</strong> (Phase 1 complete)</p>
+            <ul>
+                <li>New <code>method_calls</code> field in output</li>
+                <li>13 patterns eliminated</li>
+                <li>Macro consumes method call data</li>
+            </ul>
+
+            <p><strong>M2: Expression Tracking</strong> (Phase 2 complete)</p>
+            <ul>
+                <li>New <code>expressions</code> field in output</li>
+                <li>17 patterns eliminated (cumulative)</li>
+                <li><code>thread::spawn</code> and <code>transmute</code> tracked semantically</li>
+            </ul>
+
+            <p><strong>M3: Self-Borrow Resolution</strong> (Phase 3 complete)</p>
+            <ul>
+                <li><code>self_borrow</code> field populated for all method calls</li>
+                <li>64 patterns eliminated (cumulative)</li>
+                <li><code>infer_self_borrow_type()</code> deleted from macro</li>
+            </ul>
+
+            <p><strong>M4: Complete Semantic Coverage</strong> (Phases 4-5 complete)</p>
+            <ul>
+                <li>70 patterns eliminated (all non-initializer patterns)</li>
+                <li>All success criteria met</li>
+                <li>Ready for release</li>
+            </ul>
+
+            <div class="solution-statement">
+                <p><strong>Target:</strong> 100% semantic coverage — every ownership-related operation classified through rust-analyzer's type system rather than syntactic string matching.</p>
+            </div>
+
+            <div class="coverage-table">
+                <table>
+                    <tr><th>Metric</th><th>Current</th><th>Target</th></tr>
+                    <tr><td>Semantic patterns</td><td>36 (33%)</td><td>109 (100%)</td></tr>
+                    <tr><td>Partial patterns</td><td>7 (6%)</td><td>0 (0%)</td></tr>
+                    <tr><td>Syntactic patterns</td><td>66 (61%)</td><td>0 (0%)</td></tr>
+                    <tr><td>Heuristic code in macro</td><td>~500 lines</td><td>0 lines</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Output Format - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .schema-table { margin: 1rem 0; }
+        .schema-table table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .schema-table th, .schema-table td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        .schema-table th { background: var(--code-bg); }
+        .schema-table code { font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="output-format">
+            <h1>4. Output Format</h1>
+
+            <p>The analyzer produces a JSON file containing type information for all variable bindings in the project. This file is written to <code>.borrowscope/type-info.json</code> relative to the project root, creating the directory if it does not exist.</p>
+
+            <h2 id="schema-structure">Schema Structure</h2>
+
+            <p>The output follows a hierarchical structure with project-level metadata and per-file variable information:</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.7rem; line-height: 1.25;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                         type-info.json SCHEMA (v2.3)                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  {                                                                          │
+│    "version": "2.3",              ◄─── Schema version for compatibility     │
+│    "analyzer_version": "0.1.0",   ◄─── Analyzer binary version              │
+│    "files": {                     ◄─── Map: relative path → variables       │
+│      "src/main.rs": [                                                       │
+│        {                                                                    │
+│          "name": "data",          ◄─── Variable name from source            │
+│          "ty": "Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;",  ◄─── Fully resolved type          │
+│                                                                             │
+│          // === Trait implementations (semantic via impls_trait) ===        │
+│          "is_copy": false,        ◄─── Copy trait (ty.is_copy)              │
+│          "is_clone": true,        ◄─── Clone trait (impls_trait)            │
+│          "is_send": false,        ◄─── Send trait (import_map lookup)       │
+│          "is_sync": false,        ◄─── Sync trait (impls_trait)             │
+│          "is_drop": true,         ◄─── Drop trait (impls_trait)             │
+│          "is_sized": true,        ◄─── Sized trait (impls_trait)            │
+│          "is_future": false,      ◄─── Future trait (impls_trait)           │
+│          "is_iterator": false,    ◄─── Iterator trait (impls_trait)         │
+│                                                                             │
+│          // === Type structure (semantic via Type methods) ===              │
+│          "is_primitive": false,   ◄─── i32, bool, char, etc. (as_builtin)   │
+│          "is_reference": false,   ◄─── &amp;T or &amp;mut T (is_reference)          │
+│          "is_mutable_reference": false,  ◄─── &amp;mut T (is_mutable_reference) │
+│          "is_raw_ptr": false,     ◄─── *const T or *mut T (is_raw_ptr)      │
+│          "is_slice": false,       ◄─── [T], &amp;[T], Box&lt;[T]&gt; (is_slice)      │
+│          "is_str": false,         ◄─── str type (as_builtin.is_str)         │
+│          "is_closure": false,     ◄─── Closure type (is_closure)            │
+│          "is_fn_ptr": false,      ◄─── fn(...) -&gt; ... (is_fn)              │
+│          "is_dyn_trait": false,   ◄─── dyn Trait, &amp;dyn T, Box&lt;dyn T&gt;        │
+│          "is_union": false,       ◄─── Union type (as_adt + Adt::Union)     │
+│                                                                             │
+│          // === ADT classification (semantic via canonical path) ===        │
+│          "is_rc": true,           ◄─── alloc::rc::Rc                        │
+│          "is_arc": false,         ◄─── alloc::sync::Arc                     │
+│          "is_box": false,         ◄─── alloc::boxed::Box                    │
+│          "is_weak": false,        ◄─── alloc::rc::Weak or alloc::sync::Weak │
+│          "is_refcell": true,      ◄─── core::cell::RefCell                  │
+│          "is_cell": false,        ◄─── core::cell::Cell                     │
+│          "is_mutex": false,       ◄─── std::sync::Mutex                     │
+│          "is_rwlock": false,      ◄─── std::sync::RwLock                    │
+│          "is_guard": false,       ◄─── MutexGuard, Ref, RefMut, etc.        │
+│          "is_vec": true,          ◄─── alloc::vec::Vec                      │
+│          "is_string": false,      ◄─── alloc::string::String                │
+│          "is_option": false,      ◄─── core::option::Option                 │
+│          "is_result": false,      ◄─── core::result::Result                 │
+│          "is_pin": false,         ◄─── core::pin::Pin                       │
+│          "is_cow": false,         ◄─── alloc::borrow::Cow                   │
+│          "is_once_cell": false,   ◄─── core::cell::OnceCell (v2.1+)         │
+│          "is_maybe_uninit": false,◄─── core::mem::MaybeUninit (v2.1+)       │
+│          "is_channel": false,     ◄─── mpsc::Sender/Receiver (v2.1+)        │
+│          "is_extern_type": false, ◄─── c_void, CStr, CString, OsStr, etc.   │
+│                                                                             │
+│          // === Declaration type ===                                        │
+│          "is_static": false,      ◄─── static declaration                   │
+│          "is_const": false,       ◄─── const declaration                    │
+│                                                                             │
+│          // === Binding patterns for macro transformation ===               │
+│          "is_tuple_binding": false,  ◄─── let (a, b) = ...                  │
+│          "is_mut_binding": false,    ◄─── let mut x = ...                   │
+│          "is_impl_trait": false,     ◄─── impl Trait type                   │
+│                                                                             │
+│          // === Initializer pattern (v2.1+) ===                             │
+│          "initializer_kind": "rc_new",  ◄─── Semantic init pattern          │
+│                                                                             │
+│          // === Source location ===                                         │
+│          "file": "src/main.rs",                                             │
+│          "line": 15,                                                        │
+│          "column": 8,                                                       │
+│          "span_start": 1234,      ◄─── Byte offset start                    │
+│          "span_end": 1238,        ◄─── Byte offset end                      │
+│                                                                             │
+│          // === Disambiguation (v2.2+) ===                                  │
+│          "scope_id": 5,           ◄─── Scope identifier                     │
+│          "function_name": "example",  ◄─── Containing function name         │
+│          "decl_index": 2          ◄─── Declaration order in function        │
+│        }                                                                    │
+│      ]                                                                      │
+│    },                                                                       │
+│    "by_name": {                   ◄─── Index by variable name (v2.1+)       │
+│      "data": [ ... ],             ◄─── All variables named "data"           │
+│    },                                                                       │
+│    "by_function": {               ◄─── Index by function+name (v2.2+)       │
+│      "example": {                                                           │
+│        "data": [ ... ]                                                      │
+│      }                                                                      │
+│    }                                                                        │
+│  }                                                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <h2 id="field-descriptions">Field Descriptions</h2>
+
+            <h3>Identity Fields</h3>
+            <p>The <code>name</code> field contains the variable name exactly as it appears in source code. For simple bindings like <code>let x = ...</code>, this is <code>"x"</code>. For pattern bindings like <code>let (a, b) = ...</code>, the current implementation captures the entire pattern text; future versions may decompose patterns into individual bindings.</p>
+
+            <p>The <code>file</code>, <code>line</code>, and <code>column</code> fields provide the precise source location of the binding. Line numbers are 1-indexed to match editor conventions. Column numbers indicate the start of the pattern within the line. These coordinates enable the macro to look up type information by source location.</p>
+
+            <h3>Type String</h3>
+            <p>The <code>ty</code> field contains the fully resolved type as a string, including generic parameters with their concrete types and any allocator parameters:</p>
+
+            <div class="schema-table">
+                <table>
+                    <tr><th>Source Expression</th><th>Resolved Type</th></tr>
+                    <tr><td><code>let x = 42;</code></td><td><code>i32</code></td></tr>
+                    <tr><td><code>let s = String::from("hello");</code></td><td><code>String</code></td></tr>
+                    <tr><td><code>let v = vec![1, 2, 3];</code></td><td><code>Vec&lt;i32, Global&gt;</code></td></tr>
+                    <tr><td><code>let rc = Rc::new(value);</code></td><td><code>Rc&lt;MyStruct, Global&gt;</code></td></tr>
+                    <tr><td><code>let nested = Rc::new(RefCell::new(vec![]));</code></td><td><code>Rc&lt;RefCell&lt;Vec&lt;i32, Global&gt;&gt;, Global&gt;</code></td></tr>
+                    <tr><td><code>let ptr: *const i32 = &amp;x;</code></td><td><code>*const i32</code></td></tr>
+                    <tr><td><code>let closure = |x| x + 1;</code></td><td><code>impl Fn(i32) -&gt; i32</code></td></tr>
+                    <tr><td><code>let guard = mutex.lock().unwrap();</code></td><td><code>MutexGuard&lt;'_, i32&gt;</code></td></tr>
+                    <tr><td><code>let future = async { 42 };</code></td><td><code>impl Future&lt;Output = i32&gt;</code></td></tr>
+                </table>
+            </div>
+
+            <p>The <code>Global</code> allocator parameter appears because rust-analyzer displays the full type including default generic parameters. This verbosity is intentional—it provides complete type information without ambiguity.</p>
+
+            <h3>Classification Flags</h3>
+            <p>Boolean flags provide quick classification using semantic analysis (no string parsing). These flags are not mutually exclusive—a type like <code>Rc&lt;RefCell&lt;Vec&lt;String&gt;&gt;&gt;</code> will have <code>is_rc</code>, <code>is_refcell</code>, <code>is_vec</code>, and <code>is_string</code> all set to <code>true</code>, reflecting the nested structure. Additionally, it will have <code>is_clone: true</code>, <code>is_drop: true</code>, <code>is_sized: true</code> from trait detection.</p>
+
+            <div class="schema-table">
+                <table>
+                    <tr><th>Flag</th><th>Detection Method</th><th>Purpose</th></tr>
+                    <tr><td><code>is_copy</code></td><td><code>ty.is_copy(db)</code></td><td>Copy trait - determines move vs copy semantics</td></tr>
+                    <tr><td><code>is_clone</code></td><td><code>ty.impls_trait(Clone)</code></td><td>Clone trait implementation</td></tr>
+                    <tr><td><code>is_send</code></td><td><code>ty.impls_trait(Send)</code> via import_map</td><td>Thread-safe ownership transfer</td></tr>
+                    <tr><td><code>is_sync</code></td><td><code>ty.impls_trait(Sync)</code></td><td>Thread-safe shared reference</td></tr>
+                    <tr><td><code>is_drop</code></td><td><code>ty.impls_trait(Drop)</code></td><td>Custom destructor</td></tr>
+                    <tr><td><code>is_sized</code></td><td><code>ty.impls_trait(Sized)</code></td><td>Compile-time known size</td></tr>
+                    <tr><td><code>is_future</code></td><td><code>ty.impls_trait(Future)</code></td><td>Async/Future type</td></tr>
+                    <tr><td><code>is_iterator</code></td><td><code>ty.impls_trait(Iterator)</code></td><td>Iterator type</td></tr>
+                    <tr><td><code>is_primitive</code></td><td><code>ty.as_builtin()</code></td><td>i32, bool, char, f64, etc.</td></tr>
+                    <tr><td><code>is_reference</code></td><td><code>ty.is_reference()</code></td><td>&amp;T or &amp;mut T</td></tr>
+                    <tr><td><code>is_mutable_reference</code></td><td><code>ty.is_mutable_reference()</code></td><td>&amp;mut T</td></tr>
+                    <tr><td><code>is_raw_ptr</code></td><td><code>ty.is_raw_ptr()</code></td><td>*const T or *mut T</td></tr>
+                    <tr><td><code>is_slice</code></td><td><code>ty.is_slice()</code> + inner type check</td><td>[T], &amp;[T], Box&lt;[T]&gt;</td></tr>
+                    <tr><td><code>is_str</code></td><td><code>ty.as_builtin().is_str()</code></td><td>str type</td></tr>
+                    <tr><td><code>is_closure</code></td><td><code>ty.is_closure()</code></td><td>Closure type</td></tr>
+                    <tr><td><code>is_fn_ptr</code></td><td><code>ty.is_fn()</code></td><td>fn(...) -&gt; ...</td></tr>
+                    <tr><td><code>is_dyn_trait</code></td><td><code>ty.as_dyn_trait()</code> + inner type check</td><td>dyn Trait, &amp;dyn T, Box&lt;dyn T&gt;</td></tr>
+                    <tr><td><code>is_union</code></td><td><code>ty.as_adt()</code> + <code>Adt::Union</code></td><td>Union types including MaybeUninit</td></tr>
+                    <tr><td><code>is_rc</code></td><td>ADT path == <code>alloc::rc::Rc</code></td><td>Reference-counted pointer</td></tr>
+                    <tr><td><code>is_arc</code></td><td>ADT path == <code>alloc::sync::Arc</code></td><td>Atomic reference-counted pointer</td></tr>
+                    <tr><td><code>is_box</code></td><td>ADT path == <code>alloc::boxed::Box</code></td><td>Heap allocation</td></tr>
+                    <tr><td><code>is_weak</code></td><td>ADT path == <code>alloc::rc::Weak</code> or <code>alloc::sync::Weak</code></td><td>Weak reference</td></tr>
+                    <tr><td><code>is_refcell</code></td><td>ADT path == <code>core::cell::RefCell</code></td><td>Runtime borrow checking</td></tr>
+                    <tr><td><code>is_cell</code></td><td>ADT path == <code>core::cell::Cell</code></td><td>Copy-based interior mutability</td></tr>
+                    <tr><td><code>is_mutex</code></td><td>ADT path == <code>std::sync::Mutex</code></td><td>Thread-safe lock</td></tr>
+                    <tr><td><code>is_rwlock</code></td><td>ADT path == <code>std::sync::RwLock</code></td><td>Reader-writer lock</td></tr>
+                    <tr><td><code>is_guard</code></td><td>ADT path matches guard types</td><td>MutexGuard, Ref, RefMut, etc.</td></tr>
+                    <tr><td><code>is_vec</code></td><td>ADT path == <code>alloc::vec::Vec</code></td><td>Dynamic array</td></tr>
+                    <tr><td><code>is_string</code></td><td>ADT path == <code>alloc::string::String</code></td><td>Owned string</td></tr>
+                    <tr><td><code>is_option</code></td><td>ADT path == <code>core::option::Option</code></td><td>Optional value</td></tr>
+                    <tr><td><code>is_result</code></td><td>ADT path == <code>core::result::Result</code></td><td>Result type</td></tr>
+                    <tr><td><code>is_pin</code></td><td>ADT path == <code>core::pin::Pin</code></td><td>Pinned pointer</td></tr>
+                    <tr><td><code>is_cow</code></td><td>ADT path == <code>alloc::borrow::Cow</code></td><td>Clone-on-write</td></tr>
+                    <tr><td><code>is_once_cell</code></td><td>ADT path == <code>core::cell::OnceCell</code> or <code>std::sync::OnceLock</code></td><td>Lazy initialization</td></tr>
+                    <tr><td><code>is_maybe_uninit</code></td><td>ADT path == <code>core::mem::MaybeUninit</code></td><td>Uninitialized memory</td></tr>
+                    <tr><td><code>is_channel</code></td><td>ADT path matches mpsc Sender/Receiver</td><td>Channel endpoints</td></tr>
+                    <tr><td><code>is_extern_type</code></td><td>ADT path matches FFI types</td><td>c_void, CStr, CString, OsStr, etc.</td></tr>
+                    <tr><td><code>is_static</code></td><td>Declaration syntax</td><td>static declaration</td></tr>
+                    <tr><td><code>is_const</code></td><td>Declaration syntax</td><td>const declaration</td></tr>
+                    <tr><td><code>is_tuple_binding</code></td><td>Pattern syntax</td><td>let (a, b) = ...</td></tr>
+                    <tr><td><code>is_mut_binding</code></td><td>Pattern syntax</td><td>let mut x = ...</td></tr>
+                    <tr><td><code>is_impl_trait</code></td><td>Type annotation syntax</td><td>impl Trait type</td></tr>
+                </table>
+            </div>
+
+
+            <h3>Binding Pattern Flags (for Macro Transformation)</h3>
+            <p>The following flags help the macro make better transformation decisions based on the <a href="https://mehmet-ylcnky.github.io/BorrowScope/battle-test-whitepaper/">battle test whitepaper</a> error taxonomy:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Flag</th><th>Battle Test Error</th><th>Macro Action</th></tr>
+                    <tr><td><code>is_tuple_binding</code></td><td>ERR-002: Tuple destructuring</td><td>Skip tracking or handle specially</td></tr>
+                    <tr><td><code>is_mut_binding</code></td><td>Pattern syntax</td><td>let mut x = ...</td></tr>
+                    <tr><td><code>is_impl_trait</code></td><td>Type annotation syntax</td><td>impl Trait type</td></tr>
+                </table>
+            </div>
+
+            <h2 id="initializer-pattern">Initializer Pattern <span style="font-size:0.75em;color:var(--text-color);font-weight:normal">(v2.1+)</span></h2>
+
+            <p>The <code>initializer_kind</code> field captures the semantic pattern of the variable's initializer expression. This enables the macro to select the most appropriate tracking function based on how the variable was created, not just its type. The analyzer uses fully semantic type resolution to classify initializers into <strong>78 distinct categories</strong>.</p>
+
+            <h3>Expression-Level Classification</h3>
+            <p>The top-level expression type determines the initial classification:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Expression Type</th><th><code>initializer_kind</code></th><th>Example</th><th>Description</th></tr>
+                    <tr><td><code>Literal</code></td><td><code>literal</code></td><td><code>let x = 42;</code></td><td>Numeric, string, bool, char literals</td></tr>
+                    <tr><td><code>CallExpr</code></td><td>(see Function Calls)</td><td><code>let x = foo();</code></td><td>Function or constructor call</td></tr>
+                    <tr><td><code>MethodCallExpr</code></td><td>(see Method Calls)</td><td><code>let x = y.bar();</code></td><td>Method invocation</td></tr>
+                    <tr><td><code>BlockExpr</code></td><td><code>block</code></td><td><code>let x = { ... };</code></td><td>Block expression</td></tr>
+                    <tr><td><code>IfExpr</code></td><td><code>if</code></td><td><code>let x = if c { a } else { b };</code></td><td>Conditional expression</td></tr>
+                    <tr><td><code>MatchExpr</code></td><td><code>match</code></td><td><code>let x = match v { ... };</code></td><td>Pattern matching</td></tr>
+                    <tr><td><code>ClosureExpr</code></td><td><code>closure</code></td><td><code>let f = |x| x + 1;</code></td><td>Closure definition</td></tr>
+                    <tr><td><code>RefExpr</code></td><td><code>ref</code> / <code>ref_mut</code></td><td><code>let r = &amp;x;</code> / <code>let r = &amp;mut x;</code></td><td>Reference creation</td></tr>
+                    <tr><td><code>PathExpr</code></td><td><code>path</code></td><td><code>let x = some_var;</code></td><td>Variable or constant reference</td></tr>
+                    <tr><td><code>MacroExpr</code></td><td>(see Macros)</td><td><code>let v = vec![1,2,3];</code></td><td>Macro invocation</td></tr>
+                    <tr><td><code>AwaitExpr</code></td><td><code>await</code></td><td><code>let x = fut.await;</code></td><td>Async await</td></tr>
+                    <tr><td><code>TryExpr</code></td><td><code>try</code></td><td><code>let x = fallible()?;</code></td><td>Try operator</td></tr>
+                    <tr><td><code>TupleExpr</code></td><td><code>tuple</code></td><td><code>let t = (1, 2, 3);</code></td><td>Tuple construction</td></tr>
+                    <tr><td><code>ArrayExpr</code></td><td><code>array</code></td><td><code>let a = [1, 2, 3];</code></td><td>Array construction</td></tr>
+                    <tr><td><code>IndexExpr</code></td><td><code>index</code></td><td><code>let x = arr[0];</code></td><td>Index operation</td></tr>
+                    <tr><td><code>FieldExpr</code></td><td><code>field</code></td><td><code>let x = s.field;</code></td><td>Field access</td></tr>
+                    <tr><td><code>CastExpr</code></td><td><code>cast</code></td><td><code>let x = y as i32;</code></td><td>Type cast</td></tr>
+                    <tr><td><code>RecordExpr</code></td><td><code>struct_literal</code></td><td><code>let s = Struct { ... };</code></td><td>Struct literal</td></tr>
+                    <tr><td><code>RangeExpr</code></td><td><code>range</code></td><td><code>let r = 0..10;</code></td><td>Range expression</td></tr>
+                    <tr><td><code>BinExpr</code></td><td><code>binary</code></td><td><code>let x = a + b;</code></td><td>Binary operation</td></tr>
+                    <tr><td><code>PrefixExpr</code> (deref)</td><td><code>deref</code></td><td><code>let x = *ptr;</code></td><td>Dereference</td></tr>
+                    <tr><td><code>PrefixExpr</code> (not)</td><td><code>not</code></td><td><code>let x = !flag;</code></td><td>Logical not</td></tr>
+                    <tr><td><code>PrefixExpr</code> (neg)</td><td><code>neg</code></td><td><code>let x = -val;</code></td><td>Negation</td></tr>
+                    <tr><td><code>LoopExpr</code></td><td><code>loop</code></td><td><code>let x = loop { break 42; };</code></td><td>Loop expression</td></tr>
+                    <tr><td><code>WhileExpr</code></td><td><code>while</code></td><td><code>let x = while c { ... };</code></td><td>While loop</td></tr>
+                    <tr><td><code>ForExpr</code></td><td><code>for</code></td><td><code>let x = for i in iter { ... };</code></td><td>For loop</td></tr>
+                    <tr><td><code>ReturnExpr</code></td><td><code>return</code></td><td><code>let x = return;</code></td><td>Return expression</td></tr>
+                    <tr><td><code>BreakExpr</code></td><td><code>break</code></td><td><code>let x = break;</code></td><td>Break expression</td></tr>
+                    <tr><td><code>ContinueExpr</code></td><td><code>continue</code></td><td><code>let x = continue;</code></td><td>Continue expression</td></tr>
+                    <tr><td><code>YieldExpr</code></td><td><code>yield</code></td><td><code>let x = yield val;</code></td><td>Generator yield</td></tr>
+                    <tr><td><code>YeetExpr</code></td><td><code>yeet</code></td><td><code>let x = yeet err;</code></td><td>Yeet expression</td></tr>
+                    <tr><td><code>AsmExpr</code></td><td><code>asm</code></td><td><code>let x = asm!(...);</code></td><td>Inline assembly</td></tr>
+                    <tr><td><code>FormatArgsExpr</code></td><td><code>format_args</code></td><td><code>let x = format_args!(...);</code></td><td>Format arguments</td></tr>
+                    <tr><td><code>OffsetOfExpr</code></td><td><code>offset_of</code></td><td><code>let x = offset_of!(...);</code></td><td>Offset of field</td></tr>
+                </table>
+            </div>
+
+            <h3>Smart Pointer Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Rc creation</td><td><code>rc_new</code></td><td><code>Rc::new</code>, <code>std::rc::Rc::new</code>, <code>alloc::rc::Rc::new</code></td></tr>
+                    <tr><td>Arc creation</td><td><code>arc_new</code></td><td><code>Arc::new</code>, <code>std::sync::Arc::new</code>, <code>alloc::sync::Arc::new</code></td></tr>
+                    <tr><td>Box creation</td><td><code>box_new</code></td><td><code>Box::new</code>, <code>std::boxed::Box::new</code>, <code>alloc::boxed::Box::new</code></td></tr>
+                    <tr><td>Box::pin</td><td><code>box_pin</code></td><td><code>Box::pin</code>, <code>std::boxed::Box::pin</code></td></tr>
+                    <tr><td>Rc clone</td><td><code>rc_clone</code></td><td><code>Rc::clone</code>, <code>std::rc::Rc::clone</code></td></tr>
+                    <tr><td>Arc clone</td><td><code>arc_clone</code></td><td><code>Arc::clone</code>, <code>std::sync::Arc::clone</code></td></tr>
+                    <tr><td>Weak creation</td><td><code>weak_new</code></td><td><code>Weak::new</code>, <code>std::rc::Weak::new</code>, <code>std::sync::Weak::new</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Interior Mutability Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>RefCell creation</td><td><code>refcell_new</code></td><td><code>RefCell::new</code>, <code>std::cell::RefCell::new</code>, <code>core::cell::RefCell::new</code></td></tr>
+                    <tr><td>Cell creation</td><td><code>cell_new</code></td><td><code>Cell::new</code>, <code>std::cell::Cell::new</code>, <code>core::cell::Cell::new</code></td></tr>
+                    <tr><td>Mutex creation</td><td><code>mutex_new</code></td><td><code>Mutex::new</code>, <code>std::sync::Mutex::new</code></td></tr>
+                    <tr><td>RwLock creation</td><td><code>rwlock_new</code></td><td><code>RwLock::new</code>, <code>std::sync::RwLock::new</code></td></tr>
+                    <tr><td>UnsafeCell creation</td><td><code>unsafe_cell_new</code></td><td><code>UnsafeCell::new</code>, <code>std::cell::UnsafeCell::new</code>, <code>core::cell::UnsafeCell::new</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Lazy Initialization</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>OnceCell creation</td><td><code>once_cell_new</code></td><td><code>OnceCell::new</code>, <code>std::cell::OnceCell::new</code>, <code>core::cell::OnceCell::new</code></td></tr>
+                    <tr><td>OnceLock creation</td><td><code>once_lock_new</code></td><td><code>OnceLock::new</code>, <code>std::sync::OnceLock::new</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Uninitialized Memory</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>MaybeUninit uninit</td><td><code>maybe_uninit_uninit</code></td><td><code>MaybeUninit::uninit</code>, <code>std::mem::MaybeUninit::uninit</code>, <code>core::mem::MaybeUninit::uninit</code></td></tr>
+                    <tr><td>MaybeUninit new</td><td><code>maybe_uninit_new</code></td><td><code>MaybeUninit::new</code>, <code>std::mem::MaybeUninit::new</code>, <code>core::mem::MaybeUninit::new</code></td></tr>
+                    <tr><td>MaybeUninit zeroed</td><td><code>maybe_uninit_zeroed</code></td><td><code>MaybeUninit::zeroed</code>, <code>std::mem::MaybeUninit::zeroed</code>, <code>core::mem::MaybeUninit::zeroed</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Channels</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Channel creation</td><td><code>channel_new</code></td><td><code>channel</code>, <code>std::sync::mpsc::channel</code></td></tr>
+                    <tr><td>Sync channel</td><td><code>sync_channel_new</code></td><td><code>sync_channel</code>, <code>std::sync::mpsc::sync_channel</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Pin</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Pin creation</td><td><code>pin_new</code></td><td><code>Pin::new</code>, <code>std::pin::Pin::new</code>, <code>core::pin::Pin::new</code></td></tr>
+                    <tr><td>Pin unchecked</td><td><code>pin_new_unchecked</code></td><td><code>Pin::new_unchecked</code>, <code>std::pin::Pin::new_unchecked</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Cow (Clone-on-Write)</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Cow borrowed</td><td><code>cow_borrowed</code></td><td><code>Cow::Borrowed</code>, <code>std::borrow::Cow::Borrowed</code></td></tr>
+                    <tr><td>Cow owned</td><td><code>cow_owned</code></td><td><code>Cow::Owned</code>, <code>std::borrow::Cow::Owned</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Option/Result Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Some variant</td><td><code>option_some</code></td><td><code>Some</code>, <code>core::option::Option::Some</code>, <code>std::option::Option::Some</code></td></tr>
+                    <tr><td>None variant (call)</td><td><code>option_none</code></td><td><code>None()</code>, <code>core::option::Option::None()</code> (as function call)</td></tr>
+                    <tr><td>None variant (path)</td><td><code>none</code></td><td><code>None</code>, <code>Option::None</code> (as path expression)</td></tr>
+                    <tr><td>Ok variant</td><td><code>result_ok</code></td><td><code>Ok</code>, <code>core::result::Result::Ok</code>, <code>std::result::Result::Ok</code></td></tr>
+                    <tr><td>Err variant</td><td><code>result_err</code></td><td><code>Err</code>, <code>core::result::Result::Err</code>, <code>std::result::Result::Err</code></td></tr>
+                </table>
+            </div>
+
+            <h3>String Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>String::new</td><td><code>string_new</code></td><td><code>String::new</code>, <code>std::string::String::new</code>, <code>alloc::string::String::new</code></td></tr>
+                    <tr><td>String::from</td><td><code>string_from</code></td><td><code>String::from</code>, <code>std::string::String::from</code>, <code>alloc::string::String::from</code></td></tr>
+                    <tr><td>String::with_capacity</td><td><code>string_with_capacity</code></td><td><code>String::with_capacity</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Vec Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Vec::new</td><td><code>vec_new</code></td><td><code>Vec::new</code>, <code>std::vec::Vec::new</code>, <code>alloc::vec::Vec::new</code></td></tr>
+                    <tr><td>Vec::with_capacity</td><td><code>vec_with_capacity</code></td><td><code>Vec::with_capacity</code>, <code>std::vec::Vec::with_capacity</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Collection Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>HashMap::new</td><td><code>hashmap_new</code></td><td><code>HashMap::new</code>, <code>std::collections::HashMap::new</code></td></tr>
+                    <tr><td>HashSet::new</td><td><code>hashset_new</code></td><td><code>HashSet::new</code>, <code>std::collections::HashSet::new</code></td></tr>
+                    <tr><td>BTreeMap::new</td><td><code>btreemap_new</code></td><td><code>BTreeMap::new</code>, <code>std::collections::BTreeMap::new</code></td></tr>
+                    <tr><td>BTreeSet::new</td><td><code>btreeset_new</code></td><td><code>BTreeSet::new</code>, <code>std::collections::BTreeSet::new</code></td></tr>
+                    <tr><td>VecDeque::new</td><td><code>vecdeque_new</code></td><td><code>VecDeque::new</code>, <code>std::collections::VecDeque::new</code></td></tr>
+                    <tr><td>LinkedList::new</td><td><code>linkedlist_new</code></td><td><code>LinkedList::new</code>, <code>std::collections::LinkedList::new</code></td></tr>
+                    <tr><td>BinaryHeap::new</td><td><code>binaryheap_new</code></td><td><code>BinaryHeap::new</code>, <code>std::collections::BinaryHeap::new</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Path and FFI Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>PathBuf::new</td><td><code>pathbuf_new</code></td><td><code>PathBuf::new</code>, <code>std::path::PathBuf::new</code></td></tr>
+                    <tr><td>PathBuf::from</td><td><code>pathbuf_from</code></td><td><code>PathBuf::from</code>, <code>std::path::PathBuf::from</code></td></tr>
+                    <tr><td>OsString::new</td><td><code>osstring_new</code></td><td><code>OsString::new</code>, <code>std::ffi::OsString::new</code></td></tr>
+                    <tr><td>OsString::from</td><td><code>osstring_from</code></td><td><code>OsString::from</code>, <code>std::ffi::OsString::from</code></td></tr>
+                    <tr><td>CString::new</td><td><code>cstring_new</code></td><td><code>CString::new</code>, <code>std::ffi::CString::new</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Raw Pointer Constructors</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Null pointer</td><td><code>ptr_null</code></td><td><code>ptr::null</code>, <code>std::ptr::null</code>, <code>core::ptr::null</code></td></tr>
+                    <tr><td>Null mut pointer</td><td><code>ptr_null_mut</code></td><td><code>ptr::null_mut</code>, <code>std::ptr::null_mut</code>, <code>core::ptr::null_mut</code></td></tr>
+                    <tr><td>NonNull::new</td><td><code>nonnull_new</code></td><td><code>NonNull::new</code>, <code>std::ptr::NonNull::new</code>, <code>core::ptr::NonNull::new</code></td></tr>
+                    <tr><td>NonNull::dangling</td><td><code>nonnull_dangling</code></td><td><code>NonNull::dangling</code>, <code>std::ptr::NonNull::dangling</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Box Raw Pointer Operations</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Box::into_raw</td><td><code>box_into_raw</code></td><td><code>Box::into_raw</code>, <code>std::boxed::Box::into_raw</code></td></tr>
+                    <tr><td>Box::from_raw</td><td><code>box_from_raw</code></td><td><code>Box::from_raw</code>, <code>std::boxed::Box::from_raw</code></td></tr>
+                </table>
+            </div>
+
+            <h3>ManuallyDrop</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>ManuallyDrop::new</td><td><code>manually_drop_new</code></td><td><code>ManuallyDrop::new</code>, <code>std::mem::ManuallyDrop::new</code>, <code>core::mem::ManuallyDrop::new</code></td></tr>
+                    <tr><td>ManuallyDrop::into_inner</td><td><code>manually_drop_into_inner</code></td><td><code>ManuallyDrop::into_inner</code>, <code>std::mem::ManuallyDrop::into_inner</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Atomics</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>AtomicBool::new</td><td><code>atomic_bool_new</code></td><td><code>AtomicBool::new</code>, <code>std::sync::atomic::AtomicBool::new</code></td></tr>
+                    <tr><td>AtomicI8–I64::new</td><td><code>atomic_i{N}_new</code></td><td><code>AtomicI{N}::new</code>, <code>std::sync::atomic::AtomicI{N}::new</code></td></tr>
+                    <tr><td>AtomicIsize::new</td><td><code>atomic_isize_new</code></td><td><code>AtomicIsize::new</code>, <code>std::sync::atomic::AtomicIsize::new</code></td></tr>
+                    <tr><td>AtomicU8–U64::new</td><td><code>atomic_u{N}_new</code></td><td><code>AtomicU{N}::new</code>, <code>std::sync::atomic::AtomicU{N}::new</code></td></tr>
+                    <tr><td>AtomicUsize::new</td><td><code>atomic_usize_new</code></td><td><code>AtomicUsize::new</code>, <code>std::sync::atomic::AtomicUsize::new</code></td></tr>
+                    <tr><td>AtomicPtr::new</td><td><code>atomic_ptr_new</code></td><td><code>AtomicPtr::new</code>, <code>std::sync::atomic::AtomicPtr::new</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Time</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Duration::new</td><td><code>duration_new</code></td><td><code>Duration::new</code>, <code>std::time::Duration::new</code></td></tr>
+                    <tr><td>Duration::from_secs</td><td><code>duration_from_secs</code></td><td><code>Duration::from_secs</code>, <code>std::time::Duration::from_secs</code></td></tr>
+                    <tr><td>Duration::from_millis</td><td><code>duration_from_millis</code></td><td><code>Duration::from_millis</code>, <code>std::time::Duration::from_millis</code></td></tr>
+                    <tr><td>Duration::from_micros</td><td><code>duration_from_micros</code></td><td><code>Duration::from_micros</code>, <code>std::time::Duration::from_micros</code></td></tr>
+                    <tr><td>Duration::from_nanos</td><td><code>duration_from_nanos</code></td><td><code>Duration::from_nanos</code>, <code>std::time::Duration::from_nanos</code></td></tr>
+                    <tr><td>Duration::from_secs_f32/f64</td><td><code>duration_from_secs_f</code></td><td><code>Duration::from_secs_f32</code>, <code>Duration::from_secs_f64</code></td></tr>
+                    <tr><td>Instant::now</td><td><code>instant_now</code></td><td><code>Instant::now</code>, <code>std::time::Instant::now</code></td></tr>
+                    <tr><td>SystemTime::now</td><td><code>system_time_now</code></td><td><code>SystemTime::now</code>, <code>std::time::SystemTime::now</code></td></tr>
+                </table>
+            </div>
+
+            <h3>IO</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Cursor::new</td><td><code>cursor_new</code></td><td><code>Cursor::new</code>, <code>std::io::Cursor::new</code></td></tr>
+                    <tr><td>BufReader::new</td><td><code>bufreader_new</code></td><td><code>BufReader::new</code>, <code>std::io::BufReader::new</code></td></tr>
+                    <tr><td>BufReader::with_capacity</td><td><code>bufreader_with_capacity</code></td><td><code>BufReader::with_capacity</code></td></tr>
+                    <tr><td>BufWriter::new</td><td><code>bufwriter_new</code></td><td><code>BufWriter::new</code>, <code>std::io::BufWriter::new</code></td></tr>
+                    <tr><td>BufWriter::with_capacity</td><td><code>bufwriter_with_capacity</code></td><td><code>BufWriter::with_capacity</code></td></tr>
+                    <tr><td>File::open</td><td><code>file_open</code></td><td><code>File::open</code>, <code>std::fs::File::open</code></td></tr>
+                    <tr><td>File::create</td><td><code>file_create</code></td><td><code>File::create</code>, <code>std::fs::File::create</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Ordering, Poll &amp; Panic Support</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Ordering::Less/Equal/Greater</td><td><code>ordering_less</code> / <code>ordering_equal</code> / <code>ordering_greater</code></td><td><code>Ordering::*</code>, <code>std::cmp::Ordering::*</code></td></tr>
+                    <tr><td>Poll::Ready</td><td><code>poll_ready</code></td><td><code>Poll::Ready</code>, <code>std::task::Poll::Ready</code></td></tr>
+                    <tr><td>Poll::Pending</td><td><code>poll_pending</code></td><td><code>Poll::Pending</code>, <code>std::task::Poll::Pending</code></td></tr>
+                    <tr><td>Location::caller</td><td><code>location_caller</code></td><td><code>Location::caller</code>, <code>std::panic::Location::caller</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Trait Methods</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Matched Paths</th></tr>
+                    <tr><td>Default::default</td><td><code>default</code></td><td><code>Default::default</code>, <code>std::default::Default::default</code>, <code>core::default::Default::default</code></td></tr>
+                    <tr><td>Clone (generic)</td><td><code>clone</code></td><td>Any path ending in <code>::clone</code></td></tr>
+                </table>
+            </div>
+
+            <h3>Semantic Type Classification <span style="font-size:0.75em;color:var(--text-color);font-weight:normal">(v2.3+)</span></h3>
+            <p>The analyzer applies <strong>semantic type classification</strong> to ALL expressions using rust-analyzer's type resolution. This approach examines the resolved type to classify the initializer, with expression structure (call, method, macro, etc.) used only as context:</p>
+
+            <h4>ADT Classification by Canonical Path</h4>
+            <p>For types that resolve to an ADT (struct, enum, or union), the analyzer extracts the canonical module path and classifies accordingly:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Resolved Type Path</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>alloc::rc::Rc</code></td><td><code>rc_new</code></td><td><code>let x = create_rc();</code> where return type is <code>Rc&lt;T&gt;</code></td></tr>
+                    <tr><td><code>alloc::sync::Arc</code></td><td><code>arc_new</code></td><td>Factory function returning <code>Arc&lt;T&gt;</code></td></tr>
+                    <tr><td><code>core::option::Option</code></td><td><code>option_variant</code></td><td>Any function returning <code>Option&lt;T&gt;</code></td></tr>
+                    <tr><td><code>core::result::Result</code></td><td><code>result_variant</code></td><td>Any function returning <code>Result&lt;T, E&gt;</code></td></tr>
+                    <tr><td>(70+ standard library types)</td><td>(type-specific)</td><td>See full list in source</td></tr>
+                </table>
+            </div>
+
+            <h4>User-Defined Types</h4>
+            <p>When the resolved type is a user-defined ADT (not from std/core/alloc), classification is by ADT kind:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>ADT Kind</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td>Struct</td><td><code>user_struct</code></td><td><code>let p = Point::new(1, 2);</code></td></tr>
+                    <tr><td>Enum</td><td><code>user_enum</code></td><td><code>let s = Status::Active;</code></td></tr>
+                    <tr><td>Union</td><td><code>user_union</code></td><td><code>let u = MyUnion::new();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>impl Trait Types</h4>
+            <p>For opaque <code>impl Trait</code> return types, the analyzer extracts the primary trait bound:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Trait Bound</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>Future</code></td><td><code>impl_future</code></td><td><code>let f = async_fn();</code> returning <code>impl Future&lt;Output = T&gt;</code></td></tr>
+                    <tr><td><code>Iterator</code></td><td><code>impl_iterator</code></td><td><code>let i = get_iter();</code> returning <code>impl Iterator&lt;Item = T&gt;</code></td></tr>
+                    <tr><td><code>Fn</code>/<code>FnMut</code>/<code>FnOnce</code></td><td><code>impl_fn</code></td><td><code>let f = get_closure();</code> returning <code>impl Fn(T) -&gt; U</code></td></tr>
+                    <tr><td>Other traits</td><td><code>impl_{trait_name}</code></td><td>Lowercase trait name</td></tr>
+                </table>
+            </div>
+
+            <h4>Other Semantic Classifications</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Type Category</th><th><code>initializer_kind</code></th><th>Detection Method</th></tr>
+                    <tr><td>Primitives</td><td><code>primitive</code></td><td><code>ty.as_builtin()</code> - i32, bool, char, etc.</td></tr>
+                    <tr><td>str</td><td><code>str</code></td><td><code>ty.as_builtin().is_str()</code></td></tr>
+                    <tr><td>Closures</td><td><code>closure</code></td><td><code>ty.is_closure()</code></td></tr>
+                    <tr><td>Function pointers</td><td><code>fn_ptr</code></td><td><code>ty.is_fn()</code></td></tr>
+                    <tr><td>References</td><td><code>ref</code> / <code>ref_mut</code></td><td><code>ty.is_reference()</code></td></tr>
+                    <tr><td>Raw pointers</td><td><code>raw_ptr</code></td><td><code>ty.is_raw_ptr()</code></td></tr>
+                    <tr><td>Tuples</td><td><code>tuple</code></td><td><code>let (tx, rx) = channel();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Fallback</h4>
+            <p>With semantic classification, the <code>call</code> fallback is now rare and only occurs when the type cannot be resolved (e.g., in files outside the crate graph) or the type is truly unknown to rust-analyzer:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Pattern</th><th><code>initializer_kind</code></th><th>Description</th></tr>
+                    <tr><td>Unresolved call</td><td><code>call</code></td><td>Function call with unresolvable return type</td></tr>
+                </table>
+            </div>
+
+            <h3>Method Call Classification</h3>
+            <p>When the initializer is a method call, the analyzer examines the method name:</p>
+
+            <h4>RefCell Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>borrow</code></td><td><code>refcell_borrow</code></td><td><code>let r = cell.borrow();</code></td></tr>
+                    <tr><td><code>borrow_mut</code></td><td><code>refcell_borrow_mut</code></td><td><code>let r = cell.borrow_mut();</code></td></tr>
+                    <tr><td><code>try_borrow</code></td><td><code>refcell_try_borrow</code></td><td><code>let r = cell.try_borrow();</code></td></tr>
+                    <tr><td><code>try_borrow_mut</code></td><td><code>refcell_try_borrow_mut</code></td><td><code>let r = cell.try_borrow_mut();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Cell Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>get</code></td><td><code>cell_get</code></td><td><code>let v = cell.get();</code></td></tr>
+                    <tr><td><code>set</code></td><td><code>cell_set</code></td><td><code>let _ = cell.set(v);</code></td></tr>
+                    <tr><td><code>replace</code></td><td><code>cell_replace</code></td><td><code>let old = cell.replace(new);</code></td></tr>
+                    <tr><td><code>take</code></td><td><code>cell_take</code></td><td><code>let v = cell.take();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Mutex/RwLock Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>lock</code></td><td><code>mutex_lock</code></td><td><code>let guard = mutex.lock().unwrap();</code></td></tr>
+                    <tr><td><code>try_lock</code></td><td><code>mutex_try_lock</code></td><td><code>let guard = mutex.try_lock();</code></td></tr>
+                    <tr><td><code>read</code></td><td><code>rwlock_read</code></td><td><code>let guard = rwlock.read().unwrap();</code></td></tr>
+                    <tr><td><code>write</code></td><td><code>rwlock_write</code></td><td><code>let guard = rwlock.write().unwrap();</code></td></tr>
+                    <tr><td><code>try_read</code></td><td><code>rwlock_try_read</code></td><td><code>let guard = rwlock.try_read();</code></td></tr>
+                    <tr><td><code>try_write</code></td><td><code>rwlock_try_write</code></td><td><code>let guard = rwlock.try_write();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>OnceCell Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>get_or_init</code></td><td><code>once_cell_get_or_init</code></td><td><code>let v = cell.get_or_init(|| 42);</code></td></tr>
+                    <tr><td><code>get_or_try_init</code></td><td><code>once_cell_get_or_try_init</code></td><td><code>let v = cell.get_or_try_init(|| Ok(42));</code></td></tr>
+                </table>
+            </div>
+
+            <h4>MaybeUninit Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>assume_init</code></td><td><code>maybe_uninit_assume_init</code></td><td><code>let v = uninit.assume_init();</code></td></tr>
+                    <tr><td><code>assume_init_read</code></td><td><code>maybe_uninit_assume_init_read</code></td><td><code>let v = uninit.assume_init_read();</code></td></tr>
+                    <tr><td><code>assume_init_ref</code></td><td><code>maybe_uninit_assume_init_ref</code></td><td><code>let r = uninit.assume_init_ref();</code></td></tr>
+                    <tr><td><code>assume_init_mut</code></td><td><code>maybe_uninit_assume_init_mut</code></td><td><code>let r = uninit.assume_init_mut();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Weak Pointer Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>downgrade</code></td><td><code>weak_downgrade</code></td><td><code>let weak = Rc::downgrade(&amp;rc);</code></td></tr>
+                    <tr><td><code>upgrade</code></td><td><code>weak_upgrade</code></td><td><code>let strong = weak.upgrade();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Cow Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>to_mut</code></td><td><code>cow_to_mut</code></td><td><code>let m = cow.to_mut();</code></td></tr>
+                    <tr><td><code>into_owned</code></td><td><code>cow_into_owned</code></td><td><code>let owned = cow.into_owned();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Pin Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>as_ref</code></td><td><code>pin_as_ref</code></td><td><code>let r = pin.as_ref();</code></td></tr>
+                    <tr><td><code>as_mut</code></td><td><code>pin_as_mut</code></td><td><code>let r = pin.as_mut();</code></td></tr>
+                    <tr><td><code>into_inner</code></td><td><code>into_inner</code></td><td><code>let v = pin.into_inner();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Atomic Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>load</code></td><td><code>atomic_load</code></td><td><code>let v = atomic.load(Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>store</code></td><td><code>atomic_store</code></td><td><code>atomic.store(v, Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>swap</code></td><td><code>atomic_swap</code></td><td><code>let old = atomic.swap(new, Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>compare_exchange</code></td><td><code>atomic_compare_exchange</code></td><td><code>let r = atomic.compare_exchange(...);</code></td></tr>
+                    <tr><td><code>compare_exchange_weak</code></td><td><code>atomic_compare_exchange_weak</code></td><td><code>let r = atomic.compare_exchange_weak(...);</code></td></tr>
+                    <tr><td><code>fetch_add</code></td><td><code>atomic_fetch_add</code></td><td><code>let old = atomic.fetch_add(1, Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>fetch_sub</code></td><td><code>atomic_fetch_sub</code></td><td><code>let old = atomic.fetch_sub(1, Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>fetch_and</code> / <code>fetch_or</code> / <code>fetch_xor</code></td><td><code>atomic_fetch_{op}</code></td><td><code>let old = atomic.fetch_and(mask, Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>fetch_max</code> / <code>fetch_min</code></td><td><code>atomic_fetch_{op}</code></td><td><code>let old = atomic.fetch_max(val, Ordering::SeqCst);</code></td></tr>
+                    <tr><td><code>fetch_update</code></td><td><code>atomic_fetch_update</code></td><td><code>let r = atomic.fetch_update(...);</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Duration/Instant Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>as_secs</code></td><td><code>duration_as_secs</code></td><td><code>let s = duration.as_secs();</code></td></tr>
+                    <tr><td><code>as_millis</code></td><td><code>duration_as_millis</code></td><td><code>let ms = duration.as_millis();</code></td></tr>
+                    <tr><td><code>as_micros</code></td><td><code>duration_as_micros</code></td><td><code>let us = duration.as_micros();</code></td></tr>
+                    <tr><td><code>as_nanos</code></td><td><code>duration_as_nanos</code></td><td><code>let ns = duration.as_nanos();</code></td></tr>
+                    <tr><td><code>as_secs_f32</code>/<code>as_secs_f64</code></td><td><code>duration_as_secs_f</code></td><td><code>let s = duration.as_secs_f64();</code></td></tr>
+                    <tr><td><code>elapsed</code></td><td><code>instant_elapsed</code></td><td><code>let d = instant.elapsed();</code></td></tr>
+                    <tr><td><code>duration_since</code></td><td><code>instant_duration_since</code></td><td><code>let d = instant.duration_since(earlier);</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Iterator Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>iter</code></td><td><code>iter</code></td><td><code>let it = vec.iter();</code></td></tr>
+                    <tr><td><code>iter_mut</code></td><td><code>iter_mut</code></td><td><code>let it = vec.iter_mut();</code></td></tr>
+                    <tr><td><code>into_iter</code></td><td><code>into_iter</code></td><td><code>let it = vec.into_iter();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Common Combinator Methods</h4>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>unwrap</code></td><td><code>unwrap</code></td><td><code>let v = opt.unwrap();</code></td></tr>
+                    <tr><td><code>expect</code></td><td><code>expect</code></td><td><code>let v = opt.expect("msg");</code></td></tr>
+                    <tr><td><code>map</code></td><td><code>map</code></td><td><code>let v = opt.map(|x| x + 1);</code></td></tr>
+                    <tr><td><code>and_then</code></td><td><code>and_then</code></td><td><code>let v = opt.and_then(|x| Some(x));</code></td></tr>
+                    <tr><td><code>ok</code></td><td><code>ok</code></td><td><code>let opt = result.ok();</code></td></tr>
+                    <tr><td><code>err</code></td><td><code>err</code></td><td><code>let opt = result.err();</code></td></tr>
+                    <tr><td><code>clone</code></td><td><code>clone</code></td><td><code>let c = val.clone();</code></td></tr>
+                </table>
+            </div>
+
+            <h4>Method Fallback</h4>
+            <p>For method calls not matching known patterns, the analyzer applies semantic type classification based on the resolved return type. This means methods like <code>.iter().map().filter()</code> chains are classified by their final return type rather than falling back to a generic <code>method</code> classification.</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Method</th><th><code>initializer_kind</code></th><th>Description</th></tr>
+                    <tr><td>Unknown method</td><td>(semantic)</td><td>Classified by resolved return type</td></tr>
+                    <tr><td>Unresolved method</td><td><code>method</code></td><td>Method with unresolvable return type</td></tr>
+                </table>
+            </div>
+
+            <h3>Macro Classification</h3>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Macro</th><th><code>initializer_kind</code></th><th>Example</th></tr>
+                    <tr><td><code>vec!</code></td><td><code>vec_macro</code></td><td><code>let v = vec![1, 2, 3];</code></td></tr>
+                    <tr><td><code>format!</code></td><td><code>format_macro</code></td><td><code>let s = format!("{}", x);</code></td></tr>
+                    <tr><td><code>println!</code>/<code>print!</code>/<code>eprintln!</code>/<code>eprint!</code></td><td><code>print_macro</code></td><td><code>println!("hi");</code></td></tr>
+                    <tr><td><code>panic!</code></td><td><code>panic_macro</code></td><td><code>panic!("error");</code></td></tr>
+                    <tr><td><code>assert!</code>/<code>assert_eq!</code>/<code>assert_ne!</code></td><td><code>assert_macro</code></td><td><code>assert!(true);</code></td></tr>
+                    <tr><td><code>pin!</code></td><td><code>pin_macro</code></td><td><code>let p = pin!(future);</code></td></tr>
+                    <tr><td>Unknown macro</td><td><code>macro</code></td><td>Any macro not matching above</td></tr>
+                </table>
+            </div>
+
+            <h2 id="classification-purposes">Design Rationale</h2>
+            <p>The <code>initializer_kind</code> classification serves several purposes:</p>
+            <ol>
+                <li><strong>Precise Tracking Selection</strong>: The macro selects the exact tracking function based on how a value was created. For example, <code>Rc::clone</code> uses <code>track_rc_clone</code> (which records the source reference count) rather than <code>track_rc_new</code>.</li>
+                <li><strong>Type Alias Handling</strong>: When users define <code>type MyRc&lt;T&gt; = Rc&lt;T&gt;</code>, the call <code>MyRc::new(x)</code> won't match the <code>Rc::new</code> pattern. However, the type flags (<code>is_rc: true</code>) still enable correct tracking via the fallback path.</li>
+                <li><strong>Guard Tracking</strong>: Methods like <code>borrow()</code>, <code>lock()</code>, and <code>read()</code> create guard types that require special tracking to monitor their lifetime and detect potential deadlocks or borrow violations.</li>
+                <li><strong>Unsafe Operation Tracking</strong>: Patterns like <code>MaybeUninit::assume_init()</code> and <code>Box::from_raw()</code> indicate unsafe operations that warrant special attention in ownership visualization.</li>
+                <li><strong>Performance Optimization</strong>: By classifying at analysis time, the macro avoids runtime pattern matching and can generate optimal tracking code directly.</li>
+            </ol>
+
+            <h2 id="disambiguation">Disambiguation Fields <span style="font-size:0.75em;color:var(--text-color);font-weight:normal">(v2.2+)</span></h2>
+            <p>These fields enable precise variable lookup when multiple variables share the same name:</p>
+            <div class="schema-table">
+                <table>
+                    <tr><th>Field</th><th>Purpose</th></tr>
+                    <tr><td><code>function_name</code></td><td>Name of the containing function (null for module-level)</td></tr>
+                    <tr><td><code>decl_index</code></td><td>0-based declaration order within the function</td></tr>
+                    <tr><td><code>scope_id</code></td><td>Unique scope identifier</td></tr>
+                    <tr><td><code>span_start</code></td><td>Byte offset of pattern start</td></tr>
+                    <tr><td><code>span_end</code></td><td>Byte offset of pattern end</td></tr>
+                </table>
+            </div>
+
+            <p>The macro uses these fields to disambiguate variables with the same name in different functions or shadowed within the same function:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">foo</span>() {
+    <span class="rust-keyword">let</span> x = <span class="rust-type">Rc</span>::new(<span class="rust-string">1</span>);  <span class="rust-comment">// function_name: "foo", decl_index: 0</span>
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">bar</span>() {
+    <span class="rust-keyword">let</span> x = <span class="rust-type">Arc</span>::new(<span class="rust-string">1</span>); <span class="rust-comment">// function_name: "bar", decl_index: 0</span>
+    <span class="rust-keyword">let</span> x = x.clone();   <span class="rust-comment">// function_name: "bar", decl_index: 1 (shadowing)</span>
+}</pre>
+            </div>
+
+            <h2 id="example-output">Example Output</h2>
+
+            <p>For a source file containing:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">example</span>() {
+    <span class="rust-keyword">let</span> count = <span class="rust-string">42</span>;
+    <span class="rust-keyword">let</span> shared = <span class="rust-type">Rc</span>::new(<span class="rust-type">RefCell</span>::new(<span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]));
+    <span class="rust-keyword">let</span> guard = shared.borrow();
+    <span class="rust-keyword">let</span> future = <span class="rust-keyword">async</span> { <span class="rust-string">42</span> };
+}</pre>
+            </div>
+
+            <p>The analyzer produces:</p>
+
+            <div class="code-block">
+                <pre style="font-size: 0.8rem;">{
+  <span class="rust-string">"version"</span>: <span class="rust-string">"2.3"</span>,
+  <span class="rust-string">"analyzer_version"</span>: <span class="rust-string">"0.1.0"</span>,
+  <span class="rust-string">"files"</span>: {
+    <span class="rust-string">"src/main.rs"</span>: [
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"count"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"i32"</span>,
+        <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_clone"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_send"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_sync"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_drop"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_sized"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_primitive"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_reference"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_mutable_reference"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_raw_ptr"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"file"</span>: <span class="rust-string">"src/main.rs"</span>,
+        <span class="rust-string">"line"</span>: 2,
+        <span class="rust-string">"column"</span>: 8
+      },
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"shared"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32, Global&gt;&gt;, Global&gt;"</span>,
+        <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_clone"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_send"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_sync"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_drop"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_sized"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_refcell"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_vec"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_string"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"file"</span>: <span class="rust-string">"src/main.rs"</span>,
+        <span class="rust-string">"line"</span>: 3,
+        <span class="rust-string">"column"</span>: 8
+      },
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"guard"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Ref&lt;'_, Vec&lt;i32, Global&gt;&gt;"</span>,
+        <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_clone"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_send"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_sync"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_drop"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_sized"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_guard"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_vec"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"file"</span>: <span class="rust-string">"src/main.rs"</span>,
+        <span class="rust-string">"line"</span>: 4,
+        <span class="rust-string">"column"</span>: 8
+      },
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"future"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"impl Future&lt;Output = i32&gt;"</span>,
+        <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_clone"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_send"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_sync"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_drop"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"is_sized"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_future"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_closure"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"file"</span>: <span class="rust-string">"src/main.rs"</span>,
+        <span class="rust-string">"line"</span>: 5,
+        <span class="rust-string">"column"</span>: 8
+      }
+    ]
+  }
+}</pre>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>Key observations:</strong></p>
+                <ul>
+                    <li><code>count</code> has <code>is_primitive: true</code>, <code>is_copy: true</code>, <code>is_send: true</code>, <code>is_sync: true</code> — all detected semantically</li>
+                    <li><code>shared</code> has <code>is_send: false</code>, <code>is_sync: false</code> because <code>Rc</code> is not thread-safe</li>
+                    <li><code>guard</code> has <code>is_guard: true</code> and <code>is_sync: true</code> (guards are Sync but not Send)</li>
+                    <li><code>future</code> has <code>is_future: true</code> detected via <code>impls_trait(Future)</code></li>
+                    <li>All trait flags are determined by actual trait implementations, not string matching</li>
+                </ul>
+            </div>
+
+            <p>The next section details how this output integrates with the <code>borrowscope-macro</code> procedural macro to enable type-aware instrumentation.</p>
+        </div>
+    </div>
+</body>
+</html>

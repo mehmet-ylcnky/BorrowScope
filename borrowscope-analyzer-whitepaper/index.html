@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bridging the Type Information Gap - BorrowScope Analyzer White Paper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .section-container {
+            margin-bottom: 3rem;
+        }
+        .loading {
+            text-align: center;
+            color: var(--secondary-color);
+            font-style: italic;
+            padding: 2rem;
+        }
+        .navigation {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 280px;
+            max-height: 90vh;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+        .navigation h3 {
+            margin-top: 0;
+            font-size: 1rem;
+            color: var(--primary-color);
+        }
+        .navigation ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .navigation li {
+            margin: 0.3rem 0;
+        }
+        .navigation a {
+            color: var(--secondary-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .navigation a:hover {
+            text-decoration: underline;
+        }
+        @media (max-width: 1200px) {
+            .navigation {
+                display: none;
+            }
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 1rem;
+            color: var(--secondary-color);
+            text-decoration: none;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .back-link::before {
+            content: "← ";
+        }
+        .toc-toggle {
+            cursor: pointer;
+            display: inline-block;
+            width: 1.2em;
+            color: var(--secondary-color);
+            user-select: none;
+            transition: transform 0.2s;
+        }
+        .toc-toggle.expanded {
+            transform: rotate(90deg);
+        }
+        .toc-sub {
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            max-height: 500px;
+            padding-left: 1rem;
+        }
+        .toc-sub.collapsed {
+            max-height: 0;
+        }
+        .toc > ul > li {
+            margin-bottom: 0.3rem;
+        }
+        pre.ascii-diagram {
+            font-family: monospace;
+            font-size: 0.75rem;
+            line-height: 1.2;
+            overflow-x: auto;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 1rem;
+            border-radius: 6px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 0.5rem;
+            text-align: left;
+        }
+        th {
+            background: var(--code-bg);
+        }
+    </style>
+</head>
+<body>
+    <a href="../" class="back-link">Back to BorrowScope</a>
+
+    <div class="navigation">
+        <h3>Quick Navigation</h3>
+        <nav class="toc">
+            <ul>
+                <li><a href="#abstract">Abstract</a></li>
+                <li>
+                    <span class="toc-toggle expanded">▶</span>
+                    <a href="#problem-statement">1. Problem Statement</a>
+                    <ul class="toc-sub">
+                        <li><a href="#the-proc-macro-type-blindness-problem">Type Blindness</a></li>
+                        <li><a href="#compilation-pipeline-and-type-resolution-timing">Compilation Pipeline</a></li>
+                        <li><a href="#consequences-for-borrowscope">Consequences</a></li>
+                    </ul>
+                </li>
+                <li><a href="#solution-architecture">2. Solution Architecture</a></li>
+                <li>
+                    <span class="toc-toggle expanded">▶</span>
+                    <a href="#implementation">3. Implementation</a>
+                    <ul class="toc-sub">
+                        <li><a href="#31-rust-analyzer-integration">rust-analyzer Integration</a></li>
+                        <li><a href="#32-workspace-loading">Workspace Loading</a></li>
+                        <li><a href="#33-type-extraction">Type Extraction</a></li>
+                    </ul>
+                </li>
+                <li><a href="#output-format">4. Output Format</a></li>
+                <li>
+                    <span class="toc-toggle expanded">▶</span>
+                    <a href="#integration">5. Integration Pipeline</a>
+                    <ul class="toc-sub">
+                        <li><a href="#type-information-lookup">Type Lookup</a></li>
+                        <li><a href="#enhanced-tracking-function-selection">Tracking Selection</a></li>
+                        <li><a href="#the-complete-borrowscope-pipeline">Complete Pipeline</a></li>
+                    </ul>
+                </li>
+                <li><a href="#usage">6. Usage Guide</a></li>
+                <li><a href="#performance">7. Performance</a></li>
+                <li><a href="#limitations">8. Limitations</a></li>
+                <li><a href="#roadmap">9. Roadmap</a></li>
+                <li><a href="#dependencies">10. Dependencies</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="header">
+        <h1 class="title"><strong><code>borrowscope-analyzer</code></strong>: Bridging the Type Information Gap</h1>
+        <p class="subtitle">Static Semantic Analysis for Rust Ownership Visualization</p>
+        <div class="logo-container">
+            <img src="logo.png" alt="BorrowScope Logo" class="logo">
+        </div>
+        <div class="authors">
+            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank" class="author-link">Mehmet Yalcinkaya, PhD</a><br>
+            Senior Software Engineer<br><br>
+            <strong>Date:</strong> March 2026<br>
+            <div class="badges">
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
+                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github" alt="GitHub Repository">
+                </a>
+                <a href="https://crates.io/crates/borrowscope-analyzer" target="_blank">
+                    <img src="https://img.shields.io/badge/crates.io-borrowscope--analyzer-orange?style=for-the-badge&logo=rust" alt="Crates.io">
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <div id="abstract" class="section-container">
+            <div class="loading">Loading abstract...</div>
+        </div>
+
+        <div id="problem-statement" class="section-container">
+            <div class="loading">Loading problem statement...</div>
+        </div>
+
+        <div id="solution-architecture" class="section-container">
+            <div class="loading">Loading solution architecture...</div>
+        </div>
+
+        <div id="implementation" class="section-container">
+            <div class="loading">Loading implementation details...</div>
+        </div>
+
+        <div id="output-format" class="section-container">
+            <div class="loading">Loading output format...</div>
+        </div>
+
+        <div id="integration" class="section-container">
+            <div class="loading">Loading integration pipeline...</div>
+        </div>
+
+        <div id="usage" class="section-container">
+            <div class="loading">Loading usage guide...</div>
+        </div>
+
+        <div id="performance" class="section-container">
+            <div class="loading">Loading performance characteristics...</div>
+        </div>
+
+        <div id="limitations" class="section-container">
+            <div class="loading">Loading limitations...</div>
+        </div>
+
+        <div id="roadmap" class="section-container">
+            <div class="loading">Loading roadmap...</div>
+        </div>
+
+        <div id="dependencies" class="section-container">
+            <div class="loading">Loading dependencies...</div>
+        </div>
+    </main>
+
+    <footer>
+        <p><strong><code>borrowscope-analyzer</code></strong>: Bridging the Type Information Gap</p>
+        <p>Part of the <a href="../">BorrowScope Project</a></p>
+    </footer>
+
+    <script>
+        // Load sections dynamically
+        const sections = [
+            { id: 'abstract', file: 'abstract.html' },
+            { id: 'problem-statement', file: 'problem-statement.html' },
+            { id: 'solution-architecture', file: 'solution-architecture.html' },
+            { id: 'implementation', file: 'implementation.html' },
+            { id: 'output-format', file: 'output-format.html' },
+            { id: 'integration', file: 'integration.html' },
+            { id: 'usage', file: 'usage.html' },
+            { id: 'performance', file: 'performance.html' },
+            { id: 'limitations', file: 'limitations.html' },
+            { id: 'roadmap', file: 'roadmap.html' },
+            { id: 'dependencies', file: 'dependencies.html' }
+        ];
+
+        sections.forEach(section => {
+            fetch(section.file)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById(section.id).innerHTML = html;
+                    // Re-run syntax highlighting if available
+                    if (typeof Prism !== 'undefined') {
+                        Prism.highlightAllUnder(document.getElementById(section.id));
+                    }
+                })
+                .catch(err => {
+                    document.getElementById(section.id).innerHTML = 
+                        `<p class="error">Failed to load ${section.file}</p>`;
+                });
+        });
+
+        // ToC toggle functionality
+        document.querySelectorAll('.toc-toggle').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                toggle.classList.toggle('expanded');
+                const subList = toggle.parentElement.querySelector('.toc-sub');
+                if (subList) {
+                    subList.classList.toggle('collapsed');
+                }
+            });
+        });
+    </script>
+    <script src="scripts.js"></script>
+</body>
+</html>

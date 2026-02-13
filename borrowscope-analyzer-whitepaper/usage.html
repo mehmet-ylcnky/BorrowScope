@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Usage Guide - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="usage">
+            <h1>6. Usage Guide</h1>
+
+            <h2 id="61-running-the-analyzer">6.1 Running the Analyzer</h2>
+
+            <p>The borrowscope-analyzer is a standalone binary that analyzes a Rust project and produces type information. It requires the project path as its only argument:</p>
+
+            <div class="code-block">
+                <pre><span class="rust-comment"># From the BorrowScope workspace</span>
+cargo run -p borrowscope-analyzer -- /path/to/your/project
+
+<span class="rust-comment"># Or if installed</span>
+borrowscope-analyzer /path/to/your/project</pre>
+            </div>
+
+            <p>The analyzer expects a valid Cargo project with a <code>Cargo.toml</code> at the specified path. It will:</p>
+            <ol>
+                <li>Load the workspace using rust-analyzer's infrastructure</li>
+                <li>Discover the Rust sysroot for standard library type resolution</li>
+                <li>Analyze all <code>.rs</code> files in the project (excluding dependencies and target/)</li>
+                <li>Write results to <code>.borrowscope/type-info.json</code></li>
+            </ol>
+
+            <p>The analyzer logs progress to stderr and can be configured with the <code>RUST_LOG</code> environment variable for detailed debugging:</p>
+
+            <div class="code-block">
+                <pre>RUST_LOG=debug cargo run -p borrowscope-analyzer -- /path/to/project</pre>
+            </div>
+
+            <p>Example output:</p>
+
+            <div class="code-block">
+                <pre>BorrowScope Analyzer v0.1.0
+═══════════════════════════════════════════
+Project: /home/user/my-project
+
+  Loading workspace...
+  Analyzing: src/main.rs
+  Analyzing: src/lib.rs
+  Analyzing: src/utils.rs
+
+═══════════════════════════════════════════
+Summary:
+  Files analyzed: 3
+  Variables found: 47
+  Types resolved: 47 (100.0%)
+
+Output: /home/user/my-project/.borrowscope/type-info.json</pre>
+            </div>
+
+            <h2 id="62-workflow-for-users">6.2 Workflow for Users</h2>
+
+            <p>The complete workflow for using BorrowScope with full type information involves three steps:</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.75rem; line-height: 1.3;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                      COMPLETE USER WORKFLOW                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  STEP 1: Analyze                                                            │
+│  ───────────────                                                            │
+│  $ borrowscope-analyzer .                                                   │
+│  Creates: .borrowscope/type-info.json                                       │
+│                                                                             │
+│                         │                                                   │
+│                         ▼                                                   │
+│                                                                             │
+│  STEP 2: Build                                                              │
+│  ────────────                                                               │
+│  $ cargo build                                                              │
+│  The #[trace_borrow] macro reads type-info.json during expansion            │
+│  and generates accurate tracking calls.                                     │
+│                                                                             │
+│                         │                                                   │
+│                         ▼                                                   │
+│                                                                             │
+│  STEP 3: Run                                                                │
+│  ─────────                                                                  │
+│  $ cargo run                                                                │
+│  Runtime tracking captures ownership events with full type information.     │
+│  Export to JSON for visualization.                                          │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p><strong>Step 1: Analyze</strong> — Run the analyzer whenever your code changes significantly. The analyzer needs to re-run when:</p>
+            <ul>
+                <li>New variables are added</li>
+                <li>Variable types change</li>
+                <li>Files are added or renamed</li>
+                <li>Line numbers shift significantly (due to added/removed code)</li>
+            </ul>
+            <p>For development workflows, consider running the analyzer as part of your build process or IDE save hook.</p>
+
+            <p><strong>Step 2: Build</strong> — Build your project normally with <code>cargo build</code> or <code>cargo run</code>. The <code>#[trace_borrow]</code> macro will automatically detect and use the type information file if present. No code changes are required—the macro transparently upgrades its tracking precision when type information is available.</p>
+
+            <p><strong>Step 3: Run and Analyze</strong> - Execute your instrumented program and export the events for analysis:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_runtime::*;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    reset();
+    my_function();  <span class="rust-comment">// Your instrumented code</span>
+    
+    <span class="rust-comment">// Export events with full type information</span>
+    <span class="rust-keyword">let</span> events = get_events();
+    std::fs::write(<span class="rust-string">"trace.json"</span>, serde_json::to_string_pretty(&amp;events).unwrap()).unwrap();
+}</pre>
+            </div>
+
+            <h3>Automation with Build Scripts</h3>
+
+            <p>For projects that want automatic analysis, a <code>build.rs</code> script can invoke the analyzer:</p>
+
+            <div class="code-block">
+                <pre class="rust-code"><span class="rust-comment">// build.rs</span>
+<span class="rust-keyword">use</span> std::process::<span class="rust-type">Command</span>;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    <span class="rust-comment">// Re-run if any Rust source changes</span>
+    <span class="rust-macro">println!</span>(<span class="rust-string">"cargo:rerun-if-changed=src/"</span>);
+
+    <span class="rust-comment">// Run the analyzer</span>
+    <span class="rust-keyword">let</span> status = <span class="rust-type">Command</span>::new(<span class="rust-string">"borrowscope-analyzer"</span>)
+        .arg(std::env::var(<span class="rust-string">"CARGO_MANIFEST_DIR"</span>).unwrap())
+        .status();
+
+    <span class="rust-keyword">if</span> <span class="rust-keyword">let</span> <span class="rust-type">Err</span>(e) = status {
+        <span class="rust-macro">println!</span>(<span class="rust-string">"cargo:warning=borrowscope-analyzer not found: {}"</span>, e);
+        <span class="rust-macro">println!</span>(<span class="rust-string">"cargo:warning=Type information will not be available"</span>);
+    }
+}</pre>
+            </div>
+
+            <p>This ensures type information is always up-to-date, though it adds to build time. For large projects, consider running the analyzer only in CI or as a separate development step.</p>
+
+            <h3>Verifying Type Information</h3>
+
+            <p>To verify the analyzer is working correctly, inspect the generated JSON:</p>
+
+            <div class="code-block">
+                <pre><span class="rust-comment"># Check that the file was created</span>
+cat .borrowscope/type-info.json | head -50
+
+<span class="rust-comment"># Count variables by type</span>
+cat .borrowscope/type-info.json | jq '.files[].[] | .ty' | sort | uniq -c | sort -rn
+
+<span class="rust-comment"># Find all Rc variables</span>
+cat .borrowscope/type-info.json | jq '.files[][] | select(.is_rc == true) | .name'
+
+<span class="rust-comment"># Check resolution rate</span>
+cat .borrowscope/type-info.json | jq '[.files[][]] | length as $total |
+  [.files[][] | select(.ty != "unknown")] | length as $resolved |
+  "\($resolved)/\($total) types resolved"'</pre>
+            </div>
+
+            <p>A 100% resolution rate indicates the analyzer successfully determined types for all variables. Lower rates may indicate files outside the crate graph or analysis errors—check the analyzer's stderr output for warnings.</p>
+        </div>
+    </div>
+</body>
+</html>

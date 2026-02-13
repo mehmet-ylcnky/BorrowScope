@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Abstract - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section abstract" id="abstract">
+            <h1>Abstract</h1>
+            <p>
+                Rust's procedural macros operate under a fundamental architectural constraint: they execute during the early stages of compilation, before type inference and resolution have occurred. This "type blindness" means that a procedural macro transforming <code>let data = Rc::new(RefCell::new(vec![1, 2, 3]));</code> receives only raw tokens—it cannot determine that <code>data</code> has type <code>Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;</code>, that <code>Rc&lt;T&gt;</code> is a reference-counted smart pointer, or that the inner <code>RefCell&lt;T&gt;</code> provides interior mutability. This limitation is not a bug but an intentional property of Rust's compilation model, designed to maintain determinism and enable parallel macro expansion.
+            </p>
+            <p>
+                This whitepaper presents <strong>borrowscope-analyzer</strong>, a static analysis tool that bridges this gap through a two-phase build strategy. The analyzer leverages rust-analyzer's published semantic analysis engine (<code>ra_ap_*</code> crates) to perform full type resolution on Rust source code as a pre-build step, extracting comprehensive type metadata into a structured JSON file that the <code>#[trace_borrow]</code> procedural macro can consume at expansion time. This decouples type analysis from macro expansion while working within—rather than against—Rust's compilation model.
+            </p>
+            <p>
+                The analyzer produces a rich output schema (v2.3) capturing: fully resolved type strings including generic parameters, trait implementation flags (<code>Copy</code>, <code>Clone</code>, <code>Send</code>, <code>Sync</code>, <code>Drop</code>, <code>Future</code>, <code>Iterator</code>) detected via <code>impls_trait()</code>, ADT classification through canonical module path matching (e.g., <code>alloc::rc::Rc</code>), and semantic initializer pattern classification across <strong>78 distinct categories</strong>—from smart pointer constructors and interior mutability types to atomics, channels, and async primitives. A function-scoped disambiguation mechanism using declaration indices enables precise variable resolution even in the presence of shadowing.
+            </p>
+            <p>
+                The tool currently achieves semantic coverage for 36 of 109 ownership-related patterns (33%) used by the macro, with the remaining 73 patterns involving method calls on existing variables, standalone expressions, and self-borrow type inference. This paper documents a comprehensive roadmap organized into five implementation phases that would achieve 100% semantic coverage, eliminating all heuristic pattern matching from the macro within an estimated 19 hours of development effort. The complete BorrowScope pipeline—spanning static analysis, compile-time code transformation, and runtime event capture—demonstrates a practical approach to augmenting Rust's compilation model with pre-computed semantic information.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

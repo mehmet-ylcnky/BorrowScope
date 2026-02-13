@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Limitations - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="limitations">
+            <h1>8. Limitations &amp; Future Work</h1>
+
+            <h2 id="current-limitations">Current Limitations</h2>
+
+            <p>The borrowscope-analyzer represents a working solution to the proc-macro type blindness problem, but several limitations remain that warrant acknowledgment.</p>
+
+            <div class="failure-mode">
+                <p><strong>Pattern Binding Decomposition:</strong> The analyzer currently captures pattern bindings as a single unit. For destructuring patterns like <code>let (a, b, c) = tuple;</code>, the entire pattern <code>(a, b, c)</code> is recorded as one entry rather than three separate variables. This means the macro cannot look up individual components by their names. A future version should decompose patterns into their constituent bindings, each with its own type information.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Line Number Drift:</strong> The type information file contains absolute line numbers. If the source file is modified between analysis and compilation—even by adding a comment—line numbers may no longer match. The macro's lookup will fail, triggering fallback to syntactic heuristics. Robust solutions include content-based hashing or relative positioning within functions.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Macro-Generated Code:</strong> Variables created by other procedural macros are not visible to the analyzer because it runs before macro expansion. If a macro generates <code>let</code> bindings, those bindings will not have type information. This is an inherent limitation of the two-phase approach.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Workspace-External Files:</strong> Files not included in the Cargo workspace (standalone scripts, files excluded via <code>Cargo.toml</code>) receive only syntax-based analysis. The analyzer cannot resolve types for code outside the crate graph because rust-analyzer requires a complete project model for semantic analysis.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Generic Type Parameters:</strong> While the analyzer captures fully instantiated types like <code>Vec&lt;i32, Global&gt;</code>, it cannot provide information about generic type parameters in isolation. A function <code>fn foo&lt;T&gt;(x: T)</code> will have <code>x</code> typed as the generic parameter <code>T</code>, not a concrete type. This is correct behavior but limits tracking precision for generic code.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Closure Capture Analysis:</strong> The analyzer identifies closure types but does not currently extract information about captured variables. Knowing that a closure captures <code>x</code> by reference versus by move would enable more precise tracking of ownership flow into closures.</p>
+            </div>
+
+            <div class="failure-mode">
+                <p><strong>Build Script Outputs:</strong> Projects with complex build scripts that generate Rust code may not have that generated code analyzed. The analyzer runs <code>cargo check</code> to obtain build script outputs, but timing and caching issues can cause inconsistencies.</p>
+            </div>
+
+            <h2 id="future-work">Future Work</h2>
+
+            <p>Several enhancements would improve the analyzer's utility and integration:</p>
+
+            <div class="solution-statement">
+                <p><strong>Macro Integration:</strong> The <code>borrowscope-macro</code> crate needs modification to read and utilize the type information file. This involves:</p>
+                <ul>
+                    <li>Loading <code>type-info.json</code> at macro expansion time</li>
+                    <li>Building a lookup index by source location</li>
+                    <li>Modifying the transformation logic to query type information</li>
+                    <li>Implementing graceful fallback when information is unavailable</li>
+                </ul>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>Incremental Analysis:</strong> Implementing incremental analysis would dramatically improve performance for iterative development. This requires:</p>
+                <ul>
+                    <li>Tracking file modification times or content hashes</li>
+                    <li>Persisting the rust-analyzer database between runs</li>
+                    <li>Updating only changed files while preserving cached analysis</li>
+                </ul>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>IDE Extension:</strong> A rust-analyzer extension could provide type information directly to the macro through a language server protocol extension or shared memory mechanism. This would eliminate the separate analysis step entirely and provide always-current type information.</p>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>User-Defined Type Classification:</strong> Supporting user-provided rules for classifying custom smart pointer types would extend tracking to domain-specific abstractions. A configuration file could map type patterns to tracking categories:</p>
+                <div class="code-block">
+                    <pre><span class="rust-comment"># .borrowscope/config.toml</span>
+[classifications]
+<span class="rust-string">"MySmartPtr&lt;"</span> = <span class="rust-string">"smart_pointer"</span>
+<span class="rust-string">"CustomCell&lt;"</span> = <span class="rust-string">"interior_mutability"</span></pre>
+                </div>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>Trait-Based Detection:</strong> Rather than string matching on type names, future versions could query whether types implement specific traits (<code>Deref</code>, <code>DerefMut</code>, <code>Clone</code>, <code>Copy</code>). This would provide more robust classification that works with type aliases and newtype wrappers.</p>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>Cross-Crate Analysis:</strong> Analyzing dependencies to understand their type structures would enable tracking of ownership across crate boundaries. Currently, types from dependencies are resolved but not deeply analyzed for their ownership semantics.</p>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>Parallel Analysis:</strong> Implementing parallel file processing would improve performance on multi-core systems. The semantic queries are thread-safe for reading, enabling concurrent analysis of independent files.</p>
+            </div>
+
+            <div class="solution-statement">
+                <p><strong>Watch Mode:</strong> A file-watching mode that re-analyzes on source changes would integrate better with development workflows. Combined with incremental analysis, this could provide near-instant updates as code is edited.</p>
+            </div>
+
+            <h2 id="research-directions">Research Directions</h2>
+
+            <p>Beyond immediate improvements, several research directions could advance BorrowScope's capabilities:</p>
+
+            <ul>
+                <li><strong>Borrow Checker Integration:</strong> Deeper integration with rust-analyzer's borrow checking analysis could provide information about lifetime constraints and borrow conflicts, enabling visualization of why certain code patterns are rejected by the compiler.</li>
+                <li><strong>Data Flow Analysis:</strong> Tracking how values flow through a program—not just where they are created—would enable richer visualizations showing the complete lifecycle of owned data.</li>
+                <li><strong>Async Ownership Tracking:</strong> Rust's async/await introduces complex ownership patterns where values are captured by futures and may move between threads. Specialized analysis for async code would improve tracking accuracy in concurrent programs.</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

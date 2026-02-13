@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dependencies - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .dep-table { margin: 1rem 0; }
+        .dep-table table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .dep-table th, .dep-table td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        .dep-table th { background: var(--code-bg); }
+        .dep-table code { font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="dependencies">
+            <h1>10. Dependencies</h1>
+
+            <p>The borrowscope-analyzer relies on rust-analyzer's published crate ecosystem for semantic analysis. These crates are versioned together and should be kept in sync to avoid compatibility issues.</p>
+
+            <h2 id="rust-analyzer-crates">rust-analyzer Crates</h2>
+
+            <div class="dep-table">
+                <table>
+                    <tr><th>Crate</th><th>Version</th><th>Purpose</th></tr>
+                    <tr><td><code>ra_ap_hir</code></td><td>0.0.232</td><td>High-level intermediate representation and semantic queries</td></tr>
+                    <tr><td><code>ra_ap_ide_db</code></td><td>0.0.232</td><td>IDE database infrastructure and root database type</td></tr>
+                    <tr><td><code>ra_ap_load-cargo</code></td><td>0.0.232</td><td>Cargo workspace loading and sysroot discovery</td></tr>
+                    <tr><td><code>ra_ap_project_model</code></td><td>0.0.232</td><td>Project structure modeling and configuration</td></tr>
+                    <tr><td><code>ra_ap_syntax</code></td><td>0.0.232</td><td>Syntax tree representation and AST types</td></tr>
+                    <tr><td><code>ra_ap_vfs</code></td><td>0.0.232</td><td>Virtual file system for source file management</td></tr>
+                </table>
+            </div>
+
+            <p>These crates are published to crates.io with each rust-analyzer release. The version number <code>0.0.232</code> corresponds to a specific rust-analyzer release. All <code>ra_ap_*</code> crates must use the same version to ensure ABI compatibility.</p>
+
+            <div class="highlight-box">
+                <p><strong>Version Pinning Rationale:</strong> The <code>ra_ap_*</code> crates follow rust-analyzer's rapid release cycle and do not maintain semver compatibility between versions. Internal APIs change frequently as rust-analyzer evolves. Pinning to a specific version ensures reproducible builds.</p>
+            </div>
+
+            <h2 id="utility-crates">Utility Crates</h2>
+
+            <div class="dep-table">
+                <table>
+                    <tr><th>Crate</th><th>Version</th><th>Purpose</th></tr>
+                    <tr><td><code>serde</code></td><td>1.0</td><td>Serialization framework</td></tr>
+                    <tr><td><code>serde_json</code></td><td>1.0</td><td>JSON serialization for output</td></tr>
+                    <tr><td><code>anyhow</code></td><td>1.0</td><td>Error handling with context</td></tr>
+                    <tr><td><code>tracing</code></td><td>0.1</td><td>Structured logging</td></tr>
+                    <tr><td><code>tracing-subscriber</code></td><td>0.3</td><td>Log output formatting</td></tr>
+                </table>
+            </div>
+
+            <p>These utility crates follow semver and can be updated independently.</p>
+
+            <h2 id="rust-version-requirements">Rust Version Requirements</h2>
+
+            <p>The analyzer requires <strong>Rust 1.75 or later</strong> due to dependencies on recent language features used by rust-analyzer. The <code>rust-version</code> field in <code>Cargo.toml</code> enforces this minimum.</p>
+
+            <h2 id="dependency-tree-considerations">Dependency Tree Considerations</h2>
+
+            <p>The <code>ra_ap_*</code> crates bring a substantial dependency tree, including:</p>
+
+            <ul>
+                <li><code>salsa</code> - Incremental computation framework</li>
+                <li><code>rowan</code> - Syntax tree library</li>
+                <li><code>chalk</code> - Trait solving</li>
+                <li><code>rustc_lexer</code> - Rust lexer (from rustc)</li>
+                <li>Numerous utility crates</li>
+            </ul>
+
+            <p>This results in a large dependency footprint (~300 crates) and extended initial compile times (~3-5 minutes for a clean build). Subsequent incremental builds are fast (~5-10 seconds).</p>
+
+            <h2 id="compatibility-notes">Compatibility Notes</h2>
+
+            <div class="problem-statement">
+                <p>The <code>ra_ap_*</code> crates are designed for use within rust-analyzer and may have rough edges when used as a library:</p>
+                <ul>
+                    <li>Some APIs assume IDE usage patterns and may be awkward for batch processing</li>
+                    <li>Error handling sometimes uses panics rather than Results</li>
+                    <li>Documentation is sparse; reading rust-analyzer source code is often necessary</li>
+                    <li>Breaking changes occur without deprecation warnings</li>
+                </ul>
+            </div>
+
+            <div class="solution-statement">
+                <p>Despite these challenges, the <code>ra_ap_*</code> crates provide the most complete and correct Rust semantic analysis available outside of rustc itself. The alternative—reimplementing type resolution—would be a multi-year effort with ongoing maintenance burden as Rust evolves.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance - BorrowScope Analyzer White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .perf-table { margin: 1rem 0; }
+        .perf-table table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .perf-table th, .perf-table td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        .perf-table th { background: var(--code-bg); }
+    </style>
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="performance">
+            <h1>7. Performance Characteristics</h1>
+
+            <p>The analyzer's performance is dominated by workspace loading rather than the actual type extraction. Understanding this breakdown helps set appropriate expectations and identify optimization opportunities.</p>
+
+            <h2 id="timing-breakdown">Timing Breakdown</h2>
+
+            <p>Analysis of a small project (single file, ~100 variables) shows the following timing distribution:</p>
+
+            <div class="code-block">
+                <pre style="font-family: monospace; font-size: 0.75rem; line-height: 1.3;">┌─────────────────────────────────────────────────────────────────────────────┐
+│                      PERFORMANCE BREAKDOWN                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Total Time: ~45-50 seconds                                                 │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    │    │
+│  │            Workspace Loading (~32s, 65%)                            │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────┐                                    │
+│  │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │                                    │
+│  │    Type Analysis (~12s, 25%)        │                                    │
+│  └─────────────────────────────────────┘                                    │
+│  ┌──────────────┐                                                           │
+│  │░░░░░░░░░░░░░░│                                                           │
+│  │ Compile (~5s)│                                                           │
+│  └──────────────┘                                                           │
+│                                                                             │
+│  Workspace Loading includes:                                                │
+│    • Sysroot discovery (rustc --print sysroot)                              │
+│    • Standard library metadata loading                                      │
+│    • Cargo.toml parsing and dependency resolution                           │
+│    • Building the semantic database                                         │
+│                                                                             │
+│  Type Analysis includes:                                                    │
+│    • Parsing source files                                                   │
+│    • Walking syntax trees                                                   │
+│    • Resolving types via Semantics API                                      │
+│    • JSON serialization                                                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘</pre>
+            </div>
+
+            <p>The workspace loading phase is expensive because rust-analyzer must build a complete semantic model of the project and its dependencies. This includes loading metadata for the entire standard library, which contains thousands of types and trait implementations.</p>
+
+            <h2 id="scaling-characteristics">Scaling Characteristics</h2>
+
+            <p>Analysis time scales primarily with project complexity rather than line count:</p>
+
+            <div class="perf-table">
+                <table>
+                    <tr><th>Project Size</th><th>Dependencies</th><th>Variables</th><th>Load Time</th><th>Analysis Time</th><th>Total</th></tr>
+                    <tr><td>Small (1 file)</td><td>std only</td><td>~100</td><td>~32s</td><td>~12s</td><td>~45s</td></tr>
+                    <tr><td>Medium (10 files)</td><td>5-10 crates</td><td>~500</td><td>~35s</td><td>~15s</td><td>~50s</td></tr>
+                    <tr><td>Large (100 files)</td><td>50+ crates</td><td>~2000</td><td>~60s</td><td>~30s</td><td>~90s</td></tr>
+                </table>
+            </div>
+
+            <p>The workspace loading time increases modestly with dependency count because rust-analyzer must resolve and load metadata for each crate. The analysis time scales roughly linearly with the number of variables.</p>
+
+            <h2 id="optimization-opportunities">Optimization Opportunities</h2>
+
+            <div class="highlight-box">
+                <p><strong>Incremental Analysis:</strong> The current implementation performs full analysis on every run. A future version could cache the loaded workspace and only re-analyze changed files. rust-analyzer's internal architecture supports incremental updates, but exposing this through the <code>ra_ap_*</code> crates requires additional implementation work.</p>
+            </div>
+
+            <div class="highlight-box">
+                <p><strong>Parallel File Processing:</strong> Type extraction for different files is independent and could be parallelized. The current implementation processes files sequentially, but the <code>Semantics</code> API is thread-safe for read operations.</p>
+            </div>
+
+            <div class="highlight-box">
+                <p><strong>Selective Analysis:</strong> For large projects, analyzing only files containing <code>#[trace_borrow]</code> annotations would reduce work. This requires a two-pass approach: first scan for annotations, then analyze only relevant files.</p>
+            </div>
+
+            <div class="highlight-box">
+                <p><strong>Workspace Caching:</strong> The loaded <code>RootDatabase</code> could theoretically be serialized and reused across runs. However, rust-analyzer's database structures are not designed for serialization, making this approach impractical without significant upstream changes.</p>
+            </div>
+
+            <h2 id="when-to-run">When to Run the Analyzer</h2>
+
+            <p>Given the analysis cost, consider these usage patterns:</p>
+
+            <p><strong>Development:</strong> Run the analyzer once when starting work on a feature, then re-run only when adding new variables or changing types significantly. Minor edits that don't affect types don't require re-analysis.</p>
+
+            <p><strong>CI/CD:</strong> Include analysis in the CI pipeline to ensure type information is always current for release builds. The ~1 minute overhead is acceptable for CI but may be too slow for rapid local iteration.</p>
+
+            <p><strong>IDE Integration:</strong> A future rust-analyzer extension could provide type information directly to the macro, eliminating the need for a separate analysis step. This would leverage rust-analyzer's existing incremental analysis and caching.</p>
+
+            <h2 id="memory-usage">Memory Usage</h2>
+
+            <p>The analyzer's memory footprint is dominated by rust-analyzer's semantic database:</p>
+
+            <div class="perf-table">
+                <table>
+                    <tr><th>Phase</th><th>Memory Usage</th></tr>
+                    <tr><td>Startup</td><td>~50 MB</td></tr>
+                    <tr><td>After workspace load</td><td>~500-800 MB</td></tr>
+                    <tr><td>During analysis</td><td>~600-900 MB</td></tr>
+                    <tr><td>Peak (large projects)</td><td>~1-2 GB</td></tr>
+                </table>
+            </div>
+
+            <p>The memory usage reflects rust-analyzer's design for IDE responsiveness—it caches extensively to enable fast queries. For the analyzer's batch processing use case, this caching is less beneficial but unavoidable given the current API design.</p>
+        </div>
+    </div>
+</body>
+</html>
