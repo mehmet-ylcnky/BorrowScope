@@ -97,6 +97,9 @@
     <div class="container">
         <img src="logo.png" alt="BorrowScope Logo">
         <p class="subtitle">Technical White Papers & Documentation</p>
+        <p style="color:#555; line-height:1.7; max-width:800px; margin:0 auto 2rem; font-size:0.95rem; text-align:justify;">
+            BorrowScope is a personal project I'm building to deepen my understanding of Rust's ownership and borrowing system. The goal is to instrument Rust code and visualize what actually happens at runtime — when values are created, cloned, borrowed, moved, and dropped. It spans multiple crates: a <strong>runtime</strong> library for event-sourced ownership tracking, a <strong>proc macro</strong> for automatic instrumentation, a <strong>static analyzer</strong> that extracts type information using rust-analyzer's semantic APIs, and planned components for graph visualization, memory layout analysis, a CLI, and a web interface. None of this is production-ready — it's a learning and development journal in code form, exploring how far you can push Rust's compile-time and runtime introspection capabilities.
+        </p>
         <div class="papers">
             <div class="paper">
                 <h2><code>borrowscope-runtime</code></h2>
@@ -125,7 +128,7 @@
                     <li>
                         <a href="borrowscope-macro-whitepaper/">
                             <span class="article-title">Rust's Type Information Barrier for BorrowScope</span>
-                            <span class="article-desc">Architecture & Implementation</span>
+                            <span class="article-desc">Architecture & Implementation · Feb 2026</span>
                         </a>
                     </li>
                     <!--
@@ -135,6 +138,19 @@
                             <span class="article-desc">Real-World Validation</span>
                         </a>
                     </li> -->
+                </ul>
+            </div>
+            <div class="paper">
+                <h2><code>borrowscope-analyzer</code></h2>
+                <p>Static pre-build analysis tool that uses rust-analyzer's semantic APIs to extract full type information for every variable binding, bridging the type information gap that procedural macros cannot cross.</p>
+                <span class="tag dev">Under Development</span>
+                <ul class="articles">
+                    <li>
+                        <a href="borrowscope-analyzer-whitepaper/">
+                            <span class="article-title">Bridging the Type Information Gap</span>
+                            <span class="article-desc">Architecture & Implementation · Mar 2026</span>
+                        </a>
+                    </li>
                 </ul>
             </div>
             <div class="paper placeholder">
