@@ -104,6 +104,10 @@ pub struct ExpressionInfo {
     pub column: u32,
     pub path: Option<String>,
     pub operation: String,
+    #[serde(default)]
+    pub result_type: Option<String>,
+    #[serde(default)]
+    pub argument: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,4 +243,21 @@ pub fn lookup_expression(file: &str, line: u32, column: u32) -> Option<&'static 
     let type_info = get_type_info()?;
     let exprs = type_info.expressions.get(file)?;
     exprs.iter().find(|e| e.line == line && e.column == column)
+}
+
+/// Find a transmute expression's type info from semantic data.
+/// Returns (argument_type, result_type) if any transmute is tracked.
+/// Since proc macros can't access file/line from spans, this is best-effort.
+pub fn find_transmute_types() -> Option<(&'static str, &'static str)> {
+    let type_info = get_type_info()?;
+    for exprs in type_info.expressions.values() {
+        for e in exprs {
+            if e.operation.contains("transmute") {
+                let from = e.argument.as_deref().unwrap_or("unknown");
+                let to = e.result_type.as_deref().unwrap_or("unknown");
+                return Some((from, to));
+            }
+        }
+    }
+    None
 }

@@ -1446,8 +1446,9 @@ impl OwnershipVisitor {
         if let Expr::Path(path) = call_expr.func.as_ref() {
             let path_str = quote::quote!(#path).to_string();
 
-            // Check for transmute (reliably detectable by name)
-            if path_str.contains("transmute") {
+            // Check for transmute - semantic: use expressions data, fallback: string match
+            let is_transmute = path_str.contains("transmute");
+            if is_transmute {
                 let span = path
                     .path
                     .segments
@@ -1457,6 +1458,10 @@ impl OwnershipVisitor {
                 let location = Self::location_tokens(span);
                 let args = &call_expr.args;
                 let func = &call_expr.func;
+
+                // Try to get type info from semantic data
+                let (from_type, to_type) = crate::type_info::find_transmute_types()
+                    .unwrap_or(("unknown", "unknown"));
 
                 // Add warning about transmute type info
                 if self.config.warn_ambiguous {
@@ -1470,7 +1475,7 @@ impl OwnershipVisitor {
 
                 *expr = syn::parse_quote! {
                     {
-                        borrowscope_runtime::track_transmute("unknown", "unknown", #location);
+                        borrowscope_runtime::track_transmute(#from_type, #to_type, #location);
                         #func(#args)
                     }
                 };
