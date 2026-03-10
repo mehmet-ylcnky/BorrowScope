@@ -69,26 +69,26 @@
 
 ### 1.1 Summary Table
 
-| Category | Total | ✅ Semantic | ⚠️ Partial | ❌ Syntactic |
-|----------|-------|-------------|------------|--------------|
-| Smart pointer creation | 5 | 5 | 0 | 0 |
-| Smart pointer clone | 2 | 2 | 0 | 0 |
-| RefCell/Cell methods | 4 | 3 | 0 | 1 |
-| Box operations | 3 | 3 | 0 | 0 |
-| Pin operations | 2 | 1 | 1 | 0 |
-| Cow operations | 3 | 2 | 0 | 1 |
-| Weak reference operations | 3 | 3 | 0 | 0 |
-| OnceCell/OnceLock operations | 5 | 2 | 2 | 1 |
-| MaybeUninit operations | 6 | 2 | 2 | 2 |
-| Concurrency operations | 12 | 5 | 0 | 7 |
-| Guard method patterns | 9 | 8 | 1 | 0 |
-| Self borrow inference (immutable) | 19 | 0 | 0 | 19 |
-| Self borrow inference (mutable) | 25 | 0 | 0 | 25 |
-| Self borrow inference (consuming) | 3 | 0 | 0 | 3 |
-| Unwrap methods | 5 | 0 | 0 | 5 |
-| Clone method | 1 | 0 | 1 | 0 |
-| Transmute detection | 2 | 0 | 0 | 2 |
-| **TOTAL** | **109** | **36** | **7** | **66** |
+| Category | Total | ✅ Semantic | ⚠️ Partial | ❌ Syntactic | Notes |
+|----------|-------|-------------|------------|--------------|-------|
+| Smart pointer creation | 5 | 5 | 0 | 0 | |
+| Smart pointer clone | 2 | 2 | 0 | 0 | |
+| RefCell/Cell methods | 4 | **4** | 0 | 0 | Cell::set now uses semantic_op |
+| Box operations | 3 | 3 | 0 | 0 | |
+| Pin operations | 2 | 1 | 1 | 0 | Pin::as_ref skipped (guard_methods lifetime issue) |
+| Cow operations | 3 | **3** | 0 | 0 | Cow::to_mut now uses semantic_op |
+| Weak reference operations | 3 | 3 | 0 | 0 | |
+| OnceCell/OnceLock operations | 5 | **5** | 0 | 0 | set/get/get_or_init now use semantic_op |
+| MaybeUninit operations | 6 | **6** | 0 | 0 | write/assume_init* now use semantic_op |
+| Concurrency operations | 12 | **12** | 0 | 0 | send/recv/try_recv/join/try_lock/try_read/try_write now use semantic_op |
+| Guard method patterns | 9 | 8 | 1 | 0 | Guard::map still partial |
+| Self borrow inference (immutable) | 19 | **19** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
+| Self borrow inference (mutable) | 25 | **25** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
+| Self borrow inference (consuming) | 3 | **3** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
+| Unwrap methods | 5 | 0 | 0 | 5 | Still method name matching |
+| Clone method | 1 | 0 | 1 | 0 | No trait_name verification yet |
+| Transmute detection | 2 | **2** | 0 | 0 | semantic expression lookup (Step 8) |
+| **TOTAL** | **109** | **101** | **3** | **5** |
 
 ### 1.2 Complete Pattern Registry (109 Patterns)
 
@@ -129,7 +129,7 @@
 | 8 | `refcell_new` | `let r = RefCell::new(1)` | ✅ | — | `KnownTypes.refcell` ADT + `"call"` → `"refcell_new"` |
 | 9 | `refcell_borrow` | `let g = r.borrow()` | ✅ | — | Result type is `Ref<T>` (`KnownTypes.ref_guard`) + expr_kind `"borrow"` → `"refcell_borrow"` |
 | 10 | `refcell_borrow_mut` | `let g = r.borrow_mut()` | ✅ | — | Result type is `RefMut<T>` (`KnownTypes.refmut_guard`) + expr_kind `"borrow_mut"` → `"refcell_borrow_mut"` |
-| 11 | `cell_set` | `cell.set(42)` | ❌ | P1 | Macro: `method_name == "set"`. No new variable created — not an initializer. Needs method call tracking. |
+| 11 | `cell_set` | `cell.set(42)` | ✅ | — | Macro: `semantic_op` contains `::Cell::set` → `track_cell_set`. Fallback: method name match when not OnceCell. |
 
 #### Box Operations (3 patterns)
 
@@ -144,7 +144,7 @@
 | ID | Pattern | Example | Status | Phase | How It Works Today |
 |----|---------|---------|--------|-------|--------------------|
 | 15 | `pin_new` | `let p = Pin::new(&mut x)` | ✅ | — | `KnownTypes.pin` ADT (lang item `Pin`) + `"call"` → `"pin_new"` |
-| 16 | `pin_as_ref` | `p.as_ref()` / `p.as_mut()` | ⚠️ | P1 | Type known (Pin ADT), but method call on existing variable. Macro falls back to name matching. |
+| 16 | `pin_as_ref` | `p.as_ref()` / `p.as_mut()` | ⚠️ | — | Type known (Pin ADT), `semantic_op` available, but call is in `guard_methods` skip-list (lifetime issue). |
 
 #### Cow Operations (3 patterns)
 
@@ -152,7 +152,7 @@
 |----|---------|---------|--------|-------|--------------------|
 | 17 | `cow_new` | `let c = Cow::Owned(s)` | ✅ | — | `KnownTypes.cow` ADT + `"call"` → `"cow_new"` |
 | 18 | `cow_variant` | `let c = Cow::Borrowed(&s)` | ✅ | — | Cow ADT + expr_kind `"path"` → `"cow_variant"` |
-| 19 | `cow_to_mut` | `c.to_mut()` | ❌ | P1 | Macro: `method.to_string() == "to_mut"`. Method call on existing variable. |
+| 19 | `cow_to_mut` | `c.to_mut()` | ✅ | — | Macro: `semantic_op` contains `Cow` + `to_mut` → `track_cow_to_mut`. Fallback: cow_vars set + method name. |
 
 #### Weak Reference Operations (3 patterns)
 
@@ -168,9 +168,9 @@
 |----|---------|---------|--------|-------|--------------------|
 | 23 | `once_cell_new` | `let c = OnceCell::new()` | ✅ | — | `KnownTypes.once_cell` ADT + `"call"` → `"once_cell_new"` |
 | 24 | `once_lock_new` | `let c = OnceLock::new()` | ✅ | — | `KnownTypes.once_lock` ADT + `"call"` → `"once_lock_new"` |
-| 25 | `once_cell_set` | `c.set(value)` | ❌ | P1 | Macro: `method_name == "set"`. Ambiguous — could be `Cell::set`, `OnceCell::set`, or user's `.set()`. |
-| 26 | `once_cell_get` | `c.get()` | ⚠️ | P1 | Type known (OnceCell ADT), but method call classified by name. |
-| 27 | `once_cell_get_or_init` | `c.get_or_init(\|\| v)` | ⚠️ | P1 | Type known (OnceCell ADT), but method call classified by name. |
+| 25 | `once_cell_set` | `c.set(value)` | ✅ | — | Macro: `semantic_op` contains `::OnceCell::set` or `::OnceLock::set`. Fallback: once_cell_vars + method name. |
+| 26 | `once_cell_get` | `c.get()` | ✅ | — | Macro: `semantic_op` contains `::get`. Fallback: method name. |
+| 27 | `once_cell_get_or_init` | `c.get_or_init(\|\| v)` | ✅ | — | Macro: `semantic_op` contains `::get_or_init`. Fallback: method name. |
 
 #### MaybeUninit Operations (6 patterns)
 
@@ -178,10 +178,10 @@
 |----|---------|---------|--------|-------|--------------------|
 | 28 | `maybe_uninit_new` | `let m = MaybeUninit::uninit()` | ✅ | — | `KnownTypes.maybe_uninit` ADT (lang item `MaybeUninit`) + `"call"` → `"maybe_uninit_new"` |
 | 29 | `maybe_uninit_zeroed` | `let m = MaybeUninit::zeroed()` | ✅ | — | Same ADT + `"call"` → `"maybe_uninit_new"` |
-| 30 | `maybe_uninit_write` | `m.write(value)` | ⚠️ | P1 | Type known, but method call on existing variable. Macro: `method_name == "write"`. |
-| 31 | `maybe_uninit_assume_init` | `unsafe { m.assume_init() }` | ⚠️ | P1 | Type known, but method call. Macro: `method_name == "assume_init"`. |
-| 32 | `maybe_uninit_assume_init_read` | `unsafe { m.assume_init_read() }` | ❌ | P1 | Macro: `method_name == "assume_init_read"`. |
-| 33 | `maybe_uninit_assume_init_drop` | `unsafe { m.assume_init_drop() }` | ❌ | P1 | Macro: `method_name == "assume_init_drop"`. |
+| 30 | `maybe_uninit_write` | `m.write(value)` | ✅ | — | Macro: `semantic_op` contains `::MaybeUninit::write`. Fallback: maybe_uninit_vars + method name. |
+| 31 | `maybe_uninit_assume_init` | `unsafe { m.assume_init() }` | ✅ | — | Macro: `semantic_op` contains `::assume_init`. Fallback: method name. |
+| 32 | `maybe_uninit_assume_init_read` | `unsafe { m.assume_init_read() }` | ✅ | — | Macro: `semantic_op` contains `::assume_init_read`. Fallback: method name. |
+| 33 | `maybe_uninit_assume_init_drop` | `unsafe { m.assume_init_drop() }` | ✅ | — | Macro: `semantic_op` contains `::assume_init_drop`. Fallback: method name. |
 
 #### Concurrency Operations (12 patterns)
 
@@ -192,13 +192,13 @@
 | 36 | `channel_new` | `let (tx, rx) = mpsc::channel()` | ✅ | — | Result type contains `Sender`/`Receiver` ADT → `"channel_new"` |
 | 37 | `mutex_lock` | `let g = m.lock().unwrap()` | ✅ | — | Result type is `MutexGuard<T>` ADT + expr_kind `"lock"` → `"mutex_lock"` |
 | 38 | `rwlock_read` | `let g = r.read().unwrap()` | ✅ | — | Result type is `RwLockReadGuard<T>` ADT + `"read"` → `"rwlock_read"` |
-| 39 | `channel_send` | `tx.send(value)` | ❌ | P1 | Macro: `method_name == "send"`. Method call on existing variable. |
-| 40 | `channel_recv` | `rx.recv()` | ❌ | P1 | Macro: `method_name == "recv"`. |
-| 41 | `channel_try_recv` | `rx.try_recv()` | ❌ | P1 | Macro: `method_name == "try_recv"`. |
-| 42 | `thread_join` | `handle.join()` | ❌ | P1 | Macro: `method_name == "join"`. |
-| 43 | `mutex_try_lock` | `m.try_lock()` | ❌ | P1 | Macro: `method_name == "try_lock"`. |
-| 44 | `rwlock_try_read` | `r.try_read()` | ❌ | P1 | Macro: `method_name == "try_read"`. |
-| 45 | `rwlock_try_write` | `r.try_write()` | ❌ | P1 | Macro: `method_name == "try_write"`. |
+| 39 | `channel_send` | `tx.send(value)` | ✅ | — | Macro: `semantic_op` contains `Sender` + `send`. Fallback: sender_vars + method name. |
+| 40 | `channel_recv` | `rx.recv()` | ✅ | — | Macro: `semantic_op` contains `Receiver` + `recv`. Fallback: receiver_vars + method name. |
+| 41 | `channel_try_recv` | `rx.try_recv()` | ✅ | — | Macro: `semantic_op` contains `Receiver` + `try_recv`. Fallback: receiver_vars + method name. |
+| 42 | `thread_join` | `handle.join()` | ✅ | — | Macro: `semantic_op` contains `JoinHandle` + `join`. Fallback: join_handle_vars + method name. |
+| 43 | `mutex_try_lock` | `m.try_lock()` | ✅ | — | Macro: `semantic_op` disambiguates, `transform_lock` handles `try_lock` → "mutex". |
+| 44 | `rwlock_try_read` | `r.try_read()` | ✅ | — | Macro: `semantic_op` disambiguates, `transform_lock` handles `try_read` → "rwlock_read". |
+| 45 | `rwlock_try_write` | `r.try_write()` | ✅ | — | Macro: `semantic_op` disambiguates, `transform_lock` handles `try_write` → "rwlock_write". |
 
 #### Guard Method Patterns (9 patterns)
 
@@ -212,69 +212,69 @@
 | 51 | `mutex_lock` | `m.lock()` | ✅ | — | (same as ID 37) |
 | 52 | `rwlock_read` | `r.read()` | ✅ | — | (same as ID 38) |
 | 53 | `rwlock_write` | `r.write()` | ✅ | — | Result type is `RwLockWriteGuard<T>` ADT + `"write"` → `"rwlock_write"` |
-| 54 | `guard_map` | `MutexGuard::map(g, \|d\| &d.field)` | ⚠️ | P1 | Type known (guard ADT), but `map`/`try_map` are static methods — not initializer pattern. |
+| 54 | `guard_map` | `MutexGuard::map(g, \|d\| &d.field)` | ⚠️ | — | Mapped guard ADTs added to `KnownTypes`, types resolve in analyzer, but macro has no special dispatch for `MutexGuard::map()` static call. |
 
 #### Self Borrow Inference — Immutable (19 patterns)
 
 | ID | Pattern | Current Detection | Status | Phase |
 |----|---------|-------------------|--------|-------|
-| 55 | `as_*` | `method_name.starts_with("as_")` | ❌ | P3 |
-| 56 | `to_*` | `method_name.starts_with("to_")` | ❌ | P3 |
-| 57 | `is_*` | `method_name.starts_with("is_")` | ❌ | P3 |
-| 58 | `get*` | `method_name.starts_with("get")` | ❌ | P3 |
-| 59 | `len` | `method_name == "len"` | ❌ | P3 |
-| 60 | `capacity` | `method_name == "capacity"` | ❌ | P3 |
-| 61 | `iter` | `method_name == "iter"` | ❌ | P3 |
-| 62 | `chars` | `method_name == "chars"` | ❌ | P3 |
-| 63 | `bytes` | `method_name == "bytes"` | ❌ | P3 |
-| 64 | `lines` | `method_name == "lines"` | ❌ | P3 |
-| 65 | `split` | `method_name == "split"` | ❌ | P3 |
-| 66 | `trim` | `method_name == "trim"` | ❌ | P3 |
-| 67 | `contains` | `method_name == "contains"` | ❌ | P3 |
-| 68 | `starts_with` | `method_name == "starts_with"` | ❌ | P3 |
-| 69 | `ends_with` | `method_name == "ends_with"` | ❌ | P3 |
-| 70 | `find` | `method_name == "find"` | ❌ | P3 |
-| 71 | `clone` | `method_name == "clone"` | ❌ | P3 |
-| 72 | `first` | `method_name == "first"` | ❌ | P3 |
-| 73 | `last` | `method_name == "last"` | ❌ | P3 |
+| 55 | `as_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("as_")` | ✅ | — |
+| 56 | `to_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("to_")` | ✅ | — |
+| 57 | `is_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("is_")` | ✅ | — |
+| 58 | `get*` | `semantic_op` self_borrow lookup, fallback: `starts_with("get")` | ✅ | — |
+| 59 | `len` | `semantic_op` self_borrow lookup, fallback: `== "len"` | ✅ | — |
+| 60 | `capacity` | `semantic_op` self_borrow lookup, fallback: `== "capacity"` | ✅ | — |
+| 61 | `iter` | `semantic_op` self_borrow lookup, fallback: `== "iter"` | ✅ | — |
+| 62 | `chars` | `semantic_op` self_borrow lookup, fallback: `== "chars"` | ✅ | — |
+| 63 | `bytes` | `semantic_op` self_borrow lookup, fallback: `== "bytes"` | ✅ | — |
+| 64 | `lines` | `semantic_op` self_borrow lookup, fallback: `== "lines"` | ✅ | — |
+| 65 | `split` | `semantic_op` self_borrow lookup, fallback: `== "split"` | ✅ | — |
+| 66 | `trim` | `semantic_op` self_borrow lookup, fallback: `== "trim"` | ✅ | — |
+| 67 | `contains` | `semantic_op` self_borrow lookup, fallback: `== "contains"` | ✅ | — |
+| 68 | `starts_with` | `semantic_op` self_borrow lookup, fallback: `== "starts_with"` | ✅ | — |
+| 69 | `ends_with` | `semantic_op` self_borrow lookup, fallback: `== "ends_with"` | ✅ | — |
+| 70 | `find` | `semantic_op` self_borrow lookup, fallback: `== "find"` | ✅ | — |
+| 71 | `clone` | `semantic_op` self_borrow lookup, fallback: `== "clone"` | ✅ | — |
+| 72 | `first` | `semantic_op` self_borrow lookup, fallback: `== "first"` | ✅ | — |
+| 73 | `last` | `semantic_op` self_borrow lookup, fallback: `== "last"` | ✅ | — |
 
 #### Self Borrow Inference — Mutable (25 patterns)
 
 | ID | Pattern | Current Detection | Status | Phase |
 |----|---------|-------------------|--------|-------|
-| 74 | `push*` | `method_name.starts_with("push")` | ❌ | P3 |
-| 75 | `pop*` | `method_name.starts_with("pop")` | ❌ | P3 |
-| 76 | `insert*` | `method_name.starts_with("insert")` | ❌ | P3 |
-| 77 | `remove*` | `method_name.starts_with("remove")` | ❌ | P3 |
-| 78 | `append*` | `method_name.starts_with("append")` | ❌ | P3 |
-| 79 | `add*` | `method_name.starts_with("add")` | ❌ | P3 |
-| 80 | `set*` | `method_name.starts_with("set")` | ❌ | P3 |
-| 81 | `update*` | `method_name.starts_with("update")` | ❌ | P3 |
-| 82 | `modify*` | `method_name.starts_with("modify")` | ❌ | P3 |
-| 83 | `clear` | `method_name == "clear"` | ❌ | P3 |
-| 84 | `truncate` | `method_name == "truncate"` | ❌ | P3 |
-| 85 | `extend` | `method_name == "extend"` | ❌ | P3 |
-| 86 | `drain` | `method_name == "drain"` | ❌ | P3 |
-| 87 | `sort` | `method_name == "sort"` | ❌ | P3 |
-| 88 | `reverse` | `method_name == "reverse"` | ❌ | P3 |
-| 89 | `dedup` | `method_name == "dedup"` | ❌ | P3 |
-| 90 | `retain` | `method_name == "retain"` | ❌ | P3 |
-| 91 | `tick` | `method_name == "tick"` | ❌ | P3 |
-| 92 | `recv` | `method_name == "recv"` | ❌ | P3 |
-| 93 | `send` | `method_name == "send"` | ❌ | P3 |
-| 94 | `changed` | `method_name == "changed"` | ❌ | P3 |
-| 95 | `wait` | `method_name == "wait"` | ❌ | P3 |
-| 96 | `acquire` | `method_name == "acquire"` | ❌ | P3 |
-| 97 | `lock` | `method_name == "lock"` | ❌ | P3 |
-| 98 | `write` | `method_name == "write"` | ❌ | P3 |
+| 74 | `push*` | `semantic_op` self_borrow lookup, fallback: `starts_with("push")` | ✅ | — |
+| 75 | `pop*` | `semantic_op` self_borrow lookup, fallback: `starts_with("pop")` | ✅ | — |
+| 76 | `insert*` | `semantic_op` self_borrow lookup, fallback: `starts_with("insert")` | ✅ | — |
+| 77 | `remove*` | `semantic_op` self_borrow lookup, fallback: `starts_with("remove")` | ✅ | — |
+| 78 | `append*` | `semantic_op` self_borrow lookup, fallback: `starts_with("append")` | ✅ | — |
+| 79 | `add*` | `semantic_op` self_borrow lookup, fallback: `starts_with("add")` | ✅ | — |
+| 80 | `set*` | `semantic_op` self_borrow lookup, fallback: `starts_with("set")` | ✅ | — |
+| 81 | `update*` | `semantic_op` self_borrow lookup, fallback: `starts_with("update")` | ✅ | — |
+| 82 | `modify*` | `semantic_op` self_borrow lookup, fallback: `starts_with("modify")` | ✅ | — |
+| 83 | `clear` | `semantic_op` self_borrow lookup, fallback: `== "clear"` | ✅ | — |
+| 84 | `truncate` | `semantic_op` self_borrow lookup, fallback: `== "truncate"` | ✅ | — |
+| 85 | `extend` | `semantic_op` self_borrow lookup, fallback: `== "extend"` | ✅ | — |
+| 86 | `drain` | `semantic_op` self_borrow lookup, fallback: `== "drain"` | ✅ | — |
+| 87 | `sort` | `semantic_op` self_borrow lookup, fallback: `== "sort"` | ✅ | — |
+| 88 | `reverse` | `semantic_op` self_borrow lookup, fallback: `== "reverse"` | ✅ | — |
+| 89 | `dedup` | `semantic_op` self_borrow lookup, fallback: `== "dedup"` | ✅ | — |
+| 90 | `retain` | `semantic_op` self_borrow lookup, fallback: `== "retain"` | ✅ | — |
+| 91 | `tick` | `semantic_op` self_borrow lookup, fallback: `== "tick"` | ✅ | — |
+| 92 | `recv` | `semantic_op` self_borrow lookup, fallback: `== "recv"` | ✅ | — |
+| 93 | `send` | `semantic_op` self_borrow lookup, fallback: `== "send"` | ✅ | — |
+| 94 | `changed` | `semantic_op` self_borrow lookup, fallback: `== "changed"` | ✅ | — |
+| 95 | `wait` | `semantic_op` self_borrow lookup, fallback: `== "wait"` | ✅ | — |
+| 96 | `acquire` | `semantic_op` self_borrow lookup, fallback: `== "acquire"` | ✅ | — |
+| 97 | `lock` | `semantic_op` self_borrow lookup, fallback: `== "lock"` | ✅ | — |
+| 98 | `write` | `semantic_op` self_borrow lookup, fallback: `== "write"` | ✅ | — |
 
 #### Self Borrow Inference — Consuming (3 patterns)
 
 | ID | Pattern | Current Detection | Status | Phase |
 |----|---------|-------------------|--------|-------|
-| 99 | `into_*` | `method_name.starts_with("into_")` | ❌ | P3 |
-| 100 | `unwrap` (consuming) | `method_name == "unwrap"` | ❌ | P3 |
-| 101 | `expect` (consuming) | `method_name == "expect"` | ❌ | P3 |
+| 99 | `into_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("into_")` | ✅ | — |
+| 100 | `unwrap` (consuming) | `semantic_op` self_borrow lookup, fallback: `== "unwrap"` | ✅ | — |
+| 101 | `expect` (consuming) | `semantic_op` self_borrow lookup, fallback: `== "expect"` | ✅ | — |
 
 #### Unwrap Methods (5 patterns)
 
@@ -298,10 +298,10 @@
 
 | ID | Pattern | Example | Current Detection | Status | Phase |
 |----|---------|---------|-------------------|--------|-------|
-| 108 | `transmute` | `transmute(x)` | `path_str.contains("transmute")` | ❌ | P2 |
-| 109 | `std_transmute` | `std::mem::transmute(x)` | `fn_name.contains("transmute")` | ❌ | P2 |
+| 108 | `transmute` | `transmute(x)` | `semantic expression lookup` + `find_transmute_types()` | ✅ | — |
+| 109 | `std_transmute` | `std::mem::transmute(x)` | `semantic expression lookup` + `find_transmute_types()` | ✅ | — |
 
-> Note: Both resolve to the same `FunctionId` semantically. The distinction is purely syntactic (import path vs fully qualified).
+> Note: Both resolve to the same `FunctionId` semantically. Transmute detection now uses `ExpressionInfo` from analyzer with `argument`/`result_type` extraction. Returns `None` when multiple transmutes exist in the same function (can't disambiguate without span line access).
 
 ---
 
