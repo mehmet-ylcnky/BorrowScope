@@ -1,0 +1,10 @@
+[package]
+name = "test_semantic_borrow"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+borrowscope-runtime = { path = "../../../../borrowscope-runtime", features = ["track"] }
+borrowscope-macro = { path = "../../../../borrowscope-macro" }
