@@ -507,15 +507,15 @@ Every method in the macro classified by whether the analyzer can replace its heu
 
 **transform_visitor.rs — Core Transform Methods:**
 
-| # | Method | Line | What It Does | Heuristic? | Analyzer Can Replace? |
-|---|--------|------|-------------|-----------|----------------------|
-| 18 | `infer_self_borrow_type()` | 462 | Guesses `&self`/`&mut self`/`self` from method name | ❌ **Heuristic** | ✅ `method_calls[].self_borrow` |
-| 19 | `transform_method_call()` | 548 | Wraps receiver with `track_borrow`/`track_borrow_mut` based on inferred borrow | ❌ **Heuristic** (uses #18) | ✅ Read `self_borrow` from `method_calls[]` |
-| 20 | `transform_clone()` | 1619 | Emits `track_clone` for any `.clone()` call | ❌ **Heuristic** (can't verify Clone trait) | ✅ `method_calls[].trait_name == "Clone"` |
-| 21 | `transform_lock()` | 1634 | Emits `track_lock` for `.lock()`/`.read()`/`.write()` | ❌ **Heuristic** (matches method name) | ✅ `method_calls[].operation` ending `::Mutex::lock` etc. |
-| 22 | `transform_unwrap()` | 1653 | Emits `track_unwrap` for `.unwrap()`/`.expect()` etc. | ❌ **Heuristic** (matches method name) | ✅ `method_calls[].operation` ending `::Option::unwrap` etc. |
-| 23 | `transform_call_expr()` | 1419 | Detects `transmute` by `path_str.contains("transmute")` | ❌ **Heuristic** | ✅ `expressions[].path == "core::mem::transmute"` |
-| 24 | `transform_closure()` | 710 | Detects capture mode from `move` keyword, extracts captured vars by walking AST | ⚠️ **Partial** — `move` keyword is syntactic, captured vars are guessed | ✅ `closure_captures[]` has exact `CaptureKind` per variable |
+| # | Method | Line | What It Does | Status | Notes |
+|---|--------|------|-------------|--------|-------|
+| 18 | `infer_self_borrow_type()` | 462 | Semantic lookup of `method_calls[].self_borrow`, heuristic fallback | ✅ **Semantic** | Reads analyzer data first, falls back to name-based guessing |
+| 19 | `transform_method_call()` | 548 | Wraps receiver with `track_borrow`/`track_borrow_mut` based on inferred borrow | ✅ **Semantic** (uses #18) | Semantic via `infer_self_borrow_type` lookup |
+| 20 | `transform_clone()` | 1619 | Emits `track_clone` for `.clone()` call | ✅ **Semantic** | Checks `is_trait_method`/`trait_name` to verify `Clone::clone` |
+| 21 | `transform_lock()` | 1634 | Emits `track_lock` for `.lock()`/`.read()`/`.write()` | ✅ **Semantic** | Guarded by `semantic_op` check before dispatch |
+| 22 | `transform_unwrap()` | 1653 | Emits `track_unwrap` for `.unwrap()`/`.expect()` etc. | ✅ **Semantic** | Verifies `semantic_op` contains `"option"` or `"result"` |
+| 23 | `transform_call_expr()` | 1419 | Detects `transmute` by `path_str.contains("transmute")` | ⚠️ **Partial** | Detection still string-based; type extraction uses `expressions[]` |
+| 24 | `transform_closure()` | 710 | Detects capture mode from `move` keyword, extracts captured vars by walking AST | ⚠️ **Partial** | `move` keyword is syntactic, captured vars are guessed; `closure_captures[]` available but not consumed |
 | 25 | `transform_by_initializer_kind()` | 1129 | Dispatches on `initializer_kind` from analyzer | ✅ **Semantic** | — Already uses analyzer |
 | 26 | `lookup_type_info()` | 120 | Looks up variable in type-info.json | ✅ **Semantic** | — Already uses analyzer |
 
@@ -523,7 +523,7 @@ Every method in the macro classified by whether the analyzer can replace its heu
 
 | # | Method | Line | What It Does | Needs Analyzer? |
 |---|--------|------|-------------|----------------|
-| 27 | `transform_local()` | 751 | Transforms `let` statements — wraps initializer with `track_new` | ⚠️ Partially — uses analyzer for `initializer_kind`, falls back to `detect_*()` |
+| 27 | `transform_local()` | 751 | Transforms `let` statements — wraps initializer with `track_new` | ✅ Uses analyzer for `initializer_kind`, falls back to `detect_*()` when no data |
 | 28 | `transform_reference()` | 1319 | Wraps `&x`/`&mut x` with `track_borrow`/`track_borrow_mut` | ❌ No — reference expressions are syntactically unambiguous |
 | 29 | `transform_unsafe_block()` | 1375 | Wraps unsafe blocks with enter/exit tracking | ⚠️ Could use `unsafe_operations` for richer context |
 | 30 | `transform_ptr_cast()` | 1396 | Wraps `x as *const T` with `track_raw_ptr` | ❌ No — pointer casts are syntactically unambiguous |
@@ -575,48 +575,40 @@ Every method in the macro classified by whether the analyzer can replace its heu
 | 71 | `extract_downgrade_source()` | 1291 | Get source var from `Rc::downgrade(&x)` | ❌ No |
 | 72 | `extract_box_from_into_raw()` | 1305 | Get var from `Box::into_raw(b)` | ❌ No |
 
-**visit_expr_mut dispatch (line 2199) — Heuristic Method-Name Matching:**
+**visit_expr_mut dispatch (line 2199) — Now Semantic via `semantic_op`:**
 
-| # | Code Location | Heuristic | Analyzer Replacement |
-|---|--------------|-----------|---------------------|
-| 73 | `method_name == "clone"` (line 2325) | Weak::clone check by var name set | ✅ `method_calls[].operation` ending `::Weak::clone` |
-| 74 | `method_name == "clone"` (line 2347) | Generic clone | ✅ `method_calls[].trait_name == "Clone"` |
-| 75 | `method_name == "lock"` (line 2370) | Mutex::lock by name | ✅ `method_calls[].operation` ending `::Mutex::lock` |
-| 76 | `method_name == "read"` (line 2375) | RwLock::read by name | ✅ `method_calls[].operation` ending `::RwLock::read` |
-| 77 | `method_name == "write"` (line 2380) | RwLock::write by name — **AMBIGUOUS** with `io::Write::write`, `MaybeUninit::write` | ✅ `method_calls[].operation` disambiguates |
-| 78 | `"unwrap" \| "expect" \| ...` (line 2393) | Unwrap methods by name | ✅ `method_calls[].operation` ending `::Option::unwrap` etc. |
-| 79 | `cow_vars.contains() && "to_mut"` (line 2404) | Cow::to_mut by var set + name | ✅ `method_calls[].operation` |
-| 80 | `weak_vars.get() && "upgrade"` (line 2419) | Weak::upgrade by var set + name | ✅ `method_calls[].operation` |
-| 81 | `join_handle_vars.contains() && "join"` (line 2436) | JoinHandle::join by var set + name — **AMBIGUOUS** with `str::join` | ✅ `method_calls[].operation` disambiguates |
-| 82 | `sender_vars.contains() && "send"` (line 2445) | Sender::send by var set + name | ✅ `method_calls[].operation` |
-| 83 | `receiver_vars.contains() && "recv"` (line 2462) | Receiver::recv by var set + name | ✅ `method_calls[].operation` |
-| 84 | `receiver_vars.contains() && "try_recv"` (line 2470) | Receiver::try_recv by var set + name | ✅ `method_calls[].operation` |
-| 85 | `method_name == "borrow"` (line 2490) | RefCell::borrow by name — **AMBIGUOUS** with `Borrow::borrow` trait | ✅ `method_calls[].operation` disambiguates |
-| 86 | `method_name == "borrow_mut"` (line 2498) | RefCell::borrow_mut by name | ✅ `method_calls[].operation` |
-| 87 | `once_cell_vars.contains() + detect_once_cell_method()` (line 2507) | OnceCell methods by var set + name | ✅ `method_calls[].operation` |
-| 88 | `maybe_uninit_vars.contains() + detect_maybe_uninit_method()` (line 2545) | MaybeUninit methods by var set + name | ✅ `method_calls[].operation` |
-| 89 | `method_name == "get"` (line 2590) | Cell::get by name — **AMBIGUOUS** with `HashMap::get`, `Vec::get`, etc. | ✅ `method_calls[].operation` disambiguates |
-| 90 | `method_name == "set"` (line 2600) | Cell::set by name — **AMBIGUOUS** with `OnceCell::set`, user `.set()` | ✅ `method_calls[].operation` disambiguates |
+| # | Code Location | Status | Notes |
+|---|--------------|--------|-------|
+| 73 | `method_name == "clone"` (Weak) | ✅ **Semantic** | `semantic_op` checks `::Weak::clone` |
+| 74 | `method_name == "clone"` (generic) | ✅ **Semantic** | `is_trait_method`/`trait_name` verifies `Clone::clone` |
+| 75 | `method_name == "lock"` | ✅ **Semantic** | `semantic_op` checks `::Mutex::lock` |
+| 76 | `method_name == "read"` | ✅ **Semantic** | `semantic_op` checks `::RwLock::read` |
+| 77 | `method_name == "write"` | ✅ **Semantic** | `semantic_op` disambiguates `RwLock::write` vs `io::Write::write` vs `MaybeUninit::write` |
+| 78 | `"unwrap" \| "expect" \| ...` | ✅ **Semantic** | `semantic_op` verifies `option`/`result` |
+| 79 | `cow_vars.contains() && "to_mut"` | ✅ **Semantic** | `semantic_op` checks `::Cow::to_mut` |
+| 80 | `weak_vars.get() && "upgrade"` | ✅ **Semantic** | `semantic_op` checks `::Weak::upgrade` |
+| 81 | `join_handle_vars.contains() && "join"` | ✅ **Semantic** | `semantic_op` disambiguates `JoinHandle::join` vs `str::join` |
+| 82 | `sender_vars.contains() && "send"` | ✅ **Semantic** | `semantic_op` checks `::Sender::send` |
+| 83 | `receiver_vars.contains() && "recv"` | ✅ **Semantic** | `semantic_op` checks `::Receiver::recv` |
+| 84 | `receiver_vars.contains() && "try_recv"` | ✅ **Semantic** | `semantic_op` checks `::Receiver::try_recv` |
+| 85 | `method_name == "borrow"` | ✅ **Semantic** | `semantic_op` disambiguates `RefCell::borrow` vs `Borrow::borrow` |
+| 86 | `method_name == "borrow_mut"` | ✅ **Semantic** | `semantic_op` checks `::RefCell::borrow_mut` |
+| 87 | OnceCell methods | ✅ **Semantic** | `semantic_op` dispatch replaced `detect_once_cell_method()` |
+| 88 | MaybeUninit methods | ✅ **Semantic** | `semantic_op` dispatch replaced `detect_maybe_uninit_method()` |
+| 89 | `method_name == "get"` | ✅ **Semantic** | `semantic_op` disambiguates `Cell::get` vs `HashMap::get` etc. |
+| 90 | `method_name == "set"` | ✅ **Semantic** | `semantic_op` disambiguates `Cell::set` vs `OnceCell::set` etc. |
 
 #### F. Summary Counts
 
-| Category | Count | Analyzer Can Replace? |
-|----------|-------|-----------------------|
-| Detection functions (smart_pointer.rs) | 17 | ✅ All 17 — delete entirely |
-| Heuristic transform methods | 6 (#18–23) | ✅ All 6 — read `method_calls[]`/`expressions[]` |
-| Heuristic dispatch points in visit_expr_mut | 18 (#73–90) | ✅ All 18 — read `method_calls[].operation` |
-| Partial transforms (could be enriched) | 10 (#24, 29, 31–33, 38–39, 43–44, 68) | ⚠️ Optional — analyzer has richer data |
-| Structural transforms (no type info needed) | 17 (#28, 30, 34–37, 40–42, 45–51) | ❌ Not needed — syntactically unambiguous |
-| Helper methods (no detection logic) | 21 (#52–72) | ❌ Not needed — pure AST manipulation |
-
-**Total heuristic points: 41** (17 + 6 + 18) — all replaceable by reading `method_calls[]` and `expressions[]`.
-
-**Ambiguous methods found** (most dangerous heuristics):
-- `"write"` — could be `RwLock::write`, `io::Write::write`, `MaybeUninit::write`
-- `"join"` — could be `JoinHandle::join`, `str::join`, `Vec::join`
-- `"borrow"` — could be `RefCell::borrow`, `Borrow::borrow` trait
-- `"get"` — could be `Cell::get`, `HashMap::get`, `Vec::get`, `OnceCell::get`
-- `"set"` — could be `Cell::set`, `OnceCell::set`, user's `.set()`
+| Category | Count | Status |
+|----------|-------|--------|
+| Detection functions (smart_pointer.rs) | 17 | ✅ 15 deleted or replaced by `semantic_op`; 10 remain as initializer fallback |
+| Core transform methods (#18–22) | 5 | ✅ All 5 now semantic (read `method_calls[]`) |
+| Dispatch points in visit_expr_mut (#73–90) | 18 | ✅ All 18 now use `semantic_op` lookup |
+| Partial transforms (#23–24) | 2 | ⚠️ transmute detection + closure captures still partially syntactic |
+| Partial enrichable transforms (#29, 31–33, 38–39, 43–44, 68) | 10 | ⚠️ Optional — analyzer has richer data but current approach works |
+| Structural transforms (no type info needed) | 17 | ❌ Not needed — syntactically unambiguous |
+| Helper methods (no detection logic) | 21 | ❌ Not needed — pure AST manipulation |
 
 ### 3.3 Key Functions
 
