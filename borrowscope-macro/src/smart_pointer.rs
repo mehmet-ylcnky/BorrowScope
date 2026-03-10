@@ -204,35 +204,6 @@ pub fn detect_rc_clone(expr: &Expr) -> Option<SmartPointerType> {
 }
 
 /// Detect RefCell borrow operations
-pub fn detect_refcell_borrow(expr: &Expr) -> Option<bool> {
-    if let Expr::MethodCall(ExprMethodCall { method, .. }) = expr {
-        let method_name = method.to_string();
-
-        if method_name == "borrow" {
-            return Some(false); // Immutable borrow
-        }
-        if method_name == "borrow_mut" {
-            return Some(true); // Mutable borrow
-        }
-    }
-    None
-}
-
-/// Detect Cell get/set operations
-pub fn detect_cell_operation(expr: &Expr) -> Option<SmartPointerOp> {
-    if let Expr::MethodCall(ExprMethodCall { method, .. }) = expr {
-        let method_name = method.to_string();
-
-        if method_name == "get" {
-            return Some(SmartPointerOp::CellGet);
-        }
-        if method_name == "set" {
-            return Some(SmartPointerOp::CellSet);
-        }
-    }
-    None
-}
-
 /// Detect Box::pin call
 pub fn detect_box_pin(expr: &Expr) -> bool {
     if let Expr::Call(ExprCall { func, .. }) = expr {
@@ -292,14 +263,6 @@ pub fn detect_cow_creation(expr: &Expr) -> Option<SmartPointerOp> {
     None
 }
 
-/// Detect Cow::to_mut method call
-pub fn detect_cow_to_mut(expr: &Expr) -> bool {
-    if let Expr::MethodCall(ExprMethodCall { method, .. }) = expr {
-        return method.to_string() == "to_mut";
-    }
-    false
-}
-
 /// Detect Rc::downgrade or Arc::downgrade
 pub fn detect_downgrade(expr: &Expr) -> Option<SmartPointerType> {
     if let Expr::Call(ExprCall { func, .. }) = expr {
@@ -314,14 +277,6 @@ pub fn detect_downgrade(expr: &Expr) -> Option<SmartPointerType> {
         }
     }
     None
-}
-
-/// Detect Weak::upgrade method call
-pub fn detect_weak_upgrade(expr: &Expr) -> bool {
-    if let Expr::MethodCall(ExprMethodCall { method, .. }) = expr {
-        return method.to_string() == "upgrade";
-    }
-    false
 }
 
 /// Detect OnceCell::new or OnceLock::new
@@ -421,71 +376,6 @@ pub fn detect_concurrency_op(expr: &Expr) -> Option<ConcurrencyOp> {
     None
 }
 
-/// Check if an expression is a smart pointer operation
-pub fn is_smart_pointer_operation(expr: &Expr) -> Option<SmartPointerOp> {
-    // Check for ::new
-    if let Some(sp_type) = detect_smart_pointer_new(expr) {
-        return Some(SmartPointerOp::New(sp_type));
-    }
-
-    // Check for Rc/Arc clone
-    if let Some(sp_type) = detect_rc_clone(expr) {
-        return Some(SmartPointerOp::Clone(sp_type));
-    }
-
-    // Check for RefCell borrow
-    if let Some(is_mut) = detect_refcell_borrow(expr) {
-        return Some(if is_mut {
-            SmartPointerOp::BorrowMut
-        } else {
-            SmartPointerOp::Borrow
-        });
-    }
-
-    // Check for Cell operations
-    if let Some(op) = detect_cell_operation(expr) {
-        return Some(op);
-    }
-
-    // Check for Box::pin
-    if detect_box_pin(expr) {
-        return Some(SmartPointerOp::BoxPin);
-    }
-
-    // Check for Box::into_raw / Box::from_raw
-    if let Some(op) = detect_box_raw_op(expr) {
-        return Some(op);
-    }
-
-    // Check for Pin operations
-    if let Some(op) = detect_pin_operation(expr) {
-        return Some(op);
-    }
-
-    // Check for Cow creation
-    if let Some(op) = detect_cow_creation(expr) {
-        return Some(op);
-    }
-
-    // Check for Cow::to_mut
-    if detect_cow_to_mut(expr) {
-        return Some(SmartPointerOp::CowToMut);
-    }
-
-    // Check for Rc/Arc downgrade
-    if let Some(sp_type) = detect_downgrade(expr) {
-        return Some(SmartPointerOp::Downgrade(sp_type));
-    }
-
-    // Check for Weak::upgrade
-    if detect_weak_upgrade(expr) {
-        // Default to Rc weak, caller should determine actual type from context
-        return Some(SmartPointerOp::WeakUpgrade(SmartPointerType::WeakRc));
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,30 +430,6 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_refcell_borrow() {
-        let expr: Expr = parse_quote! { x.borrow() };
-        assert_eq!(detect_refcell_borrow(&expr), Some(false));
-    }
-
-    #[test]
-    fn test_detect_refcell_borrow_mut() {
-        let expr: Expr = parse_quote! { x.borrow_mut() };
-        assert_eq!(detect_refcell_borrow(&expr), Some(true));
-    }
-
-    #[test]
-    fn test_detect_cell_get() {
-        let expr: Expr = parse_quote! { x.get() };
-        assert_eq!(detect_cell_operation(&expr), Some(SmartPointerOp::CellGet));
-    }
-
-    #[test]
-    fn test_detect_cell_set() {
-        let expr: Expr = parse_quote! { x.set(42) };
-        assert_eq!(detect_cell_operation(&expr), Some(SmartPointerOp::CellSet));
-    }
-
-    #[test]
     fn test_smart_pointer_type_properties() {
         assert_eq!(SmartPointerType::Box.name(), "Box");
         assert_eq!(SmartPointerType::Rc.name(), "Rc");
@@ -579,42 +445,6 @@ mod tests {
 
         assert!(SmartPointerType::Arc.is_thread_safe());
         assert!(!SmartPointerType::Rc.is_thread_safe());
-    }
-
-    #[test]
-    fn test_is_smart_pointer_operation_box() {
-        let expr: Expr = parse_quote! { Box::new(42) };
-        assert_eq!(
-            is_smart_pointer_operation(&expr),
-            Some(SmartPointerOp::New(SmartPointerType::Box))
-        );
-    }
-
-    #[test]
-    fn test_is_smart_pointer_operation_rc_clone() {
-        let expr: Expr = parse_quote! { Rc::clone(&x) };
-        assert_eq!(
-            is_smart_pointer_operation(&expr),
-            Some(SmartPointerOp::Clone(SmartPointerType::Rc))
-        );
-    }
-
-    #[test]
-    fn test_is_smart_pointer_operation_refcell_borrow() {
-        let expr: Expr = parse_quote! { x.borrow() };
-        assert_eq!(
-            is_smart_pointer_operation(&expr),
-            Some(SmartPointerOp::Borrow)
-        );
-    }
-
-    #[test]
-    fn test_non_smart_pointer_expression() {
-        let expr: Expr = parse_quote! { 42 };
-        assert_eq!(is_smart_pointer_operation(&expr), None);
-
-        let expr: Expr = parse_quote! { String::from("hello") };
-        assert_eq!(is_smart_pointer_operation(&expr), None);
     }
 
     #[test]

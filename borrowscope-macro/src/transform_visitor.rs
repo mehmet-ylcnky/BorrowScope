@@ -6,10 +6,9 @@
 use crate::config::TraceConfig;
 use crate::smart_pointer::{
     detect_box_pin, detect_box_raw_op, detect_concurrency_op, detect_cow_creation,
-    detect_cow_to_mut, detect_downgrade, detect_maybe_uninit_method, detect_maybe_uninit_new,
+    detect_downgrade, detect_maybe_uninit_method, detect_maybe_uninit_new,
     detect_once_cell_method, detect_once_cell_new, detect_pin_operation, detect_rc_clone,
-    detect_smart_pointer_new, detect_weak_upgrade, ConcurrencyOp, SmartPointerOp,
-    SmartPointerType,
+    detect_smart_pointer_new, ConcurrencyOp, SmartPointerOp, SmartPointerType,
 };
 use crate::type_info;
 use quote::quote;
