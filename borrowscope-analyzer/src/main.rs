@@ -47,7 +47,7 @@ fn main() -> Result<()> {
     println!("Project: {}", project_path.display());
     println!();
 
-    let type_info = analysis::analyze_project(&project_path)?;
+    let mut type_info = analysis::analyze_project(&project_path)?;
 
     // Summary
     let total_vars: usize = type_info.files.values().map(|v| v.len()).sum();
@@ -72,6 +72,9 @@ fn main() -> Result<()> {
             0.0
         }
     );
+
+    // Build lookup indices for macro consumption
+    type_info.build_name_index();
 
     // Write output
     let output_dir = project_path.join(".borrowscope");

@@ -296,19 +296,6 @@ pub fn detect_once_cell_new(expr: &Expr) -> Option<bool> {
 }
 
 /// Detect OnceCell/OnceLock method operations
-pub fn detect_once_cell_method(expr: &Expr) -> Option<SmartPointerOp> {
-    if let Expr::MethodCall(ExprMethodCall { method, .. }) = expr {
-        let method_name = method.to_string();
-        match method_name.as_str() {
-            "set" => return Some(SmartPointerOp::OnceCellSet),
-            "get" => return Some(SmartPointerOp::OnceCellGet),
-            "get_or_init" => return Some(SmartPointerOp::OnceCellGetOrInit),
-            _ => {}
-        }
-    }
-    None
-}
-
 /// Detect MaybeUninit::uninit or MaybeUninit::new
 pub fn detect_maybe_uninit_new(expr: &Expr) -> Option<SmartPointerOp> {
     if let Expr::Call(ExprCall { func, .. }) = expr {
@@ -320,21 +307,6 @@ pub fn detect_maybe_uninit_new(expr: &Expr) -> Option<SmartPointerOp> {
             if path_str.contains("MaybeUninit::new") {
                 return Some(SmartPointerOp::MaybeUninitNew);
             }
-        }
-    }
-    None
-}
-
-/// Detect MaybeUninit method operations
-pub fn detect_maybe_uninit_method(expr: &Expr) -> Option<SmartPointerOp> {
-    if let Expr::MethodCall(ExprMethodCall { method, .. }) = expr {
-        let method_name = method.to_string();
-        match method_name.as_str() {
-            "write" => return Some(SmartPointerOp::MaybeUninitWrite),
-            "assume_init" => return Some(SmartPointerOp::MaybeUninitAssumeInit),
-            "assume_init_read" => return Some(SmartPointerOp::MaybeUninitAssumeInitRead),
-            "assume_init_drop" => return Some(SmartPointerOp::MaybeUninitAssumeInitDrop),
-            _ => {}
         }
     }
     None

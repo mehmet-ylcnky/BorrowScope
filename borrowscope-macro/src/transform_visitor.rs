@@ -6,8 +6,8 @@
 use crate::config::TraceConfig;
 use crate::smart_pointer::{
     detect_box_pin, detect_box_raw_op, detect_concurrency_op, detect_cow_creation,
-    detect_downgrade, detect_maybe_uninit_method, detect_maybe_uninit_new,
-    detect_once_cell_method, detect_once_cell_new, detect_pin_operation, detect_rc_clone,
+    detect_downgrade, detect_maybe_uninit_new,
+    detect_once_cell_new, detect_pin_operation, detect_rc_clone,
     detect_smart_pointer_new, ConcurrencyOp, SmartPointerOp, SmartPointerType,
 };
 use crate::type_info;
@@ -2576,83 +2576,93 @@ impl VisitMut for OwnershipVisitor {
                         .map(|op| op.contains("OnceCell") || op.contains("OnceLock"))
                         .unwrap_or_else(|| self.once_cell_vars.contains(receiver_name.as_str()));
                     if is_once_cell {
-                        if let Some(op) = detect_once_cell_method(&Expr::MethodCall(method_call.clone())) {
-                            let cell_id = format!("once_{}", receiver_name);
-                            match op {
-                                SmartPointerOp::OnceCellSet => {
-                                    let args: Vec<_> = method_call.args.iter().cloned().collect();
-                                    if let Some(arg) = args.first() {
-                                        *expr = syn::parse_quote! {
-                                            borrowscope_runtime::track_once_cell_set(#cell_id, #location, #receiver.set(#arg))
-                                        };
-                                    }
-                                    return;
-                                }
-                                SmartPointerOp::OnceCellGet => {
+                        // Semantic: match operation path, fallback: match method name
+                        let once_method = semantic_op.as_ref().and_then(|op| {
+                            if op.contains("::set") { Some("set") }
+                            else if op.contains("::get_or_init") { Some("get_or_init") }
+                            else if op.contains("::get") { Some("get") }
+                            else { None }
+                        }).unwrap_or(method_name.as_str());
+                        let cell_id = format!("once_{}", receiver_name);
+                        match once_method {
+                            "set" => {
+                                let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                if let Some(arg) = args.first() {
                                     *expr = syn::parse_quote! {
-                                        borrowscope_runtime::track_once_cell_get(#cell_id, #location, #receiver.get())
+                                        borrowscope_runtime::track_once_cell_set(#cell_id, #location, #receiver.set(#arg))
                                     };
-                                    return;
                                 }
-                                SmartPointerOp::OnceCellGetOrInit => {
-                                    let args: Vec<_> = method_call.args.iter().cloned().collect();
-                                    if let Some(init_fn) = args.first() {
-                                        *expr = syn::parse_quote! {
-                                            {
-                                                let __was_init = #receiver.get().is_some();
-                                                let __result = #receiver.get_or_init(#init_fn);
-                                                borrowscope_runtime::track_once_cell_get_or_init(#cell_id, __was_init, #location, __result)
-                                            }
-                                        };
-                                    }
-                                    return;
-                                }
-                                _ => {}
+                                return;
                             }
+                            "get" => {
+                                *expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_once_cell_get(#cell_id, #location, #receiver.get())
+                                };
+                                return;
+                            }
+                            "get_or_init" => {
+                                let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                if let Some(init_fn) = args.first() {
+                                    *expr = syn::parse_quote! {
+                                        {
+                                            let __was_init = #receiver.get().is_some();
+                                            let __result = #receiver.get_or_init(#init_fn);
+                                            borrowscope_runtime::track_once_cell_get_or_init(#cell_id, __was_init, #location, __result)
+                                        }
+                                    };
+                                }
+                                return;
+                            }
+                            _ => {}
                         }
                     }
                     
                     // Check for MaybeUninit methods
-                    // Semantic: check operation, fallback: check maybe_uninit_vars
+                    // Semantic: match operation path, fallback: match method name
                     let is_maybe_uninit_op = semantic_op.as_ref()
                         .map(|op| op.contains("MaybeUninit"))
                         .unwrap_or_else(|| self.maybe_uninit_vars.contains(receiver_name.as_str()));
                     if is_maybe_uninit_op {
-                        if let Some(op) = detect_maybe_uninit_method(&Expr::MethodCall(method_call.clone())) {
-                            let uninit_id = format!("uninit_{}", receiver_name);
-                            match op {
-                                SmartPointerOp::MaybeUninitWrite => {
-                                    let args: Vec<_> = method_call.args.iter().cloned().collect();
-                                    if let Some(arg) = args.first() {
-                                        *expr = syn::parse_quote! {
-                                            borrowscope_runtime::track_maybe_uninit_write(#uninit_id, #location, #receiver.write(#arg))
-                                        };
-                                    }
-                                    return;
-                                }
-                                SmartPointerOp::MaybeUninitAssumeInit => {
+                        let uninit_method = semantic_op.as_ref().and_then(|op| {
+                            if op.contains("::assume_init_read") { Some("assume_init_read") }
+                            else if op.contains("::assume_init_drop") { Some("assume_init_drop") }
+                            else if op.contains("::assume_init") { Some("assume_init") }
+                            else if op.contains("::write") { Some("write") }
+                            else { None }
+                        }).unwrap_or(method_name.as_str());
+                        let uninit_id = format!("uninit_{}", receiver_name);
+                        match uninit_method {
+                            "write" => {
+                                let args: Vec<_> = method_call.args.iter().cloned().collect();
+                                if let Some(arg) = args.first() {
                                     *expr = syn::parse_quote! {
-                                        borrowscope_runtime::track_maybe_uninit_assume_init(#uninit_id, #location, #receiver.assume_init())
+                                        borrowscope_runtime::track_maybe_uninit_write(#uninit_id, #location, #receiver.write(#arg))
                                     };
-                                    return;
                                 }
-                                SmartPointerOp::MaybeUninitAssumeInitRead => {
-                                    *expr = syn::parse_quote! {
-                                        borrowscope_runtime::track_maybe_uninit_assume_init_read(#uninit_id, #location, #receiver.assume_init_read())
-                                    };
-                                    return;
-                                }
-                                SmartPointerOp::MaybeUninitAssumeInitDrop => {
-                                    *expr = syn::parse_quote! {
-                                        {
-                                            #receiver.assume_init_drop();
-                                            borrowscope_runtime::track_maybe_uninit_assume_init_drop(#uninit_id, #location)
-                                        }
-                                    };
-                                    return;
-                                }
-                                _ => {}
+                                return;
                             }
+                            "assume_init" => {
+                                *expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_maybe_uninit_assume_init(#uninit_id, #location, #receiver.assume_init())
+                                };
+                                return;
+                            }
+                            "assume_init_read" => {
+                                *expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_maybe_uninit_assume_init_read(#uninit_id, #location, #receiver.assume_init_read())
+                                };
+                                return;
+                            }
+                            "assume_init_drop" => {
+                                *expr = syn::parse_quote! {
+                                    {
+                                        #receiver.assume_init_drop();
+                                        borrowscope_runtime::track_maybe_uninit_assume_init_drop(#uninit_id, #location)
+                                    }
+                                };
+                                return;
+                            }
+                            _ => {}
                         }
                     }
                     

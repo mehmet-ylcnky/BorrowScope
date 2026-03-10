@@ -53904,6 +53904,15 @@
         "result_type": "()"
       },
       {
+        "line": 966,
+        "column": 17,
+        "kind": "function_call",
+        "path": "std::thread::functions::spawn",
+        "operation": "std::thread::functions::spawn",
+        "argument": "<closure>",
+        "result_type": "JoinHandle<i32>"
+      },
+      {
         "line": 1001,
         "column": 4,
         "kind": "function_call",
@@ -53956,6 +53965,36 @@
         "operation": "core::mem::forget",
         "argument": "y",
         "result_type": "()"
+      },
+      {
+        "line": 1054,
+        "column": 12,
+        "kind": "function_call",
+        "path": "std::thread::functions::spawn",
+        "operation": "std::thread::functions::spawn",
+        "argument": "<closure>",
+        "result_type": "JoinHandle<i32>"
+      },
+      {
+        "line": 1059,
+        "column": 12,
+        "kind": "function_call",
+        "path": "std::thread::functions::spawn",
+        "operation": "std::thread::functions::spawn",
+        "argument": "<closure captures: data, multiplier>",
+        "result_type": "JoinHandle<i32>",
+        "closure_captures": [
+          {
+            "name": "data",
+            "capture_kind": "move",
+            "ty": "Vec<i32, Global>"
+          },
+          {
+            "name": "multiplier",
+            "capture_kind": "move",
+            "ty": "i32"
+          }
+        ]
       },
       {
         "line": 1066,
@@ -54083,6 +54122,38 @@
         "result_type": "()"
       },
       {
+        "line": 1643,
+        "column": 4,
+        "kind": "function_call",
+        "path": "std::thread::functions::spawn",
+        "operation": "std::thread::functions::spawn",
+        "argument": "<closure captures: pair_clone, lock, started, cvar>",
+        "result_type": "JoinHandle<()>",
+        "closure_captures": [
+          {
+            "name": "pair_clone",
+            "capture_kind": "move",
+            "ty": "Arc<(Mutex<bool>, Condvar), Global>"
+          }
+        ]
+      },
+      {
+        "line": 1661,
+        "column": 17,
+        "kind": "function_call",
+        "path": "std::thread::functions::spawn",
+        "operation": "std::thread::functions::spawn",
+        "argument": "<closure captures: barrier_clone>",
+        "result_type": "JoinHandle<()>",
+        "closure_captures": [
+          {
+            "name": "barrier_clone",
+            "capture_kind": "move",
+            "ty": "Arc<Barrier, Global>"
+          }
+        ]
+      },
+      {
         "line": 1992,
         "column": 4,
         "kind": "function_call",
@@ -54108,6 +54179,22 @@
         "operation": "core::mem::drop",
         "argument": "moved",
         "result_type": "()"
+      },
+      {
+        "line": 2188,
+        "column": 17,
+        "kind": "function_call",
+        "path": "std::thread::functions::spawn",
+        "operation": "std::thread::functions::spawn",
+        "argument": "<closure captures: spawn_data_clone, guard>",
+        "result_type": "JoinHandle<()>",
+        "closure_captures": [
+          {
+            "name": "spawn_data_clone",
+            "capture_kind": "move",
+            "ty": "Arc<Mutex<i32>, Global>"
+          }
+        ]
       },
       {
         "line": 2245,
