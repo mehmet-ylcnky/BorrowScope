@@ -2346,25 +2346,39 @@ impl VisitMut for OwnershipVisitor {
         // Handle method calls - check for RefCell/Cell methods first
         if let Expr::MethodCall(method_call) = expr {
             let method_name = method_call.method.to_string();
+            let receiver_name = Self::extract_receiver_name(&method_call.receiver);
+            
+            // Semantic operation lookup: resolve the canonical operation from analyzer data
+            let semantic_op = receiver_name.as_ref().and_then(|name| {
+                let type_info = crate::type_info::lookup_by_name(name)?;
+                type_info.method_calls.iter()
+                    .find(|mc| mc.method == method_name)
+                    .and_then(|mc| mc.operation.clone())
+            });
             
             // Check for Weak::clone first (before generic clone handling)
             if self.config.track_smart_pointers && method_name == "clone" {
-                if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
-                    if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
-                        let location = Self::location_tokens(method_call.method.span());
-                        let receiver = method_call.receiver.clone();
-                        let weak_id = format!("weak_{}", receiver_name);
-                        let clone_id = format!("weak_clone_{}", self.gen_id());
-                        *expr = match weak_type {
-                            SmartPointerType::WeakRc => syn::parse_quote! {
-                                borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
-                            },
-                            SmartPointerType::WeakArc => syn::parse_quote! {
-                                borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
-                            },
-                            _ => syn::parse_quote! { #receiver.clone() },
-                        };
-                        return;
+                if let Some(ref rname) = receiver_name {
+                    let is_weak = semantic_op.as_ref()
+                        .map(|op| op.contains("Weak") && op.contains("clone"))
+                        .unwrap_or_else(|| self.weak_vars.contains_key(rname.as_str()));
+                    if is_weak {
+                        if let Some(weak_type) = self.weak_vars.get(rname.as_str()).copied() {
+                            let location = Self::location_tokens(method_call.method.span());
+                            let receiver = method_call.receiver.clone();
+                            let weak_id = format!("weak_{}", rname);
+                            let clone_id = format!("weak_clone_{}", self.gen_id());
+                            *expr = match weak_type {
+                                SmartPointerType::WeakRc => syn::parse_quote! {
+                                    borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
+                                },
+                                SmartPointerType::WeakArc => syn::parse_quote! {
+                                    borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
+                                },
+                                _ => syn::parse_quote! { #receiver.clone() },
+                            };
+                            return;
+                        }
                     }
                 }
             }
@@ -2377,16 +2391,18 @@ impl VisitMut for OwnershipVisitor {
             }
 
             // Check for lock methods (Mutex/RwLock)
-            // Note: try_lock/try_read/try_write are skipped because wrapping them
-            // causes lifetime issues when used in if-let patterns
-            // Also skip if receiver is a known MaybeUninit (which has its own write method)
+            // Semantic: use operation to disambiguate "write" (RwLock vs MaybeUninit vs io::Write)
             if self.config.track_methods {
-                let receiver_name = Self::extract_receiver_name(&method_call.receiver);
                 let is_maybe_uninit = receiver_name.as_ref()
                     .map(|n| self.maybe_uninit_vars.contains(n))
                     .unwrap_or(false);
                 
-                if !is_maybe_uninit {
+                // Semantic disambiguation for "lock", "read", "write"
+                let is_lock_op = semantic_op.as_ref()
+                    .map(|op| op.contains("Mutex::lock") || op.contains("RwLock::read") || op.contains("RwLock::write"))
+                    .unwrap_or(false);
+                
+                if is_lock_op || !is_maybe_uninit {
                     match method_name.as_str() {
                         "lock" => {
                             let mc = method_call.clone();
@@ -2422,12 +2438,15 @@ impl VisitMut for OwnershipVisitor {
 
             // Check for Cow::to_mut, Weak::upgrade/clone, JoinHandle::join, channel send/recv
             if self.config.track_smart_pointers {
-                if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                if let Some(ref receiver_name) = receiver_name {
                     let location = Self::location_tokens(method_call.method.span());
                     let receiver = method_call.receiver.clone();
 
-                    // Cow::to_mut - track before the call, can't wrap &mut return
-                    if self.cow_vars.contains(&receiver_name) && method_name == "to_mut" {
+                    // Cow::to_mut - semantic: check operation, fallback: check cow_vars
+                    let is_cow_to_mut = semantic_op.as_ref()
+                        .map(|op| op.contains("Cow") && op.contains("to_mut"))
+                        .unwrap_or_else(|| self.cow_vars.contains(receiver_name) && method_name == "to_mut");
+                    if is_cow_to_mut && method_name == "to_mut" {
                         let cow_id = format!("cow_{}", receiver_name);
                         // We can't easily wrap to_mut since it returns &mut T
                         // Track that to_mut was called - assume it might clone (conservative)
@@ -2440,9 +2459,12 @@ impl VisitMut for OwnershipVisitor {
                         return;
                     }
 
-                    // Weak::upgrade
-                    if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
-                        if method_name == "upgrade" {
+                    // Weak::upgrade - semantic: check operation, fallback: check weak_vars
+                    let is_weak_upgrade = semantic_op.as_ref()
+                        .map(|op| op.contains("Weak") && op.contains("upgrade"))
+                        .unwrap_or_else(|| self.weak_vars.contains_key(receiver_name.as_str()) && method_name == "upgrade");
+                    if is_weak_upgrade {
+                        if let Some(weak_type) = self.weak_vars.get(receiver_name.as_str()).copied() {
                             let weak_id = format!("weak_{}", receiver_name);
                             *expr = match weak_type {
                                 SmartPointerType::WeakRc => syn::parse_quote! {
@@ -2458,8 +2480,11 @@ impl VisitMut for OwnershipVisitor {
                         // Weak::clone is handled earlier in the method call processing
                     }
 
-                    // JoinHandle::join
-                    if self.join_handle_vars.contains(&receiver_name) && method_name == "join" {
+                    // JoinHandle::join - semantic: check operation, fallback: check join_handle_vars
+                    let is_join = semantic_op.as_ref()
+                        .map(|op| op.contains("JoinHandle") && op.contains("join"))
+                        .unwrap_or_else(|| self.join_handle_vars.contains(receiver_name) && method_name == "join");
+                    if is_join && method_name == "join" {
                         let handle_id = format!("thread_{}", receiver_name);
                         *expr = syn::parse_quote! {
                             borrowscope_runtime::track_thread_join(#handle_id, #location, #receiver.join())
@@ -2467,8 +2492,11 @@ impl VisitMut for OwnershipVisitor {
                         return;
                     }
 
-                    // Sender::send
-                    if self.sender_vars.contains(&receiver_name) && method_name == "send" {
+                    // Sender::send - semantic: check operation, fallback: check sender_vars
+                    let is_send = semantic_op.as_ref()
+                        .map(|op| op.contains("Sender") && op.contains("send"))
+                        .unwrap_or_else(|| self.sender_vars.contains(receiver_name) && method_name == "send");
+                    if is_send && method_name == "send" {
                         let sender_id = format!("sender_{}", receiver_name);
                         let args: Vec<_> = method_call.args.iter().cloned().collect();
                         if let Some(arg) = args.first() {
@@ -2479,8 +2507,11 @@ impl VisitMut for OwnershipVisitor {
                         }
                     }
 
-                    // Receiver::recv
-                    if self.receiver_vars.contains(&receiver_name) {
+                    // Receiver::recv/try_recv - semantic: check operation, fallback: check receiver_vars
+                    let is_recv = semantic_op.as_ref()
+                        .map(|op| op.contains("Receiver") && (op.contains("recv") || op.contains("try_recv")))
+                        .unwrap_or_else(|| self.receiver_vars.contains(receiver_name));
+                    if is_recv {
                         match method_name.as_str() {
                             "recv" => {
                                 let receiver_id = format!("receiver_{}", receiver_name);
@@ -2503,22 +2534,29 @@ impl VisitMut for OwnershipVisitor {
             }
             
             // Check for RefCell/Cell specific methods that need wrapping
+            // Semantic: use operation to disambiguate "borrow" (RefCell vs Borrow trait),
+            // "get" (Cell vs HashMap/Vec), "set" (Cell vs OnceCell)
             if self.config.track_smart_pointers {
-                if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                if let Some(ref receiver_name) = receiver_name {
                     let location = Self::location_tokens(method_call.method.span());
                     let borrow_id = format!("borrow_{}", self.gen_id());
                     let receiver_id = format!("refcell_{}", receiver_name);
                     let receiver = method_call.receiver.clone();
                     
+                    // RefCell::borrow - semantic: check operation, fallback: match name
+                    let is_refcell_borrow = semantic_op.as_ref()
+                        .map(|op| op.contains("RefCell") && op.contains("borrow"))
+                        .unwrap_or(false);
+                    
                     match method_name.as_str() {
-                        "borrow" => {
+                        "borrow" if is_refcell_borrow || semantic_op.is_none() => {
                             // Transform cell.borrow() -> track_refcell_borrow(id, cell_id, loc, cell.borrow())
                             *expr = syn::parse_quote! {
                                 borrowscope_runtime::track_refcell_borrow(#borrow_id, #receiver_id, #location, #receiver.borrow())
                             };
                             return;
                         }
-                        "borrow_mut" => {
+                        "borrow_mut" if is_refcell_borrow || semantic_op.is_none() => {
                             // Transform cell.borrow_mut() -> track_refcell_borrow_mut(id, cell_id, loc, cell.borrow_mut())
                             *expr = syn::parse_quote! {
                                 borrowscope_runtime::track_refcell_borrow_mut(#borrow_id, #receiver_id, #location, #receiver.borrow_mut())
@@ -2528,8 +2566,12 @@ impl VisitMut for OwnershipVisitor {
                         _ => {}
                     }
                     
-                    // Check for OnceCell/OnceLock methods (only if receiver is known OnceCell)
-                    if self.once_cell_vars.contains(&receiver_name) {
+                    // Check for OnceCell/OnceLock methods
+                    // Semantic: check operation, fallback: check once_cell_vars
+                    let is_once_cell = semantic_op.as_ref()
+                        .map(|op| op.contains("OnceCell") || op.contains("OnceLock"))
+                        .unwrap_or_else(|| self.once_cell_vars.contains(receiver_name.as_str()));
+                    if is_once_cell {
                         if let Some(op) = detect_once_cell_method(&Expr::MethodCall(method_call.clone())) {
                             let cell_id = format!("once_{}", receiver_name);
                             match op {
@@ -2566,8 +2608,12 @@ impl VisitMut for OwnershipVisitor {
                         }
                     }
                     
-                    // Check for MaybeUninit methods (only if receiver is known MaybeUninit)
-                    if self.maybe_uninit_vars.contains(&receiver_name) {
+                    // Check for MaybeUninit methods
+                    // Semantic: check operation, fallback: check maybe_uninit_vars
+                    let is_maybe_uninit_op = semantic_op.as_ref()
+                        .map(|op| op.contains("MaybeUninit"))
+                        .unwrap_or_else(|| self.maybe_uninit_vars.contains(receiver_name.as_str()));
+                    if is_maybe_uninit_op {
                         if let Some(op) = detect_maybe_uninit_method(&Expr::MethodCall(method_call.clone())) {
                             let uninit_id = format!("uninit_{}", receiver_name);
                             match op {
@@ -2606,8 +2652,13 @@ impl VisitMut for OwnershipVisitor {
                         }
                     }
                     
-                    // Cell get/set methods (only for non-OnceCell variables)
-                    if !self.once_cell_vars.contains(&receiver_name) {
+                    // Cell get/set methods
+                    // Semantic: check operation to disambiguate "get" (Cell vs HashMap/Vec)
+                    // and "set" (Cell vs OnceCell vs user types), fallback: non-OnceCell heuristic
+                    let is_cell_op = semantic_op.as_ref()
+                        .map(|op| op.contains("Cell") && (op.contains("get") || op.contains("set")) && !op.contains("OnceCell"))
+                        .unwrap_or_else(|| !self.once_cell_vars.contains(receiver_name.as_str()));
+                    if is_cell_op {
                         match method_name.as_str() {
                             "get" => {
                                 // Transform cell.get() -> track_cell_get(cell_id, loc, cell.get())
