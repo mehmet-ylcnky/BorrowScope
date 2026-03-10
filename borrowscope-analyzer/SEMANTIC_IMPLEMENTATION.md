@@ -7,61 +7,27 @@
 - [1. Coverage Overview](#1-coverage-overview)
   - [1.1 Summary Table](#11-summary-table)
   - [1.2 Complete Pattern Registry (109 Patterns)](#12-complete-pattern-registry-109-patterns)
-- [2. Semantic Patterns (36) — Already Complete](#2-semantic-patterns-36--already-complete)
-  - [2.1 Smart Pointer Creation (5)](#21-smart-pointer-creation-5)
-  - [2.2 Smart Pointer Clone (2)](#22-smart-pointer-clone-2)
-  - [2.3 Box Operations (3)](#23-box-operations-3)
-  - [2.4 Weak Reference Operations (3)](#24-weak-reference-operations-3)
-  - [2.5 RefCell/Cell Creation & Guards (3 of 4)](#25-refcellcell-creation--guards-3-of-4)
-  - [2.6 Pin Creation (1 of 2)](#26-pin-creation-1-of-2)
-  - [2.7 Cow Creation (2 of 3)](#27-cow-creation-2-of-3)
-  - [2.8 OnceCell/OnceLock Creation (2 of 5)](#28-onceceloncelock-creation-2-of-5)
-  - [2.9 MaybeUninit Creation (2 of 6)](#29-maybeuninit-creation-2-of-6)
-  - [2.10 Concurrency Creation (5 of 12)](#210-concurrency-creation-5-of-12)
-  - [2.11 Guard Creation (8 of 9)](#211-guard-creation-8-of-9)
-- [3. Partial Patterns (7) — Implementation Spec](#3-partial-patterns-7--implementation-spec)
-  - [3.1 Pin::as_ref / Pin::as_mut (1 pattern)](#31-pinas_ref--pinas_mut-1-pattern)
-  - [3.2 OnceCell::get / OnceCell::get_or_init (2 patterns)](#32-oncecellget--oncecellget_or_init-2-patterns)
-  - [3.3 MaybeUninit::assume_init / MaybeUninit::write (2 patterns)](#33-maybeuninitassume_init--maybeuninitwrite-2-patterns)
-  - [3.4 Guard::map / Guard::try_map (1 pattern)](#34-guardmap--guardtry_map-1-pattern)
-  - [3.5 Clone Trait Detection (1 pattern)](#35-clone-trait-detection-1-pattern)
-- [4. Syntactic Patterns (66) — Implementation Spec](#4-syntactic-patterns-66--implementation-spec)
-  - [4.1 Phase 1: Method Call Tracking (13 patterns)](#41-phase-1-method-call-tracking-13-patterns)
-    - [4.1.1 Cell::set (1)](#411-cellset-1)
-    - [4.1.2 Cow::to_mut (1)](#412-cowto_mut-1)
-    - [4.1.3 OnceCell::set (1)](#413-oncecellset-1)
-    - [4.1.4 MaybeUninit methods (2)](#414-maybeuninit-methods-2)
-    - [4.1.5 Channel operations (3)](#415-channel-operations-3)
-    - [4.1.6 JoinHandle::join (1)](#416-joinhandlejoin-1)
-    - [4.1.7 Concurrency remaining (4)](#417-concurrency-remaining-4)
-  - [4.2 Phase 2: Standalone Expression Tracking (4 patterns)](#42-phase-2-standalone-expression-tracking-4-patterns)
-    - [4.2.1 thread::spawn (2)](#421-threadspawn-2)
-    - [4.2.2 transmute (2)](#422-transmute-2)
-  - [4.3 Phase 3: Self-Borrow Type Resolution (47 patterns)](#43-phase-3-self-borrow-type-resolution-47-patterns)
-    - [4.3.1 Immutable self-borrow (19)](#431-immutable-self-borrow-19)
-    - [4.3.2 Mutable self-borrow (25)](#432-mutable-self-borrow-25)
-    - [4.3.3 Consuming self-borrow (3)](#433-consuming-self-borrow-3)
-  - [4.4 Phase 4: Unwrap Method Tracking (5 patterns)](#44-phase-4-unwrap-method-tracking-5-patterns)
-    - [4.4.1 unwrap (1)](#441-unwrap-1)
-    - [4.4.2 expect (1)](#442-expect-1)
-    - [4.4.3 unwrap_or (1)](#443-unwrap_or-1)
-    - [4.4.4 unwrap_or_else (1)](#444-unwrap_or_else-1)
-    - [4.4.5 unwrap_or_default (1)](#445-unwrap_or_default-1)
-  - [4.5 Phase 5: Clone Trait Verification (1 pattern)](#45-phase-5-clone-trait-verification-1-pattern)
-- [5. Analyzer-Side Implementation](#5-analyzer-side-implementation)
-  - [5.1 Current State Assessment](#51-current-state-assessment)
-  - [5.2 Macro ↔ Analyzer Data Flow](#52-macro--analyzer-data-flow-whats-connected-vs-whats-ignored)
-  - [5.3 Remaining Analyzer Changes](#53-remaining-analyzer-changes)
-  - [5.4 Output Schema Changes](#54-output-schema-changes-v30--v31)
-  - [5.5 No New Classification Functions Needed](#55-no-new-classification-functions-needed)
-- [6. Macro-Side Refactoring](#6-macro-side-refactoring)
-  - [6.1 Files to Modify](#61-files-to-modify)
-  - [6.2 Functions to Delete](#62-functions-to-delete)
-  - [6.3 New Lookup Logic](#63-new-lookup-logic)
-- [7. Testing Strategy](#7-testing-strategy)
-  - [7.1 Per-Phase Test Cases](#71-per-phase-test-cases)
-  - [7.2 Regression Tests](#72-regression-tests)
-  - [7.3 Success Criteria](#73-success-criteria)
+- [2. Semantic Implementation — All 109 Patterns ✅](#2-semantic-implementation--all-109-patterns-)
+  - [2.1 ADT-Based Initializer Classification (36 patterns)](#21-adt-based-initializer-classification-36-patterns)
+  - [2.2 Method Call Semantic Dispatch (66 patterns)](#22-method-call-semantic-dispatch-66-patterns)
+    - [2.2.1 semantic_op Dispatch (18 patterns)](#221-semantic_op-dispatch-18-patterns)
+    - [2.2.2 Self-Borrow Inference (47 patterns)](#222-self-borrow-inference-47-patterns)
+    - [2.2.3 Clone Trait Verification (1 pattern)](#223-clone-trait-verification-1-pattern)
+  - [2.3 Standalone Expression Tracking (6 patterns)](#23-standalone-expression-tracking-6-patterns)
+- [3. Analyzer-Side Implementation](#3-analyzer-side-implementation)
+  - [3.1 Current State Assessment](#31-current-state-assessment)
+  - [3.2 Macro ↔ Analyzer Data Flow](#32-macro--analyzer-data-flow)
+  - [3.3 Key Functions](#33-key-functions)
+  - [3.4 Output Schema](#34-output-schema)
+  - [3.5 No New Classification Functions Needed](#35-no-new-classification-functions-needed)
+- [4. Macro-Side Refactoring](#4-macro-side-refactoring)
+  - [4.1 Files Modified](#41-files-modified)
+  - [4.2 Functions Deleted](#42-functions-deleted)
+  - [4.3 Lookup Logic](#43-lookup-logic)
+- [5. Testing Strategy](#5-testing-strategy)
+  - [5.1 Test Cases](#51-test-cases)
+  - [5.2 Regression Tests](#52-regression-tests)
+  - [5.3 Success Criteria](#53-success-criteria)
 
 ---
 
@@ -305,409 +271,96 @@
 
 ---
 
-## 2. Semantic Patterns (36) — Already Complete
+## 2. Semantic Implementation — All 109 Patterns ✅
 
-These 36 patterns are fully implemented in `classify_by_resolved_type_semantic()` (analysis.rs:1203). Each uses ADT identity comparison via `KnownTypes.classify(&adt)` — zero string matching. The function receives the resolved `ra_ap_hir::Type` and an `expr_kind` string derived from expression structure (not from user code), then matches `(type_class, expr_kind)` tuples.
+All 109 patterns are now fully semantic. This section documents the three mechanisms used.
 
-**No changes needed for any pattern in this section.**
+### 2.1 ADT-Based Initializer Classification (36 patterns)
 
-### 2.1 Smart Pointer Creation (5)
+Implemented in `classify_by_resolved_type_semantic()` (analysis.rs). Uses ADT identity comparison via `KnownTypes.classify(&adt)` — zero string matching. Matches `(type_class, expr_kind)` tuples.
 
-| Pattern ID | Match Arm | KnownTypes Field | Lang Item / Import Path |
-|------------|-----------|------------------|------------------------|
-| 1 | `("rc", "call") => "rc_new"` | `rc` | `alloc::rc::Rc` via import_map |
-| 2 | `("arc", "call") => "arc_new"` | `arc` | `alloc::sync::Arc` via import_map |
-| 3 | `("box", "call") => "box_new"` | `box_` | lang item `OwnedBox` |
-| 4 | `("weak", "call") => "weak_new"` | `weak_rc` / `weak_arc` | `alloc::rc::Weak` / `alloc::sync::Weak` |
-| 5 | `("weak", "downgrade") => "weak_downgrade"` | (same) | expr_kind set when call is `Rc::downgrade()` |
+For unstable std types not found via `import_map` (e.g., `MappedMutexGuard`), a crate-verified fallback checks `adt.name()` + confirms the crate is `std`/`core`/`alloc`.
 
-`expr_kind` is determined by expression structure analysis before the match:
-- `"call"` = `Struct::method()` or `Struct::new()` pattern
-- `"clone"` = `.clone()` call where result type matches
-- `"downgrade"` / `"upgrade"` = specific associated function patterns
+| Category | Count | Pattern IDs | Mechanism |
+|----------|-------|-------------|-----------|
+| Smart pointer creation | 5 | 1–5 | `("rc"/"arc"/"box"/"weak", "call"/"downgrade")` |
+| Smart pointer clone | 2 | 6–7 | `("rc"/"arc", "clone")` |
+| Box operations | 3 | 12–14 | `("box", "call")` + raw ptr result type |
+| Weak reference ops | 3 | 20–22 | `("weak", "call"/"downgrade"/"upgrade")` |
+| RefCell/Cell creation & guards | 4 | 8–10, 11* | `("refcell"/"cell"/"ref_guard"/"refmut_guard", ...)` |
+| Pin creation | 1 | 15 | `("pin", "call")` via lang item |
+| Cow creation | 2 | 17–18 | `("cow", "call"/"path")` |
+| OnceCell/OnceLock creation | 2 | 23–24 | `("once_cell"/"once_lock", "call")` |
+| MaybeUninit creation | 2 | 28–29 | `("maybe_uninit", "call")` |
+| Concurrency creation | 5 | 34–38 | `("mutex"/"rwlock"/"channel_*"/"mutex_guard"/"rwlock_read_guard", ...)` |
+| Guard creation | 8 | 46–53 | Guard ADT match arms |
+| Guard::map (mapped guards) | 1 | 54 | `("mapped_mutex_guard"/"mapped_rwlock_*", _)` via crate-verified fallback |
 
-### 2.2 Smart Pointer Clone (2)
+*Cell::set (ID 11) also uses `semantic_op` dispatch — see §2.2.
 
-| Pattern ID | Match Arm | How expr_kind Becomes "clone" |
-|------------|-----------|-------------------------------|
-| 6 | `("rc", "clone") => "rc_clone"` | Result type of `.clone()` resolves to `Rc<T>` ADT |
-| 7 | `("arc", "clone") => "arc_clone"` | Result type of `.clone()` resolves to `Arc<T>` ADT |
+### 2.2 Method Call Semantic Dispatch (66 patterns)
 
-### 2.3 Box Operations (3)
+The macro reads `method_calls[]` from `type-info.json` for each variable. The analyzer populates `operation`, `self_borrow`, `is_trait_method`, and `trait_name` via `analyze_method_calls()`.
 
-| Pattern ID | Match Arm | Notes |
-|------------|-----------|-------|
-| 12 | `("box", "call") => "box_new"` | Covers `Box::new(v)` and `Box::from_raw(p)` — both produce `Box<T>` ADT |
-| 13 | Result type is `*mut T` → `"raw_ptr"` | `Box::into_raw()` — classified by result type being raw pointer |
-| 14 | `("box", "call") => "box_new"` | `Box::from_raw(p)` — result is `Box<T>`, same match arm as ID 12 |
+#### 2.2.1 `semantic_op` Dispatch (18 patterns)
 
-### 2.4 Weak Reference Operations (3)
+All 18 method dispatch points in `visit_expr_mut()` use `semantic_op` lookup. The macro reads `method_calls[].operation` and matches against canonical paths.
 
-| Pattern ID | Match Arm |
+| Category | Count | Pattern IDs | Example `operation` |
+|----------|-------|-------------|---------------------|
+| Cell::set | 1 | 11 | `core::cell::Cell::set` |
+| Cow::to_mut | 1 | 19 | `alloc::borrow::Cow::to_mut` |
+| OnceCell/OnceLock methods | 3 | 25–27 | `core::cell::OnceCell::set/get/get_or_init` |
+| MaybeUninit methods | 4 | 30–33 | `core::mem::MaybeUninit::write/assume_init/...` |
+| Channel operations | 3 | 39–41 | `std::sync::mpsc::Sender::send` etc. |
+| JoinHandle::join | 1 | 42 | `std::thread::JoinHandle::join` |
+| Concurrency try_* | 3 | 43–45 | `std::sync::Mutex::try_lock` etc. |
+| Unwrap methods | 5 | 102–106 | `core::option::Option::unwrap` / `core::result::Result::unwrap` etc. |
+
+Unwrap methods (IDs 102–106) verify `operation` contains `"option"` or `"result"` before dispatching.
+
+Falls back to name-based matching only when no analyzer data is available.
+
+#### 2.2.2 Self-Borrow Inference (47 patterns)
+
+`infer_self_borrow_type()` does semantic lookup first via `method_calls[].self_borrow`, heuristic fallback only when no analyzer data exists.
+
+| Category | Count | Pattern IDs | `self_borrow` value |
+|----------|-------|-------------|---------------------|
+| Immutable (`&self`) | 19 | 55–73 | `"immutable"` |
+| Mutable (`&mut self`) | 25 | 74–98 | `"mutable"` |
+| Consuming (`self`) | 3 | 99–101 | `"consuming"` |
+
+Covers `as_*`, `get*`, `set*`, `push*`, `insert*`, `remove*`, `into_*`, `send`, `recv`, `lock`, `read`, `write`, `clone`, `unwrap`, `expect`, and all other method name patterns.
+
+#### 2.2.3 Clone Trait Verification (1 pattern)
+
+| Pattern ID | Mechanism |
 |------------|-----------|
-| 20 | `("weak", "call") => "weak_new"` |
-| 21 | `("weak", "downgrade") => "weak_downgrade"` |
-| 22 | `("weak", "upgrade") => "weak_upgrade"` |
+| 107 | Macro reads `is_trait_method` + `trait_name` from `method_calls[]`. Only emits `track_clone` if confirmed `Clone::clone` (or no analyzer data). Inherent `.clone()` methods fall through to `transform_method_call`. |
 
-### 2.5 RefCell/Cell Creation & Guards (3 of 4)
+Analyzer fix: `resolve_trait_info()` now checks `i.trait_(db)` on `ItemContainer::Impl` blocks to detect trait impls (e.g., `impl Clone for Rc<T>`).
 
-| Pattern ID | Match Arm | Notes |
-|------------|-----------|-------|
-| 8 | `("refcell", "call") => "refcell_new"` | |
-| 9 | `("ref_guard", "borrow") => "refcell_borrow"` | Result type is `Ref<T>` guard |
-| 10 | `("refmut_guard", "borrow_mut") => "refcell_borrow_mut"` | Result type is `RefMut<T>` guard |
+### 2.3 Standalone Expression Tracking (6 patterns)
 
-Cell::new is also semantic: `("cell", "call") => "cell_new"`. Cell::set (ID 11) is syntactic — see Section 4.
+#### 2.3.1 Pin::as_ref / Pin::as_mut (1 pattern, ID 16)
 
-### 2.6 Pin Creation (1 of 2)
+Covered by self-borrow inference (§2.2.2). Pin::as_ref gets `self_borrow: "immutable"`, Pin::as_mut gets `self_borrow: "mutable"` from analyzer.
 
-| Pattern ID | Match Arm | Notes |
-|------------|-----------|-------|
-| 15 | `("pin", "call") => "pin_new"` | `KnownTypes.pin` resolved via lang item `Pin` |
+#### 2.3.2 Transmute Detection (2 patterns, IDs 108–109)
 
-Pin::as_ref/as_mut (ID 16) is partial — see Section 3.
+Macro reads `expressions[]` from `type-info.json`. Matches `kind: "function_call"` + `path: "core::mem::transmute"`. Analyzer resolves via `TrackedFunctions` (FunctionId comparison).
 
-### 2.7 Cow Creation (2 of 3)
+#### 2.3.3 thread::spawn (covered by ExpressionInfo)
 
-| Pattern ID | Match Arm |
-|------------|-----------|
-| 17 | `("cow", "call") => "cow_new"` |
-| 18 | `("cow", "path") => "cow_variant"` |
+Macro reads `expressions[]`, matches `path: "std::thread::spawn"`. Analyzer resolves via `TrackedFunctions`.
 
-Cow::to_mut (ID 19) is syntactic — see Section 4.
 
-### 2.8 OnceCell/OnceLock Creation (2 of 5)
+## 3. Analyzer-Side Implementation
 
-| Pattern ID | Match Arm |
-|------------|-----------|
-| 23 | `("once_cell", "call") => "once_cell_new"` |
-| 24 | `("once_lock", "call") => "once_lock_new"` |
+### 3.1 Current State — Complete
 
-### 2.9 MaybeUninit Creation (2 of 6)
-
-| Pattern ID | Match Arm | Notes |
-|------------|-----------|-------|
-| 28 | `("maybe_uninit", "call") => "maybe_uninit_new"` | Covers `MaybeUninit::uninit()` |
-| 29 | `("maybe_uninit", "call") => "maybe_uninit_new"` | Covers `MaybeUninit::zeroed()` — same ADT + call |
-
-Also: `("maybe_uninit", _) => "maybe_uninit"` catches any other MaybeUninit expression as generic.
-
-### 2.10 Concurrency Creation (5 of 12)
-
-| Pattern ID | Match Arm | Notes |
-|------------|-----------|-------|
-| 34 | `("mutex", "call") => "mutex_new"` | |
-| 35 | `("rwlock", "call") => "rwlock_new"` | |
-| 36 | `("channel_sender", _) \| ("channel_receiver", _) => "channel_new"` | Tuple destructuring `(tx, rx)` — both elements classified |
-| 37 | `("mutex_guard", "lock") => "mutex_lock"` | Result type is `MutexGuard<T>` |
-| 38 | `("rwlock_read_guard", "read") => "rwlock_read"` | Result type is `RwLockReadGuard<T>` |
-
-### 2.11 Guard Creation (8 of 9)
-
-| Pattern ID | Match Arm | Guard Type |
-|------------|-----------|------------|
-| 46 | `("mutex_guard", "lock") => "mutex_lock"` | `MutexGuard<T>` |
-| 47 | `("rwlock_read_guard", "read") => "rwlock_read"` | `RwLockReadGuard<T>` |
-| 48 | `("rwlock_write_guard", "write") => "rwlock_write"` | `RwLockWriteGuard<T>` |
-| 49 | `("ref_guard", "borrow") => "refcell_borrow"` | `Ref<T>` |
-| 50 | `("refmut_guard", "borrow_mut") => "refcell_borrow_mut"` | `RefMut<T>` |
-| 51 | (same as 46) | |
-| 52 | (same as 47) | |
-| 53 | `("rwlock_write_guard", "write") => "rwlock_write"` | `RwLockWriteGuard<T>` |
-
-Guard::map (ID 54) is partial — see Section 3.
-
----
-
-## 3. Partial Patterns (7) — Implementation Spec
-
-These patterns have semantic type information available (the receiver ADT is known) but the operation classification still falls back to method name string matching in the macro. Each needs the analyzer to emit the operation in `MethodCallInfo.operation` so the macro can look it up instead of guessing.
-
-**Common fix for all 7**: The analyzer's `analyze_method_calls()` already resolves `receiver_type` semantically and populates `MethodCallInfo.operation` with the canonical path (e.g., `core::cell::Cell::set`). The macro needs to read `method_calls[]` from `type-info.json` and use `operation` instead of `infer_self_borrow_type()`.
-
-### 3.1 Pin::as_ref / Pin::as_mut (ID 16)
-
-**Current state**: Initializer classified as `"pin_new"` via `("pin", "call")`. But `p.as_ref()` / `p.as_mut()` are method calls on an existing `Pin` variable — not initializers. The macro falls back to `infer_self_borrow_type("as_ref")` → `Immutable` (correct by accident for `as_ref`, wrong for `as_mut`).
-
-**What's semantic**: Receiver type resolves to `Pin<&mut T>` ADT. `resolve_self_borrow()` returns `Access::Shared` for `as_ref`, `Access::Exclusive` for `as_mut`.
-
-**What's missing**: Macro doesn't read `self_borrow` from analyzer output for this method call. It uses name-based heuristic instead.
-
-**Fix**: Macro reads `method_calls[].self_borrow` from type-info.json for the variable. If present, use it directly. No analyzer changes needed — data is already emitted.
-
-### 3.2 OnceCell::get / OnceCell::get_or_init (IDs 26–27)
-
-**Current state**: `OnceCell::new()` classified semantically as `"once_cell_new"`. But `.get()` and `.get_or_init(|| v)` are method calls. Macro uses `detect_once_cell_method()` which matches `method_name == "get"` / `method_name == "get_or_init"`.
-
-**What's semantic**: `analyze_method_calls()` resolves receiver to `OnceCell<T>` ADT. `operation` field contains `core::cell::OnceCell::get` or `core::cell::OnceCell::get_or_init`.
-
-**What's missing**: Same as 3.1 — macro doesn't consume the analyzer's method call data.
-
-**Fix**: Macro looks up `method_calls[]` by line/method name, reads `operation` field. Maps `"...::OnceCell::get"` → `track_cell_get`, `"...::OnceCell::get_or_init"` → `track_cell_get`.
-
-### 3.3 MaybeUninit::assume_init / MaybeUninit::write (IDs 30–31)
-
-**Current state**: `MaybeUninit::uninit()` classified as `"maybe_uninit_new"`. But `.write(v)` and `.assume_init()` are method calls. Macro uses `detect_maybe_uninit_method()` matching by name.
-
-**What's semantic**: Receiver resolves to `MaybeUninit<T>` ADT. `operation` = `core::mem::MaybeUninit::write` / `core::mem::MaybeUninit::assume_init`. `self_borrow` = `"mutable"` for write, `"consuming"` for assume_init.
-
-**Fix**: Same pattern — macro reads `operation` from method_calls.
-
-### 3.4 Guard::map / Guard::try_map (ID 54)
-
-**Current state**: Guard types (MutexGuard, RwLockReadGuard, etc.) are classified semantically when created via `.lock()`, `.read()`, `.write()`. But `MutexGuard::map(g, |d| &d.field)` is a static method call, not a method on a variable. The macro skips it entirely.
-
-**What's semantic**: The result type of `MutexGuard::map()` is `MappedMutexGuard<T>` — a distinct ADT. The analyzer can classify this via `classify_by_resolved_type_semantic()` if we add the mapped guard types to `KnownTypes`.
-
-**What's missing**: `KnownTypes` doesn't include `MappedMutexGuard`, `MappedRwLockReadGuard`, `MappedRwLockWriteGuard`.
-
-**Fix (analyzer-side)**:
-```rust
-// Add to KnownTypes struct:
-pub mapped_mutex_guard: Option<AdtId>,
-pub mapped_rwlock_read_guard: Option<AdtId>,
-pub mapped_rwlock_write_guard: Option<AdtId>,
-
-// Add to classify():
-if Some(id) == self.mapped_mutex_guard { return Some("mapped_mutex_guard"); }
-// ...
-
-// Add match arms:
-("mapped_mutex_guard", _) => "mutex_guard_map",
-("mapped_rwlock_read_guard", _) => "rwlock_read_guard_map",
-("mapped_rwlock_write_guard", _) => "rwlock_write_guard_map",
-```
-
-### 3.5 Clone Trait Detection (ID 107)
-
-**Current state**: Macro detects `.clone()` by method name. Cannot distinguish `Clone::clone` trait impl from an inherent method named `clone`.
-
-**What's semantic**: `analyze_method_calls()` already populates `is_trait_method: Some(true)` and `trait_name: Some("Clone")` via `resolve_trait_info()`. This data is in the JSON output.
-
-**What's missing**: Macro doesn't read `is_trait_method` / `trait_name` from method_calls.
-
-**Fix**: Macro looks up method call, checks `trait_name == "Clone"`. If true → `track_borrow("clone", &x)`. If false (inherent method) → skip or track differently.
-
----
-
-## 4. Syntactic Patterns (66) — Implementation Spec
-
-These patterns currently rely on string matching in the macro. The fix is uniform: the analyzer already emits `MethodCallInfo` with semantic `operation`, `self_borrow`, `receiver_type`, `is_trait_method`, and `trait_name` for every method call. The macro must read this data from `type-info.json` instead of using `infer_self_borrow_type()` and `detect_*()` functions.
-
-### 4.1 Phase 1: Method Call Tracking (13 patterns)
-
-These are method calls on known types where the macro currently matches by method name string. The analyzer already resolves all of them semantically via `analyze_method_calls()` → `resolve_method_path()`.
-
-**Unified mechanism**: For each method call `receiver.method(args)`, the analyzer emits:
-```json
-{
-  "method": "set",
-  "operation": "core::cell::Cell::set",
-  "self_borrow": "mutable",
-  "receiver_type": "Cell<i32>",
-  "is_trait_method": false
-}
-```
-
-The macro looks up `method_calls[]` for the variable by name + line proximity, reads `operation`, and maps it to the correct `track_*` call.
-
-#### 4.1.1 Cell::set (ID 11)
-
-| Field | Value |
-|-------|-------|
-| **Macro today** | `detect_cell_operation()`: `method.to_string() == "set"` |
-| **Analyzer emits** | `operation: "core::cell::Cell::set"`, `self_borrow: "mutable"` |
-| **Macro replacement** | Match `operation` ending in `::Cell::set` → `track_cell_set(name)` |
-
-#### 4.1.2 Cow::to_mut (ID 19)
-
-| Field | Value |
-|-------|-------|
-| **Macro today** | `detect_cow_to_mut()`: `method.to_string() == "to_mut"` |
-| **Analyzer emits** | `operation: "alloc::borrow::Cow::to_mut"`, `self_borrow: "mutable"` |
-| **Macro replacement** | Match `::Cow::to_mut` → `track_borrow_mut("cow_to_mut", &mut receiver)` |
-
-#### 4.1.3 OnceCell::set (ID 25)
-
-| Field | Value |
-|-------|-------|
-| **Macro today** | `detect_once_cell_method()`: `method_name == "set"` — ambiguous with `Cell::set` |
-| **Analyzer emits** | `operation: "core::cell::OnceCell::set"`, `self_borrow: "mutable"` |
-| **Macro replacement** | Match `::OnceCell::set` → `track_cell_set(name)` |
-
-#### 4.1.4 MaybeUninit methods (IDs 32–33)
-
-| ID | Method | Analyzer Operation | self_borrow |
-|----|--------|--------------------|-------------|
-| 32 | `assume_init_read` | `core::mem::MaybeUninit::assume_init_read` | `consuming` |
-| 33 | `assume_init_drop` | `core::mem::MaybeUninit::assume_init_drop` | `mutable` |
-
-**Macro today**: `detect_maybe_uninit_method()` matching by name.
-**Macro replacement**: Match `::MaybeUninit::assume_init_read` → `track_move`, `::MaybeUninit::assume_init_drop` → `track_drop`.
-
-#### 4.1.5 Channel operations (IDs 39–41)
-
-| ID | Method | Analyzer Operation | self_borrow |
-|----|--------|--------------------|-------------|
-| 39 | `send` | `std::sync::mpsc::Sender::send` | `immutable` |
-| 40 | `recv` | `std::sync::mpsc::Receiver::recv` | `mutable` |
-| 41 | `try_recv` | `std::sync::mpsc::Receiver::try_recv` | `mutable` |
-
-**Macro today**: `detect_concurrency_op()` matching `method_name == "send"` etc.
-**Macro replacement**: Match `::Sender::send` / `::Receiver::recv` / `::Receiver::try_recv` from `operation` field.
-
-#### 4.1.6 JoinHandle::join (ID 42)
-
-| Field | Value |
-|-------|-------|
-| **Macro today** | `method_name == "join"` — ambiguous with `str::join`, `Vec::join`, etc. |
-| **Analyzer emits** | `operation: "std::thread::JoinHandle::join"`, `self_borrow: "consuming"` |
-| **Macro replacement** | Match `::JoinHandle::join` → `track_move("join", handle)` |
-
-This is the most important disambiguation — `"join"` is extremely common as a method name.
-
-#### 4.1.7 Concurrency remaining (IDs 43–45 + rwlock_try_write)
-
-| ID | Method | Analyzer Operation | self_borrow |
-|----|--------|--------------------|-------------|
-| 43 | `try_lock` | `std::sync::Mutex::try_lock` | `immutable` |
-| 44 | `try_read` | `std::sync::RwLock::try_read` | `immutable` |
-| 45 | `try_write` | `std::sync::RwLock::try_write` | `immutable` |
-
-**Macro today**: These are in the `guard_methods` skip-list in `transform_method_call()` — the macro skips wrapping them to avoid lifetime issues with guard temporaries.
-**Macro replacement**: Still skip wrapping (guard lifetime issue remains), but emit a standalone `track_borrow("lock_attempt", &receiver)` before the call using analyzer data.
-
-### 4.2 Phase 2: Standalone Expression Tracking (4 patterns)
-
-These are free function calls (not method calls). The analyzer tracks them via `analyze_expressions()` using `TrackedFunctions` (FunctionId comparison).
-
-#### 4.2.1 thread::spawn (IDs not in registry — covered by ExpressionInfo)
-
-Already fully semantic in the analyzer. `TrackedFunctions` resolves `std::thread::spawn` by FunctionId. Both `thread::spawn(|| {})` and `std::thread::spawn(|| {})` resolve to the same `FunctionId`.
-
-**Analyzer emits**: `ExpressionInfo { kind: "function_call", path: "std::thread::spawn", closure_captures: [...] }`
-
-**Macro today**: `path_str.contains("spawn")` — matches any function with "spawn" in the path.
-**Macro replacement**: Read `expressions[]` from type-info.json. Match `path == "std::thread::spawn"`.
-
-#### 4.2.2 transmute (IDs 108–109)
-
-Already fully semantic in the analyzer. `TrackedFunctions` resolves `std::mem::transmute` by FunctionId.
-
-**Analyzer emits**: `ExpressionInfo { kind: "function_call", path: "core::mem::transmute", is_unsafe: true }`
-
-**Macro today**: `path_str.contains("transmute")`.
-**Macro replacement**: Read `expressions[]`, match `path == "core::mem::transmute"` → `track_transmute(name, from_type, to_type)`.
-
-### 4.3 Phase 3: Self-Borrow Type Resolution (47 patterns)
-
-This is the largest group. All 47 patterns share the same problem: the macro's `infer_self_borrow_type()` uses method name prefixes/matches to guess `&self` vs `&mut self` vs `self`. The analyzer's `resolve_self_borrow()` already computes this exactly via `func.self_param(db).access(db)` → `Access::Shared/Exclusive/Owned`.
-
-**Single fix for all 47**: Replace `infer_self_borrow_type(method_name)` with a lookup into `method_calls[].self_borrow` from type-info.json.
-
-```rust
-// BEFORE (transform_visitor.rs:578):
-let borrow_type = Self::infer_self_borrow_type(&method_name);
-
-// AFTER:
-let borrow_type = self.lookup_method_call_borrow(&receiver_name, &method_name, call_line)
-    .unwrap_or_else(|| Self::infer_self_borrow_type(&method_name)); // fallback if no analyzer data
-```
-
-The lookup function:
-```rust
-fn lookup_method_call_borrow(&self, var_name: &str, method: &str, line: u32) -> Option<SelfBorrowType> {
-    let type_info = self.type_info_cache.as_ref()?;
-    let var_info = type_info.lookup_in_function(&self.current_fn_name, var_name, None)?;
-    let mc = var_info.method_calls.iter()
-        .find(|mc| mc.method == method && mc.line == line)?;
-    match mc.self_borrow.as_deref()? {
-        "immutable" => Some(SelfBorrowType::Immutable),
-        "mutable" => Some(SelfBorrowType::Mutable),
-        "consuming" => Some(SelfBorrowType::Consuming),
-        _ => None,
-    }
-}
-```
-
-#### 4.3.1 Immutable self-borrow (19 patterns, IDs 55–73)
-
-All resolve to `Access::Shared` → `self_borrow: "immutable"`. The macro currently gets these right by accident (name heuristics happen to match), but fails on user-defined methods with the same names.
-
-| ID | Pattern | Example False Positive |
-|----|---------|----------------------|
-| 55 | `as_*` | `my_struct.as_thing()` taking `&mut self` |
-| 58 | `get*` | `cache.get_mut()` taking `&mut self` |
-| 71 | `clone` | Inherent `.clone()` taking `self` (consuming) |
-
-With semantic data, all 19 are correct regardless of naming.
-
-#### 4.3.2 Mutable self-borrow (25 patterns, IDs 74–98)
-
-All resolve to `Access::Exclusive` → `self_borrow: "mutable"`. Current heuristics are mostly correct for std types but wrong for user types.
-
-| ID | Pattern | Example False Positive |
-|----|---------|----------------------|
-| 80 | `set*` | `config.settings()` — not a setter |
-| 93 | `send` | `my_logger.send()` taking `&self` |
-| 97 | `lock` | `my_cache.lock()` returning non-guard |
-
-#### 4.3.3 Consuming self-borrow (3 patterns, IDs 99–101)
-
-All resolve to `Access::Owned` → `self_borrow: "consuming"`.
-
-| ID | Pattern | Notes |
-|----|---------|-------|
-| 99 | `into_*` | Always consuming by convention, but semantic confirms it |
-| 100 | `unwrap` | Consuming on `Option`/`Result`, but could be `&self` on user types |
-| 101 | `expect` | Same as unwrap |
-
-### 4.4 Phase 4: Unwrap Method Tracking (5 patterns)
-
-These are method calls on `Option<T>` or `Result<T, E>` that extract the inner value. The macro currently detects them by name. The analyzer provides both the receiver type (Option/Result ADT) and the operation path.
-
-**Unified mechanism**: Macro reads `operation` from method_calls. If it matches `core::option::Option::unwrap` (or `core::result::Result::unwrap`), emit the appropriate tracking call.
-
-#### 4.4.1–4.4.5 (IDs 102–106)
-
-| ID | Method | Analyzer Operation | self_borrow | Tracking Call |
-|----|--------|--------------------|-------------|---------------|
-| 102 | `unwrap` | `core::option::Option::unwrap` | `consuming` | `track_move("unwrap", v)` |
-| 103 | `expect` | `core::option::Option::expect` | `consuming` | `track_move("expect", v)` |
-| 104 | `unwrap_or` | `core::option::Option::unwrap_or` | `consuming` | `track_move("unwrap_or", v)` |
-| 105 | `unwrap_or_else` | `core::option::Option::unwrap_or_else` | `consuming` | `track_move("unwrap_or_else", v)` |
-| 106 | `unwrap_or_default` | `core::option::Option::unwrap_or_default` | `consuming` | `track_move("unwrap_or_default", v)` |
-
-All five also exist on `Result<T, E>` with paths like `core::result::Result::unwrap`. The macro matches the suffix (`::unwrap`, `::expect`, etc.) regardless of whether it's Option or Result.
-
-### 4.5 Phase 5: Clone Trait Verification (1 pattern)
-
-#### ID 107: `.clone()` → verify `Clone::clone`
-
-**Macro today**: `method_name == "clone"` → always emits `track_borrow("clone", &x)`.
-
-**Analyzer emits**: `is_trait_method: true, trait_name: "Clone"` when `.clone()` resolves to the `Clone::clone` trait impl.
-
-**Macro replacement**:
-```rust
-if method_name == "clone" {
-    if let Some(mc) = self.lookup_method_call(var, "clone", line) {
-        if mc.trait_name.as_deref() == Some("Clone") {
-            // Confirmed Clone::clone — emit track_borrow
-        } else {
-            // Inherent method named "clone" — use self_borrow from analyzer
-        }
-    }
-}
-```
-
----
-
-## 5. Analyzer-Side Implementation
-
-### 5.1 Current State Assessment
-
-The analyzer already implements everything needed for 66 of 73 remaining patterns. No new analyzer code is required for those — the macro just needs to consume the existing output.
+All analyzer-side work is done. The analyzer emits all data needed for 109/109 semantic patterns.
 
 **What already works (analysis.rs on `feature/analyzer-method-call-tracking`):**
 
@@ -720,15 +373,13 @@ The analyzer already implements everything needed for 66 of 73 remaining pattern
 | `analyze_expressions()` | 2069 | Iterates `CallExpr` nodes, resolves via `TrackedFunctions` (FunctionId) | P2 (4 patterns: spawn, transmute) |
 | `extract_closure_captures_semantic()` | 2170 | `closure_hir.captured_items(db)` with `CaptureKind` | thread::spawn closure captures |
 
-**Gap analysis — what's missing:**
+All gaps have been resolved:
+- `method_calls` serialized with `operation`, `self_borrow`, `is_trait_method`, `trait_name`
+- `expressions` serialized for standalone calls (transmute, thread::spawn)
+- Mapped guard ADTs in `KnownTypes` + crate-verified fallback for unstable types
+- `resolve_trait_info()` detects trait impls via `i.trait_(db)` on `Impl` blocks
 
-| Gap | Patterns Affected | Fix |
-|-----|-------------------|-----|
-| `method_calls` not serialized to type-info.json | All 66 | Add `method_calls: Vec<MethodCallInfo>` to output schema |
-| `expressions` not serialized to type-info.json | 4 (P2) | Add `expressions: Vec<ExpressionInfo>` to output schema |
-| Mapped guard types not in `KnownTypes` | 1 (ID 54) | Add 3 ADTs (see 5.3) |
-
-### 5.2 Macro ↔ Analyzer Data Flow: What's Connected vs What's Ignored
+### 3.2 Macro ↔ Analyzer Data Flow
 
 The macro reads `type-info.json` via `type_info.rs`. Today it only consumes **variable-level** fields (creation/initialization). It completely ignores **operation-level** fields (what happens to variables after creation), and also ignores many variable-level fields the analyzer provides.
 
@@ -749,11 +400,10 @@ The analyzer's `VariableTypeInfo` has **78 fields**. The macro's `VariableTypeIn
 | Binding | `is_tuple_binding`, `is_mut_binding`, `is_impl_trait` | Destructuring, mutability |
 | Disambiguation | `function_name`, `decl_index` | Correct lookup for shadowed names |
 
-**Fields the analyzer writes but macro IGNORES (31):**
+**Fields the analyzer writes but macro does not yet consume (potential future use):**
 
 | Field | What It Contains | Potential Use |
 |-------|-----------------|---------------|
-| `method_calls` | `Vec<MethodCallInfo>` — every method call with semantic operation, self_borrow, trait info | **CRITICAL**: Replaces all 73 heuristic patterns |
 | `usages` | `Vec<VariableUsageInfo>` — every use site with line/column/kind | Could track variable usage flow |
 | `closure_captures` | `Vec<ClosureCaptureInfo>` — capture kinds (shared_ref, move, etc.) | Could emit precise closure capture tracking |
 | `line`, `column` | Declaration location | Could enable line-based lookup (not available on stable proc_macro) |
@@ -968,63 +618,26 @@ Every method in the macro classified by whether the analyzer can replace its heu
 - `"get"` — could be `Cell::get`, `HashMap::get`, `Vec::get`, `OnceCell::get`
 - `"set"` — could be `Cell::set`, `OnceCell::set`, user's `.set()`
 
-### 5.3 Remaining Analyzer Changes
+### 3.3 Key Functions
 
-Only one actual code change is needed on the analyzer side: adding mapped guard types to `KnownTypes` for Guard::map (ID 54).
+| Function | Line | What It Does |
+|----------|------|-------------|
+| `analyze_method_calls()` | ~1943 | Resolves receiver type, method path, self_borrow, trait info for every method call |
+| `resolve_self_borrow()` | ~2982 | `func.self_param(db).access(db)` → `Shared/Exclusive/Owned` |
+| `resolve_method_path()` | ~3000 | Builds canonical path `crate::module::Type::method` |
+| `resolve_trait_info()` | ~2041 | `func.container(db)` → detects trait impls via `i.trait_(db)` |
+| `analyze_expressions()` | ~2069 | Resolves standalone calls via `TrackedFunctions` (FunctionId) |
+| `classify_by_resolved_type_semantic()` | ~1232 | ADT classification with crate-verified fallback for unstable types |
 
-```rust
-// In KnownTypes::new(), add after existing guard lookups:
-let mapped_mutex_guard = find_adt(db, &import_map, "std::sync::MappedMutexGuard");
-let mapped_rwlock_read_guard = find_adt(db, &import_map, "std::sync::MappedRwLockReadGuard");
-let mapped_rwlock_write_guard = find_adt(db, &import_map, "std::sync::MappedRwLockWriteGuard");
+### 3.4 Output Schema
 
-// In KnownTypes::classify(), add:
-if Some(id) == self.mapped_mutex_guard { return Some("mapped_mutex_guard"); }
-if Some(id) == self.mapped_rwlock_read_guard { return Some("mapped_rwlock_read_guard"); }
-if Some(id) == self.mapped_rwlock_write_guard { return Some("mapped_rwlock_write_guard"); }
+`VariableTypeInfo` includes:
+- `method_calls: Vec<MethodCallInfo>` — `operation`, `self_borrow`, `is_trait_method`, `trait_name`
+- `expressions: Vec<ExpressionInfo>` — `kind`, `path`, `is_unsafe`
 
-// In classify_by_resolved_type_semantic(), add match arms:
-("mapped_mutex_guard", _) => "mutex_guard_map",
-("mapped_rwlock_read_guard", _) => "rwlock_read_guard_map",
-("mapped_rwlock_write_guard", _) => "rwlock_write_guard_map",
-```
+Macro-side structs (`type_info.rs`): `MethodCallInfo`, `ExpressionInfo` with `#[serde(default)]` for backward compatibility.
 
-### 5.4 Output Schema Changes (v3.0 → v3.1)
-
-The `VariableTypeInfo` in `output.rs` already has `method_calls: Vec<MethodCallInfo>`. The JSON serialization already includes it. The macro's `type_info.rs` deserialization struct needs to add the field:
-
-```rust
-// Add to type_info.rs VariableTypeInfo:
-#[serde(default)]
-pub method_calls: Vec<MethodCallInfoCompact>,
-
-// Compact version (macro only needs these fields):
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct MethodCallInfoCompact {
-    pub method: String,
-    pub line: u32,
-    pub operation: Option<String>,
-    pub self_borrow: Option<String>,
-    pub is_trait_method: Option<bool>,
-    pub trait_name: Option<String>,
-}
-```
-
-Similarly for expressions (needed for P2):
-```rust
-#[serde(default)]
-pub expressions: Vec<ExpressionInfoCompact>,
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct ExpressionInfoCompact {
-    pub line: u32,
-    pub kind: String,
-    pub path: Option<String>,
-    pub is_unsafe: Option<bool>,
-}
-```
-
-### 5.5 No New Classification Functions Needed
+### 3.5 No New Classification Functions Needed
 
 The original plan called for `classify_unwrap_method()` and `is_clone_trait_call()` as new analyzer functions. These are **not needed** because:
 
@@ -1035,156 +648,40 @@ Both are already in the `MethodCallInfo` output. The classification happens on t
 
 ---
 
-## 6. Macro-Side Refactoring
+## 4. Macro-Side Refactoring — Complete
 
-### 6.1 Files to Modify
+### 4.1 Files Modified
 
-| File | Change | Scope |
-|------|--------|-------|
-| `type_info.rs` | Add `method_calls` and `expressions` deserialization (see §5.4) | ~20 lines |
-| `type_info.rs` | Add `lookup_method_call()` and `lookup_expression()` functions | ~30 lines |
-| `transform_visitor.rs` | Replace `infer_self_borrow_type()` call with semantic lookup + fallback | ~5 lines changed |
-| `transform_visitor.rs` | Replace `detect_*()` calls in `visit_expr_mut()` with operation-based dispatch | ~40 lines changed |
-| `smart_pointer.rs` | Delete 14 detection functions (see §6.2), keep `SmartPointerType` enum | ~250 lines deleted |
+| File | Change |
+|------|--------|
+| `type_info.rs` | Added `MethodCallInfo` and `ExpressionInfo` structs with `#[serde(default)]` fields |
+| `transform_visitor.rs` | `infer_self_borrow_type()` does semantic lookup first, heuristic fallback |
+| `transform_visitor.rs` | All 18 method dispatch points use `semantic_op` lookup |
+| `transform_visitor.rs` | Clone dispatch checks `is_trait_method`/`trait_name` |
+| `transform_visitor.rs` | Unwrap dispatch verifies Option/Result via `semantic_op` |
+| `transform_visitor.rs` | Transmute detection uses semantic expression data |
+| `transform_visitor.rs` | Mapped guard initializer kinds dispatched |
+| `smart_pointer.rs` | Deleted `detect_once_cell_method()` and `detect_maybe_uninit_method()` |
 
-### 6.2 Functions to Delete from smart_pointer.rs
+### 4.2 Functions Deleted
 
-These 14 functions use string matching on AST paths/method names. All are replaced by reading `operation` from analyzer output.
+| Function | Was In | Replaced By |
+|----------|--------|-------------|
+| `detect_once_cell_method()` | smart_pointer.rs | `semantic_op` dispatch |
+| `detect_maybe_uninit_method()` | smart_pointer.rs | `semantic_op` dispatch |
 
-| # | Function | Line | Patterns It Covers | Replacement |
-|---|----------|------|--------------------|-------------|
-| 1 | `detect_smart_pointer_new()` | 156 | IDs 1–5 | `initializer_kind` field already in type-info.json |
-| 2 | `detect_rc_clone()` | 189 | IDs 6–7 | `initializer_kind == "rc_clone"` / `"arc_clone"` |
-| 3 | `detect_refcell_borrow()` | 207 | IDs 9–10 | `initializer_kind == "refcell_borrow"` / `"refcell_borrow_mut"` |
-| 4 | `detect_cell_operation()` | 222 | ID 11 | `method_calls[].operation` ending `::Cell::set` |
-| 5 | `detect_box_pin()` | 237 | ID 15 | `initializer_kind == "pin_new"` |
-| 6 | `detect_box_raw_op()` | 248 | IDs 13–14 | `initializer_kind == "box_new"` / raw_ptr type |
-| 7 | `detect_pin_operation()` | 264 | ID 16 | `method_calls[].operation` ending `::Pin::as_ref` |
-| 8 | `detect_cow_creation()` | 280 | IDs 17–18 | `initializer_kind == "cow_new"` / `"cow_variant"` |
-| 9 | `detect_cow_to_mut()` | 296 | ID 19 | `method_calls[].operation` ending `::Cow::to_mut` |
-| 10 | `detect_downgrade()` | 304 | ID 21 | `initializer_kind == "weak_downgrade"` |
-| 11 | `detect_weak_upgrade()` | 320 | ID 22 | `initializer_kind == "weak_upgrade"` |
-| 12 | `detect_once_cell_new()` | 328 | IDs 23–24 | `initializer_kind == "once_cell_new"` / `"once_lock_new"` |
-| 13 | `detect_once_cell_method()` | 344 | IDs 25–27 | `method_calls[].operation` |
-| 14 | `detect_maybe_uninit_new()` | 358 | IDs 28–29 | `initializer_kind == "maybe_uninit_new"` |
+**Remaining `detect_*` functions** (10 in smart_pointer.rs) are used only in the initializer fallback path when no analyzer data is available:
+`detect_smart_pointer_new`, `detect_rc_clone`, `detect_box_pin`, `detect_box_raw_op`, `detect_pin_operation`, `detect_cow_creation`, `detect_downgrade`, `detect_once_cell_new`, `detect_maybe_uninit_new`, `detect_concurrency_op`
 
-Also delete from smart_pointer.rs:
-- `detect_maybe_uninit_method()` (line 374) — replaced by method_calls lookup
-- `detect_concurrency_op()` (line 389) — replaced by method_calls lookup
+### 4.3 Lookup Mechanism
 
-Also delete from transform_visitor.rs:
-- `infer_self_borrow_type()` (line 462) — replaced by `lookup_method_call_borrow()` with fallback
-
-**Keep**: `SmartPointerType` enum, `SmartPointerOp` enum, `ConcurrencyOp` enum, `is_smart_pointer_operation()` — these are still used for the fallback path when no analyzer data is available.
-
-### 6.3 New Lookup Logic
-
-#### type_info.rs additions
-
-```rust
-impl TypeInfoCache {
-    /// Lookup a method call on a variable by function context + variable name + method + line
-    pub fn lookup_method_call(
-        &self, fn_name: &str, var_name: &str, method: &str, line: u32,
-    ) -> Option<&MethodCallInfoCompact> {
-        let var = self.lookup_in_function(fn_name, var_name, None)?;
-        var.method_calls.iter()
-            .find(|mc| mc.method == method && mc.line == line)
-    }
-
-    /// Lookup a standalone expression by function context + line
-    pub fn lookup_expression(
-        &self, fn_name: &str, line: u32,
-    ) -> Option<&ExpressionInfoCompact> {
-        // Expressions are stored at file level, not per-variable
-        // Search all variables in the function for the matching line
-        let fn_vars = self.by_function.get(fn_name)?;
-        for entries in fn_vars.values() {
-            for var in entries {
-                if let Some(expr) = var.expressions.iter().find(|e| e.line == line) {
-                    return Some(expr);
-                }
-            }
-        }
-        None
-    }
-}
-```
-
-#### transform_visitor.rs — transform_method_call() refactored
-
-```rust
-fn transform_method_call(&mut self, method_call: &mut ExprMethodCall) {
-    if !Self::is_simple_variable(&method_call.receiver) {
-        self.visit_expr_mut(&mut method_call.receiver);
-        for arg in &mut method_call.args { self.visit_expr_mut(arg); }
-        return;
-    }
-
-    let method_name = method_call.method.to_string();
-    let receiver_name = Self::extract_receiver_name(&method_call.receiver);
-
-    // Try semantic lookup first
-    let semantic_borrow = receiver_name.as_ref().and_then(|name| {
-        let cache = self.type_info_cache.as_ref()?;
-        let mc = cache.lookup_method_call(&self.current_fn_name, name, &method_name, self.current_line)?;
-        mc.self_borrow.as_deref().map(|sb| match sb {
-            "mutable" => SelfBorrowType::Mutable,
-            "consuming" => SelfBorrowType::Consuming,
-            _ => SelfBorrowType::Immutable,
-        })
-    });
-
-    let borrow_type = semantic_borrow
-        .unwrap_or_else(|| Self::infer_self_borrow_type(&method_name));
-
-    // Guard methods — skip wrapping (lifetime issue)
-    let guard_methods = [
-        "lock", "try_lock", "read", "try_read", "write", "try_write",
-        "borrow", "borrow_mut", "get_mut",
-    ];
-    if guard_methods.contains(&method_name.as_str()) {
-        self.visit_expr_mut(&mut method_call.receiver);
-        for arg in &mut method_call.args { self.visit_expr_mut(arg); }
-        return;
-    }
-
-    // Consuming — visit normally
-    if borrow_type == SelfBorrowType::Consuming {
-        self.visit_expr_mut(&mut method_call.receiver);
-        for arg in &mut method_call.args { self.visit_expr_mut(arg); }
-        return;
-    }
-
-    // Wrap receiver with tracking
-    if let Some(receiver_name) = receiver_name {
-        if self.ref_vars.contains(&receiver_name) {
-            for arg in &mut method_call.args { self.visit_expr_mut(arg); }
-            return;
-        }
-        let receiver_expr = method_call.receiver.clone();
-        method_call.receiver = Box::new(match borrow_type {
-            SelfBorrowType::Immutable => syn::parse_quote! {
-                borrowscope_runtime::track_borrow("method_borrow", &#receiver_expr)
-            },
-            SelfBorrowType::Mutable => syn::parse_quote! {
-                borrowscope_runtime::track_borrow_mut("method_borrow", &mut #receiver_expr)
-            },
-            SelfBorrowType::Consuming => unreachable!(),
-        });
-    }
-
-    for arg in &mut method_call.args { self.visit_expr_mut(arg); }
-}
-```
-
-The key change is 3 lines: the `semantic_borrow` lookup and the `unwrap_or_else` fallback. Everything else stays the same.
+The macro uses `crate::type_info::lookup_by_name(var_name)` to find analyzer data for a variable, then reads `method_calls[]` to find the relevant method call by name. The `operation`, `self_borrow`, `is_trait_method`, and `trait_name` fields drive dispatch decisions. When no analyzer data is available, all dispatch points fall back to name-based heuristics.
 
 ---
 
-## 7. Testing Strategy
+## 5. Testing Strategy
 
-### 7.1 Per-Phase Test Cases
+### 5.1 Per-Phase Test Cases
 
 Each phase gets a standalone Rust file in `examples/type-coverage/src/` that exercises every pattern in that phase. The analyzer runs first, then the macro builds with the analyzer output.
 
@@ -1344,7 +841,7 @@ fn phase5_clone_disambiguation() {
 }
 ```
 
-### 7.2 Regression Tests
+### 5.2 Regression Tests
 
 Existing examples must produce identical tracking output before and after refactoring.
 
@@ -1363,7 +860,7 @@ cargo test -p borrowscope-runtime --features track
 cargo test -p borrowscope-macro
 ```
 
-### 7.3 Success Criteria
+### 5.3 Success Criteria
 
 1. **Zero syntactic detection in macro** — no `detect_*()` calls remain:
    ```bash
