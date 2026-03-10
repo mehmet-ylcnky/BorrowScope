@@ -458,8 +458,32 @@ impl OwnershipVisitor {
         }
     }
 
-    /// Infer self borrow type from method name using heuristics
-    fn infer_self_borrow_type(method_name: &str) -> SelfBorrowType {
+    /// Infer self borrow type from method name using semantic lookup with heuristic fallback
+    fn infer_self_borrow_type(method_name: &str, receiver_name: Option<&str>) -> SelfBorrowType {
+        // Try semantic lookup first if we have receiver name and type info
+        if let Some(var_name) = receiver_name {
+            if let Some(type_info) = crate::type_info::lookup_by_name(var_name) {
+                // Find method call by name (we can't use line/column on stable Rust)
+                // If there are multiple calls to the same method, they should have the same self_borrow
+                if let Some(method_call) = type_info.method_calls.iter().find(|mc| mc.method == method_name) {
+                    if let Some(ref self_borrow) = method_call.self_borrow {
+                        return match self_borrow.as_str() {
+                            "immutable" => SelfBorrowType::Immutable,
+                            "mutable" => SelfBorrowType::Mutable,
+                            "consuming" => SelfBorrowType::Consuming,
+                            _ => SelfBorrowType::Immutable, // fallback
+                        };
+                    }
+                }
+            }
+        }
+        
+        // Fallback to heuristics if semantic lookup fails
+        Self::infer_self_borrow_type_heuristic(method_name)
+    }
+    
+    /// Infer self borrow type from method name using heuristics (fallback)
+    fn infer_self_borrow_type_heuristic(method_name: &str) -> SelfBorrowType {
         // Immutable borrows (common patterns)
         if method_name.starts_with("as_")
             || method_name.starts_with("to_")
@@ -572,7 +596,9 @@ impl OwnershipVisitor {
             return;
         }
         
-        let borrow_type = Self::infer_self_borrow_type(&method_name);
+        // Extract receiver name for semantic lookup
+        let receiver_name = Self::extract_receiver_name(&method_call.receiver);
+        let borrow_type = Self::infer_self_borrow_type(&method_name, receiver_name.as_deref());
 
         // For consuming methods, just visit normally (move tracking happens at assignment level)
         if borrow_type == SelfBorrowType::Consuming {

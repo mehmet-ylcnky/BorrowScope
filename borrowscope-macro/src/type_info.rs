@@ -81,6 +81,29 @@ pub struct VariableTypeInfo {
     // Function context (for disambiguation)
     pub function_name: Option<String>,
     pub decl_index: Option<u32>,
+    
+    // Method calls on this variable (semantic operation tracking)
+    #[serde(default)]
+    pub method_calls: Vec<MethodCallInfo>,
+}
+
+/// Method call information (compact - only fields macro needs)
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MethodCallInfo {
+    pub method: String,
+    pub line: u32,
+    pub column: u32,
+    pub operation: Option<String>,
+    pub self_borrow: Option<String>,
+}
+
+/// Standalone expression information (compact - only fields macro needs)
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ExpressionInfo {
+    pub line: u32,
+    pub column: u32,
+    pub path: Option<String>,
+    pub operation: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,11 +116,14 @@ struct ProjectTypeInfo {
     by_name: HashMap<String, Vec<VariableTypeInfo>>,
     #[serde(default)]
     by_function: HashMap<String, HashMap<String, Vec<VariableTypeInfo>>>,
+    #[serde(default)]
+    expressions: HashMap<String, Vec<ExpressionInfo>>,
 }
 
 pub struct TypeInfoCache {
     by_name: HashMap<String, Vec<VariableTypeInfo>>,
     by_function: HashMap<String, HashMap<String, Vec<VariableTypeInfo>>>,
+    expressions: HashMap<String, Vec<ExpressionInfo>>,
 }
 
 impl TypeInfoCache {
@@ -113,6 +139,7 @@ impl TypeInfoCache {
         Some(Self { 
             by_name: info.by_name,
             by_function: info.by_function,
+            expressions: info.expressions,
         })
     }
 
@@ -198,4 +225,18 @@ pub fn lookup_in_function(fn_name: &str, var_name: &str, decl_index: Option<u32>
 /// Lookup type info by variable name only (fallback)
 pub fn lookup_by_name(var_name: &str) -> Option<&'static VariableTypeInfo> {
     get_type_info()?.lookup(var_name)
+}
+
+/// Lookup method call info for a variable at a specific location
+pub fn lookup_method_call(var_name: &str, line: u32, column: u32) -> Option<&'static MethodCallInfo> {
+    let type_info = get_type_info()?;
+    let var_info = type_info.lookup(var_name)?;
+    var_info.method_calls.iter().find(|mc| mc.line == line && mc.column == column)
+}
+
+/// Lookup expression info at a specific location
+pub fn lookup_expression(file: &str, line: u32, column: u32) -> Option<&'static ExpressionInfo> {
+    let type_info = get_type_info()?;
+    let exprs = type_info.expressions.get(file)?;
+    exprs.iter().find(|e| e.line == line && e.column == column)
 }
