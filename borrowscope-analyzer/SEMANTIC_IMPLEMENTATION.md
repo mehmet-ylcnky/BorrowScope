@@ -85,10 +85,10 @@
 | Self borrow inference (immutable) | 19 | **19** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
 | Self borrow inference (mutable) | 25 | **25** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
 | Self borrow inference (consuming) | 3 | **3** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
-| Unwrap methods | 5 | 0 | 0 | 5 | Still method name matching |
+| Unwrap methods | 5 | **5** | 0 | 0 | Semantic: verifies Option/Result via semantic_op |
 | Clone method | 1 | **1** | 0 | 0 | Uses is_trait_method/trait_name from analyzer |
 | Transmute detection | 2 | **2** | 0 | 0 | semantic expression lookup (Step 8) |
-| **TOTAL** | **109** | **104** | **0** | **5** |
+| **TOTAL** | **109** | **109** | **0** | **0** |
 
 ### 1.2 Complete Pattern Registry (109 Patterns)
 
@@ -280,11 +280,11 @@
 
 | ID | Pattern | Example | Current Detection | Status | Phase |
 |----|---------|---------|-------------------|--------|-------|
-| 102 | `unwrap` | `opt.unwrap()` | `method_name == "unwrap"` | ❌ | P4 |
-| 103 | `expect` | `opt.expect("msg")` | `method_name == "expect"` | ❌ | P4 |
-| 104 | `unwrap_or` | `opt.unwrap_or(default)` | `method_name == "unwrap_or"` | ❌ | P4 |
-| 105 | `unwrap_or_else` | `opt.unwrap_or_else(\|\| v)` | `method_name == "unwrap_or_else"` | ❌ | P4 |
-| 106 | `unwrap_or_default` | `opt.unwrap_or_default()` | `method_name == "unwrap_or_default"` | ❌ | P4 |
+| 102 | `unwrap` | `opt.unwrap()` | ✅ | — | Semantic: verifies `core::option::unwrap` or `core::result::unwrap` via `semantic_op`. |
+| 103 | `expect` | `opt.expect("msg")` | ✅ | — | Semantic: verifies via `semantic_op`. |
+| 104 | `unwrap_or` | `opt.unwrap_or(default)` | ✅ | — | Semantic: verifies via `semantic_op`. |
+| 105 | `unwrap_or_else` | `opt.unwrap_or_else(\|\| v)` | ✅ | — | Semantic: verifies via `semantic_op`. |
+| 106 | `unwrap_or_default` | `opt.unwrap_or_default()` | ✅ | — | Semantic: verifies via `semantic_op`. |
 
 #### Clone Method (1 pattern)
 

@@ -2439,13 +2439,18 @@ impl VisitMut for OwnershipVisitor {
                 }
             }
 
-            // Check for unwrap methods
+            // Check for unwrap methods — semantic: verify Option/Result via operation
             if self.config.track_methods {
                 match method_name.as_str() {
                     "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" => {
-                        let mc = method_call.clone();
-                        self.transform_unwrap(expr, &mc);
-                        return;
+                        let is_option_result = semantic_op.as_ref()
+                            .map(|op| op.contains("option") || op.contains("result"))
+                            .unwrap_or(true); // fallback: assume yes if no analyzer data
+                        if is_option_result {
+                            let mc = method_call.clone();
+                            self.transform_unwrap(expr, &mc);
+                            return;
+                        }
                     }
                     _ => {}
                 }
