@@ -44,6 +44,9 @@ pub(crate) struct KnownTypes {
     mutex_guard: Option<Adt>,
     rwlock_read_guard: Option<Adt>,
     rwlock_write_guard: Option<Adt>,
+    mapped_mutex_guard: Option<Adt>,
+    mapped_rwlock_read_guard: Option<Adt>,
+    mapped_rwlock_write_guard: Option<Adt>,
     
     // Memory
     maybe_uninit: Option<Adt>,
@@ -195,6 +198,9 @@ impl KnownTypes {
             ("MutexGuard", "sync", |k, a| k.mutex_guard = Some(a)),
             ("RwLockReadGuard", "sync", |k, a| k.rwlock_read_guard = Some(a)),
             ("RwLockWriteGuard", "sync", |k, a| k.rwlock_write_guard = Some(a)),
+            ("MappedMutexGuard", "sync", |k, a| k.mapped_mutex_guard = Some(a)),
+            ("MappedRwLockReadGuard", "sync", |k, a| k.mapped_rwlock_read_guard = Some(a)),
+            ("MappedRwLockWriteGuard", "sync", |k, a| k.mapped_rwlock_write_guard = Some(a)),
             
             // Collections (no lang items except String)
             ("Vec", "vec", |k, a| k.vec = Some(a)),
@@ -306,6 +312,9 @@ impl KnownTypes {
         if self.mutex_guard.as_ref() == Some(adt) { return Some("mutex_guard"); }
         if self.rwlock_read_guard.as_ref() == Some(adt) { return Some("rwlock_read_guard"); }
         if self.rwlock_write_guard.as_ref() == Some(adt) { return Some("rwlock_write_guard"); }
+        if self.mapped_mutex_guard.as_ref() == Some(adt) { return Some("mapped_mutex_guard"); }
+        if self.mapped_rwlock_read_guard.as_ref() == Some(adt) { return Some("mapped_rwlock_read_guard"); }
+        if self.mapped_rwlock_write_guard.as_ref() == Some(adt) { return Some("mapped_rwlock_write_guard"); }
         
         // Memory
         if self.maybe_uninit.as_ref() == Some(adt) { return Some("maybe_uninit"); }
@@ -683,6 +692,26 @@ impl TrackedFunctions {
                         if acceptable_modules.iter().any(|m| module_path.contains(m)) {
                             let path = get_function_path(&f, db);
                             tracked.functions.insert(f, path);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Fallback: search all crates for functions not found in std
+        for (fn_name, acceptable_modules) in functions_to_find {
+            let already_found = tracked.functions.values().any(|p| p.ends_with(fn_name));
+            if !already_found {
+                for krate in &all_crates {
+                    let query = import_map::Query::new(fn_name.to_string()).exact();
+                    for (item, _) in krate.query_external_importables(db, query) {
+                        if let either::Either::Left(ModuleDef::Function(f)) = item {
+                            let module_path = get_module_path(&f.module(db), db);
+                            if acceptable_modules.iter().any(|m| module_path.contains(m)) {
+                                let path = get_function_path(&f, db);
+                                tracked.functions.insert(f, path);
+                                break;
+                            }
                         }
                     }
                 }
@@ -1234,9 +1263,12 @@ fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownT
             ("refmut_guard", "borrow_mut") => "refcell_borrow_mut",
             ("mutex", "call") => "mutex_new",
             ("mutex_guard", "lock") => "mutex_lock",
+            ("mapped_mutex_guard", _) => "mutex_guard_mapped",
             ("rwlock", "call") => "rwlock_new",
             ("rwlock_read_guard", "read") => "rwlock_read",
             ("rwlock_write_guard", "write") => "rwlock_write",
+            ("mapped_rwlock_read_guard", _) => "rwlock_read_guard_mapped",
+            ("mapped_rwlock_write_guard", _) => "rwlock_write_guard_mapped",
             ("once_cell", "call") => "once_cell_new",
             ("once_lock", "call") => "once_lock_new",
             
