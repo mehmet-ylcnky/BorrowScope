@@ -95,6 +95,10 @@ pub struct MethodCallInfo {
     pub column: u32,
     pub operation: Option<String>,
     pub self_borrow: Option<String>,
+    #[serde(default)]
+    pub is_trait_method: Option<bool>,
+    #[serde(default)]
+    pub trait_name: Option<String>,
 }
 
 /// Standalone expression information (compact - only fields macro needs)

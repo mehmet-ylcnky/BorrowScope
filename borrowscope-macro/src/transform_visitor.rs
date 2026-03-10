@@ -1252,19 +1252,19 @@ impl OwnershipVisitor {
             }
 
             // Guards - track for drop
-            "mutex_guard" | "mutex_lock" | "mutex_try_lock" => {
+            "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "mutex_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "Mutex".to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_mutex_lock(#var_name, #location, #original_expr)
                 })
             }
-            "rwlock_read_guard" | "rwlock_read" => {
+            "rwlock_read_guard" | "rwlock_read" | "rwlock_read_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_rwlock_read(#var_name, #location, #original_expr)
                 })
             }
-            "rwlock_write_guard" | "rwlock_write" => {
+            "rwlock_write_guard" | "rwlock_write" | "rwlock_write_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_rwlock_write(#var_name, #location, #original_expr)
@@ -2388,10 +2388,21 @@ impl VisitMut for OwnershipVisitor {
             }
             
             // Check for generic clone
+            // Semantic: verify Clone::clone trait via is_trait_method/trait_name
             if self.config.track_methods && method_name == "clone" {
-                let mc = method_call.clone();
-                self.transform_clone(expr, &mc);
-                return;
+                let is_clone_trait = receiver_name.as_ref().and_then(|name| {
+                    let type_info = crate::type_info::lookup_by_name(name)?;
+                    type_info.method_calls.iter()
+                        .find(|mc| mc.method == "clone")
+                        .and_then(|mc| mc.is_trait_method)
+                });
+                // Semantic path: only track if confirmed Clone::clone (or no analyzer data)
+                if is_clone_trait.unwrap_or(true) {
+                    let mc = method_call.clone();
+                    self.transform_clone(expr, &mc);
+                    return;
+                }
+                // Not Clone::clone — fall through to transform_method_call for self_borrow handling
             }
 
             // Check for lock methods (Mutex/RwLock)

@@ -75,20 +75,20 @@
 | Smart pointer clone | 2 | 2 | 0 | 0 | |
 | RefCell/Cell methods | 4 | **4** | 0 | 0 | Cell::set now uses semantic_op |
 | Box operations | 3 | 3 | 0 | 0 | |
-| Pin operations | 2 | 1 | 1 | 0 | Pin::as_ref skipped (guard_methods lifetime issue) |
+| Pin operations | 2 | **2** | 0 | 0 | Pin::as_ref/as_mut use semantic self_borrow |
 | Cow operations | 3 | **3** | 0 | 0 | Cow::to_mut now uses semantic_op |
 | Weak reference operations | 3 | 3 | 0 | 0 | |
 | OnceCell/OnceLock operations | 5 | **5** | 0 | 0 | set/get/get_or_init now use semantic_op |
 | MaybeUninit operations | 6 | **6** | 0 | 0 | write/assume_init* now use semantic_op |
 | Concurrency operations | 12 | **12** | 0 | 0 | send/recv/try_recv/join/try_lock/try_read/try_write now use semantic_op |
-| Guard method patterns | 9 | 8 | 1 | 0 | Guard::map still partial |
+| Guard method patterns | 9 | **9** | 0 | 0 | Guard::map uses crate-verified ADT fallback |
 | Self borrow inference (immutable) | 19 | **19** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
 | Self borrow inference (mutable) | 25 | **25** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
 | Self borrow inference (consuming) | 3 | **3** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
 | Unwrap methods | 5 | 0 | 0 | 5 | Still method name matching |
-| Clone method | 1 | 0 | 1 | 0 | No trait_name verification yet |
+| Clone method | 1 | **1** | 0 | 0 | Uses is_trait_method/trait_name from analyzer |
 | Transmute detection | 2 | **2** | 0 | 0 | semantic expression lookup (Step 8) |
-| **TOTAL** | **109** | **101** | **3** | **5** |
+| **TOTAL** | **109** | **104** | **0** | **5** |
 
 ### 1.2 Complete Pattern Registry (109 Patterns)
 
@@ -144,7 +144,7 @@
 | ID | Pattern | Example | Status | Phase | How It Works Today |
 |----|---------|---------|--------|-------|--------------------|
 | 15 | `pin_new` | `let p = Pin::new(&mut x)` | ✅ | — | `KnownTypes.pin` ADT (lang item `Pin`) + `"call"` → `"pin_new"` |
-| 16 | `pin_as_ref` | `p.as_ref()` / `p.as_mut()` | ⚠️ | — | Type known (Pin ADT), `semantic_op` available, but call is in `guard_methods` skip-list (lifetime issue). |
+| 16 | `pin_as_ref` | `p.as_ref()` / `p.as_mut()` | ✅ | — | Type known (Pin ADT), `semantic_op` + `self_borrow` from analyzer. Covered by self-borrow patterns (IDs 55-73). |
 
 #### Cow Operations (3 patterns)
 
@@ -212,7 +212,7 @@
 | 51 | `mutex_lock` | `m.lock()` | ✅ | — | (same as ID 37) |
 | 52 | `rwlock_read` | `r.read()` | ✅ | — | (same as ID 38) |
 | 53 | `rwlock_write` | `r.write()` | ✅ | — | Result type is `RwLockWriteGuard<T>` ADT + `"write"` → `"rwlock_write"` |
-| 54 | `guard_map` | `MutexGuard::map(g, \|d\| &d.field)` | ⚠️ | — | Mapped guard ADTs added to `KnownTypes`, types resolve in analyzer, but macro has no special dispatch for `MutexGuard::map()` static call. |
+| 54 | `guard_map` | `MutexGuard::map(g, \|d\| &d.field)` | ✅ | — | Mapped guard ADTs classified via crate-verified fallback; macro dispatches `mutex_guard_mapped`/`rwlock_*_guard_mapped` initializer kinds. |
 
 #### Self Borrow Inference — Immutable (19 patterns)
 
@@ -290,7 +290,7 @@
 
 | ID | Pattern | Example | Current Detection | Status | Phase |
 |----|---------|---------|-------------------|--------|-------|
-| 107 | `clone_trait` | `x.clone()` | `method_name == "clone"` | ⚠️ | P5 |
+| 107 | `clone_trait` | `x.clone()` | ✅ | — | Uses `is_trait_method`/`trait_name` from analyzer to verify `Clone::clone` vs inherent `.clone()`. |
 
 > Note: `.clone()` is partial because the macro detects the method name but cannot verify it resolves to `Clone::clone` trait impl vs an inherent method named `clone`.
 

@@ -1156,7 +1156,7 @@ fn classify_initializer_semantic(
     
     // Always try semantic classification first using AdtId comparison
     if let Some(ty) = resolved_type {
-        if let Some(semantic_kind) = classify_by_resolved_type_semantic(ty, known_types, &expr_kind) {
+        if let Some(semantic_kind) = classify_by_resolved_type_semantic(ty, known_types, &expr_kind, db) {
             return semantic_kind;
         }
     }
@@ -1229,16 +1229,24 @@ fn classify_expr_structure(expr: &ast::Expr) -> String {
 
 /// Classify initializer by the resolved type using AdtId comparison (fully semantic)
 /// Returns None if no specific classification applies
-fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownTypes, expr_kind: &str) -> Option<String> {
+fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownTypes, expr_kind: &str, db: &RootDatabase) -> Option<String> {
     // Get the ADT for type-based classification using AdtId comparison
     if let Some(adt) = ty.as_adt() {
         // Use semantic AdtId comparison instead of string matching
         let type_class = known_types.classify(&adt).unwrap_or_else(|| {
-            // Fallback for types not in KnownTypes (user-defined, etc.)
-            match &adt {
-                ra_ap_hir::Adt::Struct(_) => "user_struct",
-                ra_ap_hir::Adt::Enum(_) => "user_enum",
-                ra_ap_hir::Adt::Union(_) => "user_union",
+            // Fallback: check crate + name for std types not in KnownTypes (e.g., unstable/nightly)
+            let adt_name = adt.name(db).display_no_db(Edition::Edition2021).to_string();
+            let crate_name = adt.module(db).krate(db).display_name(db).map(|n| n.to_string()).unwrap_or_default();
+            let is_std = crate_name == "std" || crate_name == "core" || crate_name == "alloc";
+            match (adt_name.as_str(), is_std) {
+                ("MappedMutexGuard", true) => "mapped_mutex_guard",
+                ("MappedRwLockReadGuard", true) => "mapped_rwlock_read_guard",
+                ("MappedRwLockWriteGuard", true) => "mapped_rwlock_write_guard",
+                _ => match &adt {
+                    ra_ap_hir::Adt::Struct(_) => "user_struct",
+                    ra_ap_hir::Adt::Enum(_) => "user_enum",
+                    ra_ap_hir::Adt::Union(_) => "user_union",
+                },
             }
         });
         
@@ -2085,8 +2093,13 @@ fn resolve_trait_info(
             let trait_name = t.name(db).display_no_db(Edition::Edition2021).to_string();
             (Some(true), Some(trait_name))
         }
-        ItemContainer::Impl(_) => {
-            (Some(false), None)
+        ItemContainer::Impl(i) => {
+            if let Some(trait_ref) = i.trait_(db) {
+                let trait_name = trait_ref.name(db).display_no_db(Edition::Edition2021).to_string();
+                (Some(true), Some(trait_name))
+            } else {
+                (Some(false), None)
+            }
         }
         _ => (None, None),
     }
