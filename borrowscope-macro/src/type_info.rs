@@ -246,18 +246,25 @@ pub fn lookup_expression(file: &str, line: u32, column: u32) -> Option<&'static 
 }
 
 /// Find a transmute expression's type info from semantic data.
-/// Returns (argument_type, result_type) if any transmute is tracked.
+/// Returns (argument_type, result_type) if exactly one transmute is tracked.
+/// Falls back to ("unknown", "unknown") if multiple transmutes exist (can't disambiguate).
 /// Since proc macros can't access file/line from spans, this is best-effort.
 pub fn find_transmute_types() -> Option<(&'static str, &'static str)> {
     let type_info = get_type_info()?;
+    let mut found: Option<&ExpressionInfo> = None;
     for exprs in type_info.expressions.values() {
         for e in exprs {
             if e.operation.contains("transmute") {
-                let from = e.argument.as_deref().unwrap_or("unknown");
-                let to = e.result_type.as_deref().unwrap_or("unknown");
-                return Some((from, to));
+                if found.is_some() {
+                    return None; // Multiple transmutes — can't disambiguate
+                }
+                found = Some(e);
             }
         }
     }
-    None
+    found.map(|e| {
+        let from = e.argument.as_deref().unwrap_or("unknown");
+        let to = e.result_type.as_deref().unwrap_or("unknown");
+        (from, to)
+    })
 }
