@@ -107,6 +107,21 @@ pub struct LifetimeInfo {
     pub context: String,
 }
 
+/// Information about a method call's borrow semantics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodBorrowInfo {
+    /// Method name
+    pub method_name: String,
+    /// Variable the method is called on
+    pub receiver_var: String,
+    /// Borrow kind: "none", "shared_ref", "mutable_ref"
+    pub borrow_kind: String,
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+}
+
 /// Information about a loop label
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabelInfo {
@@ -659,6 +674,9 @@ pub struct ProjectTypeInfo {
     /// Field accesses by file (for partial borrow tracking)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub field_accesses: HashMap<String, Vec<FieldAccessInfo>>,
+    /// Method borrows by file (borrow kind for method calls)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub method_borrows: HashMap<String, Vec<MethodBorrowInfo>>,
     /// Closure trait info by file
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub closure_traits: HashMap<String, Vec<ClosureTraitInfo>>,
@@ -704,6 +722,7 @@ impl ProjectTypeInfo {
             destructuring: HashMap::new(),
             match_bindings: HashMap::new(),
             field_accesses: HashMap::new(),
+            method_borrows: HashMap::new(),
             closure_traits: HashMap::new(),
             variants: HashMap::new(),
             lifetimes: HashMap::new(),

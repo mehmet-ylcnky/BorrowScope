@@ -864,7 +864,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = attach_db(&db, || {
+        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, method_borrows, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = attach_db(&db, || {
             analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, &display_target, file_id, &relative)
         });
         if !variables.is_empty() {
@@ -890,6 +890,9 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
         }
         if !field_accesses.is_empty() {
             info.field_accesses.insert(relative.clone(), field_accesses);
+        }
+        if !method_borrows.is_empty() {
+            info.method_borrows.insert(relative.clone(), method_borrows);
         }
         if !closure_traits.is_empty() {
             info.closure_traits.insert(relative.clone(), closure_traits);
@@ -930,7 +933,7 @@ fn analyze_file(
     display_target: &ra_ap_hir::DisplayTarget,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
-) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>, Vec<FieldAccessInfo>, Vec<ClosureTraitInfo>, Vec<VariantInfo>, Vec<LifetimeInfo>, Vec<LabelInfo>, Vec<ConstPatternInfo>, Vec<CallableInfo>, Vec<RecordFieldExprInfo>, Vec<RecordFieldPatInfo>) {
+) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>, Vec<FieldAccessInfo>, Vec<crate::output::MethodBorrowInfo>, Vec<ClosureTraitInfo>, Vec<VariantInfo>, Vec<LifetimeInfo>, Vec<LabelInfo>, Vec<ConstPatternInfo>, Vec<CallableInfo>, Vec<RecordFieldExprInfo>, Vec<RecordFieldPatInfo>) {
     let mut variables = Vec::new();
     let mut await_points = Vec::new();
     let mut unsafe_ops = Vec::new();
@@ -1047,10 +1050,13 @@ fn analyze_file(
     // Analyze record field patterns (semantic via sema.resolve_record_pat_field)
     let record_field_pats = analyze_record_field_pats(sema, db, &source_file, display_target);
     
+    // Collect method borrow information (semantic via function self parameter type)
+    let method_borrows = collect_method_borrows(sema, db, &source_file);
+    
     // Update await points with poll function resolution
     update_await_points_with_poll(sema, db, &source_file, display_target, &mut await_points);
 
-    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats)
+    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, method_borrows, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats)
 }
 
 /// Analyze a let statement
@@ -2108,6 +2114,56 @@ pub fn analyze_method_calls(
             variables[idx].method_calls.push(method_info);
         }
     }
+}
+
+/// Collect method borrow information for all method calls in a file
+pub fn collect_method_borrows(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+) -> Vec<crate::output::MethodBorrowInfo> {
+    let mut method_borrows = Vec::new();
+
+    for node in source_file.syntax().descendants() {
+        let Some(method_call) = ast::MethodCallExpr::cast(node) else {
+            continue;
+        };
+
+        // Extract receiver name
+        let Some(receiver_name) = extract_receiver_name(&method_call) else {
+            continue;
+        };
+
+        // Get method name
+        let method_name = method_call.name_ref()
+            .map(|n| n.to_string())
+            .unwrap_or_default();
+
+        // Get location
+        let range = method_call.syntax().text_range();
+        let (line, column) = get_location(&range, source_file);
+
+        // Resolve self borrow type (semantic)
+        let self_borrow = resolve_self_borrow(sema, &method_call, db);
+        
+        // Map to our borrow_kind format
+        let borrow_kind = match self_borrow.as_deref() {
+            Some("immutable") => "shared_ref",
+            Some("mutable") => "mutable_ref",
+            Some("consuming") => "none",
+            _ => "none",
+        };
+
+        method_borrows.push(crate::output::MethodBorrowInfo {
+            method_name,
+            receiver_var: receiver_name,
+            borrow_kind: borrow_kind.to_string(),
+            line,
+            column,
+        });
+    }
+
+    method_borrows
 }
 
 /// Resolve trait information for a method call (semantic)
