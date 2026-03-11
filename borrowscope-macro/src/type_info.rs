@@ -65,6 +65,8 @@ pub struct VariableTypeInfo {
     pub is_maybe_uninit: bool,
     pub is_channel: bool,
     pub is_extern_type: bool,
+    pub is_never: bool,
+    pub is_ordering: bool,
 
     // Declaration type
     pub is_static: bool,

@@ -410,6 +410,9 @@ pub struct VariableTypeInfo {
     // Atomics (semantic via ADT)
     pub is_atomic: bool,
     
+    // Comparison (semantic via ADT)
+    pub is_ordering: bool,
+    
     // Threading (semantic via ADT)
     pub is_join_handle: bool,
     
@@ -445,6 +448,7 @@ pub struct VariableTypeInfo {
     // FFI and unsafe types (semantic via ADT)
     pub is_union: bool,
     pub is_extern_type: bool,
+    pub is_never: bool,
 
     // Static/const binding (semantic via syntax kind)
     pub is_static: bool,
@@ -571,6 +575,7 @@ impl VariableTypeInfo {
             is_maybe_uninit: false,
             is_channel: false,
             is_atomic: false,
+            is_ordering: false,
             is_join_handle: false,
             is_duration: false,
             is_instant: false,
@@ -585,6 +590,7 @@ impl VariableTypeInfo {
             is_dyn_trait: false,
             is_union: false,
             is_extern_type: false,
+            is_never: false,
             is_static: false,
             is_const: false,
             is_tuple_binding: false,

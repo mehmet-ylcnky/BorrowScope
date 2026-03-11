@@ -115,3 +115,13 @@ fn test_mutex_lock_method_tracked() {
     assert!(lock["operation"].as_str().unwrap().contains("lock"),
         "lock operation should contain 'lock'");
 }
+
+#[test]
+fn test_ordering_type_detected() {
+    let json = run_analyzer("semantic_project");
+    let ord = find_var(&json, "ord");
+    assert_eq!(ord["is_ordering"].as_bool(), Some(true),
+        "ord should have is_ordering: true");
+    assert_eq!(ord["ty"].as_str(), Some("Ordering"),
+        "ord should have type Ordering");
+}

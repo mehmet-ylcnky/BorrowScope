@@ -119,6 +119,16 @@ pub(crate) struct KnownTypes {
     atomic_u64: Option<Adt>,
     atomic_usize: Option<Adt>,
     atomic_ptr: Option<Adt>,
+    
+    // Comparison
+    ordering: Option<Adt>,
+    
+    // Panic support
+    panic_info: Option<Adt>,
+    panic_location: Option<Adt>,
+    
+    // Format support
+    fmt_arguments: Option<Adt>,
 }
 
 /// Get full module path as string (e.g., "std::sync::poison::mutex")
@@ -249,6 +259,13 @@ impl KnownTypes {
             ("AtomicU64", "atomic", |k, a| k.atomic_u64 = Some(a)),
             ("AtomicUsize", "atomic", |k, a| k.atomic_usize = Some(a)),
             ("AtomicPtr", "atomic", |k, a| k.atomic_ptr = Some(a)),
+            // Comparison
+            ("Ordering", "cmp", |k, a| k.ordering = Some(a)),
+            // Panic support
+            ("PanicInfo", "panic", |k, a| k.panic_info = Some(a)),
+            ("Location", "panic", |k, a| k.panic_location = Some(a)),
+            // Format support
+            ("Arguments", "fmt", |k, a| k.fmt_arguments = Some(a)),
         ];
         
         // Only search std/core/alloc for standard library types
@@ -376,6 +393,16 @@ impl KnownTypes {
         if self.phantom_data.as_ref() == Some(adt) { return Some("phantom_data"); }
         if self.alloc_layout.as_ref() == Some(adt) { return Some("alloc_layout"); }
         
+        // Comparison
+        if self.ordering.as_ref() == Some(adt) { return Some("ordering"); }
+        
+        // Panic support
+        if self.panic_info.as_ref() == Some(adt) { return Some("panic_info"); }
+        if self.panic_location.as_ref() == Some(adt) { return Some("panic_location"); }
+        
+        // Format support
+        if self.fmt_arguments.as_ref() == Some(adt) { return Some("fmt_arguments"); }
+        
         // Atomics
         if self.atomic_bool.as_ref() == Some(adt) { return Some("atomic"); }
         if self.atomic_i8.as_ref() == Some(adt) { return Some("atomic"); }
@@ -430,6 +457,7 @@ impl KnownTypes {
         var_info.is_vec = self.vec.as_ref() == Some(adt);
         var_info.is_string = self.string.as_ref() == Some(adt);
         var_info.is_atomic = self.is_atomic(adt);
+        var_info.is_ordering = self.ordering.as_ref() == Some(adt);
         var_info.is_join_handle = self.join_handle.as_ref() == Some(adt);
         var_info.is_duration = self.duration.as_ref() == Some(adt);
         var_info.is_instant = self.instant.as_ref() == Some(adt);
@@ -463,6 +491,7 @@ impl KnownTypes {
         var_info.is_vec |= self.vec.as_ref() == Some(adt);
         var_info.is_string |= self.string.as_ref() == Some(adt);
         var_info.is_atomic |= self.is_atomic(adt);
+        var_info.is_ordering |= self.ordering.as_ref() == Some(adt);
         var_info.is_join_handle |= self.join_handle.as_ref() == Some(adt);
         var_info.is_duration |= self.duration.as_ref() == Some(adt);
         var_info.is_instant |= self.instant.as_ref() == Some(adt);
@@ -1805,6 +1834,7 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
             || builtin.is_char() || builtin.is_bool() || builtin.is_str();
     }
     var_info.is_primitive = var_info.is_primitive || ty.is_unit();
+    var_info.is_never = ty.is_never();
     
     // str type (the unsized string slice type) - check both direct and referenced
     if let Some(builtin) = ty.as_builtin() {

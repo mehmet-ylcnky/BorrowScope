@@ -56,3 +56,15 @@ fn main() {
         println!("\n❌ HEURISTIC FALLBACK - split_off incorrectly detected as immutable");
     }
 }
+
+// Test new type coverage: Ordering, PanicInfo, never type
+fn type_coverage_extras() {
+    use std::cmp::Ordering;
+    let ord: Ordering = 1i32.cmp(&2);
+    let _is_less = ord.is_lt();
+
+    // fmt::Arguments is created by format_args! macro — can't easily bind to a variable
+
+    // Never type: functions that return ! produce diverging control flow
+    // We can't bind a variable of type ! but we can detect it in return types
+}
