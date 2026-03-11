@@ -142,14 +142,59 @@ pub struct FunctionCallInfo {
 pub struct TraitImplInfo {
     /// Type name
     pub type_name: String,
-    /// Whether type implements Deref
+    
+    // Access operators
     pub implements_deref: bool,
-    /// Whether type implements DerefMut
     pub implements_deref_mut: bool,
-    /// Whether type implements Index
     pub implements_index: bool,
-    /// Whether type implements IndexMut
     pub implements_index_mut: bool,
+    
+    // Conversion traits
+    pub implements_from: bool,
+    pub implements_into: bool,
+    pub implements_as_ref: bool,
+    pub implements_as_mut: bool,
+    pub implements_borrow: bool,
+    pub implements_borrow_mut: bool,
+    pub implements_to_owned: bool,
+    
+    // Comparison traits
+    pub implements_partial_eq: bool,
+    pub implements_eq: bool,
+    pub implements_partial_ord: bool,
+    pub implements_ord: bool,
+    
+    // Arithmetic traits
+    pub implements_add: bool,
+    pub implements_sub: bool,
+    pub implements_mul: bool,
+    pub implements_div: bool,
+    pub implements_rem: bool,
+    pub implements_neg: bool,
+    pub implements_add_assign: bool,
+    pub implements_sub_assign: bool,
+    pub implements_mul_assign: bool,
+    pub implements_div_assign: bool,
+    pub implements_rem_assign: bool,
+    
+    // Bitwise traits
+    pub implements_bit_and: bool,
+    pub implements_bit_or: bool,
+    pub implements_bit_xor: bool,
+    pub implements_shl: bool,
+    pub implements_shr: bool,
+    pub implements_not: bool,
+    pub implements_bit_and_assign: bool,
+    pub implements_bit_or_assign: bool,
+    pub implements_bit_xor_assign: bool,
+    pub implements_shl_assign: bool,
+    pub implements_shr_assign: bool,
+    
+    // Other traits
+    pub implements_range_bounds: bool,
+    pub implements_termination: bool,
+    pub implements_unwind_safe: bool,
+    pub implements_ref_unwind_safe: bool,
 }
 
 /// Information about a loop label

@@ -130,11 +130,58 @@ pub(crate) struct KnownTypes {
     // Format support
     fmt_arguments: Option<Adt>,
     
-    // Traits (for implicit borrow detection)
+    // Traits (for implicit borrow detection and comprehensive tracking)
     deref_trait: Option<Trait>,
     deref_mut_trait: Option<Trait>,
     index_trait: Option<Trait>,
     index_mut_trait: Option<Trait>,
+    
+    // Conversion traits
+    from_trait: Option<Trait>,
+    into_trait: Option<Trait>,
+    as_ref_trait: Option<Trait>,
+    as_mut_trait: Option<Trait>,
+    borrow_trait: Option<Trait>,
+    borrow_mut_trait: Option<Trait>,
+    to_owned_trait: Option<Trait>,
+    
+    // Comparison traits
+    partial_eq_trait: Option<Trait>,
+    eq_trait: Option<Trait>,
+    partial_ord_trait: Option<Trait>,
+    ord_trait: Option<Trait>,
+    
+    // Arithmetic traits
+    add_trait: Option<Trait>,
+    sub_trait: Option<Trait>,
+    mul_trait: Option<Trait>,
+    div_trait: Option<Trait>,
+    rem_trait: Option<Trait>,
+    neg_trait: Option<Trait>,
+    add_assign_trait: Option<Trait>,
+    sub_assign_trait: Option<Trait>,
+    mul_assign_trait: Option<Trait>,
+    div_assign_trait: Option<Trait>,
+    rem_assign_trait: Option<Trait>,
+    
+    // Bitwise traits
+    bit_and_trait: Option<Trait>,
+    bit_or_trait: Option<Trait>,
+    bit_xor_trait: Option<Trait>,
+    shl_trait: Option<Trait>,
+    shr_trait: Option<Trait>,
+    not_trait: Option<Trait>,
+    bit_and_assign_trait: Option<Trait>,
+    bit_or_assign_trait: Option<Trait>,
+    bit_xor_assign_trait: Option<Trait>,
+    shl_assign_trait: Option<Trait>,
+    shr_assign_trait: Option<Trait>,
+    
+    // Other traits
+    range_bounds_trait: Option<Trait>,
+    termination_trait: Option<Trait>,
+    unwind_safe_trait: Option<Trait>,
+    ref_unwind_safe_trait: Option<Trait>,
 }
 
 /// Get full module path as string (e.g., "std::sync::poison::mutex")
@@ -309,12 +356,60 @@ impl KnownTypes {
             }
         }
         
-        // === Phase 3: Look up traits for implicit borrow detection ===
+        // === Phase 3: Look up traits for comprehensive tracking ===
         let traits_to_find: &[(&str, &str, fn(&mut KnownTypes, Trait))] = &[
+            // Access operators
             ("Deref", "ops", |k, t| k.deref_trait = Some(t)),
             ("DerefMut", "ops", |k, t| k.deref_mut_trait = Some(t)),
             ("Index", "ops", |k, t| k.index_trait = Some(t)),
             ("IndexMut", "ops", |k, t| k.index_mut_trait = Some(t)),
+            
+            // Conversion traits
+            ("From", "convert", |k, t| k.from_trait = Some(t)),
+            ("Into", "convert", |k, t| k.into_trait = Some(t)),
+            ("AsRef", "convert", |k, t| k.as_ref_trait = Some(t)),
+            ("AsMut", "convert", |k, t| k.as_mut_trait = Some(t)),
+            ("Borrow", "borrow", |k, t| k.borrow_trait = Some(t)),
+            ("BorrowMut", "borrow", |k, t| k.borrow_mut_trait = Some(t)),
+            ("ToOwned", "borrow", |k, t| k.to_owned_trait = Some(t)),
+            
+            // Comparison traits
+            ("PartialEq", "cmp", |k, t| k.partial_eq_trait = Some(t)),
+            ("Eq", "cmp", |k, t| k.eq_trait = Some(t)),
+            ("PartialOrd", "cmp", |k, t| k.partial_ord_trait = Some(t)),
+            ("Ord", "cmp", |k, t| k.ord_trait = Some(t)),
+            
+            // Arithmetic traits
+            ("Add", "ops", |k, t| k.add_trait = Some(t)),
+            ("Sub", "ops", |k, t| k.sub_trait = Some(t)),
+            ("Mul", "ops", |k, t| k.mul_trait = Some(t)),
+            ("Div", "ops", |k, t| k.div_trait = Some(t)),
+            ("Rem", "ops", |k, t| k.rem_trait = Some(t)),
+            ("Neg", "ops", |k, t| k.neg_trait = Some(t)),
+            ("AddAssign", "ops", |k, t| k.add_assign_trait = Some(t)),
+            ("SubAssign", "ops", |k, t| k.sub_assign_trait = Some(t)),
+            ("MulAssign", "ops", |k, t| k.mul_assign_trait = Some(t)),
+            ("DivAssign", "ops", |k, t| k.div_assign_trait = Some(t)),
+            ("RemAssign", "ops", |k, t| k.rem_assign_trait = Some(t)),
+            
+            // Bitwise traits
+            ("BitAnd", "ops", |k, t| k.bit_and_trait = Some(t)),
+            ("BitOr", "ops", |k, t| k.bit_or_trait = Some(t)),
+            ("BitXor", "ops", |k, t| k.bit_xor_trait = Some(t)),
+            ("Shl", "ops", |k, t| k.shl_trait = Some(t)),
+            ("Shr", "ops", |k, t| k.shr_trait = Some(t)),
+            ("Not", "ops", |k, t| k.not_trait = Some(t)),
+            ("BitAndAssign", "ops", |k, t| k.bit_and_assign_trait = Some(t)),
+            ("BitOrAssign", "ops", |k, t| k.bit_or_assign_trait = Some(t)),
+            ("BitXorAssign", "ops", |k, t| k.bit_xor_assign_trait = Some(t)),
+            ("ShlAssign", "ops", |k, t| k.shl_assign_trait = Some(t)),
+            ("ShrAssign", "ops", |k, t| k.shr_assign_trait = Some(t)),
+            
+            // Other traits
+            ("RangeBounds", "ops", |k, t| k.range_bounds_trait = Some(t)),
+            ("Termination", "process", |k, t| k.termination_trait = Some(t)),
+            ("UnwindSafe", "panic", |k, t| k.unwind_safe_trait = Some(t)),
+            ("RefUnwindSafe", "panic", |k, t| k.ref_unwind_safe_trait = Some(t)),
         ];
         
         for (trait_name, module_filter, setter) in traits_to_find {
@@ -2292,27 +2387,121 @@ pub fn collect_trait_impls(
                     continue;
                 }
                 
-                let implements_deref = known_types.deref_trait
-                    .map(|t| ty.impls_trait(db, t, &[]))
-                    .unwrap_or(false);
-                let implements_deref_mut = known_types.deref_mut_trait
-                    .map(|t| ty.impls_trait(db, t, &[]))
-                    .unwrap_or(false);
-                let implements_index = known_types.index_trait
-                    .map(|t| ty.impls_trait(db, t, &[]))
-                    .unwrap_or(false);
-                let implements_index_mut = known_types.index_mut_trait
-                    .map(|t| ty.impls_trait(db, t, &[]))
-                    .unwrap_or(false);
+                // Helper macro to check trait implementation
+                macro_rules! check_trait {
+                    ($trait_field:expr) => {
+                        $trait_field.map(|t| ty.impls_trait(db, t, &[])).unwrap_or(false)
+                    };
+                }
+                
+                // Access operators
+                let implements_deref = check_trait!(known_types.deref_trait);
+                let implements_deref_mut = check_trait!(known_types.deref_mut_trait);
+                let implements_index = check_trait!(known_types.index_trait);
+                let implements_index_mut = check_trait!(known_types.index_mut_trait);
+                
+                // Conversion traits
+                let implements_from = check_trait!(known_types.from_trait);
+                let implements_into = check_trait!(known_types.into_trait);
+                let implements_as_ref = check_trait!(known_types.as_ref_trait);
+                let implements_as_mut = check_trait!(known_types.as_mut_trait);
+                let implements_borrow = check_trait!(known_types.borrow_trait);
+                let implements_borrow_mut = check_trait!(known_types.borrow_mut_trait);
+                let implements_to_owned = check_trait!(known_types.to_owned_trait);
+                
+                // Comparison traits
+                let implements_partial_eq = check_trait!(known_types.partial_eq_trait);
+                let implements_eq = check_trait!(known_types.eq_trait);
+                let implements_partial_ord = check_trait!(known_types.partial_ord_trait);
+                let implements_ord = check_trait!(known_types.ord_trait);
+                
+                // Arithmetic traits
+                let implements_add = check_trait!(known_types.add_trait);
+                let implements_sub = check_trait!(known_types.sub_trait);
+                let implements_mul = check_trait!(known_types.mul_trait);
+                let implements_div = check_trait!(known_types.div_trait);
+                let implements_rem = check_trait!(known_types.rem_trait);
+                let implements_neg = check_trait!(known_types.neg_trait);
+                let implements_add_assign = check_trait!(known_types.add_assign_trait);
+                let implements_sub_assign = check_trait!(known_types.sub_assign_trait);
+                let implements_mul_assign = check_trait!(known_types.mul_assign_trait);
+                let implements_div_assign = check_trait!(known_types.div_assign_trait);
+                let implements_rem_assign = check_trait!(known_types.rem_assign_trait);
+                
+                // Bitwise traits
+                let implements_bit_and = check_trait!(known_types.bit_and_trait);
+                let implements_bit_or = check_trait!(known_types.bit_or_trait);
+                let implements_bit_xor = check_trait!(known_types.bit_xor_trait);
+                let implements_shl = check_trait!(known_types.shl_trait);
+                let implements_shr = check_trait!(known_types.shr_trait);
+                let implements_not = check_trait!(known_types.not_trait);
+                let implements_bit_and_assign = check_trait!(known_types.bit_and_assign_trait);
+                let implements_bit_or_assign = check_trait!(known_types.bit_or_assign_trait);
+                let implements_bit_xor_assign = check_trait!(known_types.bit_xor_assign_trait);
+                let implements_shl_assign = check_trait!(known_types.shl_assign_trait);
+                let implements_shr_assign = check_trait!(known_types.shr_assign_trait);
+                
+                // Other traits
+                let implements_range_bounds = check_trait!(known_types.range_bounds_trait);
+                let implements_termination = check_trait!(known_types.termination_trait);
+                let implements_unwind_safe = check_trait!(known_types.unwind_safe_trait);
+                let implements_ref_unwind_safe = check_trait!(known_types.ref_unwind_safe_trait);
                 
                 // Only store if at least one trait is implemented
-                if implements_deref || implements_deref_mut || implements_index || implements_index_mut {
+                let has_any_trait = implements_deref || implements_deref_mut || implements_index || implements_index_mut
+                    || implements_from || implements_into || implements_as_ref || implements_as_mut
+                    || implements_borrow || implements_borrow_mut || implements_to_owned
+                    || implements_partial_eq || implements_eq || implements_partial_ord || implements_ord
+                    || implements_add || implements_sub || implements_mul || implements_div || implements_rem || implements_neg
+                    || implements_add_assign || implements_sub_assign || implements_mul_assign || implements_div_assign || implements_rem_assign
+                    || implements_bit_and || implements_bit_or || implements_bit_xor || implements_shl || implements_shr || implements_not
+                    || implements_bit_and_assign || implements_bit_or_assign || implements_bit_xor_assign || implements_shl_assign || implements_shr_assign
+                    || implements_range_bounds || implements_termination || implements_unwind_safe || implements_ref_unwind_safe;
+                
+                if has_any_trait {
                     trait_impls.insert(type_name.clone(), crate::output::TraitImplInfo {
                         type_name,
                         implements_deref,
                         implements_deref_mut,
                         implements_index,
                         implements_index_mut,
+                        implements_from,
+                        implements_into,
+                        implements_as_ref,
+                        implements_as_mut,
+                        implements_borrow,
+                        implements_borrow_mut,
+                        implements_to_owned,
+                        implements_partial_eq,
+                        implements_eq,
+                        implements_partial_ord,
+                        implements_ord,
+                        implements_add,
+                        implements_sub,
+                        implements_mul,
+                        implements_div,
+                        implements_rem,
+                        implements_neg,
+                        implements_add_assign,
+                        implements_sub_assign,
+                        implements_mul_assign,
+                        implements_div_assign,
+                        implements_rem_assign,
+                        implements_bit_and,
+                        implements_bit_or,
+                        implements_bit_xor,
+                        implements_shl,
+                        implements_shr,
+                        implements_not,
+                        implements_bit_and_assign,
+                        implements_bit_or_assign,
+                        implements_bit_xor_assign,
+                        implements_shl_assign,
+                        implements_shr_assign,
+                        implements_range_bounds,
+                        implements_termination,
+                        implements_unwind_safe,
+                        implements_ref_unwind_safe,
                     });
                 }
             }
