@@ -55,6 +55,10 @@ pub struct ClosureCaptureInfo {
     /// Type of the captured variable
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ty: Option<String>,
+    /// Line number where capture occurs
+    pub line: u32,
+    /// Column number where capture occurs
+    pub column: u32,
 }
 
 /// Information about an await point

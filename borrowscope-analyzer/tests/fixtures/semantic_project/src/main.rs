@@ -77,3 +77,21 @@ fn field_access_test() {
     let x_ref = &p.x;       // borrow_shared
     let y_ref = &mut p.y;   // borrow_mut
 }
+
+fn closure_capture_test() {
+    let x = 42;
+    let y = String::from("hello");
+    
+    // Closure that captures by reference
+    let f1 = || println!("{} {}", x, y);
+    f1();
+    
+    // Closure that captures by mutable reference
+    let mut z = vec![1, 2, 3];
+    let f2 = || z.push(4);
+    f2();
+    
+    // Closure that captures by move
+    let f3 = move || drop(y);
+    f3();
+}

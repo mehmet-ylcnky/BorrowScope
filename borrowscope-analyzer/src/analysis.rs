@@ -1294,7 +1294,7 @@ fn analyze_let_stmt(
         
         // Extract closure captures if initializer is a closure
         if let ast::Expr::ClosureExpr(closure) = &init {
-            var_info.closure_captures = extract_closure_captures_semantic(sema, db, closure, display_target);
+            var_info.closure_captures = extract_closure_captures_semantic(sema, db, closure, &source_file, display_target);
         }
     }
 
@@ -2607,7 +2607,7 @@ fn analyze_call_expr(
     let closure_captures = first_arg
         .and_then(|arg| {
             if let ast::Expr::ClosureExpr(closure) = arg {
-                Some(extract_closure_captures_semantic(sema, db, &closure, display_target))
+                Some(extract_closure_captures_semantic(sema, db, &closure, source_file, display_target))
             } else {
                 None
             }
@@ -2643,9 +2643,14 @@ fn extract_closure_captures_semantic(
     sema: &Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     closure: &ast::ClosureExpr,
+    source_file: &ast::SourceFile,
     display_target: &ra_ap_hir::DisplayTarget,
 ) -> Vec<crate::output::ClosureCaptureInfo> {
     use ra_ap_hir::CaptureKind;
+    
+    // Get closure location for all captures
+    let range = closure.syntax().text_range();
+    let (line, column) = get_location(&range, source_file);
     
     // Try to get the closure's HIR representation
     let Some(closure_ty) = sema.type_of_expr(&ast::Expr::ClosureExpr(closure.clone())) else {
@@ -2670,7 +2675,7 @@ fn extract_closure_captures_semantic(
             // Get the type of the local variable
             let ty = Some(local.ty(db).display(db, *display_target).to_string());
             
-            crate::output::ClosureCaptureInfo { name, capture_kind, ty }
+            crate::output::ClosureCaptureInfo { name, capture_kind, ty, line, column }
         })
         .collect()
 }
@@ -2999,7 +3004,7 @@ fn analyze_closure_traits(
                     let (line, column) = get_location(&range, source_file);
                     
                     // Get captures
-                    let captures = extract_closure_captures_semantic(sema, db, &closure_expr, display_target);
+                    let captures = extract_closure_captures_semantic(sema, db, &closure_expr, source_file, display_target);
                     
                     closure_traits.push(ClosureTraitInfo {
                         line,
