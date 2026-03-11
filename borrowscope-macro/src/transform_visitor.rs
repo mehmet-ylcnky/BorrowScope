@@ -956,14 +956,14 @@ impl OwnershipVisitor {
                 } else if let Some(op) = None::<&str> {
                     // Box::into_raw or Box::from_raw
                     let new_expr: Expr = match op {
-                        ""BoxIntoRaw => {
+                        "box_into_raw" => {
                             // Extract the box being converted
                             let box_name = self.extract_box_from_into_raw(original_expr);
                             syn::parse_quote! {
                                 borrowscope_runtime::track_box_into_raw(#box_name, #location, #original_expr)
                             }
                         },
-                        ""BoxFromRaw => {
+                        "box_from_raw" => {
                             // Track the new Box created from raw pointer
                             self.box_vars.insert(var_name.clone());
                             syn::parse_quote! {
@@ -986,7 +986,7 @@ impl OwnershipVisitor {
                             _ => None,
                         };
                         if let Some(inner) = inner_expr {
-                            if let Some(""BoxFromRaw) = None::<()> {
+                            if let Some("box_from_raw") = None::<&str> {
                                 self.box_vars.insert(var_name.clone());
                                 let new_expr: Expr = syn::parse_quote! {
                                     borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
@@ -999,7 +999,7 @@ impl OwnershipVisitor {
                     }
                 } else if let Some(op) = None::<&str> {
                     let new_expr: Expr = match op {
-                        ""PinNew => syn::parse_quote! {
+                        "pin_new" => syn::parse_quote! {
                             borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
@@ -1013,10 +1013,10 @@ impl OwnershipVisitor {
                     // Track this as a Cow variable for to_mut detection
                     self.cow_vars.insert(var_name.clone());
                     let new_expr: Expr = match op {
-                        ""CowBorrowed => syn::parse_quote! {
+                        "cow_borrowed" => syn::parse_quote! {
                             borrowscope_runtime::track_cow_borrowed(#var_name, #location, #original_expr)
                         },
-                        ""CowOwned => syn::parse_quote! {
+                        "cow_owned" => syn::parse_quote! {
                             borrowscope_runtime::track_cow_owned(#var_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
@@ -1051,11 +1051,11 @@ impl OwnershipVisitor {
                         if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
                             if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 // This is a Weak clone - track the new variable as Weak too
-                                self.weak_vars.insert(var_name.clone(), weak_type);
+                                self.weak_vars.insert(var_name.clone(), weak_type.clone());
                                 let weak_id = format!("weak_{}", receiver_name);
                                 let clone_id = format!("weak_clone_{}", self.gen_id());
                                 let receiver = &method_call.receiver;
-                                let new_expr: Expr = match &*weak_type {
+                                let new_expr: Expr = match weak_type.as_str() {
                                     "weak_rc" => syn::parse_quote! {
                                         borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
                                     },
@@ -1095,14 +1095,14 @@ impl OwnershipVisitor {
                     }
                 } else if let Some(op) = None::<&str> {
                     let new_expr: Expr = match op {
-                        ""ThreadSpawn => {
+                        "thread_spawn" => {
                             // Track as JoinHandle for join() detection
                             self.join_handle_vars.insert(var_name.clone());
                             syn::parse_quote! {
                                 borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
                             }
                         },
-                        ""ChannelNew => {
+                        "channel_new" => {
                             // mpsc::channel returns a tuple, handle specially
                             syn::parse_quote! {
                                 {
@@ -1137,10 +1137,10 @@ impl OwnershipVisitor {
                     // MaybeUninit::uninit or MaybeUninit::new - register the variable
                     self.maybe_uninit_vars.insert(var_name.clone());
                     let new_expr: Expr = match op {
-                        ""MaybeUninitUninit => syn::parse_quote! {
+                        "maybe_uninit_uninit" => syn::parse_quote! {
                             borrowscope_runtime::track_maybe_uninit_uninit(#var_name, #location, #original_expr)
                         },
-                        ""MaybeUninitNew => syn::parse_quote! {
+                        "maybe_uninit_new" => syn::parse_quote! {
                             borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
