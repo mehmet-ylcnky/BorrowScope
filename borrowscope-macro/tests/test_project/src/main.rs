@@ -31,6 +31,9 @@ fn main() {
     // Test copy vs move
     copy_vs_move::test_copy_vs_move();
     
+    // Test drop filtering
+    copy_vs_move::test_drop_filtering();
+    
     let events = get_events();
     println!("\nTotal events: {}", events.len());
     
@@ -54,4 +57,15 @@ fn main() {
         .collect();
     
     println!("New events: {}", new_events.len());
+    
+    // Check for drop events
+    let drop_events: Vec<_> = events.iter()
+        .filter(|e| matches!(e, Event::Drop { .. }))
+        .collect();
+    
+    println!("Drop events: {}", drop_events.len());
+    println!("\nDrop event details:");
+    for event in &drop_events {
+        println!("  {:?}", event);
+    }
 }

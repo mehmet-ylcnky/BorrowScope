@@ -2182,6 +2182,20 @@ impl VisitMut for OwnershipVisitor {
         // Pop scope and insert drops in LIFO order (only if track_drop is enabled)
         if let Some(scope_vars) = self.scope_stack.pop() {
             if self.config.track_drop && !scope_vars.is_empty() {
+                // Filter out Copy/primitive types (semantic detection)
+                let vars_to_drop: Vec<String> = scope_vars
+                    .into_iter()
+                    .filter(|var_name| {
+                        self.lookup_type_info(var_name)
+                            .map(|ti| !ti.copy_semantics && !ti.is_primitive)
+                            .unwrap_or(true) // Conservative: track if no type info
+                    })
+                    .collect();
+                
+                if vars_to_drop.is_empty() {
+                    return; // No drops to track
+                }
+                
                 // Check if the last statement is an expression without semicolon (implicit return)
                 let has_trailing_expr = block
                     .stmts
@@ -2194,7 +2208,7 @@ impl VisitMut for OwnershipVisitor {
                 if has_trailing_expr {
                     // Insert drops before the last expression
                     let last_stmt = block.stmts.pop();
-                    for var_name in scope_vars.into_iter().rev() {
+                    for var_name in vars_to_drop.into_iter().rev() {
                         let drop_stmt: Stmt = if let Some(rate) = sample_rate {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_drop_sampled(#var_name, #rate);
@@ -2212,7 +2226,7 @@ impl VisitMut for OwnershipVisitor {
                     }
                 } else {
                     // No trailing expression, just append drops
-                    for var_name in scope_vars.into_iter().rev() {
+                    for var_name in vars_to_drop.into_iter().rev() {
                         let drop_stmt: Stmt = if let Some(rate) = sample_rate {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_drop_sampled(#var_name, #rate);

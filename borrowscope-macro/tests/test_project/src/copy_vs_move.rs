@@ -17,3 +17,18 @@ pub fn test_copy_vs_move() {
     
     println!("x={}, y={}, z={}, s2={}, v2={:?}", x, y, z, s2, v2);
 }
+
+#[trace_borrow]
+pub fn test_drop_filtering() {
+    // Copy types - should NOT generate Drop events
+    let x = 42i32;
+    let y = true;
+    let z = 3.14f64;
+    
+    // Non-copy types - SHOULD generate Drop events
+    let s = String::from("hello");
+    let v = vec![1, 2, 3];
+    
+    println!("x={}, y={}, z={}, s={}, v={:?}", x, y, z, s, v);
+    // Scope ends: expect 2 Drop events (s, v), NOT 5
+}
