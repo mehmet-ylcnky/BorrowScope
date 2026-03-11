@@ -83,7 +83,7 @@ borrowscope-analyzer (REQUIRED)
 
 #### Phase 2: Macro Simplification (2-3 days)
 - [x] **Step 2.1:** Delete `smart_pointer.rs` (commits: 15c7efe45, 3a06efb50, 5e1f01905, 8c2c7294d, 2639134df)
-- [ ] **Step 2.2:** Remove `infer_self_borrow_type_heuristic()`
+- [x] **Step 2.2:** Remove `infer_self_borrow_type_heuristic()` (commit: d33742006, verified: c98381af4)
 - [ ] **Step 2.3:** Make analyzer mandatory
 - [ ] **Step 2.4:** Use `copy_semantics` for Copy vs Move
 - [ ] **Step 2.5:** Skip drop tracking for Copy types
@@ -106,7 +106,7 @@ borrowscope-analyzer (REQUIRED)
 #### Phase 6: Migration Guide (1 day)
 - [ ] **Step 6.1:** Create MIGRATION.md
 
-**Current Status:** Phase 2, Step 2.1 complete (6/21 steps, 28.6%)
+**Current Status:** Phase 2, Step 2.2 complete (7/21 steps, 33.3%)
 
 ---
 
