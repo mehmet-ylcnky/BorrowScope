@@ -46,8 +46,8 @@ pub struct OwnershipVisitor {
     maybe_uninit_vars: HashSet<String>,
     /// Variables that are Cow
     cow_vars: HashSet<String>,
-    /// Variables that are Weak (Rc or Arc)
-    weak_vars: HashMap<String, SmartPointerType>,
+    /// Variables that are Weak (stores "weak_rc" or "weak_arc")
+    weak_vars: HashMap<String, String>,
     /// Variables that are channel senders
     sender_vars: HashSet<String>,
     /// Variables that are channel receivers
@@ -130,6 +130,15 @@ impl OwnershipVisitor {
 
         // Fall back to name-only lookup
         type_info::lookup_by_name(var_name)
+    }
+
+    /// Lookup function call return category from analyzer
+    /// Returns the semantic category (e.g., "rc_new", "arc_clone", "vec_new")
+    fn lookup_function_call_category(&self, _expr: &Expr) -> Option<String> {
+        // TODO: Implement lookup from function_calls array in type_info.json
+        // For now, return None to maintain current behavior
+        // This will be implemented when we integrate function_calls data
+        None
     }
 
     /// Generate next unique ID
@@ -398,9 +407,8 @@ impl OwnershipVisitor {
                 } else {
                     Some(false)
                 };
-                // Semantic: true/false from analyzer, None: no data → fall back to detect_*
-                let is_channel = is_channel
-                    .unwrap_or_else(|| detect_concurrency_op(&original_expr) == Some(ConcurrencyOp::ChannelNew));
+                // Use semantic data from analyzer (no fallback to heuristics)
+                let is_channel = is_channel.unwrap_or(false);
                 if is_channel {
                     // For tuple pattern like (tx, rx), extract the names
                     if let Pat::Tuple(tuple_pat) = &original_pat {
@@ -875,29 +883,29 @@ impl OwnershipVisitor {
                 }
 
                 // Fall back to syntactic detection
-                if let Some(sp_type) = detect_smart_pointer_new(original_expr) {
+                if let Some(sp_type) = None::<&str> {
                     let new_expr = match sp_type {
-                        SmartPointerType::Rc => {
+                        "rc" => {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
                             }
                         }
-                        SmartPointerType::Arc => {
+                        "arc" => {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
                             }
                         }
-                        SmartPointerType::RefCell => {
+                        "refcell" => {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_refcell_new(#var_name, #original_expr)
                             }
                         }
-                        SmartPointerType::Cell => {
+                        "cell" => {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_cell_new(#var_name, #original_expr)
                             }
                         }
-                        SmartPointerType::Box => {
+                        "box" => {
                             // Track as Box variable for into_raw detection
                             self.box_vars.insert(var_name.clone());
                             syn::parse_quote! {
@@ -914,16 +922,16 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if let Some(sp_type) = detect_rc_clone(original_expr) {
+                } else if let Some(sp_type) = None::<&str> {
                     // Extract source ID from Rc::clone(&x) or Arc::clone(&x)
                     let source_id = self.extract_clone_source_id(original_expr);
                     let new_expr = match sp_type {
-                        SmartPointerType::Rc => {
+                        "rc" => {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
                             }
                         }
-                        SmartPointerType::Arc => {
+                        "arc" => {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
                             }
@@ -937,7 +945,7 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if detect_box_pin(original_expr) {
+                } else if false { #[allow(unreachable_code)]
                     // Box::pin -> track_pin_new
                     let new_expr: Expr = syn::parse_quote! {
                         borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
@@ -945,17 +953,17 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if let Some(op) = detect_box_raw_op(original_expr) {
+                } else if let Some(op) = None::<&str> {
                     // Box::into_raw or Box::from_raw
                     let new_expr: Expr = match op {
-                        SmartPointerOp::BoxIntoRaw => {
+                        ""BoxIntoRaw => {
                             // Extract the box being converted
                             let box_name = self.extract_box_from_into_raw(original_expr);
                             syn::parse_quote! {
                                 borrowscope_runtime::track_box_into_raw(#box_name, #location, #original_expr)
                             }
                         },
-                        SmartPointerOp::BoxFromRaw => {
+                        ""BoxFromRaw => {
                             // Track the new Box created from raw pointer
                             self.box_vars.insert(var_name.clone());
                             syn::parse_quote! {
@@ -978,7 +986,7 @@ impl OwnershipVisitor {
                             _ => None,
                         };
                         if let Some(inner) = inner_expr {
-                            if let Some(SmartPointerOp::BoxFromRaw) = detect_box_raw_op(inner) {
+                            if let Some(""BoxFromRaw) = None::<()> {
                                 self.box_vars.insert(var_name.clone());
                                 let new_expr: Expr = syn::parse_quote! {
                                     borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
@@ -989,9 +997,9 @@ impl OwnershipVisitor {
                             }
                         }
                     }
-                } else if let Some(op) = detect_pin_operation(original_expr) {
+                } else if let Some(op) = None::<&str> {
                     let new_expr: Expr = match op {
-                        SmartPointerOp::PinNew => syn::parse_quote! {
+                        ""PinNew => syn::parse_quote! {
                             borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
@@ -1001,14 +1009,14 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if let Some(op) = detect_cow_creation(original_expr) {
+                } else if let Some(op) = None::<&str> {
                     // Track this as a Cow variable for to_mut detection
                     self.cow_vars.insert(var_name.clone());
                     let new_expr: Expr = match op {
-                        SmartPointerOp::CowBorrowed => syn::parse_quote! {
+                        ""CowBorrowed => syn::parse_quote! {
                             borrowscope_runtime::track_cow_borrowed(#var_name, #location, #original_expr)
                         },
-                        SmartPointerOp::CowOwned => syn::parse_quote! {
+                        ""CowOwned => syn::parse_quote! {
                             borrowscope_runtime::track_cow_owned(#var_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
@@ -1018,15 +1026,15 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if let Some(weak_type) = detect_downgrade(original_expr) {
+                } else if let Some(weak_type) = None::<&str> {
                     // Rc::downgrade or Arc::downgrade - track as Weak variable
-                    self.weak_vars.insert(var_name.clone(), weak_type);
+                    self.weak_vars.insert(var_name.clone(), weak_type.to_string());
                     let source_name = self.extract_downgrade_source(original_expr);
-                    let new_expr: Expr = match weak_type {
-                        SmartPointerType::WeakRc => syn::parse_quote! {
+                    let new_expr: Expr = match &*weak_type {
+                        "weak_rc" => syn::parse_quote! {
                             borrowscope_runtime::track_weak_new(#var_name, #source_name, #location, #original_expr)
                         },
-                        SmartPointerType::WeakArc => syn::parse_quote! {
+                        "weak_arc" => syn::parse_quote! {
                             borrowscope_runtime::track_weak_new_sync(#var_name, #source_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
@@ -1041,17 +1049,17 @@ impl OwnershipVisitor {
                     let method_name = method_call.method.to_string();
                     if method_name == "clone" {
                         if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
-                            if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
+                            if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 // This is a Weak clone - track the new variable as Weak too
                                 self.weak_vars.insert(var_name.clone(), weak_type);
                                 let weak_id = format!("weak_{}", receiver_name);
                                 let clone_id = format!("weak_clone_{}", self.gen_id());
                                 let receiver = &method_call.receiver;
-                                let new_expr: Expr = match weak_type {
-                                    SmartPointerType::WeakRc => syn::parse_quote! {
+                                let new_expr: Expr = match &*weak_type {
+                                    "weak_rc" => syn::parse_quote! {
                                         borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
                                     },
-                                    SmartPointerType::WeakArc => syn::parse_quote! {
+                                    "weak_arc" => syn::parse_quote! {
                                         borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
                                     },
                                     _ => syn::parse_quote! {
@@ -1067,14 +1075,14 @@ impl OwnershipVisitor {
                     // Check if assigning from a Weak upgrade (let strong = weak.upgrade())
                     if method_name == "upgrade" {
                         if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
-                            if let Some(weak_type) = self.weak_vars.get(&receiver_name).copied() {
+                            if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 let weak_id = format!("weak_{}", receiver_name);
                                 let receiver = &method_call.receiver;
-                                let new_expr: Expr = match weak_type {
-                                    SmartPointerType::WeakRc => syn::parse_quote! {
+                                let new_expr: Expr = match &*weak_type {
+                                    "weak_rc" => syn::parse_quote! {
                                         borrowscope_runtime::track_weak_upgrade(#weak_id, #location, #receiver.upgrade())
                                     },
-                                    SmartPointerType::WeakArc => syn::parse_quote! {
+                                    "weak_arc" => syn::parse_quote! {
                                         borrowscope_runtime::track_weak_upgrade_sync(#weak_id, #location, #receiver.upgrade())
                                     },
                                     _ => syn::parse_quote! { #receiver.upgrade() },
@@ -1085,16 +1093,16 @@ impl OwnershipVisitor {
                             }
                         }
                     }
-                } else if let Some(op) = detect_concurrency_op(original_expr) {
+                } else if let Some(op) = None::<&str> {
                     let new_expr: Expr = match op {
-                        ConcurrencyOp::ThreadSpawn => {
+                        ""ThreadSpawn => {
                             // Track as JoinHandle for join() detection
                             self.join_handle_vars.insert(var_name.clone());
                             syn::parse_quote! {
                                 borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
                             }
                         },
-                        ConcurrencyOp::ChannelNew => {
+                        ""ChannelNew => {
                             // mpsc::channel returns a tuple, handle specially
                             syn::parse_quote! {
                                 {
@@ -1110,7 +1118,7 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if let Some(is_sync) = detect_once_cell_new(original_expr) {
+                } else if let Some(is_sync) = None::<bool> {
                     // OnceCell::new or OnceLock::new - register the variable
                     self.once_cell_vars.insert(var_name.clone());
                     let new_expr: Expr = if is_sync {
@@ -1125,14 +1133,14 @@ impl OwnershipVisitor {
                     *init.expr = new_expr;
                     visit_mut::visit_local_mut(self, local);
                     return;
-                } else if let Some(op) = detect_maybe_uninit_new(original_expr) {
+                } else if let Some(op) = None::<&str> {
                     // MaybeUninit::uninit or MaybeUninit::new - register the variable
                     self.maybe_uninit_vars.insert(var_name.clone());
                     let new_expr: Expr = match op {
-                        SmartPointerOp::MaybeUninitUninit => syn::parse_quote! {
+                        ""MaybeUninitUninit => syn::parse_quote! {
                             borrowscope_runtime::track_maybe_uninit_uninit(#var_name, #location, #original_expr)
                         },
-                        SmartPointerOp::MaybeUninitNew => syn::parse_quote! {
+                        ""MaybeUninitNew => syn::parse_quote! {
                             borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
                         },
                         _ => syn::parse_quote! {
@@ -1248,9 +1256,9 @@ impl OwnershipVisitor {
             "weak_new" | "weak_downgrade" => {
                 // Track as weak variable
                 if type_info.is_arc {
-                    self.weak_vars.insert(var_name.to_string(), SmartPointerType::WeakArc);
+                    self.weak_vars.insert(var_name.to_string(), "weak_arc".to_string());
                 } else {
-                    self.weak_vars.insert(var_name.to_string(), SmartPointerType::WeakRc);
+                    self.weak_vars.insert(var_name.to_string(), "weak_rc".to_string());
                 }
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_weak_new(#var_name, #location, #original_expr)
@@ -2414,16 +2422,16 @@ impl VisitMut for OwnershipVisitor {
                         .map(|op| op.contains("Weak") && op.contains("clone"))
                         .unwrap_or_else(|| self.weak_vars.contains_key(rname.as_str()));
                     if is_weak {
-                        if let Some(weak_type) = self.weak_vars.get(rname.as_str()).copied() {
+                        if let Some(weak_type) = self.weak_vars.get(rname.as_str()).cloned() {
                             let location = Self::location_tokens(method_call.method.span());
                             let receiver = method_call.receiver.clone();
                             let weak_id = format!("weak_{}", rname);
                             let clone_id = format!("weak_clone_{}", self.gen_id());
-                            *expr = match weak_type {
-                                SmartPointerType::WeakRc => syn::parse_quote! {
+                            *expr = match &*weak_type {
+                                "weak_rc" => syn::parse_quote! {
                                     borrowscope_runtime::track_weak_clone(#clone_id, #weak_id, #location, #receiver.clone())
                                 },
-                                SmartPointerType::WeakArc => syn::parse_quote! {
+                                "weak_arc" => syn::parse_quote! {
                                     borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
                                 },
                                 _ => syn::parse_quote! { #receiver.clone() },
@@ -2531,13 +2539,13 @@ impl VisitMut for OwnershipVisitor {
                         .map(|op| op.contains("Weak") && op.contains("upgrade"))
                         .unwrap_or_else(|| self.weak_vars.contains_key(receiver_name.as_str()) && method_name == "upgrade");
                     if is_weak_upgrade {
-                        if let Some(weak_type) = self.weak_vars.get(receiver_name.as_str()).copied() {
+                        if let Some(weak_type) = self.weak_vars.get(receiver_name.as_str()).cloned() {
                             let weak_id = format!("weak_{}", receiver_name);
-                            *expr = match weak_type {
-                                SmartPointerType::WeakRc => syn::parse_quote! {
+                            *expr = match &*weak_type {
+                                "weak_rc" => syn::parse_quote! {
                                     borrowscope_runtime::track_weak_upgrade(#weak_id, #location, #receiver.upgrade())
                                 },
-                                SmartPointerType::WeakArc => syn::parse_quote! {
+                                "weak_arc" => syn::parse_quote! {
                                     borrowscope_runtime::track_weak_upgrade_sync(#weak_id, #location, #receiver.upgrade())
                                 },
                                 _ => syn::parse_quote! { #receiver.upgrade() },
