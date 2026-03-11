@@ -85,7 +85,7 @@ borrowscope-analyzer (REQUIRED)
 - [x] **Step 2.1:** Delete `smart_pointer.rs` (commits: 15c7efe45, 3a06efb50, 5e1f01905, 8c2c7294d, 2639134df)
 - [x] **Step 2.2:** Remove `infer_self_borrow_type_heuristic()` (commit: d33742006, verified: c98381af4)
 - [x] **Step 2.3:** Make analyzer mandatory (commit: 36ed6834d)
-- [ ] **Step 2.4:** Use `copy_semantics` for Copy vs Move
+- [x] **Step 2.4:** Use `copy_semantics` for Copy vs Move (commit: a9c242809)
 - [ ] **Step 2.5:** Skip drop tracking for Copy types
 - [ ] **Step 2.6:** Remove smart pointer fallback
 - [ ] **Step 2.7:** Update method call transformation
@@ -106,7 +106,7 @@ borrowscope-analyzer (REQUIRED)
 #### Phase 6: Migration Guide (1 day)
 - [ ] **Step 6.1:** Create MIGRATION.md
 
-**Current Status:** Phase 2, Step 2.3 complete (8/21 steps, 38.1%)
+**Current Status:** Phase 2, Step 2.4 complete (9/21 steps, 42.9%)
 
 ---
 
