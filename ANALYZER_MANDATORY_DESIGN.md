@@ -62,6 +62,44 @@ borrowscope-analyzer (REQUIRED)
 
 ## Implementation Plan
 
+### Progress Tracker
+
+#### Phase 1: Analyzer Enhancements (2-3 days)
+- [x] **Step 1.1:** Add `copy_semantics` field (commit: af9ed8e3d)
+- [ ] **Step 1.2:** Add `method_borrows` array
+- [ ] **Step 1.3:** Add `field_accesses` array
+- [ ] **Step 1.4:** Add `function_calls` array
+- [ ] **Step 1.5:** Enhance `closure_captures` with location data
+
+#### Phase 2: Macro Simplification (2-3 days)
+- [ ] **Step 2.1:** Delete `smart_pointer.rs`
+- [ ] **Step 2.2:** Remove `infer_self_borrow_type_heuristic()`
+- [ ] **Step 2.3:** Make analyzer mandatory
+- [ ] **Step 2.4:** Use `copy_semantics` for Copy vs Move
+- [ ] **Step 2.5:** Skip drop tracking for Copy types
+- [ ] **Step 2.6:** Remove smart pointer fallback
+- [ ] **Step 2.7:** Update method call transformation
+- [ ] **Step 2.8:** Remove heuristic sets
+
+#### Phase 3: Schema Updates (1 day)
+- [ ] **Step 3.1:** Update `type_info.rs` structs
+
+#### Phase 4: Testing (2-3 days)
+- [ ] **Step 4.1:** Generate fixtures for 567 tests
+- [ ] **Step 4.2:** Add integration tests
+
+#### Phase 5: Documentation (1 day)
+- [ ] **Step 5.1:** Update README.md
+- [ ] **Step 5.2:** Update borrowscope-macro README
+- [ ] **Step 5.3:** Update SEMANTIC_IMPLEMENTATION.md
+
+#### Phase 6: Migration Guide (1 day)
+- [ ] **Step 6.1:** Create MIGRATION.md
+
+**Current Status:** Phase 1, Step 1.1 complete (1/21 steps, 4.8%)
+
+---
+
 ### Phase 1: Analyzer Enhancements (Expand Coverage)
 
 #### Step 1.1: Add `copy_semantics` field to analyzer output
