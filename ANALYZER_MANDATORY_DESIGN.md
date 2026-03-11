@@ -67,7 +67,7 @@ borrowscope-analyzer (REQUIRED)
 #### Phase 1: Analyzer Enhancements (2-3 days)
 - [x] **Step 1.1:** Add `copy_semantics` field (commit: af9ed8e3d)
 - [x] **Step 1.2:** Add `method_borrows` array (commit: 497714823)
-- [ ] **Step 1.3:** Add `field_accesses` array
+- [x] **Step 1.3:** Add `field_accesses` array (commit: 8ee8e282d - verified)
 - [ ] **Step 1.4:** Add `function_calls` array
 - [ ] **Step 1.5:** Enhance `closure_captures` with location data
 
@@ -96,7 +96,7 @@ borrowscope-analyzer (REQUIRED)
 #### Phase 6: Migration Guide (1 day)
 - [ ] **Step 6.1:** Create MIGRATION.md
 
-**Current Status:** Phase 1, Step 1.2 complete (2/21 steps, 9.5%)
+**Current Status:** Phase 1, Step 1.3 complete (3/21 steps, 14.3%)
 
 ---
 
