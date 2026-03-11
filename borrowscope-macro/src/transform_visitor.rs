@@ -469,98 +469,26 @@ impl OwnershipVisitor {
         }
     }
 
-    /// Infer self borrow type from method name using semantic lookup with heuristic fallback
+    /// Infer self borrow type from method name using semantic lookup
     fn infer_self_borrow_type(method_name: &str, receiver_name: Option<&str>) -> SelfBorrowType {
-        // Try semantic lookup first if we have receiver name and type info
+        // Semantic lookup from analyzer data
         if let Some(var_name) = receiver_name {
             if let Some(type_info) = crate::type_info::lookup_by_name(var_name) {
-                // Find method call by name (we can't use line/column on stable Rust)
-                // If there are multiple calls to the same method, they should have the same self_borrow
+                // Find method call by name
                 if let Some(method_call) = type_info.method_calls.iter().find(|mc| mc.method == method_name) {
                     if let Some(ref self_borrow) = method_call.self_borrow {
                         return match self_borrow.as_str() {
                             "immutable" => SelfBorrowType::Immutable,
                             "mutable" => SelfBorrowType::Mutable,
                             "consuming" => SelfBorrowType::Consuming,
-                            _ => SelfBorrowType::Immutable, // fallback
+                            _ => SelfBorrowType::Immutable,
                         };
                     }
                 }
             }
         }
         
-        // Fallback to heuristics if semantic lookup fails
-        Self::infer_self_borrow_type_heuristic(method_name)
-    }
-    
-    /// Infer self borrow type from method name using heuristics (fallback)
-    fn infer_self_borrow_type_heuristic(method_name: &str) -> SelfBorrowType {
-        // Immutable borrows (common patterns)
-        if method_name.starts_with("as_")
-            || method_name.starts_with("to_")
-            || method_name.starts_with("is_")
-            || method_name.starts_with("get")
-            || matches!(
-                method_name,
-                "len"
-                    | "capacity"
-                    | "iter"
-                    | "chars"
-                    | "bytes"
-                    | "lines"
-                    | "split"
-                    | "trim"
-                    | "contains"
-                    | "starts_with"
-                    | "ends_with"
-                    | "find"
-                    | "clone"
-                    | "first"
-                    | "last"
-            )
-        {
-            return SelfBorrowType::Immutable;
-        }
-
-        // Mutable borrows (common patterns)
-        if method_name.starts_with("push")
-            || method_name.starts_with("pop")
-            || method_name.starts_with("insert")
-            || method_name.starts_with("remove")
-            || method_name.starts_with("append")
-            || method_name.starts_with("add")
-            || method_name.starts_with("set")
-            || method_name.starts_with("update")
-            || method_name.starts_with("modify")
-            || matches!(
-                method_name,
-                "clear"
-                    | "truncate"
-                    | "extend"
-                    | "drain"
-                    | "sort"
-                    | "reverse"
-                    | "dedup"
-                    | "retain"
-                    | "tick"
-                    | "recv"
-                    | "send"
-                    | "changed"
-                    | "wait"
-                    | "acquire"
-                    | "lock"
-                    | "write"
-            )
-        {
-            return SelfBorrowType::Mutable;
-        }
-
-        // Consuming methods (common patterns)
-        if method_name.starts_with("into_") || matches!(method_name, "unwrap" | "expect") {
-            return SelfBorrowType::Consuming;
-        }
-
-        // Default: immutable borrow
+        // Default: immutable borrow (safe fallback)
         SelfBorrowType::Immutable
     }
 
