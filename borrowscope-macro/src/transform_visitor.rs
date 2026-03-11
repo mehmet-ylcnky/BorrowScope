@@ -132,15 +132,6 @@ impl OwnershipVisitor {
         type_info::lookup_by_name(var_name)
     }
 
-    /// Lookup function call return category from analyzer
-    /// Returns the semantic category (e.g., "rc_new", "arc_clone", "vec_new")
-    fn lookup_function_call_category(&self, _expr: &Expr) -> Option<String> {
-        // TODO: Implement lookup from function_calls array in type_info.json
-        // For now, return None to maintain current behavior
-        // This will be implemented when we integrate function_calls data
-        None
-    }
-
     /// Generate next unique ID
     fn gen_id(&mut self) -> usize {
         let id = self.next_id;
