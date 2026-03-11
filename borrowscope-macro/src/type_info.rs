@@ -85,6 +85,19 @@ pub struct VariableTypeInfo {
     // Method calls on this variable (semantic operation tracking)
     #[serde(default)]
     pub method_calls: Vec<MethodCallInfo>,
+
+    // Closure captures (semantic - from analyzer)
+    #[serde(default)]
+    pub closure_captures: Vec<ClosureCaptureInfo>,
+}
+
+/// Closure capture information from analyzer
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ClosureCaptureInfo {
+    pub name: String,
+    pub capture_kind: String,
+    #[serde(default)]
+    pub ty: Option<String>,
 }
 
 /// Method call information (compact - only fields macro needs)

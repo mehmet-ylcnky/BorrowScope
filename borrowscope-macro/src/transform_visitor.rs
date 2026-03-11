@@ -68,6 +68,8 @@ pub struct OwnershipVisitor {
     warnings: Vec<proc_macro2::TokenStream>,
     /// Current function name (for analyzer lookup)
     current_function: Option<String>,
+    /// Current let-binding name (for closure capture lookup)
+    current_let_binding: Option<String>,
     /// Declaration count per variable name in current function (for disambiguation)
     decl_counts: HashMap<String, u32>,
 }
@@ -100,6 +102,7 @@ impl OwnershipVisitor {
             lock_guard_vars: HashMap::new(),
             warnings: Vec::new(),
             current_function: None,
+            current_let_binding: None,
             decl_counts: HashMap::new(),
         }
     }
@@ -736,20 +739,45 @@ impl OwnershipVisitor {
         let closure_id = self.gen_id();
         let location = Self::location_tokens(closure.or1_token.span);
         
-        // Determine capture mode
-        let capture_mode = if closure.capture.is_some() { "move" } else { "ref" };
+        // Determine capture mode - semantic: check analyzer data, fallback: move keyword
+        let binding_name = self.current_let_binding.clone();
+        let semantic_captures = binding_name.as_ref()
+            .and_then(|name| self.lookup_type_info(name))
+            .filter(|ti| !ti.closure_captures.is_empty())
+            .map(|ti| ti.closure_captures.clone());
+
+        let capture_mode = if let Some(ref caps) = semantic_captures {
+            if caps.iter().any(|c| c.capture_kind == "move") { "move" } else { "ref" }
+        } else if closure.capture.is_some() {
+            "move"
+        } else {
+            "ref"
+        };
         
-        // Extract captured variables
-        let mut captured_vars = Vec::new();
-        self.extract_captured_vars(&closure.body, &mut captured_vars);
-        
-        // Build capture tracking statements
-        let capture_stmts: Vec<proc_macro2::TokenStream> = captured_vars.iter().map(|var| {
-            let var_capture_mode = if closure.capture.is_some() { "move" } else { "borrow" };
-            quote::quote! {
-                borrowscope_runtime::track_closure_capture(#closure_id, #var, #var_capture_mode, #location);
-            }
-        }).collect();
+        // Build capture tracking statements - semantic or fallback
+        let capture_stmts: Vec<proc_macro2::TokenStream> = if let Some(ref caps) = semantic_captures {
+            caps.iter().map(|cap| {
+                let var = &cap.name;
+                let kind = match cap.capture_kind.as_str() {
+                    "move" => "move",
+                    "mutable_ref" => "borrow_mut",
+                    _ => "borrow", // shared_ref, unique_shared_ref
+                };
+                quote::quote! {
+                    borrowscope_runtime::track_closure_capture(#closure_id, #var, #kind, #location);
+                }
+            }).collect()
+        } else {
+            // Fallback: AST walking
+            let mut captured_vars = Vec::new();
+            self.extract_captured_vars(&closure.body, &mut captured_vars);
+            captured_vars.iter().map(|var| {
+                let var_capture_mode = if closure.capture.is_some() { "move" } else { "borrow" };
+                quote::quote! {
+                    borrowscope_runtime::track_closure_capture(#closure_id, #var, #var_capture_mode, #location);
+                }
+            }).collect()
+        };
         
         // Clone the closure for transformation
         let mut new_closure = closure.clone();
@@ -794,6 +822,9 @@ impl OwnershipVisitor {
 
             let var_name = Self::extract_pattern_name(&local.pat);
             
+            // Set current let binding for closure capture lookup
+            self.current_let_binding = Some(var_name.clone());
+
             // Skip if variable doesn't match filter
             if !self.matches_filter(&var_name) {
                 visit_mut::visit_local_mut(self, local);
