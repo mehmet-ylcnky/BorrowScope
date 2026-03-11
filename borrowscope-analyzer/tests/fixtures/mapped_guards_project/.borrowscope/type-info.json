@@ -988,10 +988,10 @@
     ]
   },
   "by_name": {
-    "mapped_read": [
+    "write_guard": [
       {
-        "name": "mapped_read",
-        "ty": "MappedRwLockReadGuard<'_, i32>",
+        "name": "write_guard",
+        "ty": "RwLockWriteGuard<'_, Vec<i32, Global>>",
         "is_copy": false,
         "is_clone": false,
         "is_drop": true,
@@ -1050,6 +1050,202 @@
         "contains_reference": false,
         "is_ref_binding": false,
         "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "lock",
+            "ty": "&RwLock<Vec<i32, Global>>"
+          },
+          {
+            "name": "poison",
+            "ty": "Guard"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "user_struct",
+        "usages": [
+          {
+            "line": 18,
+            "column": 45,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 17,
+        "column": 8,
+        "span_start": 472,
+        "span_end": 483,
+        "drop_line": 19,
+        "drop_column": 23,
+        "scope_id": 6,
+        "function_name": "main",
+        "decl_index": 6
+      }
+    ],
+    "read_guard": [
+      {
+        "name": "read_guard",
+        "ty": "RwLockReadGuard<'_, Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_ordering": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 16,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_never": false,
+        "is_static": false,
+        "is_const": false,
+        "copy_semantics": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "data",
+            "ty": "NonNull<Vec<i32, Global>>"
+          },
+          {
+            "name": "inner_lock",
+            "ty": "&RwLock"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "user_struct",
+        "usages": [
+          {
+            "line": 12,
+            "column": 43,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 11,
+        "column": 8,
+        "span_start": 317,
+        "span_end": 327,
+        "drop_line": 19,
+        "drop_column": 23,
+        "scope_id": 4,
+        "function_name": "main",
+        "decl_index": 4
+      }
+    ],
+    "mapped_write": [
+      {
+        "name": "mapped_write",
+        "ty": "MappedRwLockWriteGuard<'_, i32>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_ordering": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 32,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_never": false,
+        "is_static": false,
+        "is_const": false,
+        "copy_semantics": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
           "i32"
         ],
         "fields": [
@@ -1058,31 +1254,356 @@
             "ty": "NonNull<i32>"
           },
           {
+            "name": "_variance",
+            "ty": "PhantomData<&mut i32>"
+          },
+          {
             "name": "inner_lock",
             "ty": "&RwLock"
+          },
+          {
+            "name": "poison_flag",
+            "ty": "&Flag"
+          },
+          {
+            "name": "poison_guard",
+            "ty": "Guard"
           }
         ],
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "rwlock_read_guard_mapped",
+        "initializer_kind": "rwlock_write_guard_mapped",
         "usages": [
           {
-            "line": 15,
+            "line": 19,
             "column": 9,
             "kind": "read"
           }
         ],
         "file": "src/main.rs",
-        "line": 12,
+        "line": 18,
         "column": 8,
-        "span_start": 362,
-        "span_end": 373,
+        "span_start": 519,
+        "span_end": 531,
         "drop_line": 19,
         "drop_column": 23,
-        "scope_id": 5,
+        "scope_id": 7,
         "function_name": "main",
-        "decl_index": 5
+        "decl_index": 7
+      }
+    ],
+    "mapped": [
+      {
+        "name": "mapped",
+        "ty": "MappedMutexGuard<'_, i32>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_ordering": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 32,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_never": false,
+        "is_static": false,
+        "is_const": false,
+        "copy_semantics": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "i32"
+        ],
+        "fields": [
+          {
+            "name": "data",
+            "ty": "NonNull<i32>"
+          },
+          {
+            "name": "inner",
+            "ty": "&Mutex"
+          },
+          {
+            "name": "poison_flag",
+            "ty": "&Flag"
+          },
+          {
+            "name": "poison",
+            "ty": "Guard"
+          },
+          {
+            "name": "_variance",
+            "ty": "PhantomData<&mut i32>"
+          }
+        ],
+        "type_arguments": [
+          "i32"
+        ],
+        "initializer_kind": "mutex_guard_mapped",
+        "usages": [
+          {
+            "line": 14,
+            "column": 9,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 8,
+        "column": 8,
+        "span_start": 215,
+        "span_end": 221,
+        "drop_line": 19,
+        "drop_column": 23,
+        "scope_id": 2,
+        "function_name": "main",
+        "decl_index": 2
+      }
+    ],
+    "mutex": [
+      {
+        "name": "mutex",
+        "ty": "Mutex<Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": false,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_ordering": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_never": false,
+        "is_static": false,
+        "is_const": false,
+        "copy_semantics": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "fields": [
+          {
+            "name": "inner",
+            "ty": "Mutex"
+          },
+          {
+            "name": "poison",
+            "ty": "Flag"
+          },
+          {
+            "name": "data",
+            "ty": "UnsafeCell<Vec<i32, Global>>"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "user_struct",
+        "method_calls": [
+          {
+            "method": "lock",
+            "line": 7,
+            "column": 16,
+            "operation": "std::sync::poison::mutex::lock",
+            "self_borrow": "immutable",
+            "receiver_type": "Mutex<Vec<i32, Global>>",
+            "result_type": "Result<MutexGuard<'_, Vec<i32, Global>>, PoisonError<MutexGuard<'_, Vec<i32, Global>>>>",
+            "is_trait_method": false
+          }
+        ],
+        "usages": [
+          {
+            "line": 7,
+            "column": 16,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 6,
+        "column": 8,
+        "span_start": 133,
+        "span_end": 138,
+        "drop_line": 19,
+        "drop_column": 23,
+        "scope_id": 0,
+        "function_name": "main",
+        "decl_index": 0
+      }
+    ],
+    "guard": [
+      {
+        "name": "guard",
+        "ty": "MutexGuard<'_, Vec<i32, Global>>",
+        "is_copy": false,
+        "is_clone": false,
+        "is_drop": true,
+        "is_send": false,
+        "is_sync": true,
+        "is_sized": true,
+        "is_primitive": false,
+        "is_rc": false,
+        "is_arc": false,
+        "is_box": false,
+        "is_weak": false,
+        "is_refcell": false,
+        "is_cell": false,
+        "is_mutex": false,
+        "is_rwlock": false,
+        "is_guard": false,
+        "is_vec": false,
+        "is_string": false,
+        "is_raw_ptr": false,
+        "is_reference": false,
+        "is_mutable_reference": false,
+        "is_slice": false,
+        "is_str": false,
+        "is_pin": false,
+        "is_cow": false,
+        "is_option": false,
+        "is_result": false,
+        "is_once_cell": false,
+        "is_maybe_uninit": false,
+        "is_channel": false,
+        "is_atomic": false,
+        "is_ordering": false,
+        "is_join_handle": false,
+        "is_duration": false,
+        "is_instant": false,
+        "is_closure": false,
+        "is_fn_ptr": false,
+        "is_future": false,
+        "is_iterator": false,
+        "is_callable": false,
+        "layout": {
+          "size": 16,
+          "align": 8
+        },
+        "is_dyn_trait": false,
+        "is_union": false,
+        "is_extern_type": false,
+        "is_never": false,
+        "is_static": false,
+        "is_const": false,
+        "copy_semantics": false,
+        "is_tuple_binding": false,
+        "is_mut_binding": false,
+        "is_impl_trait": false,
+        "binding_mode": "move",
+        "contains_reference": false,
+        "is_ref_binding": false,
+        "deref_chain": [
+          "Vec<i32, Global>",
+          "[i32]"
+        ],
+        "fields": [
+          {
+            "name": "lock",
+            "ty": "&Mutex<Vec<i32, Global>>"
+          },
+          {
+            "name": "poison",
+            "ty": "Guard"
+          }
+        ],
+        "type_arguments": [
+          "Vec<i32, Global>"
+        ],
+        "initializer_kind": "user_struct",
+        "usages": [
+          {
+            "line": 8,
+            "column": 33,
+            "kind": "read"
+          }
+        ],
+        "file": "src/main.rs",
+        "line": 7,
+        "column": 8,
+        "span_start": 176,
+        "span_end": 181,
+        "drop_line": 19,
+        "drop_column": 23,
+        "scope_id": 1,
+        "function_name": "main",
+        "decl_index": 1
       }
     ],
     "rwlock": [
@@ -1206,116 +1727,10 @@
         "decl_index": 3
       }
     ],
-    "mutex": [
+    "mapped_read": [
       {
-        "name": "mutex",
-        "ty": "Mutex<Vec<i32, Global>>",
-        "is_copy": false,
-        "is_clone": false,
-        "is_drop": false,
-        "is_send": true,
-        "is_sync": true,
-        "is_sized": true,
-        "is_primitive": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
-        "is_vec": false,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_once_cell": false,
-        "is_maybe_uninit": false,
-        "is_channel": false,
-        "is_atomic": false,
-        "is_ordering": false,
-        "is_join_handle": false,
-        "is_duration": false,
-        "is_instant": false,
-        "is_closure": false,
-        "is_fn_ptr": false,
-        "is_future": false,
-        "is_iterator": false,
-        "is_callable": false,
-        "is_dyn_trait": false,
-        "is_union": false,
-        "is_extern_type": false,
-        "is_never": false,
-        "is_static": false,
-        "is_const": false,
-        "copy_semantics": false,
-        "is_tuple_binding": false,
-        "is_mut_binding": false,
-        "is_impl_trait": false,
-        "binding_mode": "move",
-        "contains_reference": false,
-        "is_ref_binding": false,
-        "fields": [
-          {
-            "name": "inner",
-            "ty": "Mutex"
-          },
-          {
-            "name": "poison",
-            "ty": "Flag"
-          },
-          {
-            "name": "data",
-            "ty": "UnsafeCell<Vec<i32, Global>>"
-          }
-        ],
-        "type_arguments": [
-          "Vec<i32, Global>"
-        ],
-        "initializer_kind": "user_struct",
-        "method_calls": [
-          {
-            "method": "lock",
-            "line": 7,
-            "column": 16,
-            "operation": "std::sync::poison::mutex::lock",
-            "self_borrow": "immutable",
-            "receiver_type": "Mutex<Vec<i32, Global>>",
-            "result_type": "Result<MutexGuard<'_, Vec<i32, Global>>, PoisonError<MutexGuard<'_, Vec<i32, Global>>>>",
-            "is_trait_method": false
-          }
-        ],
-        "usages": [
-          {
-            "line": 7,
-            "column": 16,
-            "kind": "read"
-          }
-        ],
-        "file": "src/main.rs",
-        "line": 6,
-        "column": 8,
-        "span_start": 133,
-        "span_end": 138,
-        "drop_line": 19,
-        "drop_column": 23,
-        "scope_id": 0,
-        "function_name": "main",
-        "decl_index": 0
-      }
-    ],
-    "read_guard": [
-      {
-        "name": "read_guard",
-        "ty": "RwLockReadGuard<'_, Vec<i32, Global>>",
+        "name": "mapped_read",
+        "ty": "MappedRwLockReadGuard<'_, i32>",
         "is_copy": false,
         "is_clone": false,
         "is_drop": true,
@@ -1358,104 +1773,6 @@
         "is_callable": false,
         "layout": {
           "size": 16,
-          "align": 8
-        },
-        "is_dyn_trait": false,
-        "is_union": false,
-        "is_extern_type": false,
-        "is_never": false,
-        "is_static": false,
-        "is_const": false,
-        "copy_semantics": false,
-        "is_tuple_binding": false,
-        "is_mut_binding": false,
-        "is_impl_trait": false,
-        "binding_mode": "move",
-        "contains_reference": false,
-        "is_ref_binding": false,
-        "deref_chain": [
-          "Vec<i32, Global>",
-          "[i32]"
-        ],
-        "fields": [
-          {
-            "name": "data",
-            "ty": "NonNull<Vec<i32, Global>>"
-          },
-          {
-            "name": "inner_lock",
-            "ty": "&RwLock"
-          }
-        ],
-        "type_arguments": [
-          "Vec<i32, Global>"
-        ],
-        "initializer_kind": "user_struct",
-        "usages": [
-          {
-            "line": 12,
-            "column": 43,
-            "kind": "read"
-          }
-        ],
-        "file": "src/main.rs",
-        "line": 11,
-        "column": 8,
-        "span_start": 317,
-        "span_end": 327,
-        "drop_line": 19,
-        "drop_column": 23,
-        "scope_id": 4,
-        "function_name": "main",
-        "decl_index": 4
-      }
-    ],
-    "mapped": [
-      {
-        "name": "mapped",
-        "ty": "MappedMutexGuard<'_, i32>",
-        "is_copy": false,
-        "is_clone": false,
-        "is_drop": true,
-        "is_send": false,
-        "is_sync": true,
-        "is_sized": true,
-        "is_primitive": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
-        "is_vec": false,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_once_cell": false,
-        "is_maybe_uninit": false,
-        "is_channel": false,
-        "is_atomic": false,
-        "is_ordering": false,
-        "is_join_handle": false,
-        "is_duration": false,
-        "is_instant": false,
-        "is_closure": false,
-        "is_fn_ptr": false,
-        "is_future": false,
-        "is_iterator": false,
-        "is_callable": false,
-        "layout": {
-          "size": 32,
           "align": 8
         },
         "is_dyn_trait": false,
@@ -1480,353 +1797,134 @@
             "ty": "NonNull<i32>"
           },
           {
-            "name": "inner",
-            "ty": "&Mutex"
-          },
-          {
-            "name": "poison_flag",
-            "ty": "&Flag"
-          },
-          {
-            "name": "poison",
-            "ty": "Guard"
-          },
-          {
-            "name": "_variance",
-            "ty": "PhantomData<&mut i32>"
-          }
-        ],
-        "type_arguments": [
-          "i32"
-        ],
-        "initializer_kind": "mutex_guard_mapped",
-        "usages": [
-          {
-            "line": 14,
-            "column": 9,
-            "kind": "read"
-          }
-        ],
-        "file": "src/main.rs",
-        "line": 8,
-        "column": 8,
-        "span_start": 215,
-        "span_end": 221,
-        "drop_line": 19,
-        "drop_column": 23,
-        "scope_id": 2,
-        "function_name": "main",
-        "decl_index": 2
-      }
-    ],
-    "guard": [
-      {
-        "name": "guard",
-        "ty": "MutexGuard<'_, Vec<i32, Global>>",
-        "is_copy": false,
-        "is_clone": false,
-        "is_drop": true,
-        "is_send": false,
-        "is_sync": true,
-        "is_sized": true,
-        "is_primitive": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
-        "is_vec": false,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_once_cell": false,
-        "is_maybe_uninit": false,
-        "is_channel": false,
-        "is_atomic": false,
-        "is_ordering": false,
-        "is_join_handle": false,
-        "is_duration": false,
-        "is_instant": false,
-        "is_closure": false,
-        "is_fn_ptr": false,
-        "is_future": false,
-        "is_iterator": false,
-        "is_callable": false,
-        "layout": {
-          "size": 16,
-          "align": 8
-        },
-        "is_dyn_trait": false,
-        "is_union": false,
-        "is_extern_type": false,
-        "is_never": false,
-        "is_static": false,
-        "is_const": false,
-        "copy_semantics": false,
-        "is_tuple_binding": false,
-        "is_mut_binding": false,
-        "is_impl_trait": false,
-        "binding_mode": "move",
-        "contains_reference": false,
-        "is_ref_binding": false,
-        "deref_chain": [
-          "Vec<i32, Global>",
-          "[i32]"
-        ],
-        "fields": [
-          {
-            "name": "lock",
-            "ty": "&Mutex<Vec<i32, Global>>"
-          },
-          {
-            "name": "poison",
-            "ty": "Guard"
-          }
-        ],
-        "type_arguments": [
-          "Vec<i32, Global>"
-        ],
-        "initializer_kind": "user_struct",
-        "usages": [
-          {
-            "line": 8,
-            "column": 33,
-            "kind": "read"
-          }
-        ],
-        "file": "src/main.rs",
-        "line": 7,
-        "column": 8,
-        "span_start": 176,
-        "span_end": 181,
-        "drop_line": 19,
-        "drop_column": 23,
-        "scope_id": 1,
-        "function_name": "main",
-        "decl_index": 1
-      }
-    ],
-    "write_guard": [
-      {
-        "name": "write_guard",
-        "ty": "RwLockWriteGuard<'_, Vec<i32, Global>>",
-        "is_copy": false,
-        "is_clone": false,
-        "is_drop": true,
-        "is_send": false,
-        "is_sync": true,
-        "is_sized": true,
-        "is_primitive": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
-        "is_vec": false,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_once_cell": false,
-        "is_maybe_uninit": false,
-        "is_channel": false,
-        "is_atomic": false,
-        "is_ordering": false,
-        "is_join_handle": false,
-        "is_duration": false,
-        "is_instant": false,
-        "is_closure": false,
-        "is_fn_ptr": false,
-        "is_future": false,
-        "is_iterator": false,
-        "is_callable": false,
-        "layout": {
-          "size": 16,
-          "align": 8
-        },
-        "is_dyn_trait": false,
-        "is_union": false,
-        "is_extern_type": false,
-        "is_never": false,
-        "is_static": false,
-        "is_const": false,
-        "copy_semantics": false,
-        "is_tuple_binding": false,
-        "is_mut_binding": false,
-        "is_impl_trait": false,
-        "binding_mode": "move",
-        "contains_reference": false,
-        "is_ref_binding": false,
-        "deref_chain": [
-          "Vec<i32, Global>",
-          "[i32]"
-        ],
-        "fields": [
-          {
-            "name": "lock",
-            "ty": "&RwLock<Vec<i32, Global>>"
-          },
-          {
-            "name": "poison",
-            "ty": "Guard"
-          }
-        ],
-        "type_arguments": [
-          "Vec<i32, Global>"
-        ],
-        "initializer_kind": "user_struct",
-        "usages": [
-          {
-            "line": 18,
-            "column": 45,
-            "kind": "read"
-          }
-        ],
-        "file": "src/main.rs",
-        "line": 17,
-        "column": 8,
-        "span_start": 472,
-        "span_end": 483,
-        "drop_line": 19,
-        "drop_column": 23,
-        "scope_id": 6,
-        "function_name": "main",
-        "decl_index": 6
-      }
-    ],
-    "mapped_write": [
-      {
-        "name": "mapped_write",
-        "ty": "MappedRwLockWriteGuard<'_, i32>",
-        "is_copy": false,
-        "is_clone": false,
-        "is_drop": true,
-        "is_send": false,
-        "is_sync": true,
-        "is_sized": true,
-        "is_primitive": false,
-        "is_rc": false,
-        "is_arc": false,
-        "is_box": false,
-        "is_weak": false,
-        "is_refcell": false,
-        "is_cell": false,
-        "is_mutex": false,
-        "is_rwlock": false,
-        "is_guard": false,
-        "is_vec": false,
-        "is_string": false,
-        "is_raw_ptr": false,
-        "is_reference": false,
-        "is_mutable_reference": false,
-        "is_slice": false,
-        "is_str": false,
-        "is_pin": false,
-        "is_cow": false,
-        "is_option": false,
-        "is_result": false,
-        "is_once_cell": false,
-        "is_maybe_uninit": false,
-        "is_channel": false,
-        "is_atomic": false,
-        "is_ordering": false,
-        "is_join_handle": false,
-        "is_duration": false,
-        "is_instant": false,
-        "is_closure": false,
-        "is_fn_ptr": false,
-        "is_future": false,
-        "is_iterator": false,
-        "is_callable": false,
-        "layout": {
-          "size": 32,
-          "align": 8
-        },
-        "is_dyn_trait": false,
-        "is_union": false,
-        "is_extern_type": false,
-        "is_never": false,
-        "is_static": false,
-        "is_const": false,
-        "copy_semantics": false,
-        "is_tuple_binding": false,
-        "is_mut_binding": false,
-        "is_impl_trait": false,
-        "binding_mode": "move",
-        "contains_reference": false,
-        "is_ref_binding": false,
-        "deref_chain": [
-          "i32"
-        ],
-        "fields": [
-          {
-            "name": "data",
-            "ty": "NonNull<i32>"
-          },
-          {
-            "name": "_variance",
-            "ty": "PhantomData<&mut i32>"
-          },
-          {
             "name": "inner_lock",
             "ty": "&RwLock"
-          },
-          {
-            "name": "poison_flag",
-            "ty": "&Flag"
-          },
-          {
-            "name": "poison_guard",
-            "ty": "Guard"
           }
         ],
         "type_arguments": [
           "i32"
         ],
-        "initializer_kind": "rwlock_write_guard_mapped",
+        "initializer_kind": "rwlock_read_guard_mapped",
         "usages": [
           {
-            "line": 19,
+            "line": 15,
             "column": 9,
             "kind": "read"
           }
         ],
         "file": "src/main.rs",
-        "line": 18,
+        "line": 12,
         "column": 8,
-        "span_start": 519,
-        "span_end": 531,
+        "span_start": 362,
+        "span_end": 373,
         "drop_line": 19,
         "drop_column": 23,
-        "scope_id": 7,
+        "scope_id": 5,
         "function_name": "main",
-        "decl_index": 7
+        "decl_index": 5
       }
     ]
   },
   "by_function": {
     "main": {
+      "read_guard": [
+        {
+          "name": "read_guard",
+          "ty": "RwLockReadGuard<'_, Vec<i32, Global>>",
+          "is_copy": false,
+          "is_clone": false,
+          "is_drop": true,
+          "is_send": false,
+          "is_sync": true,
+          "is_sized": true,
+          "is_primitive": false,
+          "is_rc": false,
+          "is_arc": false,
+          "is_box": false,
+          "is_weak": false,
+          "is_refcell": false,
+          "is_cell": false,
+          "is_mutex": false,
+          "is_rwlock": false,
+          "is_guard": false,
+          "is_vec": false,
+          "is_string": false,
+          "is_raw_ptr": false,
+          "is_reference": false,
+          "is_mutable_reference": false,
+          "is_slice": false,
+          "is_str": false,
+          "is_pin": false,
+          "is_cow": false,
+          "is_option": false,
+          "is_result": false,
+          "is_once_cell": false,
+          "is_maybe_uninit": false,
+          "is_channel": false,
+          "is_atomic": false,
+          "is_ordering": false,
+          "is_join_handle": false,
+          "is_duration": false,
+          "is_instant": false,
+          "is_closure": false,
+          "is_fn_ptr": false,
+          "is_future": false,
+          "is_iterator": false,
+          "is_callable": false,
+          "layout": {
+            "size": 16,
+            "align": 8
+          },
+          "is_dyn_trait": false,
+          "is_union": false,
+          "is_extern_type": false,
+          "is_never": false,
+          "is_static": false,
+          "is_const": false,
+          "copy_semantics": false,
+          "is_tuple_binding": false,
+          "is_mut_binding": false,
+          "is_impl_trait": false,
+          "binding_mode": "move",
+          "contains_reference": false,
+          "is_ref_binding": false,
+          "deref_chain": [
+            "Vec<i32, Global>",
+            "[i32]"
+          ],
+          "fields": [
+            {
+              "name": "data",
+              "ty": "NonNull<Vec<i32, Global>>"
+            },
+            {
+              "name": "inner_lock",
+              "ty": "&RwLock"
+            }
+          ],
+          "type_arguments": [
+            "Vec<i32, Global>"
+          ],
+          "initializer_kind": "user_struct",
+          "usages": [
+            {
+              "line": 12,
+              "column": 43,
+              "kind": "read"
+            }
+          ],
+          "file": "src/main.rs",
+          "line": 11,
+          "column": 8,
+          "span_start": 317,
+          "span_end": 327,
+          "drop_line": 19,
+          "drop_column": 23,
+          "scope_id": 4,
+          "function_name": "main",
+          "decl_index": 4
+        }
+      ],
       "mapped": [
         {
           "name": "mapped",
@@ -1934,6 +2032,439 @@
           "scope_id": 2,
           "function_name": "main",
           "decl_index": 2
+        }
+      ],
+      "mutex": [
+        {
+          "name": "mutex",
+          "ty": "Mutex<Vec<i32, Global>>",
+          "is_copy": false,
+          "is_clone": false,
+          "is_drop": false,
+          "is_send": true,
+          "is_sync": true,
+          "is_sized": true,
+          "is_primitive": false,
+          "is_rc": false,
+          "is_arc": false,
+          "is_box": false,
+          "is_weak": false,
+          "is_refcell": false,
+          "is_cell": false,
+          "is_mutex": false,
+          "is_rwlock": false,
+          "is_guard": false,
+          "is_vec": false,
+          "is_string": false,
+          "is_raw_ptr": false,
+          "is_reference": false,
+          "is_mutable_reference": false,
+          "is_slice": false,
+          "is_str": false,
+          "is_pin": false,
+          "is_cow": false,
+          "is_option": false,
+          "is_result": false,
+          "is_once_cell": false,
+          "is_maybe_uninit": false,
+          "is_channel": false,
+          "is_atomic": false,
+          "is_ordering": false,
+          "is_join_handle": false,
+          "is_duration": false,
+          "is_instant": false,
+          "is_closure": false,
+          "is_fn_ptr": false,
+          "is_future": false,
+          "is_iterator": false,
+          "is_callable": false,
+          "is_dyn_trait": false,
+          "is_union": false,
+          "is_extern_type": false,
+          "is_never": false,
+          "is_static": false,
+          "is_const": false,
+          "copy_semantics": false,
+          "is_tuple_binding": false,
+          "is_mut_binding": false,
+          "is_impl_trait": false,
+          "binding_mode": "move",
+          "contains_reference": false,
+          "is_ref_binding": false,
+          "fields": [
+            {
+              "name": "inner",
+              "ty": "Mutex"
+            },
+            {
+              "name": "poison",
+              "ty": "Flag"
+            },
+            {
+              "name": "data",
+              "ty": "UnsafeCell<Vec<i32, Global>>"
+            }
+          ],
+          "type_arguments": [
+            "Vec<i32, Global>"
+          ],
+          "initializer_kind": "user_struct",
+          "method_calls": [
+            {
+              "method": "lock",
+              "line": 7,
+              "column": 16,
+              "operation": "std::sync::poison::mutex::lock",
+              "self_borrow": "immutable",
+              "receiver_type": "Mutex<Vec<i32, Global>>",
+              "result_type": "Result<MutexGuard<'_, Vec<i32, Global>>, PoisonError<MutexGuard<'_, Vec<i32, Global>>>>",
+              "is_trait_method": false
+            }
+          ],
+          "usages": [
+            {
+              "line": 7,
+              "column": 16,
+              "kind": "read"
+            }
+          ],
+          "file": "src/main.rs",
+          "line": 6,
+          "column": 8,
+          "span_start": 133,
+          "span_end": 138,
+          "drop_line": 19,
+          "drop_column": 23,
+          "scope_id": 0,
+          "function_name": "main",
+          "decl_index": 0
+        }
+      ],
+      "mapped_write": [
+        {
+          "name": "mapped_write",
+          "ty": "MappedRwLockWriteGuard<'_, i32>",
+          "is_copy": false,
+          "is_clone": false,
+          "is_drop": true,
+          "is_send": false,
+          "is_sync": true,
+          "is_sized": true,
+          "is_primitive": false,
+          "is_rc": false,
+          "is_arc": false,
+          "is_box": false,
+          "is_weak": false,
+          "is_refcell": false,
+          "is_cell": false,
+          "is_mutex": false,
+          "is_rwlock": false,
+          "is_guard": false,
+          "is_vec": false,
+          "is_string": false,
+          "is_raw_ptr": false,
+          "is_reference": false,
+          "is_mutable_reference": false,
+          "is_slice": false,
+          "is_str": false,
+          "is_pin": false,
+          "is_cow": false,
+          "is_option": false,
+          "is_result": false,
+          "is_once_cell": false,
+          "is_maybe_uninit": false,
+          "is_channel": false,
+          "is_atomic": false,
+          "is_ordering": false,
+          "is_join_handle": false,
+          "is_duration": false,
+          "is_instant": false,
+          "is_closure": false,
+          "is_fn_ptr": false,
+          "is_future": false,
+          "is_iterator": false,
+          "is_callable": false,
+          "layout": {
+            "size": 32,
+            "align": 8
+          },
+          "is_dyn_trait": false,
+          "is_union": false,
+          "is_extern_type": false,
+          "is_never": false,
+          "is_static": false,
+          "is_const": false,
+          "copy_semantics": false,
+          "is_tuple_binding": false,
+          "is_mut_binding": false,
+          "is_impl_trait": false,
+          "binding_mode": "move",
+          "contains_reference": false,
+          "is_ref_binding": false,
+          "deref_chain": [
+            "i32"
+          ],
+          "fields": [
+            {
+              "name": "data",
+              "ty": "NonNull<i32>"
+            },
+            {
+              "name": "_variance",
+              "ty": "PhantomData<&mut i32>"
+            },
+            {
+              "name": "inner_lock",
+              "ty": "&RwLock"
+            },
+            {
+              "name": "poison_flag",
+              "ty": "&Flag"
+            },
+            {
+              "name": "poison_guard",
+              "ty": "Guard"
+            }
+          ],
+          "type_arguments": [
+            "i32"
+          ],
+          "initializer_kind": "rwlock_write_guard_mapped",
+          "usages": [
+            {
+              "line": 19,
+              "column": 9,
+              "kind": "read"
+            }
+          ],
+          "file": "src/main.rs",
+          "line": 18,
+          "column": 8,
+          "span_start": 519,
+          "span_end": 531,
+          "drop_line": 19,
+          "drop_column": 23,
+          "scope_id": 7,
+          "function_name": "main",
+          "decl_index": 7
+        }
+      ],
+      "rwlock": [
+        {
+          "name": "rwlock",
+          "ty": "RwLock<Vec<i32, Global>>",
+          "is_copy": false,
+          "is_clone": false,
+          "is_drop": false,
+          "is_send": true,
+          "is_sync": true,
+          "is_sized": true,
+          "is_primitive": false,
+          "is_rc": false,
+          "is_arc": false,
+          "is_box": false,
+          "is_weak": false,
+          "is_refcell": false,
+          "is_cell": false,
+          "is_mutex": false,
+          "is_rwlock": false,
+          "is_guard": false,
+          "is_vec": false,
+          "is_string": false,
+          "is_raw_ptr": false,
+          "is_reference": false,
+          "is_mutable_reference": false,
+          "is_slice": false,
+          "is_str": false,
+          "is_pin": false,
+          "is_cow": false,
+          "is_option": false,
+          "is_result": false,
+          "is_once_cell": false,
+          "is_maybe_uninit": false,
+          "is_channel": false,
+          "is_atomic": false,
+          "is_ordering": false,
+          "is_join_handle": false,
+          "is_duration": false,
+          "is_instant": false,
+          "is_closure": false,
+          "is_fn_ptr": false,
+          "is_future": false,
+          "is_iterator": false,
+          "is_callable": false,
+          "is_dyn_trait": false,
+          "is_union": false,
+          "is_extern_type": false,
+          "is_never": false,
+          "is_static": false,
+          "is_const": false,
+          "copy_semantics": false,
+          "is_tuple_binding": false,
+          "is_mut_binding": false,
+          "is_impl_trait": false,
+          "binding_mode": "move",
+          "contains_reference": false,
+          "is_ref_binding": false,
+          "fields": [
+            {
+              "name": "inner",
+              "ty": "RwLock"
+            },
+            {
+              "name": "poison",
+              "ty": "Flag"
+            },
+            {
+              "name": "data",
+              "ty": "UnsafeCell<Vec<i32, Global>>"
+            }
+          ],
+          "type_arguments": [
+            "Vec<i32, Global>"
+          ],
+          "initializer_kind": "user_struct",
+          "method_calls": [
+            {
+              "method": "read",
+              "line": 11,
+              "column": 21,
+              "operation": "std::sync::poison::rwlock::read",
+              "self_borrow": "immutable",
+              "receiver_type": "RwLock<Vec<i32, Global>>",
+              "result_type": "Result<RwLockReadGuard<'_, Vec<i32, Global>>, PoisonError<RwLockReadGuard<'_, Vec<i32, Global>>>>",
+              "is_trait_method": false
+            },
+            {
+              "method": "write",
+              "line": 17,
+              "column": 22,
+              "operation": "std::sync::poison::rwlock::write",
+              "self_borrow": "immutable",
+              "receiver_type": "RwLock<Vec<i32, Global>>",
+              "result_type": "Result<RwLockWriteGuard<'_, Vec<i32, Global>>, PoisonError<RwLockWriteGuard<'_, Vec<i32, Global>>>>",
+              "is_trait_method": false
+            }
+          ],
+          "usages": [
+            {
+              "line": 11,
+              "column": 21,
+              "kind": "read"
+            },
+            {
+              "line": 17,
+              "column": 22,
+              "kind": "read"
+            }
+          ],
+          "file": "src/main.rs",
+          "line": 10,
+          "column": 8,
+          "span_start": 272,
+          "span_end": 278,
+          "drop_line": 19,
+          "drop_column": 23,
+          "scope_id": 3,
+          "function_name": "main",
+          "decl_index": 3
+        }
+      ],
+      "mapped_read": [
+        {
+          "name": "mapped_read",
+          "ty": "MappedRwLockReadGuard<'_, i32>",
+          "is_copy": false,
+          "is_clone": false,
+          "is_drop": true,
+          "is_send": false,
+          "is_sync": true,
+          "is_sized": true,
+          "is_primitive": false,
+          "is_rc": false,
+          "is_arc": false,
+          "is_box": false,
+          "is_weak": false,
+          "is_refcell": false,
+          "is_cell": false,
+          "is_mutex": false,
+          "is_rwlock": false,
+          "is_guard": false,
+          "is_vec": false,
+          "is_string": false,
+          "is_raw_ptr": false,
+          "is_reference": false,
+          "is_mutable_reference": false,
+          "is_slice": false,
+          "is_str": false,
+          "is_pin": false,
+          "is_cow": false,
+          "is_option": false,
+          "is_result": false,
+          "is_once_cell": false,
+          "is_maybe_uninit": false,
+          "is_channel": false,
+          "is_atomic": false,
+          "is_ordering": false,
+          "is_join_handle": false,
+          "is_duration": false,
+          "is_instant": false,
+          "is_closure": false,
+          "is_fn_ptr": false,
+          "is_future": false,
+          "is_iterator": false,
+          "is_callable": false,
+          "layout": {
+            "size": 16,
+            "align": 8
+          },
+          "is_dyn_trait": false,
+          "is_union": false,
+          "is_extern_type": false,
+          "is_never": false,
+          "is_static": false,
+          "is_const": false,
+          "copy_semantics": false,
+          "is_tuple_binding": false,
+          "is_mut_binding": false,
+          "is_impl_trait": false,
+          "binding_mode": "move",
+          "contains_reference": false,
+          "is_ref_binding": false,
+          "deref_chain": [
+            "i32"
+          ],
+          "fields": [
+            {
+              "name": "data",
+              "ty": "NonNull<i32>"
+            },
+            {
+              "name": "inner_lock",
+              "ty": "&RwLock"
+            }
+          ],
+          "type_arguments": [
+            "i32"
+          ],
+          "initializer_kind": "rwlock_read_guard_mapped",
+          "usages": [
+            {
+              "line": 15,
+              "column": 9,
+              "kind": "read"
+            }
+          ],
+          "file": "src/main.rs",
+          "line": 12,
+          "column": 8,
+          "span_start": 362,
+          "span_end": 373,
+          "drop_line": 19,
+          "drop_column": 23,
+          "scope_id": 5,
+          "function_name": "main",
+          "decl_index": 5
         }
       ],
       "write_guard": [
@@ -2130,537 +2661,6 @@
           "scope_id": 1,
           "function_name": "main",
           "decl_index": 1
-        }
-      ],
-      "mutex": [
-        {
-          "name": "mutex",
-          "ty": "Mutex<Vec<i32, Global>>",
-          "is_copy": false,
-          "is_clone": false,
-          "is_drop": false,
-          "is_send": true,
-          "is_sync": true,
-          "is_sized": true,
-          "is_primitive": false,
-          "is_rc": false,
-          "is_arc": false,
-          "is_box": false,
-          "is_weak": false,
-          "is_refcell": false,
-          "is_cell": false,
-          "is_mutex": false,
-          "is_rwlock": false,
-          "is_guard": false,
-          "is_vec": false,
-          "is_string": false,
-          "is_raw_ptr": false,
-          "is_reference": false,
-          "is_mutable_reference": false,
-          "is_slice": false,
-          "is_str": false,
-          "is_pin": false,
-          "is_cow": false,
-          "is_option": false,
-          "is_result": false,
-          "is_once_cell": false,
-          "is_maybe_uninit": false,
-          "is_channel": false,
-          "is_atomic": false,
-          "is_ordering": false,
-          "is_join_handle": false,
-          "is_duration": false,
-          "is_instant": false,
-          "is_closure": false,
-          "is_fn_ptr": false,
-          "is_future": false,
-          "is_iterator": false,
-          "is_callable": false,
-          "is_dyn_trait": false,
-          "is_union": false,
-          "is_extern_type": false,
-          "is_never": false,
-          "is_static": false,
-          "is_const": false,
-          "copy_semantics": false,
-          "is_tuple_binding": false,
-          "is_mut_binding": false,
-          "is_impl_trait": false,
-          "binding_mode": "move",
-          "contains_reference": false,
-          "is_ref_binding": false,
-          "fields": [
-            {
-              "name": "inner",
-              "ty": "Mutex"
-            },
-            {
-              "name": "poison",
-              "ty": "Flag"
-            },
-            {
-              "name": "data",
-              "ty": "UnsafeCell<Vec<i32, Global>>"
-            }
-          ],
-          "type_arguments": [
-            "Vec<i32, Global>"
-          ],
-          "initializer_kind": "user_struct",
-          "method_calls": [
-            {
-              "method": "lock",
-              "line": 7,
-              "column": 16,
-              "operation": "std::sync::poison::mutex::lock",
-              "self_borrow": "immutable",
-              "receiver_type": "Mutex<Vec<i32, Global>>",
-              "result_type": "Result<MutexGuard<'_, Vec<i32, Global>>, PoisonError<MutexGuard<'_, Vec<i32, Global>>>>",
-              "is_trait_method": false
-            }
-          ],
-          "usages": [
-            {
-              "line": 7,
-              "column": 16,
-              "kind": "read"
-            }
-          ],
-          "file": "src/main.rs",
-          "line": 6,
-          "column": 8,
-          "span_start": 133,
-          "span_end": 138,
-          "drop_line": 19,
-          "drop_column": 23,
-          "scope_id": 0,
-          "function_name": "main",
-          "decl_index": 0
-        }
-      ],
-      "mapped_read": [
-        {
-          "name": "mapped_read",
-          "ty": "MappedRwLockReadGuard<'_, i32>",
-          "is_copy": false,
-          "is_clone": false,
-          "is_drop": true,
-          "is_send": false,
-          "is_sync": true,
-          "is_sized": true,
-          "is_primitive": false,
-          "is_rc": false,
-          "is_arc": false,
-          "is_box": false,
-          "is_weak": false,
-          "is_refcell": false,
-          "is_cell": false,
-          "is_mutex": false,
-          "is_rwlock": false,
-          "is_guard": false,
-          "is_vec": false,
-          "is_string": false,
-          "is_raw_ptr": false,
-          "is_reference": false,
-          "is_mutable_reference": false,
-          "is_slice": false,
-          "is_str": false,
-          "is_pin": false,
-          "is_cow": false,
-          "is_option": false,
-          "is_result": false,
-          "is_once_cell": false,
-          "is_maybe_uninit": false,
-          "is_channel": false,
-          "is_atomic": false,
-          "is_ordering": false,
-          "is_join_handle": false,
-          "is_duration": false,
-          "is_instant": false,
-          "is_closure": false,
-          "is_fn_ptr": false,
-          "is_future": false,
-          "is_iterator": false,
-          "is_callable": false,
-          "layout": {
-            "size": 16,
-            "align": 8
-          },
-          "is_dyn_trait": false,
-          "is_union": false,
-          "is_extern_type": false,
-          "is_never": false,
-          "is_static": false,
-          "is_const": false,
-          "copy_semantics": false,
-          "is_tuple_binding": false,
-          "is_mut_binding": false,
-          "is_impl_trait": false,
-          "binding_mode": "move",
-          "contains_reference": false,
-          "is_ref_binding": false,
-          "deref_chain": [
-            "i32"
-          ],
-          "fields": [
-            {
-              "name": "data",
-              "ty": "NonNull<i32>"
-            },
-            {
-              "name": "inner_lock",
-              "ty": "&RwLock"
-            }
-          ],
-          "type_arguments": [
-            "i32"
-          ],
-          "initializer_kind": "rwlock_read_guard_mapped",
-          "usages": [
-            {
-              "line": 15,
-              "column": 9,
-              "kind": "read"
-            }
-          ],
-          "file": "src/main.rs",
-          "line": 12,
-          "column": 8,
-          "span_start": 362,
-          "span_end": 373,
-          "drop_line": 19,
-          "drop_column": 23,
-          "scope_id": 5,
-          "function_name": "main",
-          "decl_index": 5
-        }
-      ],
-      "read_guard": [
-        {
-          "name": "read_guard",
-          "ty": "RwLockReadGuard<'_, Vec<i32, Global>>",
-          "is_copy": false,
-          "is_clone": false,
-          "is_drop": true,
-          "is_send": false,
-          "is_sync": true,
-          "is_sized": true,
-          "is_primitive": false,
-          "is_rc": false,
-          "is_arc": false,
-          "is_box": false,
-          "is_weak": false,
-          "is_refcell": false,
-          "is_cell": false,
-          "is_mutex": false,
-          "is_rwlock": false,
-          "is_guard": false,
-          "is_vec": false,
-          "is_string": false,
-          "is_raw_ptr": false,
-          "is_reference": false,
-          "is_mutable_reference": false,
-          "is_slice": false,
-          "is_str": false,
-          "is_pin": false,
-          "is_cow": false,
-          "is_option": false,
-          "is_result": false,
-          "is_once_cell": false,
-          "is_maybe_uninit": false,
-          "is_channel": false,
-          "is_atomic": false,
-          "is_ordering": false,
-          "is_join_handle": false,
-          "is_duration": false,
-          "is_instant": false,
-          "is_closure": false,
-          "is_fn_ptr": false,
-          "is_future": false,
-          "is_iterator": false,
-          "is_callable": false,
-          "layout": {
-            "size": 16,
-            "align": 8
-          },
-          "is_dyn_trait": false,
-          "is_union": false,
-          "is_extern_type": false,
-          "is_never": false,
-          "is_static": false,
-          "is_const": false,
-          "copy_semantics": false,
-          "is_tuple_binding": false,
-          "is_mut_binding": false,
-          "is_impl_trait": false,
-          "binding_mode": "move",
-          "contains_reference": false,
-          "is_ref_binding": false,
-          "deref_chain": [
-            "Vec<i32, Global>",
-            "[i32]"
-          ],
-          "fields": [
-            {
-              "name": "data",
-              "ty": "NonNull<Vec<i32, Global>>"
-            },
-            {
-              "name": "inner_lock",
-              "ty": "&RwLock"
-            }
-          ],
-          "type_arguments": [
-            "Vec<i32, Global>"
-          ],
-          "initializer_kind": "user_struct",
-          "usages": [
-            {
-              "line": 12,
-              "column": 43,
-              "kind": "read"
-            }
-          ],
-          "file": "src/main.rs",
-          "line": 11,
-          "column": 8,
-          "span_start": 317,
-          "span_end": 327,
-          "drop_line": 19,
-          "drop_column": 23,
-          "scope_id": 4,
-          "function_name": "main",
-          "decl_index": 4
-        }
-      ],
-      "rwlock": [
-        {
-          "name": "rwlock",
-          "ty": "RwLock<Vec<i32, Global>>",
-          "is_copy": false,
-          "is_clone": false,
-          "is_drop": false,
-          "is_send": true,
-          "is_sync": true,
-          "is_sized": true,
-          "is_primitive": false,
-          "is_rc": false,
-          "is_arc": false,
-          "is_box": false,
-          "is_weak": false,
-          "is_refcell": false,
-          "is_cell": false,
-          "is_mutex": false,
-          "is_rwlock": false,
-          "is_guard": false,
-          "is_vec": false,
-          "is_string": false,
-          "is_raw_ptr": false,
-          "is_reference": false,
-          "is_mutable_reference": false,
-          "is_slice": false,
-          "is_str": false,
-          "is_pin": false,
-          "is_cow": false,
-          "is_option": false,
-          "is_result": false,
-          "is_once_cell": false,
-          "is_maybe_uninit": false,
-          "is_channel": false,
-          "is_atomic": false,
-          "is_ordering": false,
-          "is_join_handle": false,
-          "is_duration": false,
-          "is_instant": false,
-          "is_closure": false,
-          "is_fn_ptr": false,
-          "is_future": false,
-          "is_iterator": false,
-          "is_callable": false,
-          "is_dyn_trait": false,
-          "is_union": false,
-          "is_extern_type": false,
-          "is_never": false,
-          "is_static": false,
-          "is_const": false,
-          "copy_semantics": false,
-          "is_tuple_binding": false,
-          "is_mut_binding": false,
-          "is_impl_trait": false,
-          "binding_mode": "move",
-          "contains_reference": false,
-          "is_ref_binding": false,
-          "fields": [
-            {
-              "name": "inner",
-              "ty": "RwLock"
-            },
-            {
-              "name": "poison",
-              "ty": "Flag"
-            },
-            {
-              "name": "data",
-              "ty": "UnsafeCell<Vec<i32, Global>>"
-            }
-          ],
-          "type_arguments": [
-            "Vec<i32, Global>"
-          ],
-          "initializer_kind": "user_struct",
-          "method_calls": [
-            {
-              "method": "read",
-              "line": 11,
-              "column": 21,
-              "operation": "std::sync::poison::rwlock::read",
-              "self_borrow": "immutable",
-              "receiver_type": "RwLock<Vec<i32, Global>>",
-              "result_type": "Result<RwLockReadGuard<'_, Vec<i32, Global>>, PoisonError<RwLockReadGuard<'_, Vec<i32, Global>>>>",
-              "is_trait_method": false
-            },
-            {
-              "method": "write",
-              "line": 17,
-              "column": 22,
-              "operation": "std::sync::poison::rwlock::write",
-              "self_borrow": "immutable",
-              "receiver_type": "RwLock<Vec<i32, Global>>",
-              "result_type": "Result<RwLockWriteGuard<'_, Vec<i32, Global>>, PoisonError<RwLockWriteGuard<'_, Vec<i32, Global>>>>",
-              "is_trait_method": false
-            }
-          ],
-          "usages": [
-            {
-              "line": 11,
-              "column": 21,
-              "kind": "read"
-            },
-            {
-              "line": 17,
-              "column": 22,
-              "kind": "read"
-            }
-          ],
-          "file": "src/main.rs",
-          "line": 10,
-          "column": 8,
-          "span_start": 272,
-          "span_end": 278,
-          "drop_line": 19,
-          "drop_column": 23,
-          "scope_id": 3,
-          "function_name": "main",
-          "decl_index": 3
-        }
-      ],
-      "mapped_write": [
-        {
-          "name": "mapped_write",
-          "ty": "MappedRwLockWriteGuard<'_, i32>",
-          "is_copy": false,
-          "is_clone": false,
-          "is_drop": true,
-          "is_send": false,
-          "is_sync": true,
-          "is_sized": true,
-          "is_primitive": false,
-          "is_rc": false,
-          "is_arc": false,
-          "is_box": false,
-          "is_weak": false,
-          "is_refcell": false,
-          "is_cell": false,
-          "is_mutex": false,
-          "is_rwlock": false,
-          "is_guard": false,
-          "is_vec": false,
-          "is_string": false,
-          "is_raw_ptr": false,
-          "is_reference": false,
-          "is_mutable_reference": false,
-          "is_slice": false,
-          "is_str": false,
-          "is_pin": false,
-          "is_cow": false,
-          "is_option": false,
-          "is_result": false,
-          "is_once_cell": false,
-          "is_maybe_uninit": false,
-          "is_channel": false,
-          "is_atomic": false,
-          "is_ordering": false,
-          "is_join_handle": false,
-          "is_duration": false,
-          "is_instant": false,
-          "is_closure": false,
-          "is_fn_ptr": false,
-          "is_future": false,
-          "is_iterator": false,
-          "is_callable": false,
-          "layout": {
-            "size": 32,
-            "align": 8
-          },
-          "is_dyn_trait": false,
-          "is_union": false,
-          "is_extern_type": false,
-          "is_never": false,
-          "is_static": false,
-          "is_const": false,
-          "copy_semantics": false,
-          "is_tuple_binding": false,
-          "is_mut_binding": false,
-          "is_impl_trait": false,
-          "binding_mode": "move",
-          "contains_reference": false,
-          "is_ref_binding": false,
-          "deref_chain": [
-            "i32"
-          ],
-          "fields": [
-            {
-              "name": "data",
-              "ty": "NonNull<i32>"
-            },
-            {
-              "name": "_variance",
-              "ty": "PhantomData<&mut i32>"
-            },
-            {
-              "name": "inner_lock",
-              "ty": "&RwLock"
-            },
-            {
-              "name": "poison_flag",
-              "ty": "&Flag"
-            },
-            {
-              "name": "poison_guard",
-              "ty": "Guard"
-            }
-          ],
-          "type_arguments": [
-            "i32"
-          ],
-          "initializer_kind": "rwlock_write_guard_mapped",
-          "usages": [
-            {
-              "line": 19,
-              "column": 9,
-              "kind": "read"
-            }
-          ],
-          "file": "src/main.rs",
-          "line": 18,
-          "column": 8,
-          "span_start": 519,
-          "span_end": 531,
-          "drop_line": 19,
-          "drop_column": 23,
-          "scope_id": 7,
-          "function_name": "main",
-          "decl_index": 7
         }
       ]
     }

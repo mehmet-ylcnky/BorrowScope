@@ -68,3 +68,12 @@ fn type_coverage_extras() {
     // Never type: functions that return ! produce diverging control flow
     // We can't bind a variable of type ! but we can detect it in return types
 }
+
+fn field_access_test() {
+    struct Point { x: i32, y: i32 }
+    let mut p = Point { x: 10, y: 20 };
+    let x_val = p.x;        // read
+    p.y = 30;               // write
+    let x_ref = &p.x;       // borrow_shared
+    let y_ref = &mut p.y;   // borrow_mut
+}
