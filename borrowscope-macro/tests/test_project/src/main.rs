@@ -1,6 +1,8 @@
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
 
+mod copy_vs_move;
+
 #[trace_borrow]
 fn test_method_borrows() {
     // Test immutable borrow methods
@@ -22,10 +24,15 @@ fn test_method_borrows() {
 
 fn main() {
     reset();
+    
+    // Test method borrows
     test_method_borrows();
     
+    // Test copy vs move
+    copy_vs_move::test_copy_vs_move();
+    
     let events = get_events();
-    println!("Total events: {}", events.len());
+    println!("\nTotal events: {}", events.len());
     
     // Check for borrow tracking
     let borrow_events: Vec<_> = events.iter()
@@ -34,7 +41,17 @@ fn main() {
     
     println!("Borrow events: {}", borrow_events.len());
     
-    for event in borrow_events {
-        println!("{:?}", event);
-    }
+    // Check for move tracking
+    let move_events: Vec<_> = events.iter()
+        .filter(|e| matches!(e, Event::Move { .. }))
+        .collect();
+    
+    println!("Move events: {}", move_events.len());
+    
+    // Check for new events (includes copies)
+    let new_events: Vec<_> = events.iter()
+        .filter(|e| matches!(e, Event::New { .. } | Event::RcNew { .. } | Event::ArcNew { .. }))
+        .collect();
+    
+    println!("New events: {}", new_events.len());
 }

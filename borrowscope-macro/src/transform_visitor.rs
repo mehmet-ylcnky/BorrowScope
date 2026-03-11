@@ -1102,22 +1102,42 @@ impl OwnershipVisitor {
 
             if self.config.track_move && Self::is_potential_move(original_expr) {
                 // Check if this is a potential move (assignment from another variable)
-                // Extract source variable name and ID
                 if let Expr::Path(path_expr) = original_expr.as_ref() {
                     if let Some(source_ident) = path_expr.path.get_ident() {
                         let source_name = source_ident.to_string();
-                        if let Some(&source_id) = self.var_ids.get(&source_name) {
-                            // Use advanced move API with IDs
-                            let new_expr: Expr = syn::parse_quote! {
-                                borrowscope_runtime::track_move_with_id(#source_id, #var_id, #var_name, #location, #original_expr)
-                            };
-                            *init.expr = new_expr;
+                        
+                        // Check if source has copy semantics (semantic detection)
+                        let is_copy = self.lookup_type_info(&source_name)
+                            .map(|ti| ti.copy_semantics)
+                            .unwrap_or(false);
+                        
+                        if is_copy {
+                            // It's a copy, not a move - use track_new
+                            if self.config.track_new {
+                                let new_expr: Expr = if let Some(rate) = self.config.sample_rate {
+                                    syn::parse_quote! {
+                                        borrowscope_runtime::track_new_with_id_sampled(#var_id, #var_name, #location, #original_expr, #rate)
+                                    }
+                                } else {
+                                    syn::parse_quote! {
+                                        borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                                    }
+                                };
+                                *init.expr = new_expr;
+                            }
                         } else {
-                            // Fallback to simple API if source ID not found
-                            let new_expr: Expr = syn::parse_quote! {
-                                borrowscope_runtime::track_move(#source_name, #var_name, #original_expr)
-                            };
-                            *init.expr = new_expr;
+                            // True move - use track_move
+                            if let Some(&source_id) = self.var_ids.get(&source_name) {
+                                let new_expr: Expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_move_with_id(#source_id, #var_id, #var_name, #location, #original_expr)
+                                };
+                                *init.expr = new_expr;
+                            } else {
+                                let new_expr: Expr = syn::parse_quote! {
+                                    borrowscope_runtime::track_move(#source_name, #var_name, #original_expr)
+                                };
+                                *init.expr = new_expr;
+                            }
                         }
                         visit_mut::visit_local_mut(self, local);
                         return;

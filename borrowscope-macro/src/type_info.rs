@@ -77,6 +77,10 @@ pub struct VariableTypeInfo {
     pub is_mut_binding: bool,
     pub is_impl_trait: bool,
     
+    // Copy semantics (true if assignment is copy, not move)
+    #[serde(default)]
+    pub copy_semantics: bool,
+    
     // Initializer pattern (semantic)
     pub initializer_kind: Option<String>,
     
