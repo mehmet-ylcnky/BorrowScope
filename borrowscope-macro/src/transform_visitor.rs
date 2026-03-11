@@ -76,6 +76,34 @@ impl OwnershipVisitor {
 
     /// Create a new visitor with custom config
     pub fn with_config(config: TraceConfig) -> Self {
+        // Analyzer is now REQUIRED - fail if type-info.json is missing
+        // (Skip check in test mode to allow unit tests to run)
+        #[cfg(not(test))]
+        if type_info::get_type_info().is_none() {
+            panic!(
+                "\n\n\
+                ╔════════════════════════════════════════════════════════════╗\n\
+                ║  ERROR: BorrowScope analyzer output not found             ║\n\
+                ╠════════════════════════════════════════════════════════════╣\n\
+                ║                                                            ║\n\
+                ║  The #[trace_borrow] macro requires semantic analysis     ║\n\
+                ║  data from borrowscope-analyzer.                           ║\n\
+                ║                                                            ║\n\
+                ║  Please run the analyzer first:                           ║\n\
+                ║                                                            ║\n\
+                ║    cargo run -p borrowscope-analyzer -- .                 ║\n\
+                ║                                                            ║\n\
+                ║  This will generate .borrowscope/type-info.json           ║\n\
+                ║                                                            ║\n\
+                ║  Then rebuild your project:                               ║\n\
+                ║                                                            ║\n\
+                ║    cargo build                                            ║\n\
+                ║                                                            ║\n\
+                ╚════════════════════════════════════════════════════════════╝\n\
+                "
+            );
+        }
+        
         Self {
             scope_depth: 0,
             var_ids: HashMap::new(),
