@@ -673,9 +673,11 @@ The macro uses `crate::type_info::lookup_by_name(var_name)` to find analyzer dat
 
 ## 5. Testing Strategy
 
-### 5.1 Per-Phase Test Cases
+### 5.1 Per-Phase Test Cases (Spec Examples)
 
-Each phase gets a standalone Rust file in `examples/type-coverage/src/` that exercises every pattern in that phase. The analyzer runs first, then the macro builds with the analyzer output.
+> **Note:** These are specification examples showing what each phase covers, not actual files in the repo. Real tests live in `borrowscope-macro/tests/` (567 tests) and `borrowscope-analyzer/tests/fixture_tests.rs` (8 fixture tests).
+
+Each phase describes a standalone Rust file pattern that exercises every pattern in that phase. The analyzer runs first, then the macro builds with the analyzer output.
 
 #### Phase 1 test: `phase1_method_calls.rs`
 
@@ -854,7 +856,7 @@ cargo test -p borrowscope-macro
 
 ### 5.3 Success Criteria
 
-1. **Zero syntactic detection in macro** — no `detect_*()` calls remain:
+1. **Zero syntactic detection in primary dispatch** — no `detect_*()` calls in the primary code path (10 `detect_*` functions remain in `smart_pointer.rs` as initializer fallback when no analyzer data):
    ```bash
    grep -rn 'detect_smart_pointer_new\|detect_rc_clone\|detect_refcell_borrow\|detect_cell_operation\|detect_box_pin\|detect_box_raw_op\|detect_pin_operation\|detect_cow_creation\|detect_cow_to_mut\|detect_downgrade\|detect_weak_upgrade\|detect_once_cell_new\|detect_once_cell_method\|detect_maybe_uninit_new\|detect_maybe_uninit_method\|detect_concurrency_op' borrowscope-macro/src/
    # Expected: no output
