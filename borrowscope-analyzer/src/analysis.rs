@@ -5,7 +5,7 @@
 
 use crate::output::{ProjectTypeInfo, VariableTypeInfo, MethodCallInfo, ExpressionInfo, UnsafeOperationInfo, VariableUsageInfo, BorrowSpanInfo, DestructuringInfo, MatchBindingInfo, PatternBindingInfo, FieldAccessInfo, ClosureTraitInfo, VariantInfo, LifetimeInfo, LabelInfo, ConstPatternInfo, CallableInfo, RecordFieldExprInfo, RecordFieldPatInfo, LayoutInfo};
 use anyhow::{Context, Result};
-use ra_ap_hir::{db::DefDatabase, HirDisplay, Semantics, Function, Adt, HasContainer, BindingMode, Mutability, ItemContainer, Macro, StructKind, HasSource};
+use ra_ap_hir::{db::DefDatabase, HirDisplay, Semantics, Function, Adt, Trait, HasContainer, BindingMode, Mutability, ItemContainer, Macro, StructKind, HasSource};
 use ra_ap_hir_ty::attach_db;
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_ide_db::defs::Definition;
@@ -129,6 +129,12 @@ pub(crate) struct KnownTypes {
     
     // Format support
     fmt_arguments: Option<Adt>,
+    
+    // Traits (for implicit borrow detection)
+    deref_trait: Option<Trait>,
+    deref_mut_trait: Option<Trait>,
+    index_trait: Option<Trait>,
+    index_mut_trait: Option<Trait>,
 }
 
 /// Get full module path as string (e.g., "std::sync::poison::mutex")
@@ -298,6 +304,29 @@ impl KnownTypes {
                     let module_path = get_module_path(&adt.module(db), db);
                     if module_path.contains("sync") && !module_path.contains("rc") {
                         known.weak_arc = Some(adt);
+                    }
+                }
+            }
+        }
+        
+        // === Phase 3: Look up traits for implicit borrow detection ===
+        let traits_to_find: &[(&str, &str, fn(&mut KnownTypes, Trait))] = &[
+            ("Deref", "ops", |k, t| k.deref_trait = Some(t)),
+            ("DerefMut", "ops", |k, t| k.deref_mut_trait = Some(t)),
+            ("Index", "ops", |k, t| k.index_trait = Some(t)),
+            ("IndexMut", "ops", |k, t| k.index_mut_trait = Some(t)),
+        ];
+        
+        for (trait_name, module_filter, setter) in traits_to_find {
+            for krate in &std_crates {
+                let query = import_map::Query::new(trait_name.to_string()).exact();
+                for (item, _) in krate.query_external_importables(db, query) {
+                    if let either::Either::Left(ModuleDef::Trait(trait_)) = item {
+                        let module_path = get_module_path(&trait_.module(db), db);
+                        if module_path.contains(module_filter) {
+                            setter(&mut known, trait_);
+                            break;
+                        }
                     }
                 }
             }
@@ -864,7 +893,7 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
 
         println!("  Analyzing: {}", relative);
 
-        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, method_borrows, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = attach_db(&db, || {
+        let (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, method_borrows, function_calls, trait_impls, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats) = attach_db(&db, || {
             analyze_file(&sema, &db, &tracked_functions, &known_types, &known_macros, &display_target, file_id, &relative)
         });
         if !variables.is_empty() {
@@ -893,6 +922,13 @@ pub fn analyze_project(project_path: &Path) -> Result<ProjectTypeInfo> {
         }
         if !method_borrows.is_empty() {
             info.method_borrows.insert(relative.clone(), method_borrows);
+        }
+        if !function_calls.is_empty() {
+            info.function_calls.insert(relative.clone(), function_calls);
+        }
+        // Merge trait_impls (global, not per-file)
+        for (type_name, trait_info) in trait_impls {
+            info.trait_impls.insert(type_name, trait_info);
         }
         if !closure_traits.is_empty() {
             info.closure_traits.insert(relative.clone(), closure_traits);
@@ -933,7 +969,7 @@ fn analyze_file(
     display_target: &ra_ap_hir::DisplayTarget,
     file_id: ra_ap_vfs::FileId,
     relative_path: &str,
-) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>, Vec<FieldAccessInfo>, Vec<crate::output::MethodBorrowInfo>, Vec<ClosureTraitInfo>, Vec<VariantInfo>, Vec<LifetimeInfo>, Vec<LabelInfo>, Vec<ConstPatternInfo>, Vec<CallableInfo>, Vec<RecordFieldExprInfo>, Vec<RecordFieldPatInfo>) {
+) -> (Vec<VariableTypeInfo>, Vec<ExpressionInfo>, Vec<crate::output::AwaitPointInfo>, Vec<UnsafeOperationInfo>, Vec<BorrowSpanInfo>, Vec<DestructuringInfo>, Vec<MatchBindingInfo>, Vec<FieldAccessInfo>, Vec<crate::output::MethodBorrowInfo>, Vec<crate::output::FunctionCallInfo>, HashMap<String, crate::output::TraitImplInfo>, Vec<ClosureTraitInfo>, Vec<VariantInfo>, Vec<LifetimeInfo>, Vec<LabelInfo>, Vec<ConstPatternInfo>, Vec<CallableInfo>, Vec<RecordFieldExprInfo>, Vec<RecordFieldPatInfo>) {
     let mut variables = Vec::new();
     let mut await_points = Vec::new();
     let mut unsafe_ops = Vec::new();
@@ -1053,10 +1089,16 @@ fn analyze_file(
     // Collect method borrow information (semantic via function self parameter type)
     let method_borrows = collect_method_borrows(sema, db, &source_file);
     
+    // Collect function call information (semantic via return type analysis)
+    let function_calls = collect_function_calls(sema, db, &source_file, display_target, known_types);
+    
+    // Collect trait implementations for all types
+    let trait_impls = collect_trait_impls(sema, db, &source_file, display_target, known_types);
+    
     // Update await points with poll function resolution
     update_await_points_with_poll(sema, db, &source_file, display_target, &mut await_points);
 
-    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, method_borrows, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats)
+    (variables, expressions, await_points, unsafe_ops, borrow_spans, destructuring, match_bindings, field_accesses, method_borrows, function_calls, trait_impls, closure_traits, variants, lifetimes, labels, const_patterns, callables, record_field_exprs, record_field_pats)
 }
 
 /// Analyze a let statement
@@ -2164,6 +2206,120 @@ pub fn collect_method_borrows(
     }
 
     method_borrows
+}
+
+/// Collect function call information for return type tracking
+pub fn collect_function_calls(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+    display_target: &ra_ap_hir::DisplayTarget,
+    known_types: &KnownTypes,
+) -> Vec<crate::output::FunctionCallInfo> {
+    let mut function_calls = Vec::new();
+
+    for node in source_file.syntax().descendants() {
+        let Some(call_expr) = ast::CallExpr::cast(node) else {
+            continue;
+        };
+
+        // Get function name
+        let function_name = call_expr.expr()
+            .and_then(|e| {
+                if let ast::Expr::PathExpr(path) = e {
+                    path.path()?.segment()?.name_ref().map(|n| n.text().to_string())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| "<expr>".to_string());
+
+        // Get location
+        let range = call_expr.syntax().text_range();
+        let (line, column) = get_location(&range, source_file);
+
+        // Get return type
+        let return_ty = sema.type_of_expr(&ast::Expr::CallExpr(call_expr.clone()))
+            .map(|ti| ti.original);
+
+        // Classify return type using semantic classification
+        let return_category = if let Some(ref ty) = return_ty {
+            classify_by_resolved_type_semantic(ty, known_types, "call", db)
+                .unwrap_or_else(|| "unknown".to_string())
+        } else {
+            "unknown".to_string()
+        };
+
+        // Check if return type is Copy
+        let is_copy_return = return_ty
+            .as_ref()
+            .map(|ty| ty.is_copy(db))
+            .unwrap_or(false);
+
+        function_calls.push(crate::output::FunctionCallInfo {
+            function_name,
+            return_category,
+            is_copy_return,
+            line,
+            column,
+        });
+    }
+
+    function_calls
+}
+
+/// Collect trait implementations for all types in the project
+pub fn collect_trait_impls(
+    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    source_file: &ast::SourceFile,
+    display_target: &ra_ap_hir::DisplayTarget,
+    known_types: &KnownTypes,
+) -> HashMap<String, crate::output::TraitImplInfo> {
+    use std::collections::HashSet;
+    let mut trait_impls = HashMap::new();
+    let mut seen_types = HashSet::new();
+
+    for node in source_file.syntax().descendants() {
+        // Check all expressions for their types
+        if let Some(expr) = ast::Expr::cast(node.clone()) {
+            if let Some(ty) = sema.type_of_expr(&expr) {
+                let ty = ty.adjusted();
+                let type_name = ty.display(db, *display_target).to_string();
+                
+                // Skip if already processed
+                if !seen_types.insert(type_name.clone()) {
+                    continue;
+                }
+                
+                let implements_deref = known_types.deref_trait
+                    .map(|t| ty.impls_trait(db, t, &[]))
+                    .unwrap_or(false);
+                let implements_deref_mut = known_types.deref_mut_trait
+                    .map(|t| ty.impls_trait(db, t, &[]))
+                    .unwrap_or(false);
+                let implements_index = known_types.index_trait
+                    .map(|t| ty.impls_trait(db, t, &[]))
+                    .unwrap_or(false);
+                let implements_index_mut = known_types.index_mut_trait
+                    .map(|t| ty.impls_trait(db, t, &[]))
+                    .unwrap_or(false);
+                
+                // Only store if at least one trait is implemented
+                if implements_deref || implements_deref_mut || implements_index || implements_index_mut {
+                    trait_impls.insert(type_name.clone(), crate::output::TraitImplInfo {
+                        type_name,
+                        implements_deref,
+                        implements_deref_mut,
+                        implements_index,
+                        implements_index_mut,
+                    });
+                }
+            }
+        }
+    }
+
+    trait_impls
 }
 
 /// Resolve trait information for a method call (semantic)

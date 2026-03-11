@@ -122,6 +122,36 @@ pub struct MethodBorrowInfo {
     pub column: u32,
 }
 
+/// Information about a function call's return type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FunctionCallInfo {
+    /// Function name
+    pub function_name: String,
+    /// Return type category (e.g., "rc_new", "arc_clone", "option_some", etc.)
+    pub return_category: String,
+    /// Whether the return type is Copy
+    pub is_copy_return: bool,
+    /// Line number
+    pub line: u32,
+    /// Column number
+    pub column: u32,
+}
+
+/// Information about trait implementations for a type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraitImplInfo {
+    /// Type name
+    pub type_name: String,
+    /// Whether type implements Deref
+    pub implements_deref: bool,
+    /// Whether type implements DerefMut
+    pub implements_deref_mut: bool,
+    /// Whether type implements Index
+    pub implements_index: bool,
+    /// Whether type implements IndexMut
+    pub implements_index_mut: bool,
+}
+
 /// Information about a loop label
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabelInfo {
@@ -677,6 +707,12 @@ pub struct ProjectTypeInfo {
     /// Method borrows by file (borrow kind for method calls)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub method_borrows: HashMap<String, Vec<MethodBorrowInfo>>,
+    /// Function calls by file (return type info)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub function_calls: HashMap<String, Vec<FunctionCallInfo>>,
+    /// Trait implementations by type (for implicit borrow detection)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub trait_impls: HashMap<String, TraitImplInfo>,
     /// Closure trait info by file
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub closure_traits: HashMap<String, Vec<ClosureTraitInfo>>,
@@ -723,6 +759,8 @@ impl ProjectTypeInfo {
             match_bindings: HashMap::new(),
             field_accesses: HashMap::new(),
             method_borrows: HashMap::new(),
+            function_calls: HashMap::new(),
+            trait_impls: HashMap::new(),
             closure_traits: HashMap::new(),
             variants: HashMap::new(),
             lifetimes: HashMap::new(),
