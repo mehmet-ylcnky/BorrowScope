@@ -369,7 +369,6 @@ mod hygiene;
 mod optimized_transform;
 mod parser;
 mod pattern;
-mod smart_pointer;
 mod span_utils;
 mod transform_visitor;
 mod type_info;
