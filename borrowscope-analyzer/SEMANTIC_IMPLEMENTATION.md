@@ -514,7 +514,7 @@ Every method in the macro classified by whether the analyzer can replace its heu
 | 20 | `transform_clone()` | 1619 | Emits `track_clone` for `.clone()` call | ✅ **Semantic** | Checks `is_trait_method`/`trait_name` to verify `Clone::clone` |
 | 21 | `transform_lock()` | 1634 | Emits `track_lock` for `.lock()`/`.read()`/`.write()` | ✅ **Semantic** | Guarded by `semantic_op` check before dispatch |
 | 22 | `transform_unwrap()` | 1653 | Emits `track_unwrap` for `.unwrap()`/`.expect()` etc. | ✅ **Semantic** | Verifies `semantic_op` contains `"option"` or `"result"` |
-| 23 | `transform_call_expr()` | 1419 | Detects `transmute` by `path_str.contains("transmute")` | ⚠️ **Partial** | Detection still string-based; type extraction uses `expressions[]` |
+| 23 | `transform_call_expr()` | 1419 | Detects `transmute` by exact ident match + `has_transmute_expression()` | ✅ **Semantic** | Verifies via analyzer `expressions[]`; falls back only when no analyzer data |
 | 24 | `transform_closure()` | 710 | Detects capture mode from `move` keyword, extracts captured vars by walking AST | ⚠️ **Partial** | `move` keyword is syntactic, captured vars are guessed; `closure_captures[]` available but not consumed |
 | 25 | `transform_by_initializer_kind()` | 1129 | Dispatches on `initializer_kind` from analyzer | ✅ **Semantic** | — Already uses analyzer |
 | 26 | `lookup_type_info()` | 120 | Looks up variable in type-info.json | ✅ **Semantic** | — Already uses analyzer |
@@ -605,7 +605,7 @@ Every method in the macro classified by whether the analyzer can replace its heu
 | Detection functions (smart_pointer.rs) | 17 | ✅ 15 deleted or replaced by `semantic_op`; 10 remain as initializer fallback |
 | Core transform methods (#18–22) | 5 | ✅ All 5 now semantic (read `method_calls[]`) |
 | Dispatch points in visit_expr_mut (#73–90) | 18 | ✅ All 18 now use `semantic_op` lookup |
-| Partial transforms (#23–24) | 2 | ⚠️ transmute detection + closure captures still partially syntactic |
+| Partial transforms (#24) | 1 | ⚠️ closure captures still partially syntactic |
 | Partial enrichable transforms (#29, 31–33, 38–39, 43–44, 68) | 10 | ⚠️ Optional — analyzer has richer data but current approach works |
 | Structural transforms (no type info needed) | 17 | ❌ Not needed — syntactically unambiguous |
 | Helper methods (no detection logic) | 21 | ❌ Not needed — pure AST manipulation |

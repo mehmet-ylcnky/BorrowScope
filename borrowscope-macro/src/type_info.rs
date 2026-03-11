@@ -249,6 +249,19 @@ pub fn lookup_expression(file: &str, line: u32, column: u32) -> Option<&'static 
     exprs.iter().find(|e| e.line == line && e.column == column)
 }
 
+/// Check if a transmute call exists in analyzer expression data.
+/// Returns Some(true) if transmute found, Some(false) if analyzer data exists but no transmute,
+/// None if no analyzer data available (caller should fall back to heuristic).
+pub fn has_transmute_expression() -> Option<bool> {
+    let type_info = get_type_info()?;
+    if type_info.expressions.is_empty() {
+        return None; // No expression data — can't determine
+    }
+    Some(type_info.expressions.values()
+        .flat_map(|v| v.iter())
+        .any(|e| e.operation.contains("transmute")))
+}
+
 /// Find a transmute expression's type info from semantic data.
 /// Returns (argument_type, result_type) if exactly one transmute is tracked.
 /// Falls back to ("unknown", "unknown") if multiple transmutes exist (can't disambiguate).

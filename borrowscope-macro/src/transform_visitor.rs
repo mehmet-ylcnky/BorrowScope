@@ -1443,10 +1443,16 @@ impl OwnershipVisitor {
     /// Transform call expressions (transmute only - FFI/unsafe fn require type info)
     fn transform_call_expr(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
         if let Expr::Path(path) = call_expr.func.as_ref() {
-            let path_str = quote::quote!(#path).to_string();
-
-            // Check for transmute - semantic: use expressions data, fallback: string match
-            let is_transmute = path_str.contains("transmute");
+            // Check for transmute - semantic: verify via expressions[] data, fallback: path match
+            let path_looks_like_transmute = path.path.segments.last()
+                .map(|s| s.ident == "transmute")
+                .unwrap_or(false);
+            let is_transmute = if path_looks_like_transmute {
+                crate::type_info::has_transmute_expression()
+                    .unwrap_or(true) // no analyzer data → assume yes
+            } else {
+                false
+            };
             if is_transmute {
                 let span = path
                     .path
