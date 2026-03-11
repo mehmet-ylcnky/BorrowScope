@@ -1801,6 +1801,9 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     var_info.is_closure = ty.is_closure();
     var_info.is_fn_ptr = ty.is_fn();
     
+    // Copy semantics (semantic via is_copy || is_primitive)
+    var_info.copy_semantics = var_info.is_copy || var_info.is_primitive;
+    
     // Reference analysis (semantic via Type methods)
     var_info.contains_reference = ty.contains_reference(db);
     if let Some((_, mutability)) = ty.as_reference() {

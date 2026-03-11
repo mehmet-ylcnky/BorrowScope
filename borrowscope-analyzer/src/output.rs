@@ -453,6 +453,10 @@ pub struct VariableTypeInfo {
     // Static/const binding (semantic via syntax kind)
     pub is_static: bool,
     pub is_const: bool,
+    
+    // Copy semantics (semantic via is_copy || is_primitive)
+    #[serde(default)]
+    pub copy_semantics: bool,
 
     // Binding patterns (semantic via AST pattern analysis)
     pub is_tuple_binding: bool,
@@ -589,6 +593,7 @@ impl VariableTypeInfo {
             layout: None,
             is_dyn_trait: false,
             is_union: false,
+            copy_semantics: false,
             is_extern_type: false,
             is_never: false,
             is_static: false,
