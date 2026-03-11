@@ -391,7 +391,23 @@ impl OwnershipVisitor {
 
             // Special handling for mpsc::channel() which returns (Sender, Receiver)
             if self.config.track_smart_pointers {
-                if let Some(ConcurrencyOp::ChannelNew) = detect_concurrency_op(&original_expr) {
+                // Semantic check: look up tuple element type info for channel_new
+                let is_channel = if let Pat::Tuple(tuple_pat) = &original_pat {
+                    if tuple_pat.elems.len() == 2 {
+                        let first = Self::extract_pattern_name(&tuple_pat.elems[0]);
+                        self.lookup_type_info(&first)
+                            .and_then(|ti| ti.initializer_kind.as_deref())
+                            .map(|k| k == "channel_new")
+                    } else {
+                        Some(false)
+                    }
+                } else {
+                    Some(false)
+                };
+                // Semantic: true/false from analyzer, None: no data → fall back to detect_*
+                let is_channel = is_channel
+                    .unwrap_or_else(|| detect_concurrency_op(&original_expr) == Some(ConcurrencyOp::ChannelNew));
+                if is_channel {
                     // For tuple pattern like (tx, rx), extract the names
                     if let Pat::Tuple(tuple_pat) = &original_pat {
                         if tuple_pat.elems.len() == 2 {
