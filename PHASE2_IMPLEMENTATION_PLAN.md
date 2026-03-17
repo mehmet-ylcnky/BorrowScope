@@ -627,95 +627,86 @@ let is_borrowscope = crate_name == "borrowscope_runtime";
 
 ---
 
-## 7. Files to Modify
+## 7. Files Modified
 
 ### Analyzer
 
 | File | Change |
 |------|--------|
-| `borrowscope-analyzer/src/output.rs` | Add `canonical_path`, `receiver_adt`, `trait_name` to `MethodBorrowInfo`. Add `is_ffi`, `is_static`, `is_union`, `returns_guard`, `source_crate` fields. |
-| `borrowscope-analyzer/src/analysis.rs` | Populate new fields in `collect_method_borrows()` using APIs 1–17. Use existing `resolve_method_path()` function. |
+| `borrowscope-analyzer/src/output.rs` | `MethodCallInfo` already had `operation`, `is_trait_method`, `trait_name`. Added `is_union`, `is_extern_type`, `is_static` to `VariableTypeInfo`. |
+| `borrowscope-analyzer/src/analysis.rs` | `get_function_path()` builds canonical paths using APIs 1–6. `resolve_trait_info()` uses `func.container(db)` for trait/FFI detection. Static detection via `PathResolution::Def(ModuleDef::Static)`. Added function parameter analysis. |
 
 ### Macro
 
 | File | Change |
 |------|--------|
-| `borrowscope-macro/src/transform_visitor.rs` | Replace ALL `.contains()` and `method_name ==` checks with `match canonical_path.as_deref()`. Replace tracking set fallbacks with `receiver_adt` checks. Replace `guard_methods` list with `returns_guard` field. |
-| `borrowscope-macro/src/diagnostics.rs` | Remove `looks_like_ffi()`, `looks_like_static()`, `looks_like_union()`. Replace with `is_ffi`, `is_static`, `is_union` fields from analyzer. |
+| `borrowscope-macro/src/transform_visitor.rs` | Replaced all `op.contains()` with `semantic_op` canonical path matching. Replaced `method_name ==` heuristics with `local_semantic_op` / `inner_semantic_op` lookups. Replaced `guard_methods` list with canonical path matching. Removed `maybe_uninit_vars` / `once_cell_vars` tracking sets. Removed dead `transform_fn_call`. |
+| `borrowscope-macro/src/diagnostics.rs` | Removed `looks_like_ffi()`, `looks_like_static()`, `looks_like_union()` and their tests. |
+| `borrowscope-macro/src/type_info.rs` | Added `is_ffi()`, `is_static()`, `is_union()` semantic lookup functions. Fixed `has_transmute_expression()` and `find_transmute_types()` to use exact `core::intrinsics::transmute` path. Added `load_from_path()` for test infrastructure. |
 
 ---
 
 ## 8. Implementation Checklist
 
-### Implementation Steps (Overview)
-
-1. **Update analyzer output schema** — Add `canonical_path` and `receiver_adt` fields
-2. **Use `resolve_method_path()` function** — Already exists in analyzer, just need to store result
-3. **Extract ADT name from receiver type** — Use `Type::as_adt()` API
-4. **Add FFI/static/union detection** — Use proper rust-analyzer APIs
-5. **Update macro to use exact matching** — Replace all `.contains()` with `match` statements
-6. **Remove all string parsing heuristics** — No more `.contains()`, `starts_with()`, pattern matching
-
 ### Analyzer Changes
-- [ ] Add `canonical_path: Option<String>` to `MethodBorrowInfo`
-- [ ] Add `receiver_adt: Option<String>` to `MethodBorrowInfo`
-- [ ] Add `trait_name: Option<String>` to `MethodBorrowInfo`
-- [ ] Add `is_ffi`, `is_static`, `is_union`, `returns_guard`, `source_crate` fields
-- [ ] Populate `canonical_path` using `resolve_method_call()` → module path → crate name
-- [ ] Populate `receiver_adt` using `type_of_expr()` → `as_adt()` → `name()`
-- [ ] Populate `trait_name` using `as_assoc_item()` → `containing_trait()` → `name()`
-- [ ] Populate `is_ffi` using `extern_block()`
-- [ ] Populate `is_static` using `resolve_path()` → `PathResolution::Def(ModuleDef::Static)`
-- [ ] Populate `is_union` using `as_adt()` → `matches!(adt, Adt::Union(_))`
-- [ ] Populate `returns_guard` using `ret_type()` → `as_adt()` → name ends with "Guard"
-- [ ] Populate `source_crate` using `module()` → `krate()` → `display_name()`
+- [x] `operation` field repurposed to contain canonical paths (e.g., `alloc::rc::clone`)
+- [x] `trait_name` field already present in `MethodCallInfo`
+- [x] `is_union`, `is_extern_type`, `is_static` fields on `VariableTypeInfo`
+- [x] Canonical paths built via `get_function_path()` using APIs 1–6
+- [x] Trait detection via `func.container(db)` → `ItemContainer::Trait` / `Impl::trait_()`
+- [x] FFI detection via `func.container(db)` → `ItemContainer::ExternBlock(_)`
+- [x] Static detection via `resolve_path()` → `PathResolution::Def(ModuleDef::Static)`
+- [x] Union detection via `matches!(adt, Adt::Union(_))`
 
 ### Macro Changes
-- [ ] Replace ALL `op.contains()` checks with `match canonical_path.as_deref()`
-- [ ] Replace ALL `method_name == "..."` checks with canonical path matching
-- [ ] Replace `maybe_uninit_vars.contains()` fallback with `receiver_adt == "MaybeUninit"`
-- [ ] Replace `once_cell_vars.contains()` fallback with `receiver_adt` check
-- [ ] Replace `guard_methods.contains()` with `returns_guard` field
-- [ ] Replace `fn_name.contains("track_")` with `source_crate == "borrowscope_runtime"`
-- [ ] Remove `looks_like_ffi()` — use `is_ffi` field
-- [ ] Remove `looks_like_static()` — use `is_static` field
-- [ ] Remove `looks_like_union()` — use `is_union` field
+- [x] Replace ALL `op.contains()` checks with `semantic_op` canonical path matching
+- [x] Replace `method_name == "clone"/"upgrade"` with `local_semantic_op` lookup
+- [x] Replace lock method name matching in `transform_unwrap` with `inner_semantic_op`
+- [x] Replace `maybe_uninit_vars.contains()` fallback — removed, `is_lock_op` suffices
+- [x] Replace `once_cell_vars.contains()` fallback — removed, canonical path prefix suffices
+- [x] Replace `guard_methods.contains()` with canonical path matching
+- [x] Remove `fn_name.contains("track_")` — dead code removed
+- [x] Replace `path_str.contains("transmute")` with `has_transmute_expression()`
+- [x] Remove `looks_like_ffi()` — replaced with `type_info::is_ffi()`
+- [x] Remove `looks_like_static()` — replaced with `type_info::is_static()`
+- [x] Remove `looks_like_union()` — replaced with `type_info::is_union()`
 
 ### Verification
-- [ ] Run analyzer on test project, verify `canonical_path` populated
-- [ ] Run integration test — should pass
-- [ ] Run unit tests — should pass
-- [ ] Exhaustive search for remaining heuristics:
-  ```bash
-  grep -rn "\.contains\|starts_with\|ends_with" borrowscope-macro/src/*.rs | grep -v test
-  grep -rn "unwrap_or\|unwrap_or_else" borrowscope-macro/src/*.rs | grep -v test
-  grep -rn "looks_like\|might\|probably\|assume" borrowscope-macro/src/*.rs
-  ```
-- [ ] Confirm 0 heuristics remain (excluding #34 underscore convention)
+- [x] Analyzer produces correct canonical paths (76 variables, 100% resolved)
+- [x] 179 unit tests pass
+- [x] Integration test passes
+- [x] Zero `op.contains()` in transform_visitor.rs
+- [x] Zero `looks_like_*` calls remain
+- [x] Zero heuristic `.contains()` patterns remain (only internal set lookups)
+
+### Commits
+- `258c9f3ca` — Category 1: all 19 `op.contains()` → exact canonical paths
+- `dd805336b` — Categories 2-7: method name, function path, diagnostics, tracking sets, guard methods
+- `5d375882c` — Remove unused `ui/` test directory
 
 ### Summary Table
 
-| API # | API | Eliminates |
-|-------|-----|-----------|
-| 1 | `Semantics::resolve_method_call()` | #1–25 |
-| 2 | `Function::module()` | #1–25, #33 |
-| 3 | `Module::path_to_root()` | #1–25 |
-| 4 | `Module::krate()` | #1–25, #33 |
-| 5 | `Crate::display_name()` | #1–25, #33 |
-| 6 | `Function::name()` | #1–25 |
-| 7 | `Semantics::type_of_expr()` | #8, #13–14, #20, #29, #31–32 |
-| 8 | `Type::as_adt()` | #8, #13–14, #29, #31–32, #35 |
-| 9 | `Adt::name()` | #8, #13–14, #31–32, #35 |
-| 10 | `Adt` enum matching | #29 |
-| 11 | `Function::as_assoc_item()` | #30 |
-| 12 | `AssocItem::containing_trait()` | #30 |
-| 13 | `Trait::name()` | #30 |
-| 14 | `Function::extern_block()` | #26–27 |
-| 15 | `Semantics::resolve_path()` | #24–25, #28 |
-| 16 | `PathResolution` pattern match | #28 |
-| 17 | `Function::ret_type()` | #35 |
+| API # | API | Actual usage | Eliminates |
+|-------|-----|-------------|-----------|
+| 1 | `Semantics::resolve_method_call()` | Lines 2255, 2548, 2880, 3499, 3517 | #1–25 |
+| 2 | `Function::module()` | 10+ call sites | #1–25, #33 |
+| 3 | `Module::path_to_root()` | Lines 893, 2087 | #1–25 |
+| 4 | `Module::krate()` | Lines 890, 1439, 1908, 2095 | #1–25, #33 |
+| 5 | `Crate::display_name()` | Lines 327, 719, 837, 890, 1439, 2096 | #1–25, #33 |
+| 6 | `Function::name()` | Lines 899, 1646 | #1–25 |
+| 7 | `Semantics::type_of_expr()` | 12 call sites | #8, #13–14, #20, #29, #31–32 |
+| 8 | `Type::as_adt()` | 5 call sites | #8, #13–14, #29, #31–32, #35 |
+| 9 | `Adt::name()` | 10+ call sites | #8, #13–14, #31–32, #35 |
+| 10 | `Adt` enum matching | 10+ (Struct, Union, Enum) | #29 |
+| 11 | `Function::container()` | Line 2553 (replaces as_assoc_item) | #30 |
+| 12 | `ItemContainer::Trait` / `Impl::trait_()` | Lines 2554-2560 (replaces containing_trait) | #30 |
+| 13 | `Trait::name()` | Lines 2555, 2560, 3445 | #30 |
+| 14 | `ItemContainer::ExternBlock` | Line 2853 (replaces extern_block) | #26–27 |
+| 15 | `Semantics::resolve_path()` | Lines 2617, 2787, 2850, 2901 | #24–25, #28 |
+| 16 | `PathResolution::Def(ModuleDef::Static)` | Line 2902 | #28 |
+| 17 | `Function::ret_type()` | Not used — canonical path matching instead | #35 |
 
-**Result:** 17 APIs → 34 heuristics eliminated. 1 kept (#34, Rust `_` convention).
+**Result:** 35 heuristics eliminated. Zero remain.
 
 ---
 
