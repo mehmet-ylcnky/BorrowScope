@@ -1,6 +1,6 @@
 # Complete Mapping: 35 Heuristics → 17 Verified rust-analyzer APIs
 
-**Status:** ALL APIs VERIFIED against https://docs.rs/ra_ap_hir/latest/ra_ap_hir/
+**Status:** ✅ ALL 35 HEURISTICS ELIMINATED — Implementation complete as of `dd805336b`
 
 ---
 
@@ -303,14 +303,18 @@ if let Some(adt) = ret_type.as_adt(db) {
 
 ## Implementation Checklist
 
-- [ ] Update analyzer to provide `canonical_path` field
-- [ ] Update analyzer to provide `receiver_adt` field  
-- [ ] Update analyzer to detect FFI functions
-- [ ] Update analyzer to detect static variables
-- [ ] Update analyzer to detect union types
-- [ ] Update analyzer to check return types for guards
-- [ ] Update macro to use exact path matching
-- [ ] Remove ALL `.contains()` checks from macro
-- [ ] Remove ALL string pattern matching from macro
-- [ ] Remove `diagnostics.rs` heuristic functions
-- [ ] Verify 0 heuristics remain with exhaustive search
+- [x] Update analyzer to provide `canonical_path` field (via `operation` in `MethodCallInfo`)
+- [x] Update analyzer to provide `receiver_adt` field (via `is_union`, `is_extern_type`, `is_static` in `VariableTypeInfo`)
+- [x] Update analyzer to detect FFI functions (`is_extern_type` field)
+- [x] Update analyzer to detect static variables (`is_static` field)
+- [x] Update analyzer to detect union types (`is_union` field)
+- [x] Update analyzer to check return types for guards (replaced with canonical path matching)
+- [x] Update macro to use exact path matching (all `op.contains()` → `semantic_op` canonical paths)
+- [x] Remove ALL `.contains()` checks from macro (zero remain)
+- [x] Remove ALL string pattern matching from macro (zero heuristics remain)
+- [x] Remove `diagnostics.rs` heuristic functions (`looks_like_ffi/static/union` deleted)
+- [x] Verify 0 heuristics remain with exhaustive search
+
+### Commits
+- `258c9f3ca` — Category 1: all 19 `op.contains()` → exact canonical paths
+- `dd805336b` — Categories 2-7: method name, function path, diagnostics, tracking sets, guard methods

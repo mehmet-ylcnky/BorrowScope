@@ -2,6 +2,8 @@
 
 **Source:** https://docs.rs/ra_ap_hir/latest/ra_ap_hir/
 
+**Status:** ✅ All 17 APIs verified and actively used in `borrowscope-analyzer/src/analysis.rs`
+
 All APIs below have been verified against the official rust-analyzer documentation.
 
 ---
