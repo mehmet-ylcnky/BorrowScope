@@ -1270,7 +1270,7 @@ impl OwnershipVisitor {
             }
 
             // Pin
-            "pin_new" => Some(syn::parse_quote! {
+            "pin_new" | "pin_as_ref" | "pin_as_mut" => Some(syn::parse_quote! {
                 borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
             }),
 

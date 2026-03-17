@@ -142,6 +142,13 @@ pub fn test_raw_ptr() {
     let _q: *const i32 = &x as *const i32;
 }
 
+fn test_pin() {
+    use std::pin::Pin;
+    let mut x = 42;
+    let pinned = Pin::new(&mut x);
+    let _r = pinned.as_ref();
+}
+
 fn test_visibility() {
     let visible = 5;
     let _ = visible;
@@ -169,6 +176,7 @@ fn main() {
     test_maybe_uninit();
     test_transmute();
     test_raw_ptr();
+    test_pin();
     test_visibility();
     let _ = test_function_signature(42);
 }
