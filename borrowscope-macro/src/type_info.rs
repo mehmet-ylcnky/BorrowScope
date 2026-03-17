@@ -265,6 +265,18 @@ pub fn lookup_by_name(var_name: &str) -> Option<&'static VariableTypeInfo> {
     get_type_info()?.lookup(var_name)
 }
 
+pub fn is_ffi(name: &str) -> bool {
+    lookup_by_name(name).map_or(false, |v| v.is_extern_type)
+}
+
+pub fn is_static(name: &str) -> bool {
+    lookup_by_name(name).map_or(false, |v| v.is_static)
+}
+
+pub fn is_union(name: &str) -> bool {
+    lookup_by_name(name).map_or(false, |v| v.is_union)
+}
+
 /// Lookup method call info for a variable at a specific location
 pub fn lookup_method_call(var_name: &str, line: u32, column: u32) -> Option<&'static MethodCallInfo> {
     let type_info = get_type_info()?;
@@ -289,7 +301,7 @@ pub fn has_transmute_expression() -> Option<bool> {
     }
     Some(type_info.expressions.values()
         .flat_map(|v| v.iter())
-        .any(|e| e.operation.contains("transmute")))
+        .any(|e| e.operation == "core::intrinsics::transmute"))
 }
 
 /// Find a transmute expression's type info from semantic data.
@@ -301,7 +313,7 @@ pub fn find_transmute_types() -> Option<(&'static str, &'static str)> {
     let mut found: Option<&ExpressionInfo> = None;
     for exprs in type_info.expressions.values() {
         for e in exprs {
-            if e.operation.contains("transmute") {
+            if e.operation == "core::intrinsics::transmute" {
                 if found.is_some() {
                     return None; // Multiple transmutes — can't disambiguate
                 }

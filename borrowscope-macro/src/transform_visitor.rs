@@ -40,10 +40,6 @@ pub struct OwnershipVisitor {
     config: TraceConfig,
     /// Variables that are references (to avoid double-borrowing in method calls)
     ref_vars: HashSet<String>,
-    /// Variables that are OnceCell/OnceLock
-    once_cell_vars: HashSet<String>,
-    /// Variables that are MaybeUninit
-    maybe_uninit_vars: HashSet<String>,
     /// Variables that are Cow
     cow_vars: HashSet<String>,
     /// Variables that are Weak (stores "weak_rc" or "weak_arc")
@@ -113,8 +109,6 @@ impl OwnershipVisitor {
             pending_inserts: Vec::new(),
             config,
             ref_vars: HashSet::new(),
-            once_cell_vars: HashSet::new(),
-            maybe_uninit_vars: HashSet::new(),
             cow_vars: HashSet::new(),
             weak_vars: HashMap::new(),
             sender_vars: HashSet::new(),
@@ -552,11 +546,26 @@ impl OwnershipVisitor {
         
         // Skip wrapping for methods that return guards/borrows - wrapping creates
         // temporaries that cause lifetime issues (e.g., if let Ok(g) = mutex.try_lock())
-        let guard_methods = [
-            "lock", "try_lock", "read", "try_read", "write", "try_write",
-            "borrow", "borrow_mut", "get_mut",
-        ];
-        if guard_methods.contains(&method_name.as_str()) {
+        let receiver_name_for_guard = Self::extract_receiver_name(&method_call.receiver);
+        let guard_semantic_op = receiver_name_for_guard.as_ref().and_then(|name| {
+            let type_info = crate::type_info::lookup_by_name(name)?;
+            type_info.method_calls.iter()
+                .find(|mc| mc.method == method_name)
+                .and_then(|mc| mc.operation.clone())
+        });
+        let is_guard_method = matches!(
+            guard_semantic_op.as_deref(),
+            Some("std::sync::poison::mutex::lock")
+            | Some("std::sync::poison::mutex::try_lock")
+            | Some("std::sync::poison::rwlock::read")
+            | Some("std::sync::poison::rwlock::try_read")
+            | Some("std::sync::poison::rwlock::write")
+            | Some("std::sync::poison::rwlock::try_write")
+            | Some("core::cell::borrow")
+            | Some("core::cell::borrow_mut")
+            | Some("core::cell::get_mut")
+        );
+        if is_guard_method {
             self.visit_expr_mut(&mut method_call.receiver);
             for arg in &mut method_call.args {
                 self.visit_expr_mut(arg);
@@ -988,7 +997,17 @@ impl OwnershipVisitor {
                 // Check if assigning from a Weak clone (let weak2 = weak.clone())
                 } else if let Expr::MethodCall(method_call) = original_expr.as_ref() {
                     let method_name = method_call.method.to_string();
-                    if method_name == "clone" {
+                    let local_semantic_op = Self::extract_receiver_name(&method_call.receiver).and_then(|name| {
+                        let type_info = crate::type_info::lookup_by_name(&name)?;
+                        type_info.method_calls.iter()
+                            .find(|mc| mc.method == method_name)
+                            .and_then(|mc| mc.operation.clone())
+                    });
+                    let is_weak_clone = matches!(
+                        local_semantic_op.as_deref(),
+                        Some("alloc::rc::clone") | Some("alloc::sync::clone")
+                    );
+                    if is_weak_clone {
                         if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
                             if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 // This is a Weak clone - track the new variable as Weak too
@@ -1014,7 +1033,11 @@ impl OwnershipVisitor {
                         }
                     }
                     // Check if assigning from a Weak upgrade (let strong = weak.upgrade())
-                    if method_name == "upgrade" {
+                    let is_weak_upgrade = matches!(
+                        local_semantic_op.as_deref(),
+                        Some("alloc::rc::upgrade") | Some("alloc::sync::upgrade")
+                    );
+                    if is_weak_upgrade {
                         if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
                             if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 let weak_id = format!("weak_{}", receiver_name);
@@ -1061,7 +1084,6 @@ impl OwnershipVisitor {
                     return;
                 } else if let Some(is_sync) = None::<bool> {
                     // OnceCell::new or OnceLock::new - register the variable
-                    self.once_cell_vars.insert(var_name.clone());
                     let new_expr: Expr = if is_sync {
                         syn::parse_quote! {
                             borrowscope_runtime::track_once_lock_new(#var_name, #location, #original_expr)
@@ -1076,7 +1098,6 @@ impl OwnershipVisitor {
                     return;
                 } else if let Some(op) = None::<&str> {
                     // MaybeUninit::uninit or MaybeUninit::new - register the variable
-                    self.maybe_uninit_vars.insert(var_name.clone());
                     let new_expr: Expr = match op {
                         "maybe_uninit_uninit" => syn::parse_quote! {
                             borrowscope_runtime::track_maybe_uninit_uninit(#var_name, #location, #original_expr)
@@ -1228,7 +1249,6 @@ impl OwnershipVisitor {
 
             // OnceCell/OnceLock
             "once_cell_new" | "once_lock_new" => {
-                self.once_cell_vars.insert(var_name.to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
                 })
@@ -1236,7 +1256,6 @@ impl OwnershipVisitor {
 
             // MaybeUninit
             "maybe_uninit_new" | "maybe_uninit" => {
-                self.maybe_uninit_vars.insert(var_name.to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
                 })
@@ -1454,13 +1473,7 @@ impl OwnershipVisitor {
     fn transform_call_expr(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
         if let Expr::Path(path) = call_expr.func.as_ref() {
             // Check for transmute - must be detected by analyzer
-            let path_str = path.path.segments.iter()
-                .map(|s| s.ident.to_string())
-                .collect::<Vec<_>>()
-                .join("::");
-            
-            let is_transmute = path_str.contains("transmute") && 
-                crate::type_info::has_transmute_expression()
+            let is_transmute = crate::type_info::has_transmute_expression()
                     .expect("Analyzer must detect transmute calls");
             
             if is_transmute {
@@ -1506,7 +1519,7 @@ impl OwnershipVisitor {
                     // Skip if it's a known FFI function (user declared)
                     if !self.config.known_ffi.iter().any(|f| f == &fn_name) {
                         // Check if it looks like FFI
-                        if crate::diagnostics::looks_like_ffi(&fn_name) {
+                        if crate::type_info::is_ffi(&fn_name) {
                             let warning = crate::diagnostics::create_ambiguous_warning(
                                 crate::diagnostics::AmbiguousPattern::PossibleFfi,
                                 &fn_name,
@@ -1708,10 +1721,16 @@ impl OwnershipVisitor {
         // Check if receiver is a lock method call (e.g., mutex.lock().unwrap())
         if let Expr::MethodCall(inner_method) = receiver.as_ref() {
             let inner_method_name = inner_method.method.to_string();
-            let lock_type = match inner_method_name.as_str() {
-                "lock" | "try_lock" => Some("mutex"),
-                "read" | "try_read" => Some("rwlock_read"),
-                "write" | "try_write" => Some("rwlock_write"),
+            let inner_semantic_op = Self::extract_receiver_name(&inner_method.receiver).and_then(|name| {
+                let type_info = crate::type_info::lookup_by_name(&name)?;
+                type_info.method_calls.iter()
+                    .find(|mc| mc.method == inner_method_name)
+                    .and_then(|mc| mc.operation.clone())
+            });
+            let lock_type = match inner_semantic_op.as_deref() {
+                Some("std::sync::poison::mutex::lock") | Some("std::sync::poison::mutex::try_lock") => Some("mutex"),
+                Some("std::sync::poison::rwlock::read") => Some("rwlock_read"),
+                Some("std::sync::poison::rwlock::write") => Some("rwlock_write"),
                 _ => None,
             };
             
@@ -1903,41 +1922,6 @@ impl OwnershipVisitor {
             {
                 borrowscope_runtime::track_field_access(#access_id, #base_name, #field_name, #location);
                 #base_expr.#member
-            }
-        };
-    }
-
-    /// Transform function call (generic, excluding special cases)
-    /// Note: Currently disabled as it would be too noisy. Can be enabled via feature flag.
-    #[allow(dead_code)]
-    fn transform_fn_call(&mut self, expr: &mut Expr, call_expr: &syn::ExprCall) {
-        let call_id = self.gen_id();
-        let func = &call_expr.func;
-        let args = &call_expr.args;
-
-        let fn_name = if let Expr::Path(path) = func.as_ref() {
-            quote::quote!(#path).to_string()
-        } else {
-            "fn".to_string()
-        };
-
-        // Skip if already handled (transmute, etc.)
-        if fn_name.contains("transmute") || fn_name.contains("track_") {
-            return;
-        }
-
-        let location = Self::location_tokens(
-            if let Expr::Path(path) = func.as_ref() {
-                path.path.segments.last().map(|s| s.ident.span()).unwrap_or_else(proc_macro2::Span::call_site)
-            } else {
-                proc_macro2::Span::call_site()
-            }
-        );
-
-        *expr = syn::parse_quote! {
-            {
-                borrowscope_runtime::track_call(#call_id, #fn_name, #location);
-                #func(#args)
             }
         };
     }
@@ -2439,13 +2423,8 @@ impl VisitMut for OwnershipVisitor {
             }
 
             // Check for lock methods (Mutex/RwLock)
-            // Semantic: use operation to disambiguate "write" (RwLock vs MaybeUninit vs io::Write)
+            // Semantic: use operation canonical path to disambiguate "write" (RwLock vs MaybeUninit vs io::Write)
             if self.config.track_methods {
-                let is_maybe_uninit = receiver_name.as_ref()
-                    .map(|n| self.maybe_uninit_vars.contains(n))
-                    .expect("Analyzer must track MaybeUninit variables");
-                
-                // Semantic disambiguation for "lock", "read", "write"
                 let is_lock_op = matches!(
                     semantic_op.as_deref(),
                     Some("std::sync::poison::mutex::lock")
@@ -2454,7 +2433,7 @@ impl VisitMut for OwnershipVisitor {
                     | Some("std::sync::poison::rwlock::write")
                 );
                 
-                if is_lock_op || !is_maybe_uninit {
+                if is_lock_op {
                     match method_name.as_str() {
                         "lock" => {
                             let mc = method_call.clone();
@@ -2848,7 +2827,7 @@ impl VisitMut for OwnershipVisitor {
                     // Skip if it's a known static (user declared)
                     if !self.config.known_statics.iter().any(|s| s == &name) {
                         // Check if it looks like a static (SCREAMING_SNAKE_CASE)
-                        if crate::diagnostics::looks_like_static(&name) {
+                        if crate::type_info::is_static(&name) {
                             let warning = crate::diagnostics::create_ambiguous_warning(
                                 crate::diagnostics::AmbiguousPattern::PossibleStatic,
                                 &name,
@@ -2869,7 +2848,7 @@ impl VisitMut for OwnershipVisitor {
                         // Skip if it's a known union (user declared)
                         if !self.config.known_unions.iter().any(|u| u == &base_name) {
                             // Check if it looks like a union
-                            if crate::diagnostics::looks_like_union(&base_name) {
+                            if crate::type_info::is_union(&base_name) {
                                 if let syn::Member::Named(field_ident) = &field_expr.member {
                                     let warning = crate::diagnostics::create_ambiguous_warning(
                                         crate::diagnostics::AmbiguousPattern::PossibleUnion,
