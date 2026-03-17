@@ -447,32 +447,36 @@ if let Some(adt) = ret_type.as_adt(db) {
 
 ---
 
-## 5. Target Schema
+## 5. Actual Schema (as implemented)
 
-### Updated `MethodBorrowInfo` (analyzer output)
+### `MethodCallInfo` (analyzer output — `borrowscope-analyzer/src/output.rs`)
 
 ```rust
-pub struct MethodBorrowInfo {
-    pub method: String,                    // "clone"
-    pub canonical_path: Option<String>,    // "alloc::rc::clone"       ← NEW
-    pub receiver_adt: Option<String>,      // "Rc"                         ← NEW
-    pub trait_name: Option<String>,        // "Clone"                      ← NEW
-    pub operation: Option<String>,         // "Rc::clone" (deprecated, keep for backward compat)
-    pub receiver_type: String,             // "Rc<i32>"
-    pub self_borrow: Option<String>,       // "immutable"
-    pub is_trait_method: Option<bool>,     // true
-    pub span: SpanInfo,
+pub struct MethodCallInfo {
+    pub method: String,                    // "clone", "lock", "unwrap"
+    pub line: u32,
+    pub column: u32,
+    pub operation: Option<String>,         // Canonical path: "alloc::rc::clone", "std::sync::poison::mutex::lock"
+    pub self_borrow: Option<String>,       // "immutable", "mutable", "consuming"
+    pub receiver_type: String,             // "Rc<i32>", "Mutex<String>"
+    pub result_type: Option<String>,       // Return type if relevant
+    pub is_trait_method: Option<bool>,     // true if from a trait impl
+    pub trait_name: Option<String>,        // "Clone", "Iterator", etc.
+    pub is_unsafe: Option<bool>,           // true if unsafe method
 }
 ```
 
-### New analyzer-provided fields for other heuristics
+**Note:** The plan proposed adding `canonical_path` and `receiver_adt` as new fields and deprecating `operation`. Instead, `operation` was repurposed to contain canonical paths directly (e.g., `alloc::rc::clone`). No separate fields were needed — canonical path prefix matching (`core::option::`, `core::cell::once::`) replaces ADT name matching.
 
-The analyzer must also provide (in `VariableTypeInfo` or new structures):
-- `is_ffi: Option<bool>` — from `Function::extern_block()`
-- `is_static: Option<bool>` — from `PathResolution::Def(ModuleDef::Static)`
-- `is_union: Option<bool>` — from `matches!(adt, Adt::Union(_))`
-- `returns_guard: Option<bool>` — from `Function::ret_type()` + ADT name check
-- `source_crate: Option<String>` — from `Module::krate()` + `Crate::display_name()`
+### `VariableTypeInfo` fields for other heuristics
+
+```rust
+pub is_union: bool,        // from matches!(adt, Adt::Union(_))
+pub is_extern_type: bool,  // from func.container(db) == ItemContainer::ExternBlock(_)
+pub is_static: bool,       // from PathResolution::Def(ModuleDef::Static(_))
+```
+
+**Note:** `returns_guard` and `source_crate` fields were not needed. Guard detection uses canonical path matching in the macro. Crate check (`track_` functions) was eliminated by removing dead code.
 
 ---
 
