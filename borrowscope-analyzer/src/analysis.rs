@@ -1439,6 +1439,12 @@ fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownT
             let crate_name = adt.module(db).krate(db).display_name(db).map(|n| n.to_string()).unwrap_or_default();
             let is_std = crate_name == "std" || crate_name == "core" || crate_name == "alloc";
             match (adt_name.as_str(), is_std) {
+                // Re-exported types whose import_map ADT may differ from type-resolver ADT
+                ("Mutex", true) => "mutex",
+                ("RwLock", true) => "rwlock",
+                ("MutexGuard", true) => "mutex_guard",
+                ("RwLockReadGuard", true) => "rwlock_read_guard",
+                ("RwLockWriteGuard", true) => "rwlock_write_guard",
                 ("MappedMutexGuard", true) => "mapped_mutex_guard",
                 ("MappedRwLockReadGuard", true) => "mapped_rwlock_read_guard",
                 ("MappedRwLockWriteGuard", true) => "mapped_rwlock_write_guard",

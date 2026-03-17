@@ -117,16 +117,16 @@
 | ID | Pattern | Example | Status | Phase | How It Works Today |
 |----|---------|---------|--------|-------|--------------------|
 | 17 | `cow_new` | `let c = Cow::Owned(s)` | ✅ | — | `KnownTypes.cow` ADT + `"call"` → `"cow_new"` |
-| 18 | `cow_variant` | `let c = Cow::Borrowed(&s)` | ✅ | — | Cow ADT + expr_kind `"path"` → `"cow_variant"` |
+| 18 | `cow_variant` | `let c = existing_cow` | ✅ | — | Cow ADT + expr_kind `"path"` → `"cow_variant"` |
 | 19 | `cow_to_mut` | `c.to_mut()` | ✅ | — | Macro: `semantic_op` matches `alloc::borrow::to_mut` → `track_cow_to_mut`. |
 
 #### Weak Reference Operations (3 patterns)
 
 | ID | Pattern | Example | Status | Phase | How It Works Today |
 |----|---------|---------|--------|-------|--------------------|
-| 20 | `weak_new` | `let w = Weak::new()` | ✅ | — | (same as ID 4) |
-| 21 | `weak_downgrade` | `let w = Rc::downgrade(&x)` | ✅ | — | (same as ID 5) |
-| 22 | `weak_upgrade` | `let x = w.upgrade()` | ✅ | — | Result type is `Option<Rc<T>>` — Option ADT, but expr_kind `"upgrade"` on Weak ADT → `"weak_upgrade"` |
+| 20 | `weak_new` | `let w = Weak::new()` | ✅ | — | Weak ADT + `"call"` → `"weak_new"` → `track_weak_new` |
+| 21 | `weak_downgrade` | `let w = Rc::downgrade(&x)` | ✅ | — | Result is `Weak<T>` → same as ID 20: `"weak_new"` → `track_weak_new` |
+| 22 | `weak_upgrade` | `let x = w.upgrade()` | ✅ | — | Method call: `semantic_op` matches `alloc::rc::upgrade` / `alloc::sync::upgrade` → `track_weak_upgrade`. Initializer kind is `option_upgrade` (result type is `Option<Rc<T>>`). |
 
 #### OnceCell/OnceLock Operations (5 patterns)
 

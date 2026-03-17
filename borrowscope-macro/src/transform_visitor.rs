@@ -1235,7 +1235,7 @@ impl OwnershipVisitor {
             }),
 
             // Weak references
-            "weak_new" | "weak_downgrade" => {
+            "weak_new" => {
                 // Track as weak variable
                 if type_info.is_arc {
                     self.weak_vars.insert(var_name.to_string(), "weak_arc".to_string());
@@ -1281,19 +1281,22 @@ impl OwnershipVisitor {
             }
 
             // Guards - track for drop
-            "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "mutex_guard_mapped" => {
+            "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "result_try_lock"
+            | "mutex_guard_unwrap" | "mutex_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "Mutex".to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_mutex_lock(#var_name, #location, #original_expr)
                 })
             }
-            "rwlock_read_guard" | "rwlock_read" | "rwlock_read_guard_mapped" => {
+            "rwlock_read_guard" | "rwlock_read" | "rwlock_try_read" | "result_try_read"
+            | "rwlock_read_guard_unwrap" | "rwlock_read_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_rwlock_read(#var_name, #location, #original_expr)
                 })
             }
-            "rwlock_write_guard" | "rwlock_write" | "rwlock_write_guard_mapped" => {
+            "rwlock_write_guard" | "rwlock_write" | "rwlock_try_write" | "result_try_write"
+            | "rwlock_write_guard_unwrap" | "rwlock_write_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
                 Some(syn::parse_quote! {
                     borrowscope_runtime::track_rwlock_write(#var_name, #location, #original_expr)
@@ -1744,8 +1747,8 @@ impl OwnershipVisitor {
             });
             let lock_type = match inner_semantic_op.as_deref() {
                 Some("std::sync::poison::mutex::lock") | Some("std::sync::poison::mutex::try_lock") => Some("mutex"),
-                Some("std::sync::poison::rwlock::read") => Some("rwlock_read"),
-                Some("std::sync::poison::rwlock::write") => Some("rwlock_write"),
+                Some("std::sync::poison::rwlock::read") | Some("std::sync::poison::rwlock::try_read") => Some("rwlock_read"),
+                Some("std::sync::poison::rwlock::write") | Some("std::sync::poison::rwlock::try_write") => Some("rwlock_write"),
                 _ => None,
             };
             
@@ -2445,22 +2448,24 @@ impl VisitMut for OwnershipVisitor {
                     Some("std::sync::poison::mutex::lock")
                     | Some("std::sync::poison::mutex::try_lock")
                     | Some("std::sync::poison::rwlock::read")
+                    | Some("std::sync::poison::rwlock::try_read")
                     | Some("std::sync::poison::rwlock::write")
+                    | Some("std::sync::poison::rwlock::try_write")
                 );
                 
                 if is_lock_op {
                     match method_name.as_str() {
-                        "lock" => {
+                        "lock" | "try_lock" => {
                             let mc = method_call.clone();
                             self.transform_lock(expr, &mc, "mutex");
                             return;
                         }
-                        "read" => {
+                        "read" | "try_read" => {
                             let mc = method_call.clone();
                             self.transform_lock(expr, &mc, "rwlock_read");
                             return;
                         }
-                        "write" => {
+                        "write" | "try_write" => {
                             let mc = method_call.clone();
                             self.transform_lock(expr, &mc, "rwlock_write");
                             return;

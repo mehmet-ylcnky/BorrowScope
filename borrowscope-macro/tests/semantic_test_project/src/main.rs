@@ -69,6 +69,8 @@ fn test_mutex_rwlock() {
     let guard = mutex.lock().unwrap();
     let _ = *guard;
     drop(guard);
+    let try_guard = mutex.try_lock();
+    let _ = try_guard;
 
     let rwlock = RwLock::new(0);
     let read_guard = rwlock.read().unwrap();
@@ -76,6 +78,11 @@ fn test_mutex_rwlock() {
     drop(read_guard);
     let write_guard = rwlock.write().unwrap();
     let _ = *write_guard;
+    drop(write_guard);
+    let try_read = rwlock.try_read();
+    let _ = try_read;
+    let try_write = rwlock.try_write();
+    let _ = try_write;
 }
 
 fn test_option_result() {
@@ -120,6 +127,9 @@ fn test_once_cell() {
     let _ = once.set(42);
     let got = once.get();
     let _ = got;
+    let once2 = OnceCell::<i32>::new();
+    let inited = once2.get_or_init(|| 99);
+    let _ = inited;
 }
 
 fn test_maybe_uninit() {
@@ -127,6 +137,13 @@ fn test_maybe_uninit() {
     uninit.write(42);
     let inited = unsafe { uninit.assume_init() };
     let _ = inited;
+    let mut zeroed = MaybeUninit::<i32>::zeroed();
+    zeroed.write(7);
+    let read_val = unsafe { zeroed.assume_init_read() };
+    let _ = read_val;
+    let mut to_drop = MaybeUninit::<i32>::uninit();
+    to_drop.write(99);
+    unsafe { to_drop.assume_init_drop() };
 }
 
 fn test_transmute() {
