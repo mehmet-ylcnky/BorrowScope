@@ -1969,6 +1969,11 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
     var_info.is_reference = ty.is_reference();
     var_info.is_mutable_reference = ty.is_mutable_reference();
     var_info.is_raw_ptr = ty.is_raw_ptr();
+    // HEURISTIC: ra_ap_hir::Type has no public is_mutable_raw_ptr() API.
+    // Unlike references (is_mutable_reference() exists), raw pointer mutability
+    // is only accessible via the private TyKind::RawPtr(ty, Mutability) internal.
+    // We read the display of the semantically-resolved type as a workaround.
+    var_info.is_mutable_raw_ptr = ty.is_raw_ptr() && var_info.ty.starts_with("*mut ");
     var_info.is_closure = ty.is_closure();
     var_info.is_fn_ptr = ty.is_fn();
     

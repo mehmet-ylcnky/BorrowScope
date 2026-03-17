@@ -1,6 +1,6 @@
 # Semantic Category Implementation Specification
 
-> Implementation guide for achieving 100% semantic coverage (109/109 patterns) in borrowscope-analyzer.
+> Reference document for the 100% semantic coverage (109/109 patterns) in borrowscope-macro, powered by borrowscope-analyzer.
 
 ## Table of Contents
 
@@ -37,24 +37,24 @@
 
 | Category | Total | ✅ Semantic | ⚠️ Partial | ❌ Syntactic | Notes |
 |----------|-------|-------------|------------|--------------|-------|
-| Smart pointer creation | 5 | 5 | 0 | 0 | |
-| Smart pointer clone | 2 | 2 | 0 | 0 | |
-| RefCell/Cell methods | 4 | **4** | 0 | 0 | Cell::set now uses semantic_op |
-| Box operations | 3 | 3 | 0 | 0 | |
-| Pin operations | 2 | **2** | 0 | 0 | Pin::as_ref/as_mut use semantic self_borrow |
-| Cow operations | 3 | **3** | 0 | 0 | Cow::to_mut now uses semantic_op |
-| Weak reference operations | 3 | 3 | 0 | 0 | |
-| OnceCell/OnceLock operations | 5 | **5** | 0 | 0 | set/get/get_or_init now use semantic_op |
-| MaybeUninit operations | 6 | **6** | 0 | 0 | write/assume_init* now use semantic_op |
-| Concurrency operations | 12 | **12** | 0 | 0 | send/recv/try_recv/join/try_lock/try_read/try_write now use semantic_op |
-| Guard method patterns | 9 | **9** | 0 | 0 | Guard::map uses crate-verified ADT fallback |
-| Self borrow inference (immutable) | 19 | **19** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
-| Self borrow inference (mutable) | 25 | **25** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
-| Self borrow inference (consuming) | 3 | **3** | 0 | 0 | semantic_op self_borrow lookup (Step 5+7) |
-| Unwrap methods | 5 | **5** | 0 | 0 | Semantic: verifies Option/Result via semantic_op |
-| Clone method | 1 | **1** | 0 | 0 | Uses is_trait_method/trait_name from analyzer |
-| Transmute detection | 2 | **2** | 0 | 0 | semantic expression lookup (Step 8) |
-| **TOTAL** | **109** | **109** | **0** | **0** |
+| Smart pointer creation | 5 | 5 | 0 | 0 | ADT-based initializer classification |
+| Smart pointer clone | 2 | 2 | 0 | 0 | `semantic_op` canonical path: `alloc::rc::clone`, `alloc::sync::clone` |
+| RefCell/Cell methods | 4 | 4 | 0 | 0 | `semantic_op` canonical paths: `core::cell::borrow`, `core::cell::borrow_mut`, `core::cell::get`, `core::cell::set` |
+| Box operations | 3 | 3 | 0 | 0 | ADT-based initializer classification |
+| Pin operations | 2 | 2 | 0 | 0 | `self_borrow` from analyzer via `infer_self_borrow_type()` |
+| Cow operations | 3 | 3 | 0 | 0 | `semantic_op` canonical path: `alloc::borrow::to_mut` |
+| Weak reference operations | 3 | 3 | 0 | 0 | `semantic_op` canonical paths: `alloc::rc::upgrade`, `alloc::sync::upgrade` |
+| OnceCell/OnceLock operations | 5 | 5 | 0 | 0 | `semantic_op` prefix: `core::cell::once::*`, `std::sync::once_lock::*` |
+| MaybeUninit operations | 6 | 6 | 0 | 0 | `semantic_op` prefix: `core::mem::maybe_uninit::*` |
+| Concurrency operations | 12 | 12 | 0 | 0 | `semantic_op` canonical paths: `std::sync::poison::mutex::*`, `std::sync::mpsc::*`, `std::thread::*` |
+| Guard method patterns | 9 | 9 | 0 | 0 | `guard_semantic_op` exact canonical path matching |
+| Self borrow inference (immutable) | 19 | 19 | 0 | 0 | `self_borrow` field from analyzer via `infer_self_borrow_type()` |
+| Self borrow inference (mutable) | 25 | 25 | 0 | 0 | `self_borrow` field from analyzer via `infer_self_borrow_type()` |
+| Self borrow inference (consuming) | 3 | 3 | 0 | 0 | `self_borrow` field from analyzer via `infer_self_borrow_type()` |
+| Unwrap methods | 5 | 5 | 0 | 0 | `semantic_op` prefix: `core::option::*`, `core::result::*` |
+| Clone method | 1 | 1 | 0 | 0 | `is_trait_method` + `trait_name` from analyzer |
+| Transmute detection | 2 | 2 | 0 | 0 | `has_transmute_expression()` via exact `core::intrinsics::transmute` path |
+| **TOTAL** | **109** | **109** | **0** | **0** | |
 
 ### 1.2 Complete Pattern Registry (109 Patterns)
 
@@ -95,14 +95,14 @@
 | 8 | `refcell_new` | `let r = RefCell::new(1)` | ✅ | — | `KnownTypes.refcell` ADT + `"call"` → `"refcell_new"` |
 | 9 | `refcell_borrow` | `let g = r.borrow()` | ✅ | — | Result type is `Ref<T>` (`KnownTypes.ref_guard`) + expr_kind `"borrow"` → `"refcell_borrow"` |
 | 10 | `refcell_borrow_mut` | `let g = r.borrow_mut()` | ✅ | — | Result type is `RefMut<T>` (`KnownTypes.refmut_guard`) + expr_kind `"borrow_mut"` → `"refcell_borrow_mut"` |
-| 11 | `cell_set` | `cell.set(42)` | ✅ | — | Macro: `semantic_op` contains `::Cell::set` → `track_cell_set`. Fallback: method name match when not OnceCell. |
+| 11 | `cell_set` | `cell.set(42)` | ✅ | — | Macro: `semantic_op` matches `core::cell::set` → `track_cell_set`. |
 
 #### Box Operations (3 patterns)
 
 | ID | Pattern | Example | Status | Phase | How It Works Today |
 |----|---------|---------|--------|-------|--------------------|
 | 12 | `box_new` | `let b = Box::new(1)` | ✅ | — | (same as ID 3) |
-| 13 | `box_into_raw` | `let p = Box::into_raw(b)` | ✅ | — | Result type is `*mut T` (raw_ptr) + consuming call → classified by type |
+| 13 | `box_into_raw` | `let p = Box::into_raw(b)` | ✅ | — | Result type is `*mut T` → analyzer classifies as `"raw_ptr"` → macro handles via initializer kind |
 | 14 | `box_from_raw` | `let b = unsafe { Box::from_raw(p) }` | ✅ | — | Result type is `Box<T>` ADT + `"call"` → `"box_new"` |
 
 #### Pin Operations (2 patterns)
@@ -118,7 +118,7 @@
 |----|---------|---------|--------|-------|--------------------|
 | 17 | `cow_new` | `let c = Cow::Owned(s)` | ✅ | — | `KnownTypes.cow` ADT + `"call"` → `"cow_new"` |
 | 18 | `cow_variant` | `let c = Cow::Borrowed(&s)` | ✅ | — | Cow ADT + expr_kind `"path"` → `"cow_variant"` |
-| 19 | `cow_to_mut` | `c.to_mut()` | ✅ | — | Macro: `semantic_op` contains `Cow` + `to_mut` → `track_cow_to_mut`. Fallback: cow_vars set + method name. |
+| 19 | `cow_to_mut` | `c.to_mut()` | ✅ | — | Macro: `semantic_op` matches `alloc::borrow::to_mut` → `track_cow_to_mut`. |
 
 #### Weak Reference Operations (3 patterns)
 
@@ -134,9 +134,9 @@
 |----|---------|---------|--------|-------|--------------------|
 | 23 | `once_cell_new` | `let c = OnceCell::new()` | ✅ | — | `KnownTypes.once_cell` ADT + `"call"` → `"once_cell_new"` |
 | 24 | `once_lock_new` | `let c = OnceLock::new()` | ✅ | — | `KnownTypes.once_lock` ADT + `"call"` → `"once_lock_new"` |
-| 25 | `once_cell_set` | `c.set(value)` | ✅ | — | Macro: `semantic_op` contains `::OnceCell::set` or `::OnceLock::set`. Fallback: once_cell_vars + method name. |
-| 26 | `once_cell_get` | `c.get()` | ✅ | — | Macro: `semantic_op` contains `::get`. Fallback: method name. |
-| 27 | `once_cell_get_or_init` | `c.get_or_init(\|\| v)` | ✅ | — | Macro: `semantic_op` contains `::get_or_init`. Fallback: method name. |
+| 25 | `once_cell_set` | `c.set(value)` | ✅ | — | Macro: `semantic_op` prefix `core::cell::once::*` or `std::sync::once_lock::*`. |
+| 26 | `once_cell_get` | `c.get()` | ✅ | — | Macro: `semantic_op` prefix `core::cell::once::*` or `std::sync::once_lock::*`. |
+| 27 | `once_cell_get_or_init` | `c.get_or_init(\|\| v)` | ✅ | — | Macro: `semantic_op` prefix `core::cell::once::*` or `std::sync::once_lock::*`. |
 
 #### MaybeUninit Operations (6 patterns)
 
@@ -144,10 +144,10 @@
 |----|---------|---------|--------|-------|--------------------|
 | 28 | `maybe_uninit_new` | `let m = MaybeUninit::uninit()` | ✅ | — | `KnownTypes.maybe_uninit` ADT (lang item `MaybeUninit`) + `"call"` → `"maybe_uninit_new"` |
 | 29 | `maybe_uninit_zeroed` | `let m = MaybeUninit::zeroed()` | ✅ | — | Same ADT + `"call"` → `"maybe_uninit_new"` |
-| 30 | `maybe_uninit_write` | `m.write(value)` | ✅ | — | Macro: `semantic_op` contains `::MaybeUninit::write`. Fallback: maybe_uninit_vars + method name. |
-| 31 | `maybe_uninit_assume_init` | `unsafe { m.assume_init() }` | ✅ | — | Macro: `semantic_op` contains `::assume_init`. Fallback: method name. |
-| 32 | `maybe_uninit_assume_init_read` | `unsafe { m.assume_init_read() }` | ✅ | — | Macro: `semantic_op` contains `::assume_init_read`. Fallback: method name. |
-| 33 | `maybe_uninit_assume_init_drop` | `unsafe { m.assume_init_drop() }` | ✅ | — | Macro: `semantic_op` contains `::assume_init_drop`. Fallback: method name. |
+| 30 | `maybe_uninit_write` | `m.write(value)` | ✅ | — | Macro: `semantic_op` prefix `core::mem::maybe_uninit::*`. |
+| 31 | `maybe_uninit_assume_init` | `unsafe { m.assume_init() }` | ✅ | — | Macro: `semantic_op` prefix `core::mem::maybe_uninit::*`. |
+| 32 | `maybe_uninit_assume_init_read` | `unsafe { m.assume_init_read() }` | ✅ | — | Macro: `semantic_op` prefix `core::mem::maybe_uninit::*`. |
+| 33 | `maybe_uninit_assume_init_drop` | `unsafe { m.assume_init_drop() }` | ✅ | — | Macro: `semantic_op` prefix `core::mem::maybe_uninit::*`. |
 
 #### Concurrency Operations (12 patterns)
 
@@ -158,13 +158,13 @@
 | 36 | `channel_new` | `let (tx, rx) = mpsc::channel()` | ✅ | — | Result type contains `Sender`/`Receiver` ADT → `"channel_new"` |
 | 37 | `mutex_lock` | `let g = m.lock().unwrap()` | ✅ | — | Result type is `MutexGuard<T>` ADT + expr_kind `"lock"` → `"mutex_lock"` |
 | 38 | `rwlock_read` | `let g = r.read().unwrap()` | ✅ | — | Result type is `RwLockReadGuard<T>` ADT + `"read"` → `"rwlock_read"` |
-| 39 | `channel_send` | `tx.send(value)` | ✅ | — | Macro: `semantic_op` contains `Sender` + `send`. Fallback: sender_vars + method name. |
-| 40 | `channel_recv` | `rx.recv()` | ✅ | — | Macro: `semantic_op` contains `Receiver` + `recv`. Fallback: receiver_vars + method name. |
-| 41 | `channel_try_recv` | `rx.try_recv()` | ✅ | — | Macro: `semantic_op` contains `Receiver` + `try_recv`. Fallback: receiver_vars + method name. |
-| 42 | `thread_join` | `handle.join()` | ✅ | — | Macro: `semantic_op` contains `JoinHandle` + `join`. Fallback: join_handle_vars + method name. |
-| 43 | `mutex_try_lock` | `m.try_lock()` | ✅ | — | Macro: `semantic_op` disambiguates, `transform_lock` handles `try_lock` → "mutex". |
-| 44 | `rwlock_try_read` | `r.try_read()` | ✅ | — | Macro: `semantic_op` disambiguates, `transform_lock` handles `try_read` → "rwlock_read". |
-| 45 | `rwlock_try_write` | `r.try_write()` | ✅ | — | Macro: `semantic_op` disambiguates, `transform_lock` handles `try_write` → "rwlock_write". |
+| 39 | `channel_send` | `tx.send(value)` | ✅ | — | Macro: `semantic_op` matches `std::sync::mpsc::send`. |
+| 40 | `channel_recv` | `rx.recv()` | ✅ | — | Macro: `semantic_op` matches `std::sync::mpsc::recv`. |
+| 41 | `channel_try_recv` | `rx.try_recv()` | ✅ | — | Macro: `semantic_op` matches `std::sync::mpsc::try_recv`. |
+| 42 | `thread_join` | `handle.join()` | ✅ | — | Macro: `semantic_op` matches `std::thread::join_handle::join` or `std::thread::join`. |
+| 43 | `mutex_try_lock` | `m.try_lock()` | ✅ | — | Macro: `semantic_op` matches `std::sync::poison::mutex::try_lock`. |
+| 44 | `rwlock_try_read` | `r.try_read()` | ✅ | — | Macro: `semantic_op` matches `std::sync::poison::rwlock::try_read`. |
+| 45 | `rwlock_try_write` | `r.try_write()` | ✅ | — | Macro: `semantic_op` matches `std::sync::poison::rwlock::try_write`. |
 
 #### Guard Method Patterns (9 patterns)
 
@@ -178,69 +178,69 @@
 | 51 | `mutex_lock` | `m.lock()` | ✅ | — | (same as ID 37) |
 | 52 | `rwlock_read` | `r.read()` | ✅ | — | (same as ID 38) |
 | 53 | `rwlock_write` | `r.write()` | ✅ | — | Result type is `RwLockWriteGuard<T>` ADT + `"write"` → `"rwlock_write"` |
-| 54 | `guard_map` | `MutexGuard::map(g, \|d\| &d.field)` | ✅ | — | Mapped guard ADTs classified via crate-verified fallback; macro dispatches `mutex_guard_mapped`/`rwlock_*_guard_mapped` initializer kinds. |
+| 54 | `guard_map` | `MutexGuard::map(g, \|d\| &d.field)` | ✅ | — | Mapped guard ADTs classified via crate-verified fallback; macro dispatches via `guard_semantic_op` canonical path matching. |
 
 #### Self Borrow Inference — Immutable (19 patterns)
 
 | ID | Pattern | Current Detection | Status | Phase |
 |----|---------|-------------------|--------|-------|
-| 55 | `as_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("as_")` | ✅ | — |
-| 56 | `to_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("to_")` | ✅ | — |
-| 57 | `is_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("is_")` | ✅ | — |
-| 58 | `get*` | `semantic_op` self_borrow lookup, fallback: `starts_with("get")` | ✅ | — |
-| 59 | `len` | `semantic_op` self_borrow lookup, fallback: `== "len"` | ✅ | — |
-| 60 | `capacity` | `semantic_op` self_borrow lookup, fallback: `== "capacity"` | ✅ | — |
-| 61 | `iter` | `semantic_op` self_borrow lookup, fallback: `== "iter"` | ✅ | — |
-| 62 | `chars` | `semantic_op` self_borrow lookup, fallback: `== "chars"` | ✅ | — |
-| 63 | `bytes` | `semantic_op` self_borrow lookup, fallback: `== "bytes"` | ✅ | — |
-| 64 | `lines` | `semantic_op` self_borrow lookup, fallback: `== "lines"` | ✅ | — |
-| 65 | `split` | `semantic_op` self_borrow lookup, fallback: `== "split"` | ✅ | — |
-| 66 | `trim` | `semantic_op` self_borrow lookup, fallback: `== "trim"` | ✅ | — |
-| 67 | `contains` | `semantic_op` self_borrow lookup, fallback: `== "contains"` | ✅ | — |
-| 68 | `starts_with` | `semantic_op` self_borrow lookup, fallback: `== "starts_with"` | ✅ | — |
-| 69 | `ends_with` | `semantic_op` self_borrow lookup, fallback: `== "ends_with"` | ✅ | — |
-| 70 | `find` | `semantic_op` self_borrow lookup, fallback: `== "find"` | ✅ | — |
-| 71 | `clone` | `semantic_op` self_borrow lookup, fallback: `== "clone"` | ✅ | — |
-| 72 | `first` | `semantic_op` self_borrow lookup, fallback: `== "first"` | ✅ | — |
-| 73 | `last` | `semantic_op` self_borrow lookup, fallback: `== "last"` | ✅ | — |
+| 55 | `as_*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 56 | `to_*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 57 | `is_*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 58 | `get*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 59 | `len` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 60 | `capacity` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 61 | `iter` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 62 | `chars` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 63 | `bytes` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 64 | `lines` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 65 | `split` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 66 | `trim` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 67 | `contains` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 68 | `starts_with` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 69 | `ends_with` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 70 | `find` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 71 | `clone` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 72 | `first` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 73 | `last` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
 
 #### Self Borrow Inference — Mutable (25 patterns)
 
 | ID | Pattern | Current Detection | Status | Phase |
 |----|---------|-------------------|--------|-------|
-| 74 | `push*` | `semantic_op` self_borrow lookup, fallback: `starts_with("push")` | ✅ | — |
-| 75 | `pop*` | `semantic_op` self_borrow lookup, fallback: `starts_with("pop")` | ✅ | — |
-| 76 | `insert*` | `semantic_op` self_borrow lookup, fallback: `starts_with("insert")` | ✅ | — |
-| 77 | `remove*` | `semantic_op` self_borrow lookup, fallback: `starts_with("remove")` | ✅ | — |
-| 78 | `append*` | `semantic_op` self_borrow lookup, fallback: `starts_with("append")` | ✅ | — |
-| 79 | `add*` | `semantic_op` self_borrow lookup, fallback: `starts_with("add")` | ✅ | — |
-| 80 | `set*` | `semantic_op` self_borrow lookup, fallback: `starts_with("set")` | ✅ | — |
-| 81 | `update*` | `semantic_op` self_borrow lookup, fallback: `starts_with("update")` | ✅ | — |
-| 82 | `modify*` | `semantic_op` self_borrow lookup, fallback: `starts_with("modify")` | ✅ | — |
-| 83 | `clear` | `semantic_op` self_borrow lookup, fallback: `== "clear"` | ✅ | — |
-| 84 | `truncate` | `semantic_op` self_borrow lookup, fallback: `== "truncate"` | ✅ | — |
-| 85 | `extend` | `semantic_op` self_borrow lookup, fallback: `== "extend"` | ✅ | — |
-| 86 | `drain` | `semantic_op` self_borrow lookup, fallback: `== "drain"` | ✅ | — |
-| 87 | `sort` | `semantic_op` self_borrow lookup, fallback: `== "sort"` | ✅ | — |
-| 88 | `reverse` | `semantic_op` self_borrow lookup, fallback: `== "reverse"` | ✅ | — |
-| 89 | `dedup` | `semantic_op` self_borrow lookup, fallback: `== "dedup"` | ✅ | — |
-| 90 | `retain` | `semantic_op` self_borrow lookup, fallback: `== "retain"` | ✅ | — |
-| 91 | `tick` | `semantic_op` self_borrow lookup, fallback: `== "tick"` | ✅ | — |
-| 92 | `recv` | `semantic_op` self_borrow lookup, fallback: `== "recv"` | ✅ | — |
-| 93 | `send` | `semantic_op` self_borrow lookup, fallback: `== "send"` | ✅ | — |
-| 94 | `changed` | `semantic_op` self_borrow lookup, fallback: `== "changed"` | ✅ | — |
-| 95 | `wait` | `semantic_op` self_borrow lookup, fallback: `== "wait"` | ✅ | — |
-| 96 | `acquire` | `semantic_op` self_borrow lookup, fallback: `== "acquire"` | ✅ | — |
-| 97 | `lock` | `semantic_op` self_borrow lookup, fallback: `== "lock"` | ✅ | — |
-| 98 | `write` | `semantic_op` self_borrow lookup, fallback: `== "write"` | ✅ | — |
+| 74 | `push*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 75 | `pop*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 76 | `insert*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 77 | `remove*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 78 | `append*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 79 | `add*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 80 | `set*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 81 | `update*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 82 | `modify*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 83 | `clear` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 84 | `truncate` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 85 | `extend` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 86 | `drain` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 87 | `sort` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 88 | `reverse` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 89 | `dedup` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 90 | `retain` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 91 | `tick` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 92 | `recv` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 93 | `send` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 94 | `changed` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 95 | `wait` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 96 | `acquire` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 97 | `lock` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 98 | `write` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
 
 #### Self Borrow Inference — Consuming (3 patterns)
 
 | ID | Pattern | Current Detection | Status | Phase |
 |----|---------|-------------------|--------|-------|
-| 99 | `into_*` | `semantic_op` self_borrow lookup, fallback: `starts_with("into_")` | ✅ | — |
-| 100 | `unwrap` (consuming) | `semantic_op` self_borrow lookup, fallback: `== "unwrap"` | ✅ | — |
-| 101 | `expect` (consuming) | `semantic_op` self_borrow lookup, fallback: `== "expect"` | ✅ | — |
+| 99 | `into_*` | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 100 | `unwrap` (consuming) | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
+| 101 | `expect` (consuming) | `self_borrow` from analyzer, default: `Immutable` | ✅ | — |
 
 #### Unwrap Methods (5 patterns)
 
@@ -258,14 +258,14 @@
 |----|---------|---------|-------------------|--------|-------|
 | 107 | `clone_trait` | `x.clone()` | ✅ | — | Uses `is_trait_method`/`trait_name` from analyzer to verify `Clone::clone` vs inherent `.clone()`. |
 
-> Note: `.clone()` is partial because the macro detects the method name but cannot verify it resolves to `Clone::clone` trait impl vs an inherent method named `clone`.
+> Note: The macro uses `is_trait_method` and `trait_name` from analyzer data to distinguish `Clone::clone` trait impl from an inherent method named `clone`.
 
 #### Transmute Detection (2 patterns)
 
 | ID | Pattern | Example | Current Detection | Status | Phase |
 |----|---------|---------|-------------------|--------|-------|
-| 108 | `transmute` | `transmute(x)` | `semantic expression lookup` + `find_transmute_types()` | ✅ | — |
-| 109 | `std_transmute` | `std::mem::transmute(x)` | `semantic expression lookup` + `find_transmute_types()` | ✅ | — |
+| 108 | `transmute` | `transmute(x)` | `has_transmute_expression()` via exact `core::intrinsics::transmute` path | ✅ | — |
+| 109 | `std_transmute` | `std::mem::transmute(x)` | `has_transmute_expression()` via exact `core::intrinsics::transmute` path | ✅ | — |
 
 > Note: Both resolve to the same `FunctionId` semantically. Transmute detection now uses `ExpressionInfo` from analyzer with `argument`/`result_type` extraction. Returns `None` when multiple transmutes exist in the same function (can't disambiguate without span line access).
 

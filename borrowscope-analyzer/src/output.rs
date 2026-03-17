@@ -487,6 +487,7 @@ pub struct VariableTypeInfo {
 
     // References and pointers (semantic via Type methods)
     pub is_raw_ptr: bool,
+    pub is_mutable_raw_ptr: bool,
     pub is_reference: bool,
     pub is_mutable_reference: bool,
     pub is_slice: bool,
@@ -661,6 +662,7 @@ impl VariableTypeInfo {
             is_vec: false,
             is_string: false,
             is_raw_ptr: false,
+            is_mutable_raw_ptr: false,
             is_reference: false,
             is_mutable_reference: false,
             is_slice: false,

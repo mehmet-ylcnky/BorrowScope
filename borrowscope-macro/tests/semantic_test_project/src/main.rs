@@ -135,7 +135,14 @@ fn test_transmute() {
     let _ = dst;
 }
 
-pub fn test_visibility() {
+pub fn test_raw_ptr() {
+    let b = Box::new(42);
+    let _p: *mut i32 = Box::into_raw(b);
+    let x = 10;
+    let _q: *const i32 = &x as *const i32;
+}
+
+fn test_visibility() {
     let visible = 5;
     let _ = visible;
 }
@@ -161,6 +168,7 @@ fn main() {
     test_once_cell();
     test_maybe_uninit();
     test_transmute();
+    test_raw_ptr();
     test_visibility();
     let _ = test_function_signature(42);
 }

@@ -1318,6 +1318,21 @@ impl OwnershipVisitor {
                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
             }),
 
+            // Raw pointers (e.g., Box::into_raw)
+            "raw_ptr" | "raw_ptr_mut" | "raw_ptr_shared" => {
+                let ptr_id = self.gen_id();
+                let ptr_type = &type_info.ty;
+                if type_info.is_mutable_raw_ptr {
+                    Some(syn::parse_quote! {
+                        borrowscope_runtime::track_raw_ptr_mut(#var_name, #ptr_id, #ptr_type, #location, #original_expr)
+                    })
+                } else {
+                    Some(syn::parse_quote! {
+                        borrowscope_runtime::track_raw_ptr(#var_name, #ptr_id, #ptr_type, #location, #original_expr)
+                    })
+                }
+            }
+
             // Primitives, references, closures - no special tracking needed
             "primitive" | "ref" | "ref_mut" | "closure" | "tuple" | "array" => None,
 

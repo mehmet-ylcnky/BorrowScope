@@ -49,6 +49,7 @@ pub struct VariableTypeInfo {
     pub is_reference: bool,
     pub is_mutable_reference: bool,
     pub is_raw_ptr: bool,
+    pub is_mutable_raw_ptr: bool,
     pub is_slice: bool,
     pub is_str: bool,
     pub is_closure: bool,
