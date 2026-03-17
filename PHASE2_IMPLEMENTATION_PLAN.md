@@ -39,8 +39,8 @@ The fix: the analyzer must provide **canonical paths** and **ADT names** from ru
 ```rust
 // TARGET (semantic):
 match canonical_path.as_deref() {
-    Some("alloc::rc::Rc::clone") => handle_rc_clone(),
-    Some("std::sync::Mutex::lock") => handle_mutex_lock(),
+    Some("alloc::rc::clone") => handle_rc_clone(),
+    Some("std::sync::poison::mutex::lock") => handle_mutex_lock(),
     _ => {}
 }
 ```
@@ -136,7 +136,7 @@ Each API verified against https://docs.rs/ra_ap_hir/latest/ra_ap_hir/ with exact
 | 5 | `Crate::display_name()` | `fn display_name(&self, db: &dyn HirDatabase) -> Option<CrateName>` | Crate name |
 | 6 | `Function::name()` | `fn name(self, db: &dyn HirDatabase) -> Name` | Function name |
 
-**Combined, these build:** `"alloc::rc::Rc::clone"`, `"std::sync::Mutex::lock"`, etc.
+**Combined, these build:** `"alloc::rc::clone"`, `"std::sync::poison::mutex::lock"`, etc.
 
 ### 3.2 Type Resolution → ADT Name (APIs 7–10)
 
@@ -241,21 +241,21 @@ if method_name == "clone" { ... }
 **After:**
 ```rust
 match canonical_path.as_deref() {
-    Some("alloc::rc::Rc::clone") => { ... },
-    Some("alloc::sync::Arc::clone") => { ... },
-    Some("alloc::rc::Weak::clone") => { ... },
-    Some("alloc::rc::Weak::upgrade") => { ... },
-    Some("core::cell::RefCell::borrow") => { ... },
-    Some("core::cell::RefCell::borrow_mut") => { ... },
-    Some("core::cell::Cell::get") => { ... },
-    Some("core::cell::Cell::set") => { ... },
-    Some("std::sync::Mutex::lock") => { ... },
-    Some("std::sync::RwLock::read") => { ... },
-    Some("std::sync::RwLock::write") => { ... },
-    Some("alloc::borrow::Cow::to_mut") => { ... },
-    Some("std::thread::JoinHandle::join") => { ... },
-    Some("std::sync::mpsc::Sender::send") => { ... },
-    Some("std::sync::mpsc::Receiver::recv") => { ... },
+    Some("alloc::rc::clone") => { ... },
+    Some("alloc::sync::clone") => { ... },
+    Some("alloc::rc::clone") => { ... },
+    Some("alloc::rc::upgrade") => { ... },
+    Some("core::cell::borrow") => { ... },
+    Some("core::cell::borrow_mut") => { ... },
+    Some("core::cell::get") => { ... },
+    Some("core::cell::set") => { ... },
+    Some("std::sync::poison::mutex::lock") => { ... },
+    Some("std::sync::poison::rwlock::read") => { ... },
+    Some("std::sync::poison::rwlock::write") => { ... },
+    Some("alloc::borrow::to_mut") => { ... },
+    Some("std::thread::join_handle::join") => { ... },
+    Some("std::sync::mpsc::send") => { ... },
+    Some("std::sync::mpsc::recv") => { ... },
     _ => {}
 }
 ```
@@ -454,7 +454,7 @@ if let Some(adt) = ret_type.as_adt(db) {
 ```rust
 pub struct MethodBorrowInfo {
     pub method: String,                    // "clone"
-    pub canonical_path: Option<String>,    // "alloc::rc::Rc::clone"       ← NEW
+    pub canonical_path: Option<String>,    // "alloc::rc::clone"       ← NEW
     pub receiver_adt: Option<String>,      // "Rc"                         ← NEW
     pub trait_name: Option<String>,        // "Clone"                      ← NEW
     pub operation: Option<String>,         // "Rc::clone" (deprecated, keep for backward compat)
@@ -541,7 +541,7 @@ fn get_canonical_path(
     }
 
     segments.push(func.name(db).display_no_db(Edition::Edition2021).to_string());
-    Some(segments.join("::"))  // "alloc::rc::Rc::clone"
+    Some(segments.join("::"))  // "alloc::rc::clone"
 }
 ```
 

@@ -17,9 +17,9 @@ if method_name == "clone" { ... }
 ```rust
 // SEMANTIC (target):
 match canonical_path.as_deref() {
-    Some("alloc::rc::Rc::clone") => { ... },
-    Some("alloc::sync::Arc::clone") => { ... },
-    Some("core::cell::RefCell::borrow") => { ... },
+    Some("alloc::rc::clone") => { ... },
+    Some("alloc::sync::clone") => { ... },
+    Some("core::cell::borrow") => { ... },
     _ => {}
 }
 ```

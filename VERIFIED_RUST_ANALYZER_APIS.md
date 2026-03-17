@@ -296,7 +296,7 @@ fn get_canonical_path(
     let fn_name = func.name(db).display_no_db(Edition::Edition2021).to_string();
     segments.push(fn_name);
     
-    // Result: "alloc::rc::Rc::clone"
+    // Result: "alloc::rc::clone"
     Some(segments.join("::"))
 }
 ```
