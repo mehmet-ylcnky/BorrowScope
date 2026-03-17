@@ -16,6 +16,17 @@ use std::sync::OnceLock;
 
 static TYPE_INFO_CACHE: OnceLock<Option<TypeInfoCache>> = OnceLock::new();
 
+/// Load type info from a specific project root path.
+/// Used by tests to load analyzer data from a test project.
+/// Must be called before any `get_type_info()` / `lookup_*` calls.
+/// Returns true if successfully loaded.
+#[doc(hidden)]
+pub fn load_from_path(project_root: &std::path::Path) -> bool {
+    TYPE_INFO_CACHE
+        .get_or_init(|| TypeInfoCache::load(project_root))
+        .is_some()
+}
+
 /// Deserialized variable type info (v2.1 schema)
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(default)]

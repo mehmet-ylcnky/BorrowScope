@@ -426,8 +426,8 @@ impl OwnershipVisitor {
                 } else {
                     Some(false)
                 };
-                // Use semantic data from analyzer (no fallback to heuristics)
-                let is_channel = is_channel.unwrap_or(false);
+                // Use semantic data from analyzer (no fallback)
+                let is_channel = is_channel.expect("Analyzer must detect channel types");
                 if is_channel {
                     // For tuple pattern like (tx, rx), extract the names
                     if let Pat::Tuple(tuple_pat) = &original_pat {
@@ -516,7 +516,8 @@ impl OwnershipVisitor {
             }
         }
         
-        // Default: immutable borrow (safe fallback)
+        // Safe default when analyzer has no method borrow info
+        // Most methods take &self, so immutable is the safest assumption
         SelfBorrowType::Immutable
     }
 
@@ -719,7 +720,7 @@ impl OwnershipVisitor {
             "ref"
         };
         
-        // Build capture tracking statements - semantic or fallback
+        // Build capture tracking statements - semantic only
         let capture_stmts: Vec<proc_macro2::TokenStream> = if let Some(ref caps) = semantic_captures {
             caps.iter().map(|cap| {
                 let var = &cap.name;
@@ -733,15 +734,8 @@ impl OwnershipVisitor {
                 }
             }).collect()
         } else {
-            // Fallback: AST walking
-            let mut captured_vars = Vec::new();
-            self.extract_captured_vars(&closure.body, &mut captured_vars);
-            captured_vars.iter().map(|var| {
-                let var_capture_mode = if closure.capture.is_some() { "move" } else { "borrow" };
-                quote::quote! {
-                    borrowscope_runtime::track_closure_capture(#closure_id, #var, #var_capture_mode, #location);
-                }
-            }).collect()
+            // No analyzer data for closure captures
+            panic!("Analyzer must provide closure capture data for closure at {:?}", binding_name);
         };
         
         // Clone the closure for transformation
@@ -1107,9 +1101,9 @@ impl OwnershipVisitor {
                         let source_name = source_ident.to_string();
                         
                         // Check if source has copy semantics (semantic detection)
-                        let is_copy = self.lookup_type_info(&source_name)
-                            .map(|ti| ti.copy_semantics)
-                            .unwrap_or(false);
+                        let type_info = self.lookup_type_info(&source_name)
+                            .expect(&format!("Analyzer must provide type info for variable: {}", source_name));
+                        let is_copy = type_info.copy_semantics;
                         
                         if is_copy {
                             // It's a copy, not a move - use track_new
@@ -1459,16 +1453,16 @@ impl OwnershipVisitor {
     /// Transform call expressions (transmute only - FFI/unsafe fn require type info)
     fn transform_call_expr(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
         if let Expr::Path(path) = call_expr.func.as_ref() {
-            // Check for transmute - semantic: verify via expressions[] data, fallback: path match
-            let path_looks_like_transmute = path.path.segments.last()
-                .map(|s| s.ident == "transmute")
-                .unwrap_or(false);
-            let is_transmute = if path_looks_like_transmute {
+            // Check for transmute - must be detected by analyzer
+            let path_str = path.path.segments.iter()
+                .map(|s| s.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::");
+            
+            let is_transmute = path_str.contains("transmute") && 
                 crate::type_info::has_transmute_expression()
-                    .unwrap_or(true) // no analyzer data → assume yes
-            } else {
-                false
-            };
+                    .expect("Analyzer must detect transmute calls");
+            
             if is_transmute {
                 let span = path
                     .path
@@ -2186,13 +2180,14 @@ impl VisitMut for OwnershipVisitor {
                 let vars_to_drop: Vec<String> = scope_vars
                     .into_iter()
                     .filter(|var_name| {
-                        self.lookup_type_info(var_name)
-                            .map(|ti| !ti.copy_semantics && !ti.is_primitive)
-                            .unwrap_or(true) // Conservative: track if no type info
+                        let type_info = self.lookup_type_info(var_name)
+                            .expect(&format!("Analyzer must provide type info for variable: {}", var_name));
+                        !type_info.copy_semantics && !type_info.is_primitive
                     })
                     .collect();
                 
                 if vars_to_drop.is_empty() {
+                    self.scope_depth -= 1;
                     return; // No drops to track
                 }
                 
@@ -2399,9 +2394,10 @@ impl VisitMut for OwnershipVisitor {
             // Check for Weak::clone first (before generic clone handling)
             if self.config.track_smart_pointers && method_name == "clone" {
                 if let Some(ref rname) = receiver_name {
-                    let is_weak = semantic_op.as_ref()
-                        .map(|op| op.contains("Weak") && op.contains("clone"))
-                        .unwrap_or_else(|| self.weak_vars.contains_key(rname.as_str()));
+                    let is_weak = matches!(
+                        semantic_op.as_deref(),
+                        Some("alloc::rc::clone") | Some("alloc::sync::clone")
+                    );
                     if is_weak {
                         if let Some(weak_type) = self.weak_vars.get(rname.as_str()).cloned() {
                             let location = Self::location_tokens(method_call.method.span());
@@ -2432,8 +2428,9 @@ impl VisitMut for OwnershipVisitor {
                         .find(|mc| mc.method == "clone")
                         .and_then(|mc| mc.is_trait_method)
                 });
-                // Semantic path: only track if confirmed Clone::clone (or no analyzer data)
-                if is_clone_trait.unwrap_or(true) {
+                // Semantic only: require analyzer to confirm Clone::clone
+                let is_clone_trait = is_clone_trait.expect("Analyzer must detect Clone trait methods");
+                if is_clone_trait {
                     let mc = method_call.clone();
                     self.transform_clone(expr, &mc);
                     return;
@@ -2446,12 +2443,16 @@ impl VisitMut for OwnershipVisitor {
             if self.config.track_methods {
                 let is_maybe_uninit = receiver_name.as_ref()
                     .map(|n| self.maybe_uninit_vars.contains(n))
-                    .unwrap_or(false);
+                    .expect("Analyzer must track MaybeUninit variables");
                 
                 // Semantic disambiguation for "lock", "read", "write"
-                let is_lock_op = semantic_op.as_ref()
-                    .map(|op| op.contains("Mutex::lock") || op.contains("RwLock::read") || op.contains("RwLock::write"))
-                    .unwrap_or(false);
+                let is_lock_op = matches!(
+                    semantic_op.as_deref(),
+                    Some("std::sync::poison::mutex::lock")
+                    | Some("std::sync::poison::mutex::try_lock")
+                    | Some("std::sync::poison::rwlock::read")
+                    | Some("std::sync::poison::rwlock::write")
+                );
                 
                 if is_lock_op || !is_maybe_uninit {
                     match method_name.as_str() {
@@ -2479,9 +2480,8 @@ impl VisitMut for OwnershipVisitor {
             if self.config.track_methods {
                 match method_name.as_str() {
                     "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" => {
-                        let is_option_result = semantic_op.as_ref()
-                            .map(|op| op.contains("option") || op.contains("result"))
-                            .unwrap_or(true); // fallback: assume yes if no analyzer data
+                        let is_option_result = semantic_op.as_deref()
+                            .map_or(false, |op| op.starts_with("core::option::") || op.starts_with("core::result::"));
                         if is_option_result {
                             let mc = method_call.clone();
                             self.transform_unwrap(expr, &mc);
@@ -2498,10 +2498,8 @@ impl VisitMut for OwnershipVisitor {
                     let location = Self::location_tokens(method_call.method.span());
                     let receiver = method_call.receiver.clone();
 
-                    // Cow::to_mut - semantic: check operation, fallback: check cow_vars
-                    let is_cow_to_mut = semantic_op.as_ref()
-                        .map(|op| op.contains("Cow") && op.contains("to_mut"))
-                        .unwrap_or_else(|| self.cow_vars.contains(receiver_name) && method_name == "to_mut");
+                    // Cow::to_mut - semantic only
+                    let is_cow_to_mut = semantic_op.as_deref() == Some("alloc::borrow::to_mut");
                     if is_cow_to_mut && method_name == "to_mut" {
                         let cow_id = format!("cow_{}", receiver_name);
                         // We can't easily wrap to_mut since it returns &mut T
@@ -2515,10 +2513,11 @@ impl VisitMut for OwnershipVisitor {
                         return;
                     }
 
-                    // Weak::upgrade - semantic: check operation, fallback: check weak_vars
-                    let is_weak_upgrade = semantic_op.as_ref()
-                        .map(|op| op.contains("Weak") && op.contains("upgrade"))
-                        .unwrap_or_else(|| self.weak_vars.contains_key(receiver_name.as_str()) && method_name == "upgrade");
+                    // Weak::upgrade - semantic only
+                    let is_weak_upgrade = matches!(
+                        semantic_op.as_deref(),
+                        Some("alloc::rc::upgrade") | Some("alloc::sync::upgrade")
+                    );
                     if is_weak_upgrade {
                         if let Some(weak_type) = self.weak_vars.get(receiver_name.as_str()).cloned() {
                             let weak_id = format!("weak_{}", receiver_name);
@@ -2536,10 +2535,11 @@ impl VisitMut for OwnershipVisitor {
                         // Weak::clone is handled earlier in the method call processing
                     }
 
-                    // JoinHandle::join - semantic: check operation, fallback: check join_handle_vars
-                    let is_join = semantic_op.as_ref()
-                        .map(|op| op.contains("JoinHandle") && op.contains("join"))
-                        .unwrap_or_else(|| self.join_handle_vars.contains(receiver_name) && method_name == "join");
+                    // JoinHandle::join - semantic only
+                    let is_join = matches!(
+                        semantic_op.as_deref(),
+                        Some("std::thread::join_handle::join") | Some("std::thread::join")
+                    );
                     if is_join && method_name == "join" {
                         let handle_id = format!("thread_{}", receiver_name);
                         *expr = syn::parse_quote! {
@@ -2548,10 +2548,8 @@ impl VisitMut for OwnershipVisitor {
                         return;
                     }
 
-                    // Sender::send - semantic: check operation, fallback: check sender_vars
-                    let is_send = semantic_op.as_ref()
-                        .map(|op| op.contains("Sender") && op.contains("send"))
-                        .unwrap_or_else(|| self.sender_vars.contains(receiver_name) && method_name == "send");
+                    // Sender::send - semantic only
+                    let is_send = semantic_op.as_deref() == Some("std::sync::mpsc::send");
                     if is_send && method_name == "send" {
                         let sender_id = format!("sender_{}", receiver_name);
                         let args: Vec<_> = method_call.args.iter().cloned().collect();
@@ -2563,10 +2561,11 @@ impl VisitMut for OwnershipVisitor {
                         }
                     }
 
-                    // Receiver::recv/try_recv - semantic: check operation, fallback: check receiver_vars
-                    let is_recv = semantic_op.as_ref()
-                        .map(|op| op.contains("Receiver") && (op.contains("recv") || op.contains("try_recv")))
-                        .unwrap_or_else(|| self.receiver_vars.contains(receiver_name));
+                    // Receiver::recv/try_recv - semantic only
+                    let is_recv = matches!(
+                        semantic_op.as_deref(),
+                        Some("std::sync::mpsc::recv") | Some("std::sync::mpsc::try_recv")
+                    );
                     if is_recv {
                         match method_name.as_str() {
                             "recv" => {
@@ -2599,13 +2598,14 @@ impl VisitMut for OwnershipVisitor {
                     let receiver_id = format!("refcell_{}", receiver_name);
                     let receiver = method_call.receiver.clone();
                     
-                    // RefCell::borrow - semantic: check operation, fallback: match name
-                    let is_refcell_borrow = semantic_op.as_ref()
-                        .map(|op| op.contains("RefCell") && op.contains("borrow"))
-                        .unwrap_or(false);
+                    // RefCell::borrow - semantic only
+                    let is_refcell_borrow = matches!(
+                        semantic_op.as_deref(),
+                        Some("core::cell::borrow") | Some("core::cell::borrow_mut")
+                    );
                     
                     match method_name.as_str() {
-                        "borrow" if is_refcell_borrow || semantic_op.is_none() => {
+                        "borrow" if is_refcell_borrow => {
                             // Transform cell.borrow() -> track_refcell_borrow(id, cell_id, loc, cell.borrow())
                             *expr = syn::parse_quote! {
                                 borrowscope_runtime::track_refcell_borrow(#borrow_id, #receiver_id, #location, #receiver.borrow())
@@ -2622,19 +2622,12 @@ impl VisitMut for OwnershipVisitor {
                         _ => {}
                     }
                     
-                    // Check for OnceCell/OnceLock methods
-                    // Semantic: check operation, fallback: check once_cell_vars
-                    let is_once_cell = semantic_op.as_ref()
-                        .map(|op| op.contains("OnceCell") || op.contains("OnceLock"))
-                        .unwrap_or_else(|| self.once_cell_vars.contains(receiver_name.as_str()));
+                    // Check for OnceCell/OnceLock methods - semantic only
+                    let is_once_cell = semantic_op.as_deref()
+                        .map_or(false, |op| op.starts_with("core::cell::once::") || op.starts_with("std::sync::once_lock::"));
                     if is_once_cell {
-                        // Semantic: match operation path, fallback: match method name
-                        let once_method = semantic_op.as_ref().and_then(|op| {
-                            if op.contains("::set") { Some("set") }
-                            else if op.contains("::get_or_init") { Some("get_or_init") }
-                            else if op.contains("::get") { Some("get") }
-                            else { None }
-                        }).unwrap_or(method_name.as_str());
+                        // Use method_name directly — already validated by canonical path prefix
+                        let once_method = method_name.as_str();
                         let cell_id = format!("once_{}", receiver_name);
                         match once_method {
                             "set" => {
@@ -2671,17 +2664,11 @@ impl VisitMut for OwnershipVisitor {
                     
                     // Check for MaybeUninit methods
                     // Semantic: match operation path, fallback: match method name
-                    let is_maybe_uninit_op = semantic_op.as_ref()
-                        .map(|op| op.contains("MaybeUninit"))
-                        .unwrap_or_else(|| self.maybe_uninit_vars.contains(receiver_name.as_str()));
+                    let is_maybe_uninit_op = semantic_op.as_deref()
+                        .map_or(false, |op| op.starts_with("core::mem::maybe_uninit::"));
                     if is_maybe_uninit_op {
-                        let uninit_method = semantic_op.as_ref().and_then(|op| {
-                            if op.contains("::assume_init_read") { Some("assume_init_read") }
-                            else if op.contains("::assume_init_drop") { Some("assume_init_drop") }
-                            else if op.contains("::assume_init") { Some("assume_init") }
-                            else if op.contains("::write") { Some("write") }
-                            else { None }
-                        }).unwrap_or(method_name.as_str());
+                        // Use method_name directly — already validated by canonical path prefix
+                        let uninit_method = method_name.as_str();
                         let uninit_id = format!("uninit_{}", receiver_name);
                         match uninit_method {
                             "write" => {
@@ -2721,9 +2708,10 @@ impl VisitMut for OwnershipVisitor {
                     // Cell get/set methods
                     // Semantic: check operation to disambiguate "get" (Cell vs HashMap/Vec)
                     // and "set" (Cell vs OnceCell vs user types), fallback: non-OnceCell heuristic
-                    let is_cell_op = semantic_op.as_ref()
-                        .map(|op| op.contains("Cell") && (op.contains("get") || op.contains("set")) && !op.contains("OnceCell"))
-                        .unwrap_or_else(|| !self.once_cell_vars.contains(receiver_name.as_str()));
+                    let is_cell_op = matches!(
+                        semantic_op.as_deref(),
+                        Some("core::cell::get") | Some("core::cell::set")
+                    );
                     if is_cell_op {
                         match method_name.as_str() {
                             "get" => {
@@ -2911,6 +2899,16 @@ mod tests {
     use quote::ToTokens;
     use syn::parse_quote;
 
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    fn init_type_info() {
+        INIT.call_once(|| {
+            let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let test_project = manifest_dir.join("tests/semantic_test_project");
+            crate::type_info::load_from_path(&test_project);
+        });
+    }
+
     #[test]
     fn test_simple_let_transformation() {
         let mut visitor = OwnershipVisitor::new();
@@ -2928,6 +2926,7 @@ mod tests {
 
     #[test]
     fn test_multiple_variables() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut block: Block = parse_quote! {
@@ -2948,6 +2947,7 @@ mod tests {
 
     #[test]
     fn test_nested_blocks() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut block: Block = parse_quote! {
@@ -2995,6 +2995,7 @@ mod tests {
 
     #[test]
     fn test_scope_depth_tracking() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
         assert_eq!(visitor.scope_depth, 0);
 
@@ -3067,10 +3068,11 @@ mod tests {
 
     #[test]
     fn test_refcell_borrow_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
-            cell.borrow()
+            refcell.borrow()
         };
 
         visitor.visit_expr_mut(&mut expr);
@@ -3081,10 +3083,11 @@ mod tests {
 
     #[test]
     fn test_refcell_borrow_mut_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
-            cell.borrow_mut()
+            refcell.borrow_mut()
         };
 
         visitor.visit_expr_mut(&mut expr);
@@ -3095,6 +3098,7 @@ mod tests {
 
     #[test]
     fn test_cell_get_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
@@ -3109,6 +3113,7 @@ mod tests {
 
     #[test]
     fn test_cell_set_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
@@ -3166,6 +3171,7 @@ mod tests {
 
     #[test]
     fn test_transmute_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
@@ -3307,6 +3313,7 @@ mod tests {
 
     #[test]
     fn test_clone_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
@@ -3352,6 +3359,7 @@ mod tests {
 
     #[test]
     fn test_unwrap_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {
@@ -3367,6 +3375,7 @@ mod tests {
 
     #[test]
     fn test_expect_transformation() {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
 
         let mut expr: Expr = parse_quote! {

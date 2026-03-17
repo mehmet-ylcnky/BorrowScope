@@ -571,7 +571,18 @@ mod tests {
     use super::*;
     use syn::parse_quote;
 
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    fn init_type_info() {
+        INIT.call_once(|| {
+            let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            let test_project = manifest_dir.join("tests/semantic_test_project");
+            crate::type_info::load_from_path(&test_project);
+        });
+    }
+
     fn transform_function(func: &mut ItemFn) {
+        init_type_info();
         let mut visitor = OwnershipVisitor::new();
         visitor.visit_item_fn_mut(func);
     }

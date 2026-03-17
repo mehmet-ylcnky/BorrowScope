@@ -1,0 +1,166 @@
+use std::cell::{Cell, RefCell, OnceCell};
+use std::sync::{Mutex, RwLock};
+use std::sync::mpsc;
+use std::mem::MaybeUninit;
+use std::borrow::Cow;
+use std::rc::{Rc, Weak};
+use std::sync::Arc;
+
+fn test_basic_variables() {
+    let x = 5;
+    let y = &x;
+    let mut z = 10;
+    let w = &mut z;
+    let _ = (*w, y);
+}
+
+fn test_multiple_variables() {
+    let a = 1;
+    let b = 2;
+    let c = 3;
+    let _ = (a, b, c);
+}
+
+fn test_nested_blocks() {
+    let outer = 1;
+    {
+        let inner = 2;
+        let _ = inner;
+    }
+    let _ = outer;
+}
+
+fn test_scope_depth() {
+    let depth0 = 1;
+    {
+        let depth1 = 2;
+        {
+            let depth2 = 3;
+            let _ = depth2;
+        }
+        let _ = depth1;
+    }
+    let _ = depth0;
+}
+
+fn test_clone(data: Vec<i32>) {
+    let cloned = data.clone();
+    let _ = cloned;
+}
+
+fn test_cell_operations() {
+    let counter = Cell::new(0);
+    counter.set(42);
+    let val = counter.get();
+    let _ = val;
+}
+
+fn test_refcell_operations() {
+    let refcell = RefCell::new(String::new());
+    let borrowed = refcell.borrow();
+    let _ = &*borrowed;
+    drop(borrowed);
+    let mut_borrowed = refcell.borrow_mut();
+    let _ = &*mut_borrowed;
+}
+
+fn test_mutex_rwlock() {
+    let mutex = Mutex::new(0);
+    let guard = mutex.lock().unwrap();
+    let _ = *guard;
+    drop(guard);
+
+    let rwlock = RwLock::new(0);
+    let read_guard = rwlock.read().unwrap();
+    let _ = *read_guard;
+    drop(read_guard);
+    let write_guard = rwlock.write().unwrap();
+    let _ = *write_guard;
+}
+
+fn test_option_result() {
+    let option: Option<i32> = Some(42);
+    let unwrapped = option.unwrap();
+    let _ = unwrapped;
+
+    let result: Result<i32, &str> = Ok(42);
+    let expected = result.expect("error");
+    let _ = expected;
+}
+
+fn test_rc_arc() {
+    let rc = Rc::new(42);
+    let rc2 = rc.clone();
+    let weak: Weak<i32> = Rc::downgrade(&rc);
+    let upgraded = weak.upgrade();
+    let _ = (rc2, upgraded);
+
+    let arc = Arc::new(42);
+    let arc2 = arc.clone();
+    let _ = arc2;
+}
+
+fn test_cow() {
+    let cow: Cow<str> = Cow::Borrowed("hello");
+    let owned = cow.to_string();
+    let mut cow2: Cow<str> = Cow::Borrowed("world");
+    let mutref = cow2.to_mut();
+    let _ = (owned, mutref);
+}
+
+fn test_channel() {
+    let (tx, rx) = mpsc::channel::<i32>();
+    let _ = tx.send(42);
+    let received = rx.recv();
+    let _ = received;
+}
+
+fn test_once_cell() {
+    let once = OnceCell::new();
+    let _ = once.set(42);
+    let got = once.get();
+    let _ = got;
+}
+
+fn test_maybe_uninit() {
+    let mut uninit = MaybeUninit::<i32>::uninit();
+    uninit.write(42);
+    let inited = unsafe { uninit.assume_init() };
+    let _ = inited;
+}
+
+fn test_transmute() {
+    let src: u32 = 42;
+    let dst: f32 = unsafe { std::mem::transmute::<u32, f32>(src) };
+    let _ = dst;
+}
+
+pub fn test_visibility() {
+    let visible = 5;
+    let _ = visible;
+}
+
+fn test_function_signature(param: i32) -> i32 {
+    let local = param;
+    local
+}
+
+fn main() {
+    test_basic_variables();
+    test_multiple_variables();
+    test_nested_blocks();
+    test_scope_depth();
+    test_clone(vec![1, 2, 3]);
+    test_cell_operations();
+    test_refcell_operations();
+    test_mutex_rwlock();
+    test_option_result();
+    test_rc_arc();
+    test_cow();
+    test_channel();
+    test_once_cell();
+    test_maybe_uninit();
+    test_transmute();
+    test_visibility();
+    let _ = test_function_signature(42);
+}

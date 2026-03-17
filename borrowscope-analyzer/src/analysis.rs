@@ -1089,6 +1089,34 @@ fn analyze_file(
             if let Some(ref fn_name) = current_fn {
                 decl_counts.insert(fn_name.clone(), 0);
             }
+
+            // Analyze function parameters
+            if let Some(param_list) = fn_node.param_list() {
+                for param in param_list.params() {
+                    if let Some(pat) = param.pat() {
+                        let name = extract_pattern_name(&pat);
+                        let range = pat.syntax().text_range();
+                        let (line, column) = get_location(&range, &source_file);
+                        let mut var_info = VariableTypeInfo::new(name, relative_path.to_string(), line, column);
+                        var_info.span_start = u32::from(range.start());
+                        var_info.span_end = u32::from(range.end());
+                        if let ast::Pat::IdentPat(ident_pat) = &pat {
+                            var_info.is_mut_binding = ident_pat.mut_token().is_some();
+                        }
+                        if let Some(type_info) = sema.type_of_pat(&pat) {
+                            populate_type_info(&mut var_info, &type_info.original, db, known_types, display_target);
+                        }
+                        var_info.function_name = current_fn.clone();
+                        if let Some(ref fn_name) = current_fn {
+                            let count = decl_counts.entry(fn_name.clone()).or_insert(0);
+                            var_info.decl_index = Some(*count);
+                            *count += 1;
+                        }
+                        variables.push(var_info);
+                        scope_id += 1;
+                    }
+                }
+            }
         }
         
         match node.kind() {
