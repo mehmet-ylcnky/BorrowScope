@@ -182,6 +182,10 @@ pub(crate) struct KnownTypes {
     termination_trait: Option<Trait>,
     unwind_safe_trait: Option<Trait>,
     ref_unwind_safe_trait: Option<Trait>,
+
+    /// Fallback: maps "TypeName\0CrateName" → classification for re-exported
+    /// std types where import_map ADT identity differs from type-resolver ADT.
+    by_name: std::collections::HashMap<String, &'static str>,
 }
 
 /// Get full module path as string (e.g., "std::sync::poison::mutex")
@@ -426,12 +430,69 @@ impl KnownTypes {
                 }
             }
         }
-        
+
+        // Build by_name map: every (TypeName, CrateName) pair that classify()
+        // can return, so re-exported types with different AdtId still match.
+        let entries: &[(&str, &str)] = &[
+            ("Rc", "rc"), ("Arc", "arc"), ("Weak", "weak"),
+            ("Cell", "cell"), ("RefCell", "refcell"), ("UnsafeCell", "unsafe_cell"),
+            ("Mutex", "mutex"), ("RwLock", "rwlock"),
+            ("OnceCell", "once_cell"), ("OnceLock", "once_lock"),
+            ("Ref", "ref_guard"), ("RefMut", "refmut_guard"),
+            ("MutexGuard", "mutex_guard"),
+            ("RwLockReadGuard", "rwlock_read_guard"),
+            ("RwLockWriteGuard", "rwlock_write_guard"),
+            ("MappedMutexGuard", "mapped_mutex_guard"),
+            ("MappedRwLockReadGuard", "mapped_rwlock_read_guard"),
+            ("MappedRwLockWriteGuard", "mapped_rwlock_write_guard"),
+            ("MaybeUninit", "maybe_uninit"), ("ManuallyDrop", "manually_drop"),
+            ("Vec", "vec"), ("String", "string"),
+            ("HashMap", "hashmap"), ("HashSet", "hashset"),
+            ("Pin", "pin"), ("Cow", "cow"),
+            ("Option", "option"), ("Result", "result"),
+            ("Sender", "channel_sender"), ("Receiver", "channel_receiver"),
+            ("SyncSender", "sync_channel_sender"),
+            ("PathBuf", "pathbuf"), ("OsString", "osstring"),
+            ("CString", "cstring"), ("CStr", "cstr"),
+            ("NonNull", "nonnull"),
+            ("BTreeMap", "btreemap"), ("BTreeSet", "btreeset"),
+            ("VecDeque", "vecdeque"), ("LinkedList", "linkedlist"),
+            ("BinaryHeap", "binaryheap"),
+            ("JoinHandle", "join_handle"),
+            ("Duration", "duration"), ("Instant", "instant"),
+            ("Poll", "poll"), ("Context", "context"),
+            ("Range", "range"), ("RangeFrom", "range_from"),
+            ("RangeTo", "range_to"), ("RangeFull", "range_full"),
+            ("RangeInclusive", "range_inclusive"),
+            ("RangeToInclusive", "range_to_inclusive"),
+            ("PhantomData", "phantom_data"), ("Layout", "alloc_layout"),
+            ("Ordering", "ordering"),
+            ("PanicInfo", "panic_info"), ("Location", "panic_location"),
+            ("Arguments", "fmt_arguments"),
+            ("AtomicBool", "atomic"), ("AtomicI8", "atomic"),
+            ("AtomicI16", "atomic"), ("AtomicI32", "atomic"),
+            ("AtomicI64", "atomic"), ("AtomicIsize", "atomic"),
+            ("AtomicU8", "atomic"), ("AtomicU16", "atomic"),
+            ("AtomicU32", "atomic"), ("AtomicU64", "atomic"),
+            ("AtomicUsize", "atomic"), ("AtomicPtr", "atomic"),
+        ];
+        let std_crate_names = ["std", "core", "alloc"];
+        let mut by_name = std::collections::HashMap::new();
+        for (type_name, classification) in entries {
+            for crate_name in &std_crate_names {
+                let key = format!("{}\0{}", type_name, crate_name);
+                by_name.insert(key, *classification);
+            }
+        }
+        known.by_name = by_name;
+
         known
     }
     
-    /// Classify an ADT by comparing AdtId directly (fully semantic)
-    fn classify(&self, adt: &Adt) -> Option<&'static str> {
+    /// Classify an ADT by comparing AdtId directly (fully semantic).
+    /// Falls back to (name, crate) lookup for re-exported types where
+    /// import_map ADT identity differs from type-resolver ADT identity.
+    fn classify(&self, adt: &Adt, db: &RootDatabase) -> Option<&'static str> {
         // Smart pointers
         if self.rc.as_ref() == Some(adt) { return Some("rc"); }
         if self.arc.as_ref() == Some(adt) { return Some("arc"); }
@@ -541,6 +602,15 @@ impl KnownTypes {
         if self.atomic_usize.as_ref() == Some(adt) { return Some("atomic"); }
         if self.atomic_ptr.as_ref() == Some(adt) { return Some("atomic"); }
         
+        // Fallback: lookup by (name, crate) for re-exported types
+        let adt_name = adt.name(db).display_no_db(Edition::Edition2021).to_string();
+        let crate_name = adt.module(db).krate(db).display_name(db)
+            .map(|n| n.to_string()).unwrap_or_default();
+        let key = format!("{}\0{}", adt_name, crate_name);
+        if let Some(classification) = self.by_name.get(&key) {
+            return Some(classification);
+        }
+
         None
     }
     
@@ -1433,26 +1503,11 @@ fn classify_by_resolved_type_semantic(ty: &ra_ap_hir::Type, known_types: &KnownT
     // Get the ADT for type-based classification using AdtId comparison
     if let Some(adt) = ty.as_adt() {
         // Use semantic AdtId comparison instead of string matching
-        let type_class = known_types.classify(&adt).unwrap_or_else(|| {
-            // Fallback: check crate + name for std types not in KnownTypes (e.g., unstable/nightly)
-            let adt_name = adt.name(db).display_no_db(Edition::Edition2021).to_string();
-            let crate_name = adt.module(db).krate(db).display_name(db).map(|n| n.to_string()).unwrap_or_default();
-            let is_std = crate_name == "std" || crate_name == "core" || crate_name == "alloc";
-            match (adt_name.as_str(), is_std) {
-                // Re-exported types whose import_map ADT may differ from type-resolver ADT
-                ("Mutex", true) => "mutex",
-                ("RwLock", true) => "rwlock",
-                ("MutexGuard", true) => "mutex_guard",
-                ("RwLockReadGuard", true) => "rwlock_read_guard",
-                ("RwLockWriteGuard", true) => "rwlock_write_guard",
-                ("MappedMutexGuard", true) => "mapped_mutex_guard",
-                ("MappedRwLockReadGuard", true) => "mapped_rwlock_read_guard",
-                ("MappedRwLockWriteGuard", true) => "mapped_rwlock_write_guard",
-                _ => match &adt {
-                    ra_ap_hir::Adt::Struct(_) => "user_struct",
-                    ra_ap_hir::Adt::Enum(_) => "user_enum",
-                    ra_ap_hir::Adt::Union(_) => "user_union",
-                },
+        let type_class = known_types.classify(&adt, db).unwrap_or_else(|| {
+            match &adt {
+                ra_ap_hir::Adt::Struct(_) => "user_struct",
+                ra_ap_hir::Adt::Enum(_) => "user_enum",
+                ra_ap_hir::Adt::Union(_) => "user_union",
             }
         });
         
