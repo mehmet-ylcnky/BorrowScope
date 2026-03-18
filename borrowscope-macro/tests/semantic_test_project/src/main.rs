@@ -150,6 +150,10 @@ fn test_transmute() {
     let src: u32 = 42;
     let dst: f32 = unsafe { std::mem::transmute::<u32, f32>(src) };
     let _ = dst;
+    // Second transmute — tests line-based disambiguation
+    let src2: u64 = 123;
+    let dst2: f64 = unsafe { std::mem::transmute::<u64, f64>(src2) };
+    let _ = dst2;
 }
 
 pub fn test_raw_ptr() {

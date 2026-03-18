@@ -1505,8 +1505,9 @@ impl OwnershipVisitor {
                 let args = &call_expr.args;
                 let func = &call_expr.func;
 
-                // Try to get type info from semantic data
-                let (from_type, to_type) = crate::type_info::find_transmute_types()
+                // Match by line number to disambiguate multiple transmutes
+                let call_line = span.start().line as u32;
+                let (from_type, to_type) = crate::type_info::find_transmute_types(call_line)
                     .unwrap_or(("unknown", "unknown"));
 
                 // Add warning about transmute type info

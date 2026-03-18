@@ -305,26 +305,18 @@ pub fn has_transmute_expression() -> Option<bool> {
         .any(|e| e.operation == "core::intrinsics::transmute"))
 }
 
-/// Find a transmute expression's type info from semantic data.
-/// Returns (argument_type, result_type) if exactly one transmute is tracked.
-/// Falls back to ("unknown", "unknown") if multiple transmutes exist (can't disambiguate).
-/// Since proc macros can't access file/line from spans, this is best-effort.
-pub fn find_transmute_types() -> Option<(&'static str, &'static str)> {
+/// Find a transmute expression's type info from semantic data by line number.
+/// Returns (argument_type, result_type) if a transmute at the given line is found.
+pub fn find_transmute_types(line: u32) -> Option<(&'static str, &'static str)> {
     let type_info = get_type_info()?;
-    let mut found: Option<&ExpressionInfo> = None;
     for exprs in type_info.expressions.values() {
         for e in exprs {
-            if e.operation == "core::intrinsics::transmute" {
-                if found.is_some() {
-                    return None; // Multiple transmutes — can't disambiguate
-                }
-                found = Some(e);
+            if e.operation == "core::intrinsics::transmute" && e.line == line {
+                let from = e.argument.as_deref().unwrap_or("unknown");
+                let to = e.result_type.as_deref().unwrap_or("unknown");
+                return Some((from, to));
             }
         }
     }
-    found.map(|e| {
-        let from = e.argument.as_deref().unwrap_or("unknown");
-        let to = e.result_type.as_deref().unwrap_or("unknown");
-        (from, to)
-    })
+    None
 }
