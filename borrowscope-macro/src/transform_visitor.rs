@@ -1323,6 +1323,22 @@ impl OwnershipVisitor {
                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
             }),
 
+            // Atomic types
+            "atomic_new" => {
+                let atomic_type = &type_info.ty;
+                Some(syn::parse_quote! {
+                    borrowscope_runtime::track_atomic_new(#var_name, #atomic_type, #location, #original_expr)
+                })
+            },
+
+            // Time types
+            "duration_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_duration_new(#var_name, #location, #original_expr)
+            }),
+            "instant_new" => Some(syn::parse_quote! {
+                borrowscope_runtime::track_instant_new(#var_name, #location, #original_expr)
+            }),
+
             // User-defined types - use generic tracking
             "user_struct" | "user_enum" | "user_union" => Some(syn::parse_quote! {
                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)

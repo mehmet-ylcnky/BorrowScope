@@ -227,6 +227,104 @@ pub fn track_drop_at(
     }
 }
 
+/// Track atomic variable creation.
+#[inline(always)]
+pub fn track_atomic_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] atomic_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_new(name, atomic_type);
+    }
+    value
+}
+
+/// Track Duration creation.
+#[inline(always)]
+pub fn track_duration_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_new(name, "Duration");
+    }
+    value
+}
+
+/// Track Instant creation.
+#[inline(always)]
+pub fn track_instant_new<T>(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    value: T,
+) -> T {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_new(name, "Instant");
+    }
+    value
+}
+
+/// Track an implicit autoref adjustment.
+#[inline(always)]
+pub fn track_autoref(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_borrow(name, name, false);
+    }
+}
+
+/// Track an implicit autoderef adjustment.
+#[inline(always)]
+pub fn track_autoderef(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_deref(0, name, location);
+    }
+}
+
+/// Track a variable read at a specific location.
+#[inline(always)]
+pub fn track_var_read(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_borrow(name, name, false);
+    }
+}
+
+/// Track a variable write at a specific location.
+#[inline(always)]
+pub fn track_var_write(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_borrow(name, name, true);
+    }
+}
+
 /// Track multiple drops in batch (optimized).
 ///
 /// Records multiple `Drop` events efficiently with a single lock acquisition.

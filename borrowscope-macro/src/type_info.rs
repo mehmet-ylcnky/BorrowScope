@@ -132,6 +132,30 @@ pub struct VariableTypeInfo {
     #[serde(default)]
     pub fields: Vec<FieldInfo>,
 
+    // === Group 2: New runtime functions + macro wiring (6 fields) ===
+
+    // Atomic type detection
+    #[serde(default)]
+    pub is_atomic: bool,
+
+    // Time type detection
+    #[serde(default)]
+    pub is_duration: bool,
+    #[serde(default)]
+    pub is_instant: bool,
+
+    // Expression adjustments (autoref/autoderef chain)
+    #[serde(default)]
+    pub adjustments: Vec<AdjustmentInfo>,
+
+    // Autoderef sequence
+    #[serde(default)]
+    pub deref_chain: Vec<String>,
+
+    // Variable usage sites
+    #[serde(default)]
+    pub usages: Vec<VariableUsageInfo>,
+
     // === Group 3: Deserialize-only metadata (16 fields) ===
 
     // Source location
@@ -195,6 +219,21 @@ pub struct LayoutInfo {
 pub struct FieldInfo {
     pub name: String,
     pub ty: String,
+}
+
+/// Adjustment (coercion) information from analyzer
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct AdjustmentInfo {
+    pub kind: String,
+    pub target: String,
+}
+
+/// Variable usage site from analyzer
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct VariableUsageInfo {
+    pub line: u32,
+    pub column: u32,
+    pub kind: String,
 }
 
 /// Closure capture information from analyzer
@@ -536,5 +575,44 @@ mod tests {
         assert_eq!(v.fields.len(), 1);
         assert_eq!(v.fields[0].name, "inner");
         assert_eq!(v.fields[0].ty, "Thread");
+    }
+
+    #[test]
+    fn test_group2_deserialization() {
+        let json = r#"{
+            "name": "flag", "ty": "AtomicBool",
+            "is_copy": false, "is_clone": false, "is_send": true, "is_sync": true,
+            "is_drop": false, "is_sized": true, "is_future": false, "is_iterator": false,
+            "is_primitive": false, "is_reference": false, "is_mutable_reference": false,
+            "is_raw_ptr": false, "is_mutable_raw_ptr": false, "is_slice": false,
+            "is_str": false, "is_closure": false, "is_fn_ptr": false, "is_dyn_trait": false,
+            "is_union": false, "is_rc": false, "is_arc": false, "is_box": false,
+            "is_weak": false, "is_refcell": false, "is_cell": false, "is_mutex": false,
+            "is_rwlock": false, "is_guard": false, "is_vec": false, "is_string": false,
+            "is_option": false, "is_result": false, "is_pin": false, "is_cow": false,
+            "is_once_cell": false, "is_maybe_uninit": false, "is_channel": false,
+            "is_extern_type": false, "is_never": false, "is_ordering": false,
+            "is_static": false, "is_const": false, "is_tuple_binding": false,
+            "is_mut_binding": false, "is_impl_trait": false,
+            "initializer_kind": "atomic_new",
+            "function_name": "test_fn", "decl_index": 0,
+            "is_atomic": true,
+            "is_duration": false,
+            "is_instant": false,
+            "adjustments": [{"kind": "deref", "target": "bool"}],
+            "deref_chain": ["bool"],
+            "usages": [{"line": 10, "column": 4, "kind": "read"}]
+        }"#;
+        let v: VariableTypeInfo = serde_json::from_str(json).unwrap();
+        assert!(v.is_atomic);
+        assert!(!v.is_duration);
+        assert!(!v.is_instant);
+        assert_eq!(v.adjustments.len(), 1);
+        assert_eq!(v.adjustments[0].kind, "deref");
+        assert_eq!(v.adjustments[0].target, "bool");
+        assert_eq!(v.deref_chain, vec!["bool"]);
+        assert_eq!(v.usages.len(), 1);
+        assert_eq!(v.usages[0].kind, "read");
+        assert_eq!(v.usages[0].line, 10);
     }
 }

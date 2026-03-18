@@ -210,6 +210,22 @@ fn test_field_access() {
     let _py = p.y;
 }
 
+fn test_atomic() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    let flag = AtomicBool::new(false);
+    let atom_count = AtomicUsize::new(0);
+    let _ = flag;
+    let _ = atom_count;
+}
+
+fn test_time_types() {
+    use std::time::{Duration, Instant};
+    let dur = Duration::from_secs(1);
+    let now = Instant::now();
+    let _ = dur;
+    let _ = now;
+}
+
 fn main() {
     test_basic_variables();
     test_multiple_variables();
@@ -232,6 +248,8 @@ fn main() {
     test_self_borrow_kinds();
     test_callable();
     test_field_access();
+    test_atomic();
+    test_time_types();
     test_visibility();
     let _ = test_function_signature(42);
 }
