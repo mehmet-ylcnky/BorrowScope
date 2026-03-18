@@ -43,6 +43,22 @@ pub fn track_call(
     }
 }
 
+/// Track method call with receiver and result type metadata
+#[inline(always)]
+pub fn track_method_call(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] call_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] receiver_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] result_type: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_method_call(call_id, fn_name, location, receiver_type, result_type);
+    }
+}
+
 /// Track lock acquisition (Mutex/RwLock)
 #[inline(always)]
 pub fn track_lock(

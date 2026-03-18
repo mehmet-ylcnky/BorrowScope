@@ -378,6 +378,10 @@ pub enum Event {
         call_id: String,
         fn_name: String,
         location: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        receiver_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        result_type: Option<String>,
     },
 
     /// Lock acquired (Mutex/RwLock)

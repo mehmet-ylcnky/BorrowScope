@@ -292,6 +292,7 @@ pub use tracker::{
     track_await_end, track_await_start, track_binary_op, track_borrow, track_borrow_mut,
     track_borrow_mut_sampled, track_borrow_mut_with_id, track_borrow_sampled, track_borrow_with_id,
     track_box_from_raw, track_box_into_raw, track_box_new, track_branch, track_break, track_call,
+    track_method_call,
     track_cell_get, track_cell_new, track_cell_set, track_channel, track_channel_recv,
     track_channel_send, track_channel_try_recv, track_clone, track_closure_capture,
     track_closure_create, track_const_eval, track_continue, track_cow_borrowed, track_cow_owned,

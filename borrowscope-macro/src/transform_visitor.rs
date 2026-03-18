@@ -559,10 +559,10 @@ impl OwnershipVisitor {
             let type_info = crate::type_info::lookup_by_name(name)?;
             type_info.method_calls.iter()
                 .find(|mc| mc.method == method_name)
-                .and_then(|mc| mc.operation.clone())
+                .and_then(|mc| mc.operation.as_deref())
         });
         let is_guard_method = matches!(
-            guard_semantic_op.as_deref(),
+            guard_semantic_op,
             Some("std::sync::poison::mutex::lock")
             | Some("std::sync::poison::mutex::try_lock")
             | Some("std::sync::poison::rwlock::read")
@@ -2442,12 +2442,30 @@ impl VisitMut for OwnershipVisitor {
             let receiver_name = Self::extract_receiver_name(&method_call.receiver);
             
             // Semantic operation lookup: resolve the canonical operation from analyzer data
-            let semantic_op = receiver_name.as_ref().and_then(|name| {
+            let mc_info = receiver_name.as_ref().and_then(|name| {
                 let type_info = crate::type_info::lookup_by_name(name)?;
                 type_info.method_calls.iter()
                     .find(|mc| mc.method == method_name)
-                    .and_then(|mc| mc.operation.clone())
             });
+            let semantic_op = mc_info.and_then(|mc| mc.operation.clone());
+
+            // Emit track_unsafe_fn_call for unsafe method calls (semantic: is_unsafe flag)
+            if self.config.track_unsafe {
+                if mc_info.and_then(|mc| mc.is_unsafe) == Some(true) {
+                    if let Some(ref rname) = receiver_name {
+                        let location = Self::location_tokens(method_call.method.span());
+                        let fn_name = format!("{}::{}", rname, method_name);
+                        let call_expr = expr.clone();
+                        *expr = syn::parse_quote! {
+                            {
+                                borrowscope_runtime::track_unsafe_fn_call(#fn_name, #location);
+                                #call_expr
+                            }
+                        };
+                        return;
+                    }
+                }
+            }
             
             // Check for Weak::clone first (before generic clone handling)
             if self.config.track_smart_pointers && method_name == "clone" {
@@ -2798,8 +2816,28 @@ impl VisitMut for OwnershipVisitor {
                 }
             }
             
-            // Handle other method calls
+            // Handle other method calls — emit track_method_call when analyzer provides type metadata
             self.transform_method_call(method_call);
+            if self.config.track_methods {
+                if let Some(mc) = mc_info {
+                    if mc.receiver_type.is_some() || mc.result_type.is_some() {
+                        if let Some(ref rname) = receiver_name {
+                            let call_id = self.gen_id();
+                            let fn_name = format!("{}::{}", rname, method_name);
+                            let location = Self::location_tokens(method_call.method.span());
+                            let recv_ty = mc.receiver_type.as_deref().unwrap_or("");
+                            let res_ty = mc.result_type.as_deref().unwrap_or("");
+                            let call_expr = expr.clone();
+                            *expr = syn::parse_quote! {
+                                {
+                                    borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, #recv_ty, #res_ty);
+                                    #call_expr
+                                }
+                            };
+                        }
+                    }
+                }
+            }
             return;
         }
 

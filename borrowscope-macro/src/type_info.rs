@@ -257,6 +257,12 @@ pub struct MethodCallInfo {
     pub is_trait_method: Option<bool>,
     #[serde(default)]
     pub trait_name: Option<String>,
+    #[serde(default)]
+    pub receiver_type: Option<String>,
+    #[serde(default)]
+    pub result_type: Option<String>,
+    #[serde(default)]
+    pub is_unsafe: Option<bool>,
 }
 
 /// Standalone expression information (compact - only fields macro needs)
@@ -614,5 +620,21 @@ mod tests {
         assert_eq!(v.usages.len(), 1);
         assert_eq!(v.usages[0].kind, "read");
         assert_eq!(v.usages[0].line, 10);
+    }
+
+    #[test]
+    fn test_method_call_info_new_fields() {
+        let json = r#"{
+            "method": "lock", "line": 5, "column": 8,
+            "operation": "std::sync::poison::mutex::lock",
+            "self_borrow": "mutable",
+            "receiver_type": "Mutex<i32>",
+            "result_type": "Result<MutexGuard<'_, i32>, PoisonError<MutexGuard<'_, i32>>>",
+            "is_unsafe": false
+        }"#;
+        let mc: MethodCallInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(mc.receiver_type.as_deref(), Some("Mutex<i32>"));
+        assert!(mc.result_type.as_deref().unwrap().contains("MutexGuard"));
+        assert_eq!(mc.is_unsafe, Some(false));
     }
 }

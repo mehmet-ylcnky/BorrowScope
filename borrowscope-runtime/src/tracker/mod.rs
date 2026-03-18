@@ -813,6 +813,21 @@ impl Tracker {
             call_id: call_id.to_string(),
             fn_name: fn_name.to_string(),
             location: location.to_string(),
+            receiver_type: None,
+            result_type: None,
+        });
+    }
+
+    /// Record method call with type metadata
+    pub fn record_method_call(&mut self, call_id: usize, fn_name: &str, location: &str, receiver_type: &str, result_type: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::Call {
+            timestamp,
+            call_id: call_id.to_string(),
+            fn_name: fn_name.to_string(),
+            location: location.to_string(),
+            receiver_type: Some(receiver_type.to_string()),
+            result_type: Some(result_type.to_string()),
         });
     }
 
