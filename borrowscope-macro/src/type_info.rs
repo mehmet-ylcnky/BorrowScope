@@ -108,6 +108,30 @@ pub struct VariableTypeInfo {
     #[serde(default)]
     pub closure_captures: Vec<ClosureCaptureInfo>,
 
+    // === Group 1: Wire to existing runtime functions (5 fields) ===
+
+    // JoinHandle detection (replaces var-name-based HashSet)
+    #[serde(default)]
+    pub is_join_handle: bool,
+
+    // Callable detection (Fn/FnMut/FnOnce impl)
+    #[serde(default)]
+    pub is_callable: bool,
+
+    // Drop point from analyzer (semantic via enclosing block)
+    #[serde(default)]
+    pub drop_line: Option<u32>,
+    #[serde(default)]
+    pub drop_column: Option<u32>,
+
+    // Scope nesting identifier
+    #[serde(default)]
+    pub scope_id: Option<u32>,
+
+    // Struct fields (semantic via Type::fields)
+    #[serde(default)]
+    pub fields: Vec<FieldInfo>,
+
     // === Group 3: Deserialize-only metadata (16 fields) ===
 
     // Source location
@@ -164,6 +188,13 @@ pub struct VariableTypeInfo {
 pub struct LayoutInfo {
     pub size: u64,
     pub align: u64,
+}
+
+/// Struct field information from analyzer
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct FieldInfo {
+    pub name: String,
+    pub ty: String,
 }
 
 /// Closure capture information from analyzer
@@ -469,5 +500,41 @@ mod tests {
         assert!(v.pattern_adjustments.is_empty());
         assert!(v.future_output_type.is_none());
         assert!(v.iterator_item_type.is_none());
+    }
+
+    #[test]
+    fn test_group1_deserialization() {
+        let json = r#"{
+            "name": "handle", "ty": "JoinHandle<()>",
+            "is_copy": false, "is_clone": false, "is_send": true, "is_sync": true,
+            "is_drop": true, "is_sized": true, "is_future": false, "is_iterator": false,
+            "is_primitive": false, "is_reference": false, "is_mutable_reference": false,
+            "is_raw_ptr": false, "is_mutable_raw_ptr": false, "is_slice": false,
+            "is_str": false, "is_closure": false, "is_fn_ptr": false, "is_dyn_trait": false,
+            "is_union": false, "is_rc": false, "is_arc": false, "is_box": false,
+            "is_weak": false, "is_refcell": false, "is_cell": false, "is_mutex": false,
+            "is_rwlock": false, "is_guard": false, "is_vec": false, "is_string": false,
+            "is_option": false, "is_result": false, "is_pin": false, "is_cow": false,
+            "is_once_cell": false, "is_maybe_uninit": false, "is_channel": false,
+            "is_extern_type": false, "is_never": false, "is_ordering": false,
+            "is_static": false, "is_const": false, "is_tuple_binding": false,
+            "is_mut_binding": false, "is_impl_trait": false,
+            "initializer_kind": null,
+            "function_name": "test_fn", "decl_index": 0,
+            "is_join_handle": true,
+            "is_callable": false,
+            "drop_line": 42, "drop_column": 1,
+            "scope_id": 5,
+            "fields": [{"name": "inner", "ty": "Thread"}]
+        }"#;
+        let v: VariableTypeInfo = serde_json::from_str(json).unwrap();
+        assert!(v.is_join_handle);
+        assert!(!v.is_callable);
+        assert_eq!(v.drop_line, Some(42));
+        assert_eq!(v.drop_column, Some(1));
+        assert_eq!(v.scope_id, Some(5));
+        assert_eq!(v.fields.len(), 1);
+        assert_eq!(v.fields[0].name, "inner");
+        assert_eq!(v.fields[0].ty, "Thread");
     }
 }

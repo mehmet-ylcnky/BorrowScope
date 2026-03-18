@@ -48,8 +48,6 @@ pub struct OwnershipVisitor {
     sender_vars: HashSet<String>,
     /// Variables that are channel receivers
     receiver_vars: HashSet<String>,
-    /// Variables that are JoinHandles
-    join_handle_vars: HashSet<String>,
     /// Variables that are Box (for into_raw tracking)
     box_vars: HashSet<String>,
     /// Variables that are lock guards (for drop tracking)
@@ -113,7 +111,6 @@ impl OwnershipVisitor {
             weak_vars: HashMap::new(),
             sender_vars: HashSet::new(),
             receiver_vars: HashSet::new(),
-            join_handle_vars: HashSet::new(),
             box_vars: HashSet::new(),
             lock_guard_vars: HashMap::new(),
             warnings: Vec::new(),
@@ -151,6 +148,17 @@ impl OwnershipVisitor {
         }
 
         // Fall back to name-only lookup
+        type_info::lookup_by_name(var_name)
+    }
+
+    /// Peek at type info without incrementing decl counter (for post-declaration lookups like drops)
+    fn peek_type_info(&self, var_name: &str) -> Option<&'static type_info::VariableTypeInfo> {
+        let decl_idx = self.decl_counts.get(var_name).map(|c| c.saturating_sub(1)).unwrap_or(0);
+        if let Some(fn_name) = &self.current_function {
+            if let Some(info) = type_info::lookup_in_function(fn_name, var_name, Some(decl_idx)) {
+                return Some(info);
+            }
+        }
         type_info::lookup_by_name(var_name)
     }
 
@@ -1060,8 +1068,7 @@ impl OwnershipVisitor {
                 } else if let Some(op) = None::<&str> {
                     let new_expr: Expr = match op {
                         "thread_spawn" => {
-                            // Track as JoinHandle for join() detection
-                            self.join_handle_vars.insert(var_name.clone());
+                            // Dead code path (None::<&str> is always None)
                             syn::parse_quote! {
                                 borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
                             }
@@ -2158,15 +2165,26 @@ impl VisitMut for OwnershipVisitor {
 
     fn visit_block_mut(&mut self, block: &mut Block) {
         self.scope_depth += 1;
+        let region_id = self.gen_id();
 
         // Push new scope
         self.scope_stack.push(Vec::new());
 
+        // Emit scope enter (gated by track_control_flow, skip depth 1 = function body)
+        if self.config.track_control_flow && self.scope_depth > 1 {
+            let scope_name = format!("scope_{}", self.scope_depth);
+            let enter_stmt: Stmt = syn::parse_quote! {
+                borrowscope_runtime::track_region_enter(#region_id, #scope_name, concat!(file!(), ":", line!()));
+            };
+            block.stmts.insert(0, enter_stmt);
+        }
+
         // Clear pending inserts for this block
         self.pending_inserts.clear();
 
-        // Visit all statements in the block
-        for (idx, stmt) in block.stmts.iter_mut().enumerate() {
+        // Visit all statements in the block (start from 1 if we inserted region_enter)
+        let start = if self.config.track_control_flow && self.scope_depth > 1 { 1 } else { 0 };
+        for (idx, stmt) in block.stmts.iter_mut().enumerate().skip(start) {
             self.current_stmt_index = idx;
             self.visit_stmt_mut(stmt);
         }
@@ -2183,15 +2201,22 @@ impl VisitMut for OwnershipVisitor {
                 let vars_to_drop: Vec<String> = scope_vars
                     .into_iter()
                     .filter(|var_name| {
-                        let type_info = self.lookup_type_info(var_name)
-                            .expect(&format!("Analyzer must provide type info for variable: {}", var_name));
-                        !type_info.copy_semantics && !type_info.is_primitive
+                        // If type info unavailable, conservatively assume drop is needed
+                        self.peek_type_info(var_name)
+                            .map_or(true, |ti| !ti.copy_semantics && !ti.is_primitive)
                     })
                     .collect();
                 
                 if vars_to_drop.is_empty() {
+                    // Emit scope exit even when no drops
+                    if self.config.track_control_flow && self.scope_depth > 1 {
+                        let exit_stmt: Stmt = syn::parse_quote! {
+                            borrowscope_runtime::track_region_exit(#region_id, concat!(file!(), ":", line!()));
+                        };
+                        block.stmts.push(exit_stmt);
+                    }
                     self.scope_depth -= 1;
-                    return; // No drops to track
+                    return;
                 }
                 
                 // Check if the last statement is an expression without semicolon (implicit return)
@@ -2203,20 +2228,35 @@ impl VisitMut for OwnershipVisitor {
 
                 let sample_rate = self.config.sample_rate;
 
-                if has_trailing_expr {
-                    // Insert drops before the last expression
-                    let last_stmt = block.stmts.pop();
-                    for var_name in vars_to_drop.into_iter().rev() {
-                        let drop_stmt: Stmt = if let Some(rate) = sample_rate {
+                // Generate drop statements with analyzer location when available
+                let make_drop_stmt = |var_name: &str, this: &Self| -> Stmt {
+                    if let Some(rate) = sample_rate {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_drop_sampled(#var_name, #rate);
+                        }
+                    } else if let Some(ti) = this.peek_type_info(var_name) {
+                        if let (Some(dl), Some(dc)) = (ti.drop_line, ti.drop_column) {
+                            let loc = format!("{}:{}", dl, dc);
                             syn::parse_quote! {
-                                borrowscope_runtime::track_drop_sampled(#var_name, #rate);
+                                borrowscope_runtime::track_drop_at(#var_name, #loc);
                             }
                         } else {
                             syn::parse_quote! {
                                 borrowscope_runtime::track_drop(#var_name);
                             }
-                        };
-                        block.stmts.push(drop_stmt);
+                        }
+                    } else {
+                        syn::parse_quote! {
+                            borrowscope_runtime::track_drop(#var_name);
+                        }
+                    }
+                };
+
+                if has_trailing_expr {
+                    // Insert drops before the last expression
+                    let last_stmt = block.stmts.pop();
+                    for var_name in vars_to_drop.into_iter().rev() {
+                        block.stmts.push(make_drop_stmt(&var_name, self));
                     }
                     // Re-add the last expression
                     if let Some(stmt) = last_stmt {
@@ -2225,19 +2265,18 @@ impl VisitMut for OwnershipVisitor {
                 } else {
                     // No trailing expression, just append drops
                     for var_name in vars_to_drop.into_iter().rev() {
-                        let drop_stmt: Stmt = if let Some(rate) = sample_rate {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_drop_sampled(#var_name, #rate);
-                            }
-                        } else {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_drop(#var_name);
-                            }
-                        };
-                        block.stmts.push(drop_stmt);
+                        block.stmts.push(make_drop_stmt(&var_name, self));
                     }
                 }
             }
+        }
+
+        // Emit scope exit before decrementing depth
+        if self.config.track_control_flow && self.scope_depth > 1 {
+            let exit_stmt: Stmt = syn::parse_quote! {
+                borrowscope_runtime::track_region_exit(#region_id, concat!(file!(), ":", line!()));
+            };
+            block.stmts.push(exit_stmt);
         }
 
         self.scope_depth -= 1;
@@ -2535,11 +2574,12 @@ impl VisitMut for OwnershipVisitor {
                         // Weak::clone is handled earlier in the method call processing
                     }
 
-                    // JoinHandle::join - semantic only
+                    // JoinHandle::join - semantic via operation path + is_join_handle flag
                     let is_join = matches!(
                         semantic_op.as_deref(),
                         Some("std::thread::join_handle::join") | Some("std::thread::join")
-                    );
+                    ) || (method_name == "join" && self.lookup_type_info(&receiver_name)
+                        .map_or(false, |ti| ti.is_join_handle));
                     if is_join && method_name == "join" {
                         let handle_id = format!("thread_{}", receiver_name);
                         *expr = syn::parse_quote! {
@@ -2839,6 +2879,32 @@ impl VisitMut for OwnershipVisitor {
             }
         }
 
+        // Track callable variable invocations (fn ptrs, closures with is_callable flag)
+        if self.config.track_expressions {
+            if let Expr::Call(call_expr) = expr {
+                if let Expr::Path(ref path) = *call_expr.func {
+                    if let Some(ident) = path.path.get_ident() {
+                        let var_name = ident.to_string();
+                        if let Some(ti) = self.peek_type_info(&var_name) {
+                            if ti.is_callable {
+                                let call_id = self.gen_id();
+                                let location = Self::location_tokens(ident.span());
+                                let func = &call_expr.func;
+                                let args = &call_expr.args;
+                                *expr = syn::parse_quote! {
+                                    {
+                                        borrowscope_runtime::track_call(#call_id, #var_name, #location);
+                                        #func(#args)
+                                    }
+                                };
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Warn about potential static variable access
         if self.config.warn_ambiguous {
             if let Expr::Path(path_expr) = expr {
@@ -2962,6 +3028,34 @@ mod tests {
 
         let output = block.to_token_stream().to_string();
         assert_eq!(output.matches("track_new").count(), 2);
+    }
+
+    #[test]
+    fn test_region_tracking() {
+        init_type_info();
+        let mut visitor = OwnershipVisitor::new();
+        // Enable control_flow tracking for region events
+        visitor.config.track_control_flow = true;
+
+        let mut block: Block = parse_quote! {
+            {
+                let x = 42;
+                {
+                    let y = 100;
+                }
+            }
+        };
+
+        visitor.visit_block_mut(&mut block);
+
+        let output = block.to_token_stream().to_string();
+        // Outer block is depth 1 (function body), so no region events
+        // Inner block is depth 2, should have region_enter and region_exit
+        assert!(output.contains("track_region_enter"), "should emit track_region_enter for inner block");
+        assert!(output.contains("track_region_exit"), "should emit track_region_exit for inner block");
+        // Only 1 pair — the inner block (depth 2), not the outer (depth 1 = function body)
+        assert_eq!(output.matches("track_region_enter").count(), 1);
+        assert_eq!(output.matches("track_region_exit").count(), 1);
     }
 
     #[test]

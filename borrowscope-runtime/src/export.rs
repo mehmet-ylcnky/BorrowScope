@@ -181,6 +181,7 @@ mod tests {
             Event::Drop {
                 timestamp: 3,
                 var_id: "r_1".to_string(),
+                location: None,
             },
         ];
 
@@ -256,10 +257,12 @@ mod tests {
             Event::Drop {
                 timestamp: 4,
                 var_id: "r_1".to_string(),
+                location: None,
             },
             Event::Drop {
                 timestamp: 5,
                 var_id: "s_2".to_string(),
+                location: None,
             },
         ];
 

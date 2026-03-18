@@ -29,10 +29,12 @@ fn test_simple_lifetime_relation() {
         Event::Drop {
             timestamp: 20,
             var_id: "r_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 30,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -80,14 +82,17 @@ fn test_multiple_immutable_borrows() {
         Event::Drop {
             timestamp: 25,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 30,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -142,14 +147,17 @@ fn test_nested_scopes() {
         Event::Drop {
             timestamp: 30,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 50,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 60,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -203,10 +211,12 @@ fn test_mutable_borrow() {
         Event::Drop {
             timestamp: 20,
             var_id: "r_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 30,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -304,10 +314,12 @@ fn test_active_borrows_at_timestamp() {
         Event::Drop {
             timestamp: 25,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 35,
             var_id: "r2_0".to_string(),
+            location: None,
         },
     ];
 
@@ -346,6 +358,7 @@ fn test_timeline_total_duration() {
         Event::Drop {
             timestamp: 500,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -390,10 +403,12 @@ fn test_relations_for_variable() {
         Event::Drop {
             timestamp: 30,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "r2_0".to_string(),
+            location: None,
         },
     ];
 
@@ -457,22 +472,27 @@ fn test_complex_lifetime_scenario() {
         Event::Drop {
             timestamp: 25,
             var_id: "r3_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 30,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 35,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "y_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 45,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -581,6 +601,7 @@ fn test_timeline_serialization() {
         Event::Drop {
             timestamp: 20,
             var_id: "r_0".to_string(),
+            location: None,
         },
     ];
 

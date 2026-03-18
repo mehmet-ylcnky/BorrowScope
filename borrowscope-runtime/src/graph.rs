@@ -199,7 +199,7 @@ pub fn build_graph(events: &[Event]) -> OwnershipGraph {
                 );
             }
 
-            Event::Drop { var_id, timestamp } => {
+            Event::Drop { var_id, timestamp, .. } => {
                 // Mark variable as dropped
                 if let Some(var) = var_map.get_mut(var_id) {
                     var.dropped_at = Some(*timestamp);
@@ -369,6 +369,7 @@ mod tests {
             Event::Drop {
                 timestamp: 2,
                 var_id: "x_0".to_string(),
+                location: None,
             },
         ];
 
@@ -396,10 +397,12 @@ mod tests {
             Event::Drop {
                 timestamp: 3,
                 var_id: "r_1".to_string(),
+                location: None,
             },
             Event::Drop {
                 timestamp: 4,
                 var_id: "x_0".to_string(),
+                location: None,
             },
         ];
 
@@ -442,6 +445,7 @@ mod tests {
             Event::Drop {
                 timestamp: 3,
                 var_id: "r_1".to_string(),
+                location: None,
             },
         ];
 

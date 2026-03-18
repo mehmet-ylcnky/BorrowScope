@@ -294,7 +294,7 @@ pub use tracker::{
     track_cell_get, track_cell_new, track_cell_set, track_channel, track_channel_recv,
     track_channel_send, track_channel_try_recv, track_clone, track_closure_capture,
     track_closure_create, track_const_eval, track_continue, track_cow_borrowed, track_cow_owned,
-    track_cow_to_mut, track_deref, track_drop, track_drop_batch, track_drop_sampled,
+    track_cow_to_mut, track_deref, track_drop, track_drop_at, track_drop_batch, track_drop_sampled,
     track_drop_with_id, track_ffi_call, track_field_access, track_fn_enter, track_fn_exit,
     track_index_access, track_let_else, track_lock, track_lock_guard_acquire, track_lock_guard_drop,
     track_loop_enter, track_loop_exit, track_loop_iteration, track_match_arm, track_match_enter,

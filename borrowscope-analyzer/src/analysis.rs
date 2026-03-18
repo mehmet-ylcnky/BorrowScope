@@ -631,7 +631,7 @@ impl KnownTypes {
     }
     
     /// Set boolean flags on VariableTypeInfo by comparing AdtId directly
-    fn set_flags(&self, var_info: &mut VariableTypeInfo, adt: &Adt) {
+    fn set_flags(&self, var_info: &mut VariableTypeInfo, adt: &Adt, db: &RootDatabase) {
         var_info.is_rc = self.rc.as_ref() == Some(adt);
         var_info.is_arc = self.arc.as_ref() == Some(adt);
         var_info.is_box = self.box_.as_ref() == Some(adt);
@@ -665,10 +665,21 @@ impl KnownTypes {
         var_info.is_channel = self.sender.as_ref() == Some(adt) 
             || self.receiver.as_ref() == Some(adt)
             || self.sync_sender.as_ref() == Some(adt);
+
+        // Fallback: use by_name classification for re-exported types where ADT identity differs
+        if let Some(class) = self.classify(adt, db) {
+            match class {
+                "join_handle" => var_info.is_join_handle = true,
+                "duration" => var_info.is_duration = true,
+                "instant" => var_info.is_instant = true,
+                "ordering" => var_info.is_ordering = true,
+                _ => {}
+            }
+        }
     }
     
     /// OR flags for tuple/array elements (doesn't clear existing flags)
-    fn set_flags_or(&self, var_info: &mut VariableTypeInfo, adt: &Adt) {
+    fn set_flags_or(&self, var_info: &mut VariableTypeInfo, adt: &Adt, db: &RootDatabase) {
         var_info.is_rc |= self.rc.as_ref() == Some(adt);
         var_info.is_arc |= self.arc.as_ref() == Some(adt);
         var_info.is_box |= self.box_.as_ref() == Some(adt);
@@ -698,6 +709,17 @@ impl KnownTypes {
         var_info.is_channel |= self.sender.as_ref() == Some(adt) 
             || self.receiver.as_ref() == Some(adt)
             || self.sync_sender.as_ref() == Some(adt);
+
+        // Fallback: use by_name classification for re-exported types where ADT identity differs
+        if let Some(class) = self.classify(adt, db) {
+            match class {
+                "join_handle" => var_info.is_join_handle = true,
+                "duration" => var_info.is_duration = true,
+                "instant" => var_info.is_instant = true,
+                "ordering" => var_info.is_ordering = true,
+                _ => {} // Other types already handled by direct ADT checks
+            }
+        }
     }
 }
 
@@ -2092,12 +2114,12 @@ fn populate_type_info(var_info: &mut VariableTypeInfo, ty: &ra_ap_hir::Type, db:
         var_info.is_union = matches!(adt, Adt::Union(_));
         
         // Use KnownTypes for semantic AdtId comparison instead of path strings
-        known_types.set_flags(var_info, &adt);
+        known_types.set_flags(var_info, &adt, db);
     } else {
         // For tuples/arrays, check if any element is a known type
         for inner in ty.type_arguments() {
             if let Some(adt) = inner.as_adt() {
-                known_types.set_flags_or(var_info, &adt);
+                known_types.set_flags_or(var_info, &adt, db);
             }
         }
     }

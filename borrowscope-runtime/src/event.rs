@@ -78,7 +78,7 @@ pub enum Event {
     },
 
     /// Variable dropped via [`track_drop`](crate::track_drop).
-    Drop { timestamp: u64, var_id: String },
+    Drop { timestamp: u64, var_id: String, #[serde(default, skip_serializing_if = "Option::is_none")] location: Option<String> },
 
     /// `Rc::new` allocation with reference counting.
     RcNew {
@@ -1223,6 +1223,7 @@ mod tests {
         let event = Event::Drop {
             timestamp: 4,
             var_id: "x_0".to_string(),
+            location: None,
         };
 
         assert_eq!(event.timestamp(), 4);

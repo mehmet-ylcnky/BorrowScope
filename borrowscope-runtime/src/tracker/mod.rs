@@ -99,6 +99,19 @@ impl Tracker {
         self.events.push(Event::Drop {
             timestamp,
             var_id: var_id.to_string(),
+            location: None,
+        });
+    }
+
+    /// Record a drop with precise location from static analysis
+    #[cfg_attr(not(feature = "track"), allow(dead_code))]
+    pub fn record_drop_at(&mut self, var_id: &str, location: &str) {
+        let timestamp = Self::next_timestamp();
+
+        self.events.push(Event::Drop {
+            timestamp,
+            var_id: var_id.to_string(),
+            location: Some(location.to_string()),
         });
     }
 
@@ -272,7 +285,7 @@ impl Tracker {
         let timestamp = Self::next_timestamp();
         let var_id = format!("var_{} @ {}", id, location);
 
-        self.events.push(Event::Drop { timestamp, var_id });
+        self.events.push(Event::Drop { timestamp, var_id, location: None });
     }
 
     /// Record an Rc::new event with explicit ID and location (advanced API)

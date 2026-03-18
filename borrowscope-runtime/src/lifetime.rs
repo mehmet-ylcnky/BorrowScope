@@ -105,7 +105,7 @@ impl Timeline {
                         (owner_id.clone(), *timestamp, *mutable),
                     );
                 }
-                Event::Drop { var_id, timestamp } => {
+                Event::Drop { var_id, timestamp, .. } => {
                     if let Some((borrowed_id, start_time, is_mutable)) =
                         active_borrows.remove(var_id)
                     {
@@ -286,14 +286,17 @@ mod tests {
             Event::Drop {
                 timestamp: 30,
                 var_id: "r2_0".to_string(),
+                location: None,
             },
             Event::Drop {
                 timestamp: 40,
                 var_id: "r1_0".to_string(),
+                location: None,
             },
             Event::Drop {
                 timestamp: 50,
                 var_id: "x_0".to_string(),
+                location: None,
             },
         ];
 
@@ -346,6 +349,7 @@ mod tests {
             Event::Drop {
                 timestamp: 20,
                 var_id: "r_0".to_string(),
+                location: None,
             },
         ];
 
@@ -380,6 +384,7 @@ mod tests {
             Event::Drop {
                 timestamp: 30,
                 var_id: "r1_0".to_string(),
+                location: None,
             },
         ];
 
@@ -420,10 +425,12 @@ mod tests {
             Event::Drop {
                 timestamp: 30,
                 var_id: "r1_0".to_string(),
+                location: None,
             },
             Event::Drop {
                 timestamp: 40,
                 var_id: "r2_0".to_string(),
+                location: None,
             },
         ];
 
@@ -446,6 +453,7 @@ mod tests {
             Event::Drop {
                 timestamp: 20,
                 var_id: "r_0".to_string(),
+                location: None,
             },
         ];
 
@@ -492,10 +500,12 @@ mod tests {
             Event::Drop {
                 timestamp: 20,
                 var_id: "r2_0".to_string(),
+                location: None,
             },
             Event::Drop {
                 timestamp: 25,
                 var_id: "r1_0".to_string(),
+                location: None,
             },
         ];
 

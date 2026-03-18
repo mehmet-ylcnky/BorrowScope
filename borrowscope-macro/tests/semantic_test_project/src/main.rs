@@ -196,6 +196,20 @@ fn test_self_borrow_kinds() {
     let _it = v.into_iter(); // self (consuming)
 }
 
+fn helper_fn(x: i32) -> i32 { x + 1 }
+
+fn test_callable() {
+    let f: fn(i32) -> i32 = helper_fn;
+    let _result = f(42);
+}
+
+fn test_field_access() {
+    struct Point { x: i32, y: i32 }
+    let p = Point { x: 1, y: 2 };
+    let _px = p.x;
+    let _py = p.y;
+}
+
 fn main() {
     test_basic_variables();
     test_multiple_variables();
@@ -216,6 +230,8 @@ fn main() {
     test_pin();
     test_join_handle();
     test_self_borrow_kinds();
+    test_callable();
+    test_field_access();
     test_visibility();
     let _ = test_function_signature(42);
 }

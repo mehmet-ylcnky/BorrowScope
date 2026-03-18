@@ -211,6 +211,22 @@ pub fn track_drop(#[cfg_attr(not(feature = "track"), allow(unused_variables))] n
     }
 }
 
+/// Track variable drop with precise location from static analysis.
+///
+/// Like `track_drop`, but attaches the exact source location where the variable
+/// goes out of scope (as determined by the analyzer).
+#[inline(always)]
+pub fn track_drop_at(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_drop_at(name, location);
+    }
+}
+
 /// Track multiple drops in batch (optimized).
 ///
 /// Records multiple `Drop` events efficiently with a single lock acquisition.

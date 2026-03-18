@@ -35,14 +35,17 @@ fn test_borrow_of_borrow() {
         Event::Drop {
             timestamp: 30,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 50,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -101,14 +104,17 @@ fn test_multiple_independent_borrows() {
         Event::Drop {
             timestamp: 25,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 30,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -146,10 +152,12 @@ fn test_graph_lifetime_integration() {
         Event::Drop {
             timestamp: 20,
             var_id: "r_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 30,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -190,6 +198,7 @@ fn test_active_borrows_at_timestamp() {
         Event::Drop {
             timestamp: 30,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Borrow {
             timestamp: 35,
@@ -201,6 +210,7 @@ fn test_active_borrows_at_timestamp() {
         Event::Drop {
             timestamp: 40,
             var_id: "r2_0".to_string(),
+            location: None,
         },
     ];
 
@@ -242,10 +252,12 @@ fn test_lifetimes_overlap_through_graph() {
         Event::Drop {
             timestamp: 30,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "r2_0".to_string(),
+            location: None,
         },
     ];
 
@@ -266,6 +278,7 @@ fn test_lifetimes_overlap_through_graph() {
         Event::Drop {
             timestamp: 20,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Borrow {
             timestamp: 30,
@@ -277,6 +290,7 @@ fn test_lifetimes_overlap_through_graph() {
         Event::Drop {
             timestamp: 40,
             var_id: "r3_0".to_string(),
+            location: None,
         },
     ];
 
@@ -322,18 +336,22 @@ fn test_complex_nested_lifetimes() {
         Event::Drop {
             timestamp: 40,
             var_id: "r3_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 50,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 60,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 70,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -392,6 +410,7 @@ fn test_mutable_and_immutable_borrows() {
         Event::Drop {
             timestamp: 20,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Borrow {
             timestamp: 30,
@@ -403,10 +422,12 @@ fn test_mutable_and_immutable_borrows() {
         Event::Drop {
             timestamp: 40,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 50,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -456,10 +477,12 @@ fn test_lifetime_with_early_drop() {
         Event::Drop {
             timestamp: 15,
             var_id: "r_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 50,
             var_id: "x_0".to_string(),
+            location: None,
         },
     ];
 
@@ -506,18 +529,22 @@ fn test_simultaneous_borrows_of_different_variables() {
         Event::Drop {
             timestamp: 30,
             var_id: "r1_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 35,
             var_id: "r2_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 40,
             var_id: "x_0".to_string(),
+            location: None,
         },
         Event::Drop {
             timestamp: 45,
             var_id: "y_0".to_string(),
+            location: None,
         },
     ];
 
