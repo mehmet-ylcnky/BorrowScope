@@ -2662,8 +2662,7 @@ impl VisitMut for OwnershipVisitor {
                         }
                     }
                     
-                    // Check for MaybeUninit methods
-                    // Semantic: match operation path, fallback: match method name
+                    // Check for MaybeUninit methods — semantic only via operation path
                     let is_maybe_uninit_op = semantic_op.as_deref()
                         .map_or(false, |op| op.starts_with("core::mem::maybe_uninit::"));
                     if is_maybe_uninit_op {
@@ -2707,7 +2706,7 @@ impl VisitMut for OwnershipVisitor {
                     
                     // Cell get/set methods
                     // Semantic: check operation to disambiguate "get" (Cell vs HashMap/Vec)
-                    // and "set" (Cell vs OnceCell vs user types), fallback: non-OnceCell heuristic
+                    // and "set" (Cell vs OnceCell vs user types)
                     let is_cell_op = matches!(
                         semantic_op.as_deref(),
                         Some("core::cell::get") | Some("core::cell::set")

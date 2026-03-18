@@ -107,6 +107,63 @@ pub struct VariableTypeInfo {
     // Closure captures (semantic - from analyzer)
     #[serde(default)]
     pub closure_captures: Vec<ClosureCaptureInfo>,
+
+    // === Group 3: Deserialize-only metadata (16 fields) ===
+
+    // Source location
+    #[serde(default)]
+    pub file: String,
+    #[serde(default)]
+    pub line: u32,
+    #[serde(default)]
+    pub column: u32,
+    #[serde(default)]
+    pub span_start: u32,
+    #[serde(default)]
+    pub span_end: u32,
+
+    // Memory layout
+    #[serde(default)]
+    pub layout: Option<LayoutInfo>,
+
+    // Generic type arguments (e.g., ["String"] for Rc<String>)
+    #[serde(default)]
+    pub type_arguments: Vec<String>,
+
+    // Lifetime annotation (e.g., "'static", "'a")
+    #[serde(default)]
+    pub lifetime: Option<String>,
+
+    // Binding mode: "move", "ref", "ref_mut"
+    #[serde(default)]
+    pub binding_mode: Option<String>,
+
+    // Reference analysis
+    #[serde(default)]
+    pub contains_reference: bool,
+    #[serde(default)]
+    pub reference_mutability: Option<String>,
+
+    // Ref binding pattern
+    #[serde(default)]
+    pub is_ref_binding: bool,
+
+    // Pattern match adjustments
+    #[serde(default)]
+    pub pattern_adjustments: Vec<String>,
+
+    // Async/iterator output types
+    #[serde(default)]
+    pub future_output_type: Option<String>,
+    #[serde(default)]
+    pub iterator_item_type: Option<String>,
+}
+
+/// Memory layout information from analyzer
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct LayoutInfo {
+    pub size: u64,
+    pub align: u64,
 }
 
 /// Closure capture information from analyzer
@@ -319,4 +376,98 @@ pub fn find_transmute_types(line: u32) -> Option<(&'static str, &'static str)> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_group3_deserialization() {
+        let json = r#"{
+            "name": "x", "ty": "Rc<String>",
+            "is_copy": false, "is_clone": true, "is_send": false, "is_sync": false,
+            "is_drop": true, "is_sized": true, "is_future": false, "is_iterator": false,
+            "is_primitive": false, "is_reference": false, "is_mutable_reference": false,
+            "is_raw_ptr": false, "is_mutable_raw_ptr": false, "is_slice": false,
+            "is_str": false, "is_closure": false, "is_fn_ptr": false, "is_dyn_trait": false,
+            "is_union": false, "is_rc": true, "is_arc": false, "is_box": false,
+            "is_weak": false, "is_refcell": false, "is_cell": false, "is_mutex": false,
+            "is_rwlock": false, "is_guard": false, "is_vec": false, "is_string": false,
+            "is_option": false, "is_result": false, "is_pin": false, "is_cow": false,
+            "is_once_cell": false, "is_maybe_uninit": false, "is_channel": false,
+            "is_extern_type": false, "is_never": false, "is_ordering": false,
+            "is_static": false, "is_const": false, "is_tuple_binding": false,
+            "is_mut_binding": false, "is_impl_trait": false, "copy_semantics": false,
+            "initializer_kind": "rc_new",
+            "function_name": "test_fn", "decl_index": 0,
+            "file": "src/main.rs", "line": 10, "column": 8,
+            "span_start": 100, "span_end": 120,
+            "layout": { "size": 8, "align": 8 },
+            "type_arguments": ["String"],
+            "lifetime": null,
+            "binding_mode": "move",
+            "contains_reference": false,
+            "reference_mutability": null,
+            "is_ref_binding": false,
+            "pattern_adjustments": [],
+            "future_output_type": null,
+            "iterator_item_type": null
+        }"#;
+        let v: VariableTypeInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(v.file, "src/main.rs");
+        assert_eq!(v.line, 10);
+        assert_eq!(v.column, 8);
+        assert_eq!(v.span_start, 100);
+        assert_eq!(v.span_end, 120);
+        assert_eq!(v.layout.as_ref().unwrap().size, 8);
+        assert_eq!(v.layout.as_ref().unwrap().align, 8);
+        assert_eq!(v.type_arguments, vec!["String"]);
+        assert_eq!(v.binding_mode.as_deref(), Some("move"));
+        assert!(!v.contains_reference);
+        assert!(v.reference_mutability.is_none());
+        assert!(!v.is_ref_binding);
+        assert!(v.pattern_adjustments.is_empty());
+        assert!(v.future_output_type.is_none());
+        assert!(v.iterator_item_type.is_none());
+    }
+
+    #[test]
+    fn test_group3_defaults() {
+        // Minimal JSON — all Group 3 fields should default
+        let json = r#"{
+            "name": "y", "ty": "i32",
+            "is_copy": true, "is_clone": true, "is_send": true, "is_sync": true,
+            "is_drop": false, "is_sized": true, "is_future": false, "is_iterator": false,
+            "is_primitive": true, "is_reference": false, "is_mutable_reference": false,
+            "is_raw_ptr": false, "is_mutable_raw_ptr": false, "is_slice": false,
+            "is_str": false, "is_closure": false, "is_fn_ptr": false, "is_dyn_trait": false,
+            "is_union": false, "is_rc": false, "is_arc": false, "is_box": false,
+            "is_weak": false, "is_refcell": false, "is_cell": false, "is_mutex": false,
+            "is_rwlock": false, "is_guard": false, "is_vec": false, "is_string": false,
+            "is_option": false, "is_result": false, "is_pin": false, "is_cow": false,
+            "is_once_cell": false, "is_maybe_uninit": false, "is_channel": false,
+            "is_extern_type": false, "is_never": false, "is_ordering": false,
+            "is_static": false, "is_const": false, "is_tuple_binding": false,
+            "is_mut_binding": false, "is_impl_trait": false,
+            "initializer_kind": null,
+            "function_name": null, "decl_index": null
+        }"#;
+        let v: VariableTypeInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(v.file, "");
+        assert_eq!(v.line, 0);
+        assert_eq!(v.column, 0);
+        assert_eq!(v.span_start, 0);
+        assert_eq!(v.span_end, 0);
+        assert!(v.layout.is_none());
+        assert!(v.type_arguments.is_empty());
+        assert!(v.lifetime.is_none());
+        assert!(v.binding_mode.is_none());
+        assert!(!v.contains_reference);
+        assert!(v.reference_mutability.is_none());
+        assert!(!v.is_ref_binding);
+        assert!(v.pattern_adjustments.is_empty());
+        assert!(v.future_output_type.is_none());
+        assert!(v.iterator_item_type.is_none());
+    }
 }

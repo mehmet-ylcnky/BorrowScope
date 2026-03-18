@@ -381,78 +381,123 @@ All gaps have been resolved:
 
 ### 3.2 Macro ↔ Analyzer Data Flow
 
-The macro reads `type-info.json` via `type_info.rs`. Today it only consumes **variable-level** fields (creation/initialization). It completely ignores **operation-level** fields (what happens to variables after creation), and also ignores many variable-level fields the analyzer provides.
+The macro reads `type-info.json` via `type_info.rs`. It consumes both **variable-level** fields (creation/initialization) and **operation-level** fields (method calls, standalone expressions).
 
 #### A. Per-Variable Fields: Macro Reads vs Ignores
 
-The analyzer's `VariableTypeInfo` has **78 fields**. The macro's `VariableTypeInfo` deserializes **47 fields**. That leaves **31 fields** the analyzer writes but the macro never reads.
-
-**Fields the macro READS (47) — driving the 36 semantic patterns:**
+**Fields the macro READS (52 scalar + 2 nested):**
 
 | Category | Fields | Used For |
 |----------|--------|----------|
 | Identity | `name`, `ty` | Variable lookup, type display |
 | Initializer | `initializer_kind` | Dispatch to `track_*` call (the core semantic path) |
 | Trait flags | `is_copy`, `is_clone`, `is_send`, `is_sync`, `is_drop`, `is_sized`, `is_future`, `is_iterator` | Move vs copy semantics, async detection |
-| Type structure | `is_primitive`, `is_reference`, `is_mutable_reference`, `is_raw_ptr`, `is_slice`, `is_str`, `is_closure`, `is_fn_ptr`, `is_dyn_trait`, `is_union` | Skip tracking for refs, detect closures |
-| ADT classification | `is_rc`, `is_arc`, `is_box`, `is_weak`, `is_refcell`, `is_cell`, `is_mutex`, `is_rwlock`, `is_guard`, `is_vec`, `is_string`, `is_option`, `is_result`, `is_pin`, `is_cow`, `is_once_cell`, `is_maybe_uninit`, `is_channel`, `is_extern_type` | Type-specific tracking dispatch |
+| Type structure | `is_primitive`, `is_reference`, `is_mutable_reference`, `is_raw_ptr`, `is_mutable_raw_ptr`, `is_slice`, `is_str`, `is_closure`, `is_fn_ptr`, `is_dyn_trait`, `is_union` | Skip tracking for refs, detect closures, raw ptr mutability |
+| ADT classification | `is_rc`, `is_arc`, `is_box`, `is_weak`, `is_refcell`, `is_cell`, `is_mutex`, `is_rwlock`, `is_guard`, `is_vec`, `is_string`, `is_option`, `is_result`, `is_pin`, `is_cow`, `is_once_cell`, `is_maybe_uninit`, `is_channel`, `is_extern_type`, `is_never`, `is_ordering` | Type-specific tracking dispatch |
+| Semantics | `copy_semantics` | Copy vs move decision |
 | Declaration | `is_static`, `is_const` | Skip tracking for statics/consts |
 | Binding | `is_tuple_binding`, `is_mut_binding`, `is_impl_trait` | Destructuring, mutability |
 | Disambiguation | `function_name`, `decl_index` | Correct lookup for shadowed names |
+| Nested | `method_calls: Vec<MethodCallInfo>` | Semantic method dispatch (see §B) |
+| Nested | `closure_captures: Vec<ClosureCaptureInfo>` | Precise closure capture tracking |
+| Disambiguation | `function_name`, `decl_index` | Correct lookup for shadowed names |
 
-**Fields the analyzer writes but macro does not yet consume (potential future use):**
+**Fields the analyzer writes but macro does not yet consume (27 fields, 3 implementation groups):**
 
-| Field | What It Contains | Potential Use |
-|-------|-----------------|---------------|
-| `usages` | `Vec<VariableUsageInfo>` — every use site with line/column/kind | Could track variable usage flow |
-| `closure_captures` | `Vec<ClosureCaptureInfo>` — capture kinds (shared_ref, move, etc.) | ✅ Consumed by `transform_closure()` for precise capture tracking |
-| `line`, `column` | Declaration location | Could enable line-based lookup (not available on stable proc_macro) |
-| `file` | Source file path | Multi-file disambiguation |
-| `span_start`, `span_end` | Byte offsets | Precise span matching |
-| `drop_line`, `drop_column` | Where the variable is dropped | Could emit `track_drop` at exact location |
-| `scope_id` | Scope nesting identifier | Could track scope entry/exit |
-| `fields` | `Vec<FieldInfo>` — struct field names and types | Could track field access patterns |
-| `adjustments` | `Vec<AdjustmentInfo>` — autoref/autoderef chain | Could detect implicit borrows |
-| `type_arguments` | Generic type parameters | Could display `Rc<String>` instead of `Rc<T>` |
-| `layout` | `LayoutInfo { size, align }` | Could report memory layout |
-| `deref_chain` | Autoderef sequence | Could track implicit deref borrows |
-| `lifetime` | Named lifetime if present | Could annotate borrow lifetimes |
-| `binding_mode` | `ref`, `ref mut`, `move` | Could distinguish binding patterns |
-| `contains_reference` | Whether type contains references | Could warn about reference-containing moves |
-| `reference_mutability` | `"shared"` or `"mutable"` | More precise than `is_mutable_reference` |
-| `is_ref_binding` | `ref` or `ref mut` pattern | Could track ref bindings |
-| `pattern_adjustments` | Pattern match adjustments | Could track match ergonomics |
-| `future_output_type` | Output type of Future | Could annotate async tracking |
-| `iterator_item_type` | Item type of Iterator | Could annotate iterator tracking |
-| `is_atomic` | AtomicBool, AtomicUsize, etc. | Could track atomic operations |
-| `is_join_handle` | `JoinHandle<T>` | Could track thread joins (currently uses var name set) |
-| `is_duration`, `is_instant` | Time types | Could track timing operations |
-| `is_callable` | Fn/FnMut/FnOnce impl | Could track callable invocations |
+##### Group 1: Deserialize + Wire to Existing Runtime Functions (5 fields)
 
-#### B. Per-Variable Nested Data: method_calls[] (the big gap)
+These fields have corresponding runtime tracking functions already. The macro just needs to deserialize the field and use it for dispatch.
 
-Each `MethodCallInfo` in `method_calls[]` contains:
+| Field | Runtime Function | Macro Change | Test Case |
+|-------|-----------------|--------------|-----------|
+| `is_join_handle` | `track_thread_join(id, loc, result)` | Replace var-name-based `"thread_"` prefix detection with `is_join_handle` flag lookup | `test_join_handle`: verify `handle.join()` dispatches via flag, not name |
+| `is_callable` | `track_call(id, fn_name, loc)` | When `is_callable` is true and variable is called (e.g., `f()`), emit `track_call` | Add `test_callable`: `let f: fn(i32) -> i32 = some_fn; f(42);` |
+| `drop_line`, `drop_column` | `track_drop(name)` | Pass `drop_line:drop_column` as location to `track_drop` instead of scope-exit guess | Verify `drop_line`/`drop_column` in type-info.json for existing test vars |
+| `scope_id` | `track_region_enter(id, loc)` / `track_region_exit(id, loc)` | Emit scope enter/exit with `scope_id` for nested block tracking | Add nested block test, verify `scope_id` values differ per block |
+| `fields` | `track_field_access(id, base, field, loc)` | When struct field is accessed (e.g., `point.x`), emit `track_field_access` using `fields` metadata | Add `test_field_access`: struct with fields, access `s.x`, `s.y` |
 
-| Field | Type | What It Provides | Macro Heuristic It Replaces |
-|-------|------|------------------|-----------------------------|
-| `method` | `String` | Method name (e.g., `"push"`) | Already known from AST |
-| `line` | `u32` | Call location | Enables precise matching |
-| `column` | `u32` | Call location | Enables precise matching |
-| `operation` | `Option<String>` | Canonical path: `"alloc::vec::Vec::push"` | `detect_*()` functions (16 functions, ~250 lines) |
+**Files modified:** `type_info.rs` (add 5 fields to struct), `transform_visitor.rs` (wire dispatch), `main.rs` (test cases)
+**Estimated:** ~50 lines macro, ~20 lines test
+
+##### Group 2: New Runtime Functions + Macro Wiring (6 fields)
+
+These fields need new `track_*` functions in `borrowscope-runtime`, new `Event` variants, and macro dispatch logic.
+
+| Field | New Runtime Function(s) | New Event Variant(s) | Macro Change | Test Case |
+|-------|------------------------|---------------------|--------------|-----------|
+| `is_atomic` | `track_atomic_new(name, ty, loc, val)` | `AtomicNew { name, atomic_type, location, timestamp }` | When `is_atomic` is true, emit `track_atomic_new` instead of `track_new` | Add `test_atomic`: `AtomicBool::new(false)`, `AtomicUsize::new(0)` |
+| `is_duration` | `track_duration_new(name, loc, val)` | `DurationNew { name, location, timestamp }` | When `is_duration` is true, emit `track_duration_new` instead of `track_new` | Add to test: `Duration::from_secs(1)` |
+| `is_instant` | `track_instant_new(name, loc, val)` | `InstantNew { name, location, timestamp }` | When `is_instant` is true, emit `track_instant_new` instead of `track_new` | Add to test: `Instant::now()` |
+| `adjustments` | `track_autoref(name, loc)`, `track_autoderef(name, loc)` | `AutoRef { name, location, timestamp }`, `AutoDeref { name, location, timestamp }` | When `adjustments` contains autoref/autoderef entries, emit corresponding track calls at use sites | Add test: method call on `&T` that triggers autoderef |
+| `deref_chain` | (covered by `track_autoderef` above) | (covered above) | Emit `track_autoderef` for each step in the deref chain | Covered by adjustments test |
+| `usages` | `track_var_read(name, loc)`, `track_var_write(name, loc)` | `VarRead { name, location, timestamp }`, `VarWrite { name, location, timestamp }` | For each entry in `usages`, emit `track_var_read` or `track_var_write` at the use site | Add test: variable read in expression, write via assignment |
+
+**Files modified:** `borrowscope-runtime/src/tracker/` (new functions), `borrowscope-runtime/src/event.rs` (new variants), `type_info.rs` (add fields), `transform_visitor.rs` (dispatch), `main.rs` (tests)
+**Estimated:** ~150 lines runtime, ~100 lines macro, ~30 lines test
+
+##### Group 3: Deserialize-Only Metadata Enrichment (16 fields)
+
+These are informational fields — no tracking call to emit. The macro deserializes them so they are available for event enrichment (e.g., attaching `layout.size` to `track_new` events, or `type_arguments` to type display strings). They require no new runtime functions.
+
+| Field | Type | What It Provides | Enrichment Target |
+|-------|------|------------------|-------------------|
+| `file` | `String` | Source file path | Already available via `file!()` — deserialize for consistency |
+| `line` | `u32` | Declaration line | Available via `line!()` — deserialize for line-based lookup |
+| `column` | `u32` | Declaration column | Not available on stable — deserialize for future use |
+| `span_start` | `u32` | Byte offset start | Precise span matching — deserialize for future use |
+| `span_end` | `u32` | Byte offset end | Precise span matching — deserialize for future use |
+| `layout` | `LayoutInfo { size, align }` | Memory layout | Attach `size`/`align` to `track_new` location string |
+| `type_arguments` | `Vec<String>` | Generic params (e.g., `["String"]` for `Rc<String>`) | Enrich type display in tracking calls |
+| `lifetime` | `Option<String>` | Named lifetime (e.g., `"'a"`) | Annotate borrow tracking events |
+| `binding_mode` | `Option<String>` | `"ref"`, `"ref_mut"`, `"move"` | Annotate binding events |
+| `contains_reference` | `bool` | Type contains references | Warn on moves of reference-containing types |
+| `reference_mutability` | `Option<String>` | `"shared"` or `"mutable"` | More precise than `is_mutable_reference` |
+| `is_ref_binding` | `bool` | `ref` or `ref mut` pattern | Annotate pattern binding events |
+| `pattern_adjustments` | `Vec<String>` | Match ergonomics adjustments | Annotate match arm events |
+| `future_output_type` | `Option<String>` | `Future::Output` type | Annotate async tracking events |
+| `iterator_item_type` | `Option<String>` | `Iterator::Item` type | Annotate iterator tracking events |
+
+**Files modified:** `type_info.rs` (add 16 fields + nested structs to macro's `VariableTypeInfo`)
+**Estimated:** ~40 lines
+
+##### Execution Order
+
+1. **Group 3** — pure deserialization, zero risk, no logic changes
+2. **Group 1** — wire to existing runtime functions, low risk
+3. **Group 2** — new runtime functions + events + macro dispatch, highest risk
+
+##### Total Estimated Changes
+
+| Crate | Lines | What |
+|-------|-------|------|
+| `borrowscope-runtime` | ~150 | New `track_*` functions, new `Event` variants |
+| `borrowscope-macro` | ~190 | Struct fields, dispatch logic, test wiring |
+| `semantic_test_project` | ~50 | New test functions |
+| **Total** | **~390** | |
+
+#### B. Per-Variable Nested Data: method_calls[] ✅ Consumed
+
+Each `MethodCallInfo` in `method_calls[]` is read by the macro for semantic dispatch:
+
+| Field | Type | What It Provides | How Macro Uses It |
+|-------|------|------------------|-------------------|
+| `method` | `String` | Method name (e.g., `"push"`) | Pre-filter before semantic check |
+| `line` | `u32` | Call location | Precise matching for disambiguation |
+| `column` | `u32` | Call location | Precise matching for disambiguation |
+| `operation` | `Option<String>` | Canonical path: `"core::cell::set"` | `semantic_op` dispatch (18 patterns) |
 | `self_borrow` | `Option<String>` | `"immutable"` / `"mutable"` / `"consuming"` | `infer_self_borrow_type()` (47 patterns) |
-| `receiver_type` | `String` | `"Vec<i32>"` — fully qualified | Not available to macro at all |
-| `result_type` | `Option<String>` | `"Option<i32>"` | Not available to macro at all |
-| `is_trait_method` | `Option<bool>` | `true` for trait impls | `method_name == "clone"` can't distinguish |
-| `trait_name` | `Option<String>` | `"Clone"`, `"Iterator"`, etc. | Not available to macro at all |
-| `is_unsafe` | `Option<bool>` | `true` for unsafe calls | Not available to macro at all |
+| `receiver_type` | `String` | `"Vec<i32>"` — fully qualified | Not yet consumed |
+| `result_type` | `Option<String>` | `"Option<i32>"` | Not yet consumed |
+| `is_trait_method` | `Option<bool>` | `true` for trait impls | Clone trait verification (ID 107) |
+| `trait_name` | `Option<String>` | `"Clone"`, `"Iterator"`, etc. | Clone trait verification (ID 107) |
+| `is_unsafe` | `Option<bool>` | `true` for unsafe calls | Not yet consumed |
 
-#### C. Top-Level Project Data: Macro Ignores Everything
+#### C. Top-Level Project Data
 
-The analyzer's `ProjectTypeInfo` has **18 top-level maps**. The macro reads only **4** (`version`, `files`, `by_name`, `by_function`). These **14 maps** are completely ignored:
+The analyzer's `ProjectTypeInfo` has **18 top-level maps**. The macro reads **5** (`version`, `files`, `by_name`, `by_function`, `expressions`). These **13 maps** are not yet consumed:
 
 | Top-Level Field | What It Contains | Potential Use |
 |-----------------|-----------------|---------------|
-| `expressions` | `HashMap<file, Vec<ExpressionInfo>>` — spawn, transmute, drop, etc. | **CRITICAL**: Replaces `path_str.contains("transmute")` etc. (4 patterns) |
 | `await_points` | `HashMap<file, Vec<AwaitPointInfo>>` — every `.await` with live variables | Could track async ownership across await boundaries |
 | `borrow_spans` | `HashMap<file, Vec<BorrowSpanInfo>>` — borrow start/end/use sites | Could emit precise borrow lifetime tracking |
 | `unsafe_operations` | `HashMap<file, Vec<UnsafeOperationInfo>>` — unsafe blocks/calls | Could emit `track_unsafe_block_enter/exit` semantically |
@@ -466,7 +511,6 @@ The analyzer's `ProjectTypeInfo` has **18 top-level maps**. The macro reads only
 | `const_patterns` | `HashMap<file, Vec<ConstPatternInfo>>` — const in patterns | Could track const pattern matching |
 | `callables` | `HashMap<file, Vec<CallableInfo>>` — callable expressions | Could track function pointer calls |
 | `record_field_exprs` | `HashMap<file, Vec<RecordFieldExprInfo>>` — struct literal fields | Could track struct construction |
-| `record_field_pats` | `HashMap<file, Vec<RecordFieldPatInfo>>` — struct pattern fields | Could track struct destructuring |
 
 #### D. Summary: What Matters for 109/109
 

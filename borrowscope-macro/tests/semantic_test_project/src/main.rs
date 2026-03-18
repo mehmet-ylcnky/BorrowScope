@@ -166,8 +166,9 @@ pub fn test_raw_ptr() {
 fn test_pin() {
     use std::pin::Pin;
     let mut x = 42;
-    let pinned = Pin::new(&mut x);
+    let mut pinned = Pin::new(&mut x);
     let _r = pinned.as_ref();
+    let _m = pinned.as_mut();
 }
 
 fn test_visibility() {
@@ -178,6 +179,21 @@ fn test_visibility() {
 fn test_function_signature(param: i32) -> i32 {
     let local = param;
     local
+}
+
+fn test_join_handle() {
+    let handle = std::thread::spawn(|| 42);
+    let joined = handle.join().unwrap();
+    let _ = joined;
+}
+
+fn test_self_borrow_kinds() {
+    let mut v = vec![1, 2, 3];
+    v.push(4);           // &mut self
+    v.sort();            // &mut self
+    let _l = v.len();    // &self
+    let _f = v.first();  // &self
+    let _it = v.into_iter(); // self (consuming)
 }
 
 fn main() {
@@ -198,6 +214,8 @@ fn main() {
     test_transmute();
     test_raw_ptr();
     test_pin();
+    test_join_handle();
+    test_self_borrow_kinds();
     test_visibility();
     let _ = test_function_signature(42);
 }
