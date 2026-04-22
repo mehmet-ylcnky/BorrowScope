@@ -27,14 +27,9 @@ The following items from the original roadmap have been fully implemented:
 
 **Generic Type Parameters**: Generic parameters like `T` in `fn foo<T>(x: T)` cannot be resolved to concrete types.
 
-**Closure Capture Details**: While closures are identified and captures are extracted for `thread::spawn()`, detailed capture mode (by-ref vs by-move) analysis is not yet complete.
+**Closure Capture Details**: Closures are identified with full capture mode analysis (by-ref, by-move, unique-shared-ref) via `closure_hir.captured_items(db)`.
 
-### Remaining Future Work
-
-**Macro Integration**: The `borrowscope-macro` crate needs modification to:
-- Load `type-info.json` at macro expansion time
-- Query type information instead of using syntactic patterns
-- Implement graceful fallback when information is unavailable
+### Potential Future Work
 
 **Incremental Analysis**: Caching rust-analyzer database between runs would improve performance.
 

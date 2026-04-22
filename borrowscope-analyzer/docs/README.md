@@ -101,7 +101,6 @@ Phase 2: Instrumented Build (cargo build)
 | [Limitations](docs/08-LIMITATIONS.md) | Current constraints |
 | [Roadmap](docs/09-ROADMAP.md) | Development history and phases |
 | [Dependencies](docs/10-DEPENDENCIES.md) | rust-analyzer crates used |
-| [Semantic Expansion Plan](docs/SEMANTIC_EXPANSION_PLAN.md) | Implementation status |
 
 ## Dependencies
 
