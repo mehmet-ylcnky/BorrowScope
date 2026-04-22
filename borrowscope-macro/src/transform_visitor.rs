@@ -413,6 +413,21 @@ impl OwnershipVisitor {
             let original_expr = init.expr.clone();
             let original_pat = local.pat.clone();
 
+            // Emit track_destructure when analyzer provides destructuring data
+            let pat_line = local.pat.span().start().line as u32;
+            if let Some(di) = crate::type_info::lookup_destructuring(pat_line) {
+                let kind = &di.kind;
+                let binding_strs: Vec<&str> = di.bindings.iter().map(|s| s.as_str()).collect();
+                let location = Self::location_tokens(local.pat.span());
+                let new_init: syn::Expr = syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_destructure(#kind, &[#(#binding_strs),*], #location);
+                        #original_expr
+                    }
+                };
+                init.expr = Box::new(new_init);
+            }
+
             // Special handling for mpsc::channel() which returns (Sender, Receiver)
             if self.config.track_smart_pointers {
                 // Semantic check: look up tuple element type info for channel_new
@@ -500,7 +515,7 @@ impl OwnershipVisitor {
     }
 
     /// Infer self borrow type from method name using semantic lookup
-    fn infer_self_borrow_type(method_name: &str, receiver_name: Option<&str>) -> SelfBorrowType {
+    fn infer_self_borrow_type(method_name: &str, receiver_name: Option<&str>, line: u32, column: u32) -> SelfBorrowType {
         // Semantic lookup from analyzer data
         if let Some(var_name) = receiver_name {
             if let Some(type_info) = crate::type_info::lookup_by_name(var_name) {
@@ -518,8 +533,17 @@ impl OwnershipVisitor {
             }
         }
         
+        // Fallback: check top-level method_borrows map by line/column
+        if let Some(mb) = crate::type_info::lookup_method_borrow(line, column) {
+            return match mb.borrow_kind.as_str() {
+                "mutable_ref" => SelfBorrowType::Mutable,
+                "shared_ref" => SelfBorrowType::Immutable,
+                "none" => SelfBorrowType::Consuming,
+                _ => SelfBorrowType::Immutable,
+            };
+        }
+
         // Safe default when analyzer has no method borrow info
-        // Most methods take &self, so immutable is the safest assumption
         SelfBorrowType::Immutable
     }
 
@@ -583,7 +607,7 @@ impl OwnershipVisitor {
         
         // Extract receiver name for semantic lookup
         let receiver_name = Self::extract_receiver_name(&method_call.receiver);
-        let borrow_type = Self::infer_self_borrow_type(&method_name, receiver_name.as_deref());
+        let borrow_type = Self::infer_self_borrow_type(&method_name, receiver_name.as_deref(), method_call.method.span().start().line as u32, method_call.method.span().start().column as u32);
 
         // For consuming methods, just visit normally (move tracking happens at assignment level)
         if borrow_type == SelfBorrowType::Consuming {
@@ -762,13 +786,27 @@ impl OwnershipVisitor {
         self.visit_expr_mut(&mut new_closure.body);
         
         // Wrap the closure with tracking
-        *expr = syn::parse_quote! {
-            {
-                borrowscope_runtime::track_closure_create(#closure_id, #capture_mode, #location);
-                #(#capture_stmts)*
-                #new_closure
-            }
-        };
+        // Enrich with fn_trait from analyzer closure_traits data
+        let line = closure.or1_token.span.start().line as u32;
+        let fn_trait = crate::type_info::lookup_closure_trait(line).map(|ct| ct.fn_trait.clone());
+
+        if let Some(ref ft) = fn_trait {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_closure_create_with_trait(#closure_id, #capture_mode, #location, #ft);
+                    #(#capture_stmts)*
+                    #new_closure
+                }
+            };
+        } else {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_closure_create(#closure_id, #capture_mode, #location);
+                    #(#capture_stmts)*
+                    #new_closure
+                }
+            };
+        }
     }
 
     /// Check if expression is a potential move (simple variable path)
@@ -1464,6 +1502,27 @@ impl OwnershipVisitor {
         };
 
         *expr = tracking_call;
+
+        // Enrich with borrow_spans data from analyzer
+        if let Expr::Path(path) = borrowed_expr.as_ref() {
+            if let Some(ident) = path.path.get_ident() {
+                let var_name = ident.to_string();
+                let spans = crate::type_info::lookup_borrow_spans(&var_name);
+                let ref_line = ref_expr.span().start().line as u32;
+                if let Some(bs) = spans.iter().find(|b| b.start_line == ref_line) {
+                    let kind = &bs.kind;
+                    let start_loc = format!("{}:{}", bs.start_line, bs.start_column);
+                    let end_loc = bs.end_line.map(|el| format!("{}:{}", el, bs.end_column.unwrap_or(0))).unwrap_or_default();
+                    let inner = expr.clone();
+                    *expr = syn::parse_quote! {
+                        {
+                            borrowscope_runtime::track_borrow_span(#var_name, #kind, #start_loc, #end_loc);
+                            #inner
+                        }
+                    };
+                }
+            }
+        }
     }
 
     /// Transform unsafe block to add enter/exit tracking
@@ -1476,15 +1535,35 @@ impl OwnershipVisitor {
         
         let inner_block = &unsafe_expr.block;
 
-        // Replace block content with tracked version
-        unsafe_expr.block = syn::parse_quote! {
-            {
-                borrowscope_runtime::track_unsafe_block_enter(#block_id, #location);
-                let __unsafe_result = #inner_block;
-                borrowscope_runtime::track_unsafe_block_exit(#block_id, #location);
-                __unsafe_result
-            }
-        };
+        // Enrich with unsafe_operations data from analyzer
+        let line = unsafe_expr.unsafe_token.span.start().line as u32;
+        let unsafe_op = crate::type_info::lookup_unsafe_operation(line);
+
+        if let Some(op) = unsafe_op {
+            let kind = &op.kind;
+            let ctx = op.context.as_deref();
+            let ctx_expr: syn::Expr = match ctx {
+                Some(c) => syn::parse_quote! { Some(#c) },
+                None => syn::parse_quote! { None },
+            };
+            unsafe_expr.block = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_unsafe_block_enter_enriched(#block_id, #location, #kind, #ctx_expr);
+                    let __unsafe_result = #inner_block;
+                    borrowscope_runtime::track_unsafe_block_exit(#block_id, #location);
+                    __unsafe_result
+                }
+            };
+        } else {
+            unsafe_expr.block = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_unsafe_block_enter(#block_id, #location);
+                    let __unsafe_result = #inner_block;
+                    borrowscope_runtime::track_unsafe_block_exit(#block_id, #location);
+                    __unsafe_result
+                }
+            };
+        }
     }
 
     /// Transform raw pointer cast expressions
@@ -1602,14 +1681,31 @@ impl OwnershipVisitor {
         let base = &await_expr.base;
         let future_name = Self::extract_future_name(base);
 
-        *expr = syn::parse_quote! {
-            {
-                borrowscope_runtime::track_await_start(#await_id, #future_name, #location);
-                let __await_result = #base.await;
-                borrowscope_runtime::track_await_end(#await_id, #location);
-                __await_result
-            }
-        };
+        // Enrich with live_variables from analyzer await_points data
+        let line = await_expr.await_token.span.start().line as u32;
+        let await_info = crate::type_info::lookup_await_point(line);
+        let live_vars: Vec<String> = await_info.map_or(vec![], |a| a.live_variables.clone());
+
+        if live_vars.is_empty() {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_await_start(#await_id, #future_name, #location);
+                    let __await_result = #base.await;
+                    borrowscope_runtime::track_await_end(#await_id, #location);
+                    __await_result
+                }
+            };
+        } else {
+            let live_var_strs: Vec<&str> = live_vars.iter().map(|s| s.as_str()).collect();
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_await_start_with_live_vars(#await_id, #future_name, #location, &[#(#live_var_strs),*]);
+                    let __await_result = #base.await;
+                    borrowscope_runtime::track_await_end(#await_id, #location);
+                    __await_result
+                }
+            };
+        }
     }
 
     /// Extract a name for the future being awaited
@@ -1837,10 +1933,25 @@ impl OwnershipVisitor {
             let body = &arm.body;
             let pat_str = quote::quote!(#pat).to_string();
 
-            let new_body: Expr = syn::parse_quote! {
-                {
-                    borrowscope_runtime::track_match_arm(#match_id, #idx, #pat_str, #location);
-                    #body
+            // Look up match_bindings from analyzer for this arm
+            let arm_line = pat.span().start().line as u32;
+            let mb = crate::type_info::lookup_match_binding(arm_line);
+            let binding_names: Vec<String> = mb.map_or(vec![], |m| m.bindings.iter().map(|b| b.name.clone()).collect());
+
+            let new_body: Expr = if binding_names.is_empty() {
+                syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_match_arm(#match_id, #idx, #pat_str, #location);
+                        #body
+                    }
+                }
+            } else {
+                let binding_strs: Vec<&str> = binding_names.iter().map(|s| s.as_str()).collect();
+                syn::parse_quote! {
+                    {
+                        borrowscope_runtime::track_match_arm_with_bindings(#match_id, #idx, #pat_str, #location, &[#(#binding_strs),*]);
+                        #body
+                    }
                 }
             };
 
@@ -1976,7 +2087,14 @@ impl OwnershipVisitor {
     fn transform_break(&mut self, expr: &mut Expr, break_expr: &syn::ExprBreak) {
         let break_id = self.gen_id();
         let location = Self::location_tokens(break_expr.break_token.span);
-        let label = break_expr.label.as_ref().map(|l| l.ident.to_string());
+        let label = break_expr.label.as_ref().map(|l| {
+            let name = l.ident.to_string();
+            // Enrich with loop_kind from analyzer labels data
+            let line = l.ident.span().start().line as u32;
+            crate::type_info::lookup_label(line)
+                .map(|li| format!("{}({})", name, li.loop_kind))
+                .unwrap_or(name)
+        });
 
         if let Some(ref lbl) = label {
             if let Some(value) = &break_expr.expr {
@@ -2016,7 +2134,13 @@ impl OwnershipVisitor {
     fn transform_continue(&mut self, expr: &mut Expr, continue_expr: &syn::ExprContinue) {
         let continue_id = self.gen_id();
         let location = Self::location_tokens(continue_expr.continue_token.span);
-        let label = continue_expr.label.as_ref().map(|l| l.ident.to_string());
+        let label = continue_expr.label.as_ref().map(|l| {
+            let name = l.ident.to_string();
+            let line = l.ident.span().start().line as u32;
+            crate::type_info::lookup_label(line)
+                .map(|li| format!("{}({})", name, li.loop_kind))
+                .unwrap_or(name)
+        });
 
         if let Some(ref lbl) = label {
             let label_lifetime = &continue_expr.label;
@@ -2043,12 +2167,47 @@ impl OwnershipVisitor {
         let type_name = quote::quote!(#struct_expr).to_string().split('{').next().unwrap_or("").trim().to_string();
         let original = struct_expr.clone();
 
-        *expr = syn::parse_quote! {
-            {
-                borrowscope_runtime::track_struct_create(#struct_id, #type_name, #location);
-                #original
-            }
-        };
+        // Check if this is an enum variant construction
+        let line = struct_expr.brace_token.span.open().start().line as u32;
+        let col = struct_expr.brace_token.span.open().start().column as u32;
+        if let Some(vi) = crate::type_info::lookup_variant(line, col) {
+            let enum_type = &vi.enum_type;
+            let variant_name = &vi.variant_name;
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_variant_construct(#enum_type, #variant_name, #location);
+                    #original
+                }
+            };
+            return;
+        }
+
+        // Enrich with record_field_exprs data
+        let field_types: Vec<String> = struct_expr.fields.iter().map(|f| {
+            let fl = f.span().start().line as u32;
+            let fc = f.span().start().column as u32;
+            crate::type_info::lookup_record_field_expr(fl, fc)
+                .map(|r| format!("{}:{}", r.field_name, r.field_type))
+                .unwrap_or_default()
+        }).filter(|s| !s.is_empty()).collect();
+
+        if field_types.is_empty() {
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_struct_create(#struct_id, #type_name, #location);
+                    #original
+                }
+            };
+        } else {
+            let fields_str = field_types.join(", ");
+            let enriched_type = format!("{} {{{}}}", type_name, fields_str);
+            *expr = syn::parse_quote! {
+                {
+                    borrowscope_runtime::track_struct_create(#struct_id, #enriched_type, #location);
+                    #original
+                }
+            };
+        }
     }
 
     /// Transform tuple creation
@@ -2857,11 +3016,20 @@ impl VisitMut for OwnershipVisitor {
         //     return;
         // }
 
-        // Handle field access (obj.field) - DISABLED: same issue as deref
-        // if let Expr::Field(field_expr) = expr.clone() {
-        //     self.transform_field(expr, &field_expr);
-        //     return;
-        // }
+        // Handle field access (obj.field) — enabled for read accesses via analyzer field_accesses data
+        if self.config.track_expressions {
+            if let Expr::Field(field_expr) = expr {
+                let line = field_expr.dot_token.span.start().line as u32;
+                let col = field_expr.dot_token.span.start().column as u32;
+                if let Some(fa) = crate::type_info::lookup_field_access(line, col) {
+                    if fa.access_kind == "read" {
+                        let fe = field_expr.clone();
+                        self.transform_field(expr, &fe);
+                        return;
+                    }
+                }
+            }
+        }
 
         // Handle non-pointer casts BEFORE visiting nested expressions
         // This prevents issues with chained casts like `n as u8 as char`
@@ -2945,15 +3113,41 @@ impl VisitMut for OwnershipVisitor {
                                 let location = Self::location_tokens(ident.span());
                                 let func = &call_expr.func;
                                 let args = &call_expr.args;
+                                // Enrich with callable kind from top-level callables map
+                                let line = ident.span().start().line as u32;
+                                let col = ident.span().start().column as u32;
+                                let callable_kind = crate::type_info::lookup_callable(line, col)
+                                    .map(|c| c.kind.as_str())
+                                    .unwrap_or("callable");
+                                let fn_label = format!("{}({})", var_name, callable_kind);
                                 *expr = syn::parse_quote! {
                                     {
-                                        borrowscope_runtime::track_call(#call_id, #var_name, #location);
+                                        borrowscope_runtime::track_call(#call_id, #fn_label, #location);
                                         #func(#args)
                                     }
                                 };
                                 return;
                             }
                         }
+                    }
+                    // Enrich with function_calls data (return_category) from analyzer
+                    let span = path.path.segments.last().map(|s| s.ident.span()).unwrap_or_else(proc_macro2::Span::call_site);
+                    let line = span.start().line as u32;
+                    let col = span.start().column as u32;
+                    if let Some(fc) = crate::type_info::lookup_function_call(line, col) {
+                        let call_id = self.gen_id();
+                        let fn_name = &fc.function_name;
+                        let ret_cat = &fc.return_category;
+                        let location = Self::location_tokens(span);
+                        let func = &call_expr.func;
+                        let args = &call_expr.args;
+                        *expr = syn::parse_quote! {
+                            {
+                                borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, "", #ret_cat);
+                                #func(#args)
+                            }
+                        };
+                        return;
                     }
                 }
             }

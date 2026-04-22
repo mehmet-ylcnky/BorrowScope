@@ -106,6 +106,21 @@ pub fn track_unsafe_block_enter(
     }
 }
 
+/// Track unsafe block entry with operation metadata from static analysis.
+#[inline(always)]
+pub fn track_unsafe_block_enter_enriched(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] block_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] kind: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] context: Option<&str>,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_unsafe_block_enter_enriched(block_id, location, kind, context);
+    }
+}
+
 /// Track unsafe block exit.
 ///
 /// Records an `UnsafeBlockExit` event. Use this when exiting an unsafe block.

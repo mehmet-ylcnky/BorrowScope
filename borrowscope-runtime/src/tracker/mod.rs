@@ -574,6 +574,19 @@ impl Tracker {
             timestamp,
             block_id: block_id.to_string(),
             location: location.to_string(),
+            operation_kind: None,
+            operation_context: None,
+        });
+    }
+
+    pub fn record_unsafe_block_enter_enriched(&mut self, block_id: usize, location: &str, kind: &str, context: Option<&str>) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::UnsafeBlockEnter {
+            timestamp,
+            block_id: block_id.to_string(),
+            location: location.to_string(),
+            operation_kind: Some(kind.to_string()),
+            operation_context: context.map(|s| s.to_string()),
         });
     }
 
@@ -670,6 +683,18 @@ impl Tracker {
             await_id: await_id.to_string(),
             future_name: future_name.to_string(),
             location: location.to_string(),
+            live_variables: vec![],
+        });
+    }
+
+    pub fn record_await_start_with_live_vars(&mut self, await_id: usize, future_name: &str, location: &str, live_variables: &[&str]) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::AwaitStart {
+            timestamp,
+            await_id: await_id.to_string(),
+            future_name: future_name.to_string(),
+            location: location.to_string(),
+            live_variables: live_variables.iter().map(|s| s.to_string()).collect(),
         });
     }
 
@@ -737,6 +762,19 @@ impl Tracker {
             arm_index,
             pattern: pattern.to_string(),
             location: location.to_string(),
+            bindings: vec![],
+        });
+    }
+
+    pub fn record_match_arm_with_bindings(&mut self, match_id: usize, arm_index: usize, pattern: &str, location: &str, bindings: &[&str]) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::MatchArm {
+            timestamp,
+            match_id: match_id.to_string(),
+            arm_index,
+            pattern: pattern.to_string(),
+            location: location.to_string(),
+            bindings: bindings.iter().map(|s| s.to_string()).collect(),
         });
     }
 
@@ -908,6 +946,18 @@ impl Tracker {
             closure_id: closure_id.to_string(),
             capture_mode: capture_mode.to_string(),
             location: location.to_string(),
+            fn_trait: None,
+        });
+    }
+
+    pub fn record_closure_create_with_trait(&mut self, closure_id: usize, capture_mode: &str, location: &str, fn_trait: &str) {
+        let timestamp = Self::next_timestamp();
+        self.events.push(Event::ClosureCreate {
+            timestamp,
+            closure_id: closure_id.to_string(),
+            capture_mode: capture_mode.to_string(),
+            location: location.to_string(),
+            fn_trait: Some(fn_trait.to_string()),
         });
     }
 

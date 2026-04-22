@@ -69,6 +69,22 @@ pub fn track_match_arm(
     }
 }
 
+/// Track match arm with binding names from static analysis.
+#[inline(always)]
+pub fn track_match_arm_with_bindings(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] match_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] arm_index: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] pattern: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] bindings: &[&str],
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_match_arm_with_bindings(match_id, arm_index, pattern, location, bindings);
+    }
+}
+
 /// Track match expression exit
 #[inline(always)]
 pub fn track_match_exit(

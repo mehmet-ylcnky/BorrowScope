@@ -216,6 +216,10 @@ pub enum Event {
         timestamp: u64,
         block_id: String,
         location: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        operation_kind: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        operation_context: Option<String>,
     },
 
     /// Unsafe block exited
@@ -275,6 +279,8 @@ pub enum Event {
         await_id: String,
         future_name: String,
         location: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        live_variables: Vec<String>,
     },
 
     /// Await expression completed
@@ -323,6 +329,8 @@ pub enum Event {
         arm_index: usize,
         pattern: String,
         location: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        bindings: Vec<String>,
     },
 
     /// Match expression exited
@@ -442,6 +450,8 @@ pub enum Event {
         closure_id: String,
         capture_mode: String,
         location: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fn_trait: Option<String>,
     },
 
     /// Struct construction

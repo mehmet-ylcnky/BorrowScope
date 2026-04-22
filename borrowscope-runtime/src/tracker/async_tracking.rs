@@ -55,6 +55,21 @@ pub fn track_await_start(
     }
 }
 
+/// Track await with live variable information from static analysis.
+#[inline(always)]
+pub fn track_await_start_with_live_vars(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] await_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] future_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] live_variables: &[&str],
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_await_start_with_live_vars(await_id, future_name, location, live_variables);
+    }
+}
+
 /// Track await expression completion.
 ///
 /// Records an `AwaitEnd` event. Use this after a future completes.

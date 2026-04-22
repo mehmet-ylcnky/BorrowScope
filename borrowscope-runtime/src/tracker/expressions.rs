@@ -129,6 +129,21 @@ pub fn track_closure_create(
     }
 }
 
+/// Track closure creation with Fn trait info from static analysis.
+#[inline(always)]
+pub fn track_closure_create_with_trait(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] closure_id: usize,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] capture_mode: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] fn_trait: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_closure_create_with_trait(closure_id, capture_mode, location, fn_trait);
+    }
+}
+
 /// Track struct creation
 #[inline(always)]
 pub fn track_struct_create(

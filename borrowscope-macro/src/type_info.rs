@@ -243,6 +243,10 @@ pub struct ClosureCaptureInfo {
     pub capture_kind: String,
     #[serde(default)]
     pub ty: Option<String>,
+    #[serde(default)]
+    pub line: u32,
+    #[serde(default)]
+    pub column: u32,
 }
 
 /// Method call information (compact - only fields macro needs)
@@ -278,6 +282,263 @@ pub struct ExpressionInfo {
     pub argument: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct AwaitPointInfo {
+    pub line: u32,
+    pub column: u32,
+    pub awaited_type: String,
+    #[serde(default)]
+    pub result_type: Option<String>,
+    #[serde(default)]
+    pub live_variables: Vec<String>,
+    #[serde(default)]
+    pub poll_function: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct BorrowSpanInfo {
+    pub variable: String,
+    pub kind: String,
+    pub start_line: u32,
+    pub start_column: u32,
+    #[serde(default)]
+    pub end_line: Option<u32>,
+    #[serde(default)]
+    pub end_column: Option<u32>,
+    #[serde(default)]
+    pub use_sites: Vec<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct UnsafeOperationInfo {
+    pub line: u32,
+    pub column: u32,
+    pub kind: String,
+    pub inside_unsafe_block: bool,
+    #[serde(default)]
+    pub context: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ClosureTraitInfo {
+    pub line: u32,
+    pub column: u32,
+    pub fn_trait: String,
+    #[serde(default)]
+    pub captures: Vec<ClosureCaptureInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct FieldAccessInfo {
+    pub line: u32,
+    pub column: u32,
+    pub variable: String,
+    pub field: String,
+    pub field_type: String,
+    pub access_kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct DestructuringInfo {
+    pub line: u32,
+    pub column: u32,
+    pub kind: String,
+    #[serde(default)]
+    pub source_expr: Option<String>,
+    pub bindings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MatchBindingInfo {
+    pub line: u32,
+    pub column: u32,
+    pub pattern: String,
+    pub bindings: Vec<PatternBindingInfo>,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct PatternBindingInfo {
+    pub name: String,
+    #[serde(default)]
+    pub binding_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct VariantInfo {
+    pub line: u32,
+    pub column: u32,
+    pub enum_type: String,
+    pub variant_name: String,
+    pub variant_kind: String,
+    #[serde(default)]
+    pub field_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct LifetimeInfoEntry {
+    pub line: u32,
+    pub column: u32,
+    pub name: String,
+    pub context: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct LabelInfoEntry {
+    pub line: u32,
+    pub column: u32,
+    pub name: String,
+    pub loop_kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct ConstPatternInfo {
+    pub line: u32,
+    pub column: u32,
+    pub const_name: String,
+    pub const_type: String,
+    #[serde(default)]
+    pub const_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct CallableInfoEntry {
+    pub line: u32,
+    pub column: u32,
+    pub kind: String,
+    #[serde(default)]
+    pub param_types: Vec<String>,
+    #[serde(default)]
+    pub return_type: Option<String>,
+    #[serde(default)]
+    pub is_callable: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RecordFieldExprInfo {
+    pub line: u32,
+    pub column: u32,
+    pub parent_type: String,
+    pub field_name: String,
+    pub field_type: String,
+    #[serde(default)]
+    pub value_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct RecordFieldPatInfo {
+    pub line: u32,
+    pub column: u32,
+    pub parent_type: String,
+    pub field_name: String,
+    pub field_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct MethodBorrowInfo {
+    pub method_name: String,
+    pub receiver_var: String,
+    pub borrow_kind: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct FunctionCallInfoEntry {
+    pub function_name: String,
+    pub return_category: String,
+    pub is_copy_return: bool,
+    pub line: u32,
+    pub column: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct TraitImplInfo {
+    pub type_name: String,
+    #[serde(default)]
+    pub implements_deref: bool,
+    #[serde(default)]
+    pub implements_deref_mut: bool,
+    #[serde(default)]
+    pub implements_index: bool,
+    #[serde(default)]
+    pub implements_index_mut: bool,
+    #[serde(default)]
+    pub implements_from: bool,
+    #[serde(default)]
+    pub implements_into: bool,
+    #[serde(default)]
+    pub implements_as_ref: bool,
+    #[serde(default)]
+    pub implements_as_mut: bool,
+    #[serde(default)]
+    pub implements_borrow: bool,
+    #[serde(default)]
+    pub implements_borrow_mut: bool,
+    #[serde(default)]
+    pub implements_to_owned: bool,
+    #[serde(default)]
+    pub implements_partial_eq: bool,
+    #[serde(default)]
+    pub implements_eq: bool,
+    #[serde(default)]
+    pub implements_partial_ord: bool,
+    #[serde(default)]
+    pub implements_ord: bool,
+    #[serde(default)]
+    pub implements_add: bool,
+    #[serde(default)]
+    pub implements_sub: bool,
+    #[serde(default)]
+    pub implements_mul: bool,
+    #[serde(default)]
+    pub implements_div: bool,
+    #[serde(default)]
+    pub implements_rem: bool,
+    #[serde(default)]
+    pub implements_neg: bool,
+    #[serde(default)]
+    pub implements_add_assign: bool,
+    #[serde(default)]
+    pub implements_sub_assign: bool,
+    #[serde(default)]
+    pub implements_mul_assign: bool,
+    #[serde(default)]
+    pub implements_div_assign: bool,
+    #[serde(default)]
+    pub implements_rem_assign: bool,
+    #[serde(default)]
+    pub implements_bit_and: bool,
+    #[serde(default)]
+    pub implements_bit_or: bool,
+    #[serde(default)]
+    pub implements_bit_xor: bool,
+    #[serde(default)]
+    pub implements_shl: bool,
+    #[serde(default)]
+    pub implements_shr: bool,
+    #[serde(default)]
+    pub implements_not: bool,
+    #[serde(default)]
+    pub implements_bit_and_assign: bool,
+    #[serde(default)]
+    pub implements_bit_or_assign: bool,
+    #[serde(default)]
+    pub implements_bit_xor_assign: bool,
+    #[serde(default)]
+    pub implements_shl_assign: bool,
+    #[serde(default)]
+    pub implements_shr_assign: bool,
+    #[serde(default)]
+    pub implements_range_bounds: bool,
+    #[serde(default)]
+    pub implements_termination: bool,
+    #[serde(default)]
+    pub implements_unwind_safe: bool,
+    #[serde(default)]
+    pub implements_ref_unwind_safe: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct ProjectTypeInfo {
     #[allow(dead_code)]
@@ -290,12 +551,63 @@ struct ProjectTypeInfo {
     by_function: HashMap<String, HashMap<String, Vec<VariableTypeInfo>>>,
     #[serde(default)]
     expressions: HashMap<String, Vec<ExpressionInfo>>,
+    #[serde(default)]
+    await_points: HashMap<String, Vec<AwaitPointInfo>>,
+    #[serde(default)]
+    borrow_spans: HashMap<String, Vec<BorrowSpanInfo>>,
+    #[serde(default)]
+    unsafe_operations: HashMap<String, Vec<UnsafeOperationInfo>>,
+    #[serde(default)]
+    closure_traits: HashMap<String, Vec<ClosureTraitInfo>>,
+    #[serde(default)]
+    field_accesses: HashMap<String, Vec<FieldAccessInfo>>,
+    #[serde(default)]
+    destructuring: HashMap<String, Vec<DestructuringInfo>>,
+    #[serde(default)]
+    match_bindings: HashMap<String, Vec<MatchBindingInfo>>,
+    #[serde(default)]
+    variants: HashMap<String, Vec<VariantInfo>>,
+    #[serde(default)]
+    lifetimes: HashMap<String, Vec<LifetimeInfoEntry>>,
+    #[serde(default)]
+    labels: HashMap<String, Vec<LabelInfoEntry>>,
+    #[serde(default)]
+    const_patterns: HashMap<String, Vec<ConstPatternInfo>>,
+    #[serde(default)]
+    callables: HashMap<String, Vec<CallableInfoEntry>>,
+    #[serde(default)]
+    record_field_exprs: HashMap<String, Vec<RecordFieldExprInfo>>,
+    #[serde(default)]
+    record_field_pats: HashMap<String, Vec<RecordFieldPatInfo>>,
+    #[serde(default)]
+    method_borrows: HashMap<String, Vec<MethodBorrowInfo>>,
+    #[serde(default)]
+    function_calls: HashMap<String, Vec<FunctionCallInfoEntry>>,
+    #[serde(default)]
+    trait_impls: HashMap<String, TraitImplInfo>,
 }
 
 pub struct TypeInfoCache {
     by_name: HashMap<String, Vec<VariableTypeInfo>>,
     by_function: HashMap<String, HashMap<String, Vec<VariableTypeInfo>>>,
     expressions: HashMap<String, Vec<ExpressionInfo>>,
+    await_points: HashMap<String, Vec<AwaitPointInfo>>,
+    borrow_spans: HashMap<String, Vec<BorrowSpanInfo>>,
+    unsafe_operations: HashMap<String, Vec<UnsafeOperationInfo>>,
+    closure_traits: HashMap<String, Vec<ClosureTraitInfo>>,
+    field_accesses: HashMap<String, Vec<FieldAccessInfo>>,
+    destructuring: HashMap<String, Vec<DestructuringInfo>>,
+    match_bindings: HashMap<String, Vec<MatchBindingInfo>>,
+    variants: HashMap<String, Vec<VariantInfo>>,
+    lifetimes: HashMap<String, Vec<LifetimeInfoEntry>>,
+    labels: HashMap<String, Vec<LabelInfoEntry>>,
+    const_patterns: HashMap<String, Vec<ConstPatternInfo>>,
+    callables: HashMap<String, Vec<CallableInfoEntry>>,
+    record_field_exprs: HashMap<String, Vec<RecordFieldExprInfo>>,
+    record_field_pats: HashMap<String, Vec<RecordFieldPatInfo>>,
+    method_borrows: HashMap<String, Vec<MethodBorrowInfo>>,
+    function_calls: HashMap<String, Vec<FunctionCallInfoEntry>>,
+    trait_impls: HashMap<String, TraitImplInfo>,
 }
 
 impl TypeInfoCache {
@@ -312,6 +624,23 @@ impl TypeInfoCache {
             by_name: info.by_name,
             by_function: info.by_function,
             expressions: info.expressions,
+            await_points: info.await_points,
+            borrow_spans: info.borrow_spans,
+            unsafe_operations: info.unsafe_operations,
+            closure_traits: info.closure_traits,
+            field_accesses: info.field_accesses,
+            destructuring: info.destructuring,
+            match_bindings: info.match_bindings,
+            variants: info.variants,
+            lifetimes: info.lifetimes,
+            labels: info.labels,
+            const_patterns: info.const_patterns,
+            callables: info.callables,
+            record_field_exprs: info.record_field_exprs,
+            record_field_pats: info.record_field_pats,
+            method_borrows: info.method_borrows,
+            function_calls: info.function_calls,
+            trait_impls: info.trait_impls,
         })
     }
 
@@ -452,6 +781,113 @@ pub fn find_transmute_types(line: u32) -> Option<(&'static str, &'static str)> {
         }
     }
     None
+}
+
+/// Lookup await point at a specific line
+pub fn lookup_await_point(line: u32) -> Option<&'static AwaitPointInfo> {
+    let ti = get_type_info()?;
+    ti.await_points.values().flat_map(|v| v.iter()).find(|a| a.line == line)
+}
+
+/// Lookup borrow spans for a variable
+pub fn lookup_borrow_spans(variable: &str) -> Vec<&'static BorrowSpanInfo> {
+    get_type_info().map_or(vec![], |ti| {
+        ti.borrow_spans.values().flat_map(|v| v.iter()).filter(|b| b.variable == variable).collect()
+    })
+}
+
+/// Lookup unsafe operation at a specific line
+pub fn lookup_unsafe_operation(line: u32) -> Option<&'static UnsafeOperationInfo> {
+    let ti = get_type_info()?;
+    ti.unsafe_operations.values().flat_map(|v| v.iter()).find(|u| u.line == line)
+}
+
+/// Lookup closure trait info at a specific line
+pub fn lookup_closure_trait(line: u32) -> Option<&'static ClosureTraitInfo> {
+    let ti = get_type_info()?;
+    ti.closure_traits.values().flat_map(|v| v.iter()).find(|c| c.line == line)
+}
+
+/// Lookup field access at a specific line/column
+pub fn lookup_field_access(line: u32, column: u32) -> Option<&'static FieldAccessInfo> {
+    let ti = get_type_info()?;
+    ti.field_accesses.values().flat_map(|v| v.iter()).find(|f| f.line == line && f.column == column)
+}
+
+/// Lookup destructuring at a specific line
+pub fn lookup_destructuring(line: u32) -> Option<&'static DestructuringInfo> {
+    let ti = get_type_info()?;
+    ti.destructuring.values().flat_map(|v| v.iter()).find(|d| d.line == line)
+}
+
+/// Lookup match binding at a specific line
+pub fn lookup_match_binding(line: u32) -> Option<&'static MatchBindingInfo> {
+    let ti = get_type_info()?;
+    ti.match_bindings.values().flat_map(|v| v.iter()).find(|m| m.line == line)
+}
+
+/// Lookup variant construction at a specific line
+pub fn lookup_variant(line: u32, column: u32) -> Option<&'static VariantInfo> {
+    let ti = get_type_info()?;
+    ti.variants.values().flat_map(|v| v.iter()).find(|v| v.line == line && v.column == column)
+}
+
+/// Lookup lifetime at a specific line
+#[allow(dead_code)]
+pub fn lookup_lifetime(line: u32) -> Option<&'static LifetimeInfoEntry> {
+    let ti = get_type_info()?;
+    ti.lifetimes.values().flat_map(|v| v.iter()).find(|l| l.line == line)
+}
+
+/// Lookup label at a specific line
+pub fn lookup_label(line: u32) -> Option<&'static LabelInfoEntry> {
+    let ti = get_type_info()?;
+    ti.labels.values().flat_map(|v| v.iter()).find(|l| l.line == line)
+}
+
+/// Lookup const pattern at a specific line
+#[allow(dead_code)]
+pub fn lookup_const_pattern(line: u32) -> Option<&'static ConstPatternInfo> {
+    let ti = get_type_info()?;
+    ti.const_patterns.values().flat_map(|v| v.iter()).find(|c| c.line == line)
+}
+
+/// Lookup callable at a specific line
+pub fn lookup_callable(line: u32, column: u32) -> Option<&'static CallableInfoEntry> {
+    let ti = get_type_info()?;
+    ti.callables.values().flat_map(|v| v.iter()).find(|c| c.line == line && c.column == column)
+}
+
+/// Lookup record field expression at a specific line/column
+pub fn lookup_record_field_expr(line: u32, column: u32) -> Option<&'static RecordFieldExprInfo> {
+    let ti = get_type_info()?;
+    ti.record_field_exprs.values().flat_map(|v| v.iter()).find(|r| r.line == line && r.column == column)
+}
+
+/// Lookup record field pattern at a specific line/column
+#[allow(dead_code)]
+pub fn lookup_record_field_pat(line: u32, column: u32) -> Option<&'static RecordFieldPatInfo> {
+    let ti = get_type_info()?;
+    ti.record_field_pats.values().flat_map(|v| v.iter()).find(|r| r.line == line && r.column == column)
+}
+
+/// Lookup method borrow at a specific line
+pub fn lookup_method_borrow(line: u32, column: u32) -> Option<&'static MethodBorrowInfo> {
+    let ti = get_type_info()?;
+    ti.method_borrows.values().flat_map(|v| v.iter()).find(|m| m.line == line && m.column == column)
+}
+
+/// Lookup function call at a specific line
+pub fn lookup_function_call(line: u32, column: u32) -> Option<&'static FunctionCallInfoEntry> {
+    let ti = get_type_info()?;
+    ti.function_calls.values().flat_map(|v| v.iter()).find(|f| f.line == line && f.column == column)
+}
+
+/// Lookup trait impl info for a type
+#[allow(dead_code)]
+pub fn lookup_trait_impl(type_name: &str) -> Option<&'static TraitImplInfo> {
+    let ti = get_type_info()?;
+    ti.trait_impls.get(type_name)
 }
 
 #[cfg(test)]

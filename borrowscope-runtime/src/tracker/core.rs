@@ -325,6 +325,52 @@ pub fn track_var_write(
     }
 }
 
+/// Track borrow span metadata from static analysis.
+#[inline(always)]
+pub fn track_borrow_span(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] variable: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] kind: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] start_location: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] end_location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        tracker.record_borrow(variable, variable, kind == "mutable");
+    }
+}
+
+/// Track destructuring pattern.
+#[inline(always)]
+pub fn track_destructure(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] kind: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] bindings: &[&str],
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        for binding in bindings {
+            tracker.record_new(binding, &format!("destructure_{}", kind));
+        }
+    }
+}
+
+/// Track enum variant construction.
+#[inline(always)]
+pub fn track_variant_construct(
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] enum_type: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] variant_name: &str,
+    #[cfg_attr(not(feature = "track"), allow(unused_variables))] location: &str,
+) {
+    #[cfg(feature = "track")]
+    {
+        let mut tracker = TRACKER.lock();
+        let name = format!("{}::{}", enum_type, variant_name);
+        tracker.record_new(&name, enum_type);
+    }
+}
+
 /// Track multiple drops in batch (optimized).
 ///
 /// Records multiple `Drop` events efficiently with a single lock acquisition.
