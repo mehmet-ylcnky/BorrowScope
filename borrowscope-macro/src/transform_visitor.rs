@@ -1005,6 +1005,42 @@ impl OwnershipVisitor {
             }
         }
 
+        // Emit adjustment/usage tracking as separate statements after the let binding
+        let decl_var_name = Self::get_simple_ident(&local.pat).map(|i| i.to_string());
+        if let Some(ref vn) = decl_var_name {
+            if let Some(type_info) = self.peek_type_info(vn) {
+                let location = Self::location_tokens(local.pat.span());
+                let insert_idx = self.current_stmt_index + 1;
+                for adj in &type_info.adjustments {
+                    let adj_name = vn.as_str();
+                    let stmt: Stmt = match adj.kind.as_str() {
+                        "borrow_shared" | "borrow_mut" => syn::parse_quote! {
+                            borrowscope_runtime::track_autoref(#adj_name, #location);
+                        },
+                        "deref" | "deref_mut" => syn::parse_quote! {
+                            borrowscope_runtime::track_autoderef(#adj_name, #location);
+                        },
+                        _ => continue,
+                    };
+                    self.pending_inserts.push((insert_idx, stmt));
+                }
+                for usage in &type_info.usages {
+                    let usage_name = vn.as_str();
+                    let usage_loc = format!("{}:{}", usage.line, usage.column);
+                    let stmt: Stmt = match usage.kind.as_str() {
+                        "read" => syn::parse_quote! {
+                            borrowscope_runtime::track_var_read(#usage_name, #usage_loc);
+                        },
+                        "write" => syn::parse_quote! {
+                            borrowscope_runtime::track_var_write(#usage_name, #usage_loc);
+                        },
+                        _ => continue,
+                    };
+                    self.pending_inserts.push((insert_idx, stmt));
+                }
+            }
+        }
+
         // Continue visiting nested expressions
         visit_mut::visit_local_mut(self, local);
     }
@@ -1463,11 +1499,17 @@ impl OwnershipVisitor {
         let await_id = self.gen_id();
         let location = Self::location_tokens(await_expr.await_token.span);
         let base = &await_expr.base;
-        let future_name = Self::extract_future_name(base);
+        let mut future_name = Self::extract_future_name(base);
 
-        // Enrich with live_variables from analyzer await_points data
+        // Enrich with live_variables and awaited_type from analyzer await_points data
         let line = await_expr.await_token.span.start().line as u32;
         let await_info = crate::type_info::lookup_await_point(line);
+        // Use awaited_type from analyzer when available (more precise than AST extraction)
+        if let Some(ai) = await_info {
+            if !ai.awaited_type.is_empty() {
+                future_name = ai.awaited_type.clone();
+            }
+        }
         let live_vars: Vec<String> = await_info.map_or(vec![], |a| a.live_variables.clone());
 
         if live_vars.is_empty() {
@@ -2784,15 +2826,26 @@ impl VisitMut for OwnershipVisitor {
             return;
         }
 
-        // Handle deref operations (*expr) - DISABLED: breaks assignment expressions
-        // The transformation `*x = y` -> `{ track_deref(...); *x } = y` is invalid
-        // Would need context-aware transformation to handle lvalue vs rvalue
-        // if let Expr::Unary(unary) = expr.clone() {
-        //     if matches!(unary.op, syn::UnOp::Deref(_)) {
-        //         self.transform_deref(expr, &unary);
-        //         return;
-        //     }
-        // }
+        // Handle deref operations (*expr) — re-enabled for rvalue contexts
+        // Only transform when the variable has deref adjustments from analyzer
+        if self.config.track_expressions {
+            if let Expr::Unary(unary) = expr {
+                if matches!(unary.op, syn::UnOp::Deref(_)) {
+                    if let Expr::Path(path) = unary.expr.as_ref() {
+                        if let Some(ident) = path.path.get_ident() {
+                            let vn = ident.to_string();
+                            let has_deref_adj = self.peek_type_info(&vn)
+                                .map_or(false, |ti| ti.adjustments.iter().any(|a| a.kind == "deref" || a.kind == "deref_mut"));
+                            if has_deref_adj {
+                                let u = unary.clone();
+                                self.transform_deref(expr, &u);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Handle index access (arr[i]) - DISABLED: same issue as deref
         // if let Expr::Index(index_expr) = expr.clone() {

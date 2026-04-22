@@ -486,31 +486,35 @@ Each `MethodCallInfo` in `method_calls[]` is read by the macro for semantic disp
 | `column` | `u32` | Call location | Precise matching for disambiguation |
 | `operation` | `Option<String>` | Canonical path: `"core::cell::set"` | `semantic_op` dispatch (18 patterns) |
 | `self_borrow` | `Option<String>` | `"immutable"` / `"mutable"` / `"consuming"` | `infer_self_borrow_type()` (47 patterns) |
-| `receiver_type` | `String` | `"Vec<i32>"` — fully qualified | Not yet consumed |
-| `result_type` | `Option<String>` | `"Option<i32>"` | Not yet consumed |
+| `receiver_type` | `String` | `"Vec<i32>"` — fully qualified | Passed to `track_method_call` → `Event::Call` |
+| `result_type` | `Option<String>` | `"Option<i32>"` | Passed to `track_method_call` → `Event::Call` |
 | `is_trait_method` | `Option<bool>` | `true` for trait impls | Clone trait verification (ID 107) |
 | `trait_name` | `Option<String>` | `"Clone"`, `"Iterator"`, etc. | Clone trait verification (ID 107) |
-| `is_unsafe` | `Option<bool>` | `true` for unsafe calls | Not yet consumed |
+| `is_unsafe` | `Option<bool>` | `true` for unsafe calls | Emits `track_unsafe_fn_call` when true |
 
 #### C. Top-Level Project Data
 
-The analyzer's `ProjectTypeInfo` has **18 top-level maps**. The macro reads **5** (`version`, `files`, `by_name`, `by_function`, `expressions`). These **13 maps** are not yet consumed:
+The analyzer's `ProjectTypeInfo` has **22 top-level maps**. The macro reads **all of them** (`version`, `files`, `by_name`, `by_function`, `expressions`, plus 17 enrichment maps):
 
-| Top-Level Field | What It Contains | Potential Use |
-|-----------------|-----------------|---------------|
-| `await_points` | `HashMap<file, Vec<AwaitPointInfo>>` — every `.await` with live variables | Could track async ownership across await boundaries |
-| `borrow_spans` | `HashMap<file, Vec<BorrowSpanInfo>>` — borrow start/end/use sites | Could emit precise borrow lifetime tracking |
-| `unsafe_operations` | `HashMap<file, Vec<UnsafeOperationInfo>>` — unsafe blocks/calls | Could emit `track_unsafe_block_enter/exit` semantically |
-| `closure_traits` | `HashMap<file, Vec<ClosureTraitInfo>>` — Fn/FnMut/FnOnce + captures | Could track closure borrow semantics |
-| `field_accesses` | `HashMap<file, Vec<FieldAccessInfo>>` — field reads/writes | Could emit `track_field_access` semantically |
-| `destructuring` | `HashMap<file, Vec<DestructuringInfo>>` — pattern destructuring | Could track ownership splits |
-| `match_bindings` | `HashMap<file, Vec<MatchBindingInfo>>` — match arm bindings | Could track match ownership patterns |
-| `variants` | `HashMap<file, Vec<VariantInfo>>` — enum variant usage | Could track enum variant construction |
-| `lifetimes` | `HashMap<file, Vec<LifetimeInfo>>` — named lifetimes | Could annotate borrow tracking |
-| `labels` | `HashMap<file, Vec<LabelInfo>>` — loop labels | Could track labeled break/continue |
-| `const_patterns` | `HashMap<file, Vec<ConstPatternInfo>>` — const in patterns | Could track const pattern matching |
-| `callables` | `HashMap<file, Vec<CallableInfo>>` — callable expressions | Could track function pointer calls |
-| `record_field_exprs` | `HashMap<file, Vec<RecordFieldExprInfo>>` — struct literal fields | Could track struct construction |
+| Top-Level Field | What It Contains | How Macro Uses It |
+|-----------------|-----------------|-------------------|
+| `await_points` | `HashMap<file, Vec<AwaitPointInfo>>` — every `.await` with live variables | `track_await_start_with_live_vars` — passes live variables across await |
+| `borrow_spans` | `HashMap<file, Vec<BorrowSpanInfo>>` — borrow start/end/use sites | `track_borrow_span` — emits borrow span metadata in `transform_reference` |
+| `unsafe_operations` | `HashMap<file, Vec<UnsafeOperationInfo>>` — unsafe blocks/calls | `track_unsafe_block_enter_enriched` — passes kind/context |
+| `closure_traits` | `HashMap<file, Vec<ClosureTraitInfo>>` — Fn/FnMut/FnOnce + captures | `track_closure_create_with_trait` — passes fn_trait |
+| `field_accesses` | `HashMap<file, Vec<FieldAccessInfo>>` — field reads/writes | Re-enables `transform_field` for read-only accesses (semantic gating) |
+| `destructuring` | `HashMap<file, Vec<DestructuringInfo>>` — pattern destructuring | `track_destructure` — emits destructuring kind and bindings |
+| `match_bindings` | `HashMap<file, Vec<MatchBindingInfo>>` — match arm bindings | `track_match_arm_with_bindings` — passes binding names |
+| `variants` | `HashMap<file, Vec<VariantInfo>>` — enum variant usage | `track_variant_construct` — emits enum type and variant name |
+| `lifetimes` | `HashMap<file, Vec<LifetimeInfo>>` — named lifetimes | Metadata-only (deserialized, available via `lookup_lifetime`) |
+| `labels` | `HashMap<file, Vec<LabelInfo>>` — loop labels | Enriches `track_break`/`track_continue` with loop_kind |
+| `const_patterns` | `HashMap<file, Vec<ConstPatternInfo>>` — const in patterns | Metadata-only (deserialized, available via `lookup_const_pattern`) |
+| `callables` | `HashMap<file, Vec<CallableInfo>>` — callable expressions | Enriches `track_call` with callable kind (fn_ptr/closure/fn_def/fn_trait) |
+| `record_field_exprs` | `HashMap<file, Vec<RecordFieldExprInfo>>` — struct literal fields | Enriches `track_struct_create` with field type info |
+| `record_field_pats` | `HashMap<file, Vec<RecordFieldPatInfo>>` — struct pattern fields | Metadata-only (deserialized, available via `lookup_record_field_pat`) |
+| `method_borrows` | `HashMap<file, Vec<MethodBorrowInfo>>` — method borrow kinds | Fallback in `infer_self_borrow_type` when per-variable data unavailable |
+| `function_calls` | `HashMap<file, Vec<FunctionCallInfo>>` — function return types | `track_method_call` with return_category for function calls |
+| `trait_impls` | `HashMap<file, TraitImplInfo>` — trait implementations per type | Metadata-only (deserialized, available via `lookup_trait_impl`) |
 
 #### D. Summary: What Matters for 109/109
 
@@ -646,11 +650,11 @@ Every method in the macro classified by whether the analyzer can replace its heu
 
 | Category | Count | Status |
 |----------|-------|--------|
-| Detection functions (smart_pointer.rs) | 17 | ✅ 15 deleted or replaced by `semantic_op`; 10 remain as initializer fallback |
+| Detection functions (smart_pointer.rs) | 17 | ✅ All deleted — `smart_pointer.rs` removed, analyzer mandatory |
 | Core transform methods (#18–22) | 5 | ✅ All 5 now semantic (read `method_calls[]`) |
 | Dispatch points in visit_expr_mut (#73–90) | 18 | ✅ All 18 now use `semantic_op` lookup |
 | Partial transforms | 0 | All transform methods now use semantic data |
-| Partial enrichable transforms (#29, 31–33, 38–39, 43–44, 68) | 10 | ⚠️ Optional — analyzer has richer data but current approach works |
+| Enrichable transforms (#29, 31–33, 38–39, 43–44, 68) | 10 | ✅ All enriched with analyzer data (Section C maps) |
 | Structural transforms (no type info needed) | 17 | ❌ Not needed — syntactically unambiguous |
 | Helper methods (no detection logic) | 21 | ❌ Not needed — pure AST manipulation |
 
@@ -703,15 +707,15 @@ Both are already in the `MethodCallInfo` output. The classification happens on t
 
 | Function | Was In | Replaced By |
 |----------|--------|-------------|
-| `detect_once_cell_method()` | smart_pointer.rs | `semantic_op` dispatch |
-| `detect_maybe_uninit_method()` | smart_pointer.rs | `semantic_op` dispatch |
+| `detect_once_cell_method()` | smart_pointer.rs (deleted) | `semantic_op` dispatch |
+| `detect_maybe_uninit_method()` | smart_pointer.rs (deleted) | `semantic_op` dispatch |
+| All 17 `detect_*` functions | smart_pointer.rs (deleted) | `initializer_kind` + `semantic_op` dispatch |
 
-**Remaining `detect_*` functions** (10 in smart_pointer.rs) are used only in the initializer fallback path when no analyzer data is available:
-`detect_smart_pointer_new`, `detect_rc_clone`, `detect_box_pin`, `detect_box_raw_op`, `detect_pin_operation`, `detect_cow_creation`, `detect_downgrade`, `detect_once_cell_new`, `detect_maybe_uninit_new`, `detect_concurrency_op`
+**`smart_pointer.rs` has been fully deleted.** The analyzer is now mandatory — no heuristic fallback paths remain.
 
 ### 4.3 Lookup Mechanism
 
-The macro uses `crate::type_info::lookup_by_name(var_name)` to find analyzer data for a variable, then reads `method_calls[]` to find the relevant method call by name. The `operation`, `self_borrow`, `is_trait_method`, and `trait_name` fields drive dispatch decisions. When no analyzer data is available, all dispatch points fall back to name-based heuristics.
+The macro uses `crate::type_info::lookup_by_name(var_name)` to find analyzer data for a variable, then reads `method_calls[]` to find the relevant method call by name. The `operation`, `self_borrow`, `is_trait_method`, and `trait_name` fields drive dispatch decisions. The analyzer is mandatory — the macro panics with a clear error if `type-info.json` is missing.
 
 ---
 
