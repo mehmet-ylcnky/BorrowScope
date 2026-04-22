@@ -1,0 +1,251 @@
+   --> src/main.rs:501:9
+    |
+501 |     let future_with_await = async_with_multiple_awaits();
+    |         ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_future_with_await`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+   --> src/main.rs:585:9
+    |
+585 |     let point_new = Point::new(5, 15);  // user_struct via constructor
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_point_new`
+   --> src/main.rs:638:9
+    |
+638 |     let mut mu2: MaybeUninit<i32> = MaybeUninit::new(100);
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+   --> src/main.rs:651:9
+    |
+651 |     let non_null_new: Option<NonNull<i32>> = NonNull::new(&mut value);  // NonNull::new pattern
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_non_null_new`
+   --> src/main.rs:652:9
+    |
+652 |     let non_null_dangling: NonNull<i32> = NonNull::dangling();  // NonNull::dangling pattern
+    |         ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_non_null_dangling`
+    --> src/main.rs:1428:12
+     |
+1428 |         if let IntOrFloatUnion { f } = u {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: this pattern will always match, so the `if let` is useless
+     = help: consider replacing the `if let` with a `let`
+     = note: `#[warn(irrefutable_let_patterns)]` on by default
+    --> src/main.rs:2439:31
+     |
+2439 |     let mut write_then_read = 0;
+     |                               ^
+     |
+     = help: maybe it is overwritten before being read?
+     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+    --> src/main.rs:2444:27
+     |
+2444 |     let mut multi_write = 0;
+     |                           ^
+     |
+     = help: maybe it is overwritten before being read?
+    --> src/main.rs:2445:5
+     |
+2445 |     multi_write = 1; // write 1
+     |     ^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+    --> src/main.rs:2446:5
+     |
+2446 |     multi_write = 2; // write 2
+     |     ^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+  --> src/main.rs:26:8
+   |
+26 | static STATIC_I32: i32 = 42;
+   |        ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+  --> src/main.rs:27:8
+   |
+27 | static STATIC_STR: &str = "hello";
+   |        ^^^^^^^^^^
+  --> src/main.rs:28:8
+   |
+28 | static STATIC_ARRAY: [u8; 4] = [1, 2, 3, 4];
+   |        ^^^^^^^^^^^^
+  --> src/main.rs:31:7
+   |
+31 | const CONST_USIZE: usize = 100;
+   |       ^^^^^^^^^^^
+  --> src/main.rs:32:7
+   |
+32 | const CONST_TUPLE: (i32, &str) = (1, "const");
+   |       ^^^^^^^^^^^
+  --> src/main.rs:33:7
+   |
+33 | const CONST_ARRAY: [i32; 3] = [1, 2, 3];
+   |       ^^^^^^^^^^^
+   --> src/main.rs:103:8
+    |
+103 | struct BorrowedData<'a> {
+    |        ^^^^^^^^^^^^
+   --> src/main.rs:107:4
+    |
+107 | fn test_lifetime_in_generics() {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+    --> src/main.rs:2365:4
+     |
+2365 | fn test_unsafe_detection() {
+     |    ^^^^^^^^^^^^^^^^^^^^^
+    --> src/main.rs:2380:4
+     |
+2380 | fn test_drop_points() {
+     |    ^^^^^^^^^^^^^^^^
+    --> src/main.rs:2427:4
+     |
+2427 | fn test_variable_usages() {
+     |    ^^^^^^^^^^^^^^^^^^^^
+    --> src/main.rs:2468:4
+     |
+2468 | fn test_borrow_spans() {
+     |    ^^^^^^^^^^^^^^^^^
+    --> src/main.rs:2494:4
+     |
+2494 | fn test_macro_classification() {
+     |    ^^^^^^^^^^^^^^^^^^^^^^^^^
+   --> src/main.rs:923:19
+    |
+923 | type MyCow<'a, T: ?Sized + ToOwned> = Cow<'a, T>;
+    |                 --^^^^^^---^^^^^^^
+    |                 |          |
+    |                 |          will not be checked at usage sites of the type alias
+    |                 help: remove this bound
+    |
+    = note: this is a known limitation of the type checker that may be lifted in a future edition.
+            see issue #112792 <https://github.com/rust-lang/rust/issues/112792> for more information
+    = note: `#[warn(type_alias_bounds)]` on by default
+    --> src/main.rs:1079:36
+     |
+1079 |     let _bytes: [u8; 4] = unsafe { std::mem::transmute(num) };
+     |                                    -------------------^^^^^
+     |                                    |
+     |                                    help: replace this with: `u32::to_ne_bytes`
+     |
+     = help: there's also `to_le_bytes` and `to_be_bytes` if you expect a particular byte order
+     = note: `#[warn(unnecessary_transmutes)]` on by default
+    --> src/main.rs:2251:30
+     |
+2251 |         let bytes: [u8; 4] = std::mem::transmute(read_val);
+     |                              -------------------^^^^^^^^^^
+     |                              |
+     |                              help: replace this with: `i32::to_ne_bytes`
+     |
+     = help: there's also `to_le_bytes` and `to_be_bytes` if you expect a particular byte order
+    --> src/main.rs:2359:30
+     |
+2359 |         let bytes: [u8; 4] = std::mem::transmute(42i32);
+     |                              -------------------^^^^^^^
+     |                              |
+     |                              help: replace this with: `i32::to_ne_bytes`
+     |
+     = help: there's also `to_le_bytes` and `to_be_bytes` if you expect a particular byte order
+"aliased" 42 ["a", "b"] Ok(42) Err("error")
+1 2 a b c 43 4 hello 6
+42 ref 3 43 ref_mut! 4
+static [98, 121, 116, 101, 115] local
+42 0.000000000000000000000000000000000000000000059 [239, 190, 173, 222, 0, 0, 0, 0] 3735928559
+42 65 0x7ffda67b13f4 0x7ffda67b13f4 "hello" "hello" "path" "path"
+1 2 3 4 5 6 1 2 3 4 5 6 1 2 true x (1, 2) (1, "hello", 3.14) ((1, 2), (3, 4)) [1, 2, 3, 4, 5] [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+42 boxed [1, 2, 3] 42 42 shared 42 Some(42) None 42 thread-safe 42 Some(42) None
+42 true 0x7ffda67b1264 42 [1, 2, 3] mutable Ok(42) Ok([1, 2, 3]) Ok(42) Ok({})
+[1, 2, 3] ["a", "b"] [] []  hello world owned {} {"key": 42} {} {} {} [] Some(42) None Ok(42) Err("error") [] []
+42 hello [1, 2, 3] hello [1, 2, 3] 43 mutable! [1, 2, 3, 4]
+0x7ffda67b1540 0x7ffda67b1544 0x0 0x0
+3 42 10 15 10
+Guards tested
+[1, 2, 3] [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] [2, 4, 6] [2, 3] [1, 2, 3, 4]
+[1, 2, 3] Ok({}) nested [[1, 2], [3, 4]] {} [Some(1), None, Some(3)] Some([1, 2, 3]) [Some("a")]
+Point { x: 10, y: 20 } Generic { value: 42 } Generic { value: "generic" } Active Inactive Pending("waiting")
+"" "/tmp/test" "/tmp/test" "" "hello"
+borrowed owned [1, 2, 3] "pinned" "stack pinned" 0x7ffda67b1280 0x7ffda67b1284 PhantomData<alloc::string::String> PhantomData<&str> 0x7ffda67b12c4 42 100
+OnceCell("initialized") OnceCell(42) OnceLock("thread-safe") 0..10 0..=10 0..100 60s 60s 500ms 1ms Instant { tv_sec: 15392, tv_nsec: 594751987 } ..10 5.. ..=10 .. Less Ready(42)
+woof woof woof woof [1, 2, 3] boxed str [1, 2, 3]
+[1, 2, 3, 4, 5] hello unsized [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] [[1, 2], [3, 4, 5]] "hello" "os string" "/tmp/test"
+true 42 100 -1 0 0x7ffda67b14e4
+Sender { .. } Receiver { .. } SyncSender { .. } Receiver { .. }
+Cursor { inner: [1, 2, 3], pos: 0 } Cursor { inner: "hello", pos: 0 } Empty Repeat { .. } Sink BufReader { reader: Cursor { inner: [], pos: 0 }, buffer: 0/8192 } BufWriter { writer: Cursor { inner: [], pos: 0 }, buffer: 0/8192 }
+6 6 42
+42
+Called from src/main.rs:892:31
+[1, 2, 3] hello world [1, 2, 3] hello world type-coverage some_identifier 2297 23 src/main.rs None
+type_coverage
+[1, 2, 3]
+hello world
+hello [2, 4, 6] 42 2 hello 42
+5
+Dereferenced: 42 100
+abs(-42) = 42
+Mutable static: 42
+Unchecked access: 3
+Transmuted bytes: [42, 0, 0, 0]
+[42, 0, 0, 0]
+42
+Some(1) 1
+10 100 1 0
+hello 42 nested [1, 2, 3, 4, 5]
+Got: value
+1 tuple
+Value: ok
+First: 1, rest: [2, 3, 4, 5]
+1 hello
+42
+a b
+1 str [1, 2, 3]
+owned 42 101
+42 rc [1, 2, 3] nested "refcell" [1, 2, 3]
+11
+11
+1
+2
+[1, 2, 3]
+hello [1, 2, 3] test (1, "tuple") Some("option") [1, 2, 3] boxed
+Unaligned read: 2 3
+1 2 3 2 3
+As int: 42
+As float: 0.000000000000000000000000000000000000000000059
+Destructured: 42
+First: 1, Second: 2, Rest: [3, 4, 5]
+a=1, b=[2, 3, 4], c=5
+(1, 2) 1 2 (3, 4) 3 4
+x=10, y=20
+In range: 42
+First: 1, Last: 6
+42 hello
+Got: hello
+Vec: [1, 2, 3]
+Vec: [1, 2, 3]
+a 42
+First: a, Rest: ["b"]
+manually dropped
+[1, 2, 3, 4]
+take me
+42
+Condvar signaled
+Thread passed barrier
+Main passed barrier
+Read: Hello, World!
+Written: "Buffered output"
+Line: line1
+Line: line2
+Line: line3
+Output: "hello\n"
+Completed with: 1
+Data after catch: [1, 2, 3, 4]
+Pinned data: pinned data
+Heap pinned: heap pinned
+Projected: hello 42
+Future ready: 42
+List sum: 6
+Tree sum: 6
+Linked sum: 6
+Async cancellation futures created
+Matched const!
+Matched string const!
