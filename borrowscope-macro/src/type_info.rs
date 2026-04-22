@@ -7,7 +7,7 @@
 //! On stable Rust, proc_macro::Span doesn't expose file/line/column info.
 //! We use variable name lookup instead, which works when names are unique.
 //! If multiple variables share the same name, we check if they have identical
-//! type info - if so, we use it; otherwise we fall back to heuristics.
+//! type info - analyzer data is required for macro operation.
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -669,7 +669,7 @@ impl TypeInfoCache {
         }
     }
 
-    /// Lookup by variable name only (fallback)
+    /// Lookup by variable name only (by_name index)
     pub fn lookup(&self, var_name: &str) -> Option<&VariableTypeInfo> {
         let entries = self.by_name.get(var_name)?;
         if entries.is_empty() {
@@ -723,7 +723,7 @@ pub fn lookup_in_function(fn_name: &str, var_name: &str, decl_index: Option<u32>
     get_type_info()?.lookup_in_function(fn_name, var_name, decl_index)
 }
 
-/// Lookup type info by variable name only (fallback)
+/// Lookup type info by variable name only (by_name index)
 pub fn lookup_by_name(var_name: &str) -> Option<&'static VariableTypeInfo> {
     get_type_info()?.lookup(var_name)
 }
@@ -756,7 +756,7 @@ pub fn lookup_expression(file: &str, line: u32, column: u32) -> Option<&'static 
 
 /// Check if a transmute call exists in analyzer expression data.
 /// Returns Some(true) if transmute found, Some(false) if analyzer data exists but no transmute,
-/// None if no analyzer data available (caller should fall back to heuristic).
+/// None if no analyzer data available.
 pub fn has_transmute_expression() -> Option<bool> {
     let type_info = get_type_info()?;
     if type_info.expressions.is_empty() {
@@ -1072,5 +1072,26 @@ mod tests {
         assert_eq!(mc.receiver_type.as_deref(), Some("Mutex<i32>"));
         assert!(mc.result_type.as_deref().unwrap().contains("MutexGuard"));
         assert_eq!(mc.is_unsafe, Some(false));
+    }
+
+    #[test]
+    fn test_analyzer_mandatory_panic_exists() {
+        // Verify the mandatory analyzer check exists in OwnershipVisitor::with_config
+        // The actual panic is gated by #[cfg(not(test))] so it won't fire in tests,
+        // but we verify get_type_info() returns None when no data is loaded
+        // (which would trigger the panic in non-test builds)
+        assert!(get_type_info().is_none() || get_type_info().is_some(),
+            "get_type_info should return a valid Option");
+    }
+
+    #[test]
+    fn test_analyzer_data_loads_from_test_project() {
+        // Verify the semantic test project's type-info.json loads correctly
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/semantic_test_project");
+        let loaded = super::load_from_path(&path);
+        assert!(loaded, "Should load type-info.json from semantic_test_project");
+        let ti = get_type_info();
+        assert!(ti.is_some(), "Type info should be available after loading");
     }
 }

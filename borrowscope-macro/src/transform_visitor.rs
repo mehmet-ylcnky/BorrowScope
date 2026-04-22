@@ -746,7 +746,7 @@ impl OwnershipVisitor {
         let closure_id = self.gen_id();
         let location = Self::location_tokens(closure.or1_token.span);
         
-        // Determine capture mode - semantic: check analyzer data, fallback: move keyword
+        // Determine capture mode from analyzer data
         let binding_name = self.current_let_binding.clone();
         let semantic_captures = binding_name.as_ref()
             .and_then(|name| self.lookup_type_info(name))
@@ -863,7 +863,7 @@ impl OwnershipVisitor {
 
             let original_expr = &init.expr;
 
-            // Check analyzer type info first (semantic), then fall back to syntactic detection
+            // Semantic dispatch via analyzer type info
             if self.config.track_smart_pointers {
                 // Try analyzer-based detection first
                 if let Some(type_info) = self.lookup_type_info(&var_name) {
@@ -878,170 +878,8 @@ impl OwnershipVisitor {
                     }
                 }
 
-                // Fall back to syntactic detection
-                if let Some(sp_type) = None::<&str> {
-                    let new_expr = match sp_type {
-                        "rc" => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
-                            }
-                        }
-                        "arc" => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
-                            }
-                        }
-                        "refcell" => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_refcell_new(#var_name, #original_expr)
-                            }
-                        }
-                        "cell" => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_cell_new(#var_name, #original_expr)
-                            }
-                        }
-                        "box" => {
-                            // Track as Box variable for into_raw detection
-                            self.box_vars.insert(var_name.clone());
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_box_new(#var_name, #location, #original_expr)
-                            }
-                        }
-                        _ => {
-                            // Others use regular tracking
-                            syn::parse_quote! {
-                                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                            }
-                        }
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if let Some(sp_type) = None::<&str> {
-                    // Extract source ID from Rc::clone(&x) or Arc::clone(&x)
-                    let source_id = self.extract_clone_source_id(original_expr);
-                    let new_expr = match sp_type {
-                        "rc" => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
-                            }
-                        }
-                        "arc" => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
-                            }
-                        }
-                        _ => {
-                            syn::parse_quote! {
-                                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                            }
-                        }
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if false { #[allow(unreachable_code)]
-                    // Box::pin -> track_pin_new
-                    let new_expr: Expr = syn::parse_quote! {
-                        borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if let Some(op) = None::<&str> {
-                    // Box::into_raw or Box::from_raw
-                    let new_expr: Expr = match op {
-                        "box_into_raw" => {
-                            // Extract the box being converted
-                            let box_name = self.extract_box_from_into_raw(original_expr);
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_box_into_raw(#box_name, #location, #original_expr)
-                            }
-                        },
-                        "box_from_raw" => {
-                            // Track the new Box created from raw pointer
-                            self.box_vars.insert(var_name.clone());
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
-                            }
-                        },
-                        _ => syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        },
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                // Check for Box::from_raw inside unsafe block
-                } else if let Expr::Unsafe(unsafe_expr) = original_expr.as_ref() {
-                    // Check if the unsafe block contains a single Box::from_raw call
-                    if let Some(stmt) = unsafe_expr.block.stmts.last() {
-                        let inner_expr = match stmt {
-                            syn::Stmt::Expr(e, _) => Some(e),
-                            _ => None,
-                        };
-                        if let Some(inner) = inner_expr {
-                            if let Some("box_from_raw") = None::<&str> {
-                                self.box_vars.insert(var_name.clone());
-                                let new_expr: Expr = syn::parse_quote! {
-                                    borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
-                                };
-                                *init.expr = new_expr;
-                                visit_mut::visit_local_mut(self, local);
-                                return;
-                            }
-                        }
-                    }
-                } else if let Some(op) = None::<&str> {
-                    let new_expr: Expr = match op {
-                        "pin_new" => syn::parse_quote! {
-                            borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
-                        },
-                        _ => syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        },
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if let Some(op) = None::<&str> {
-                    // Track this as a Cow variable for to_mut detection
-                    self.cow_vars.insert(var_name.clone());
-                    let new_expr: Expr = match op {
-                        "cow_borrowed" => syn::parse_quote! {
-                            borrowscope_runtime::track_cow_borrowed(#var_name, #location, #original_expr)
-                        },
-                        "cow_owned" => syn::parse_quote! {
-                            borrowscope_runtime::track_cow_owned(#var_name, #location, #original_expr)
-                        },
-                        _ => syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        },
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if let Some(weak_type) = None::<&str> {
-                    // Rc::downgrade or Arc::downgrade - track as Weak variable
-                    self.weak_vars.insert(var_name.clone(), weak_type.to_string());
-                    let source_name = self.extract_downgrade_source(original_expr);
-                    let new_expr: Expr = match &*weak_type {
-                        "weak_rc" => syn::parse_quote! {
-                            borrowscope_runtime::track_weak_new(#var_name, #source_name, #location, #original_expr)
-                        },
-                        "weak_arc" => syn::parse_quote! {
-                            borrowscope_runtime::track_weak_new_sync(#var_name, #source_name, #location, #original_expr)
-                        },
-                        _ => syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        },
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
                 // Check if assigning from a Weak clone (let weak2 = weak.clone())
-                } else if let Expr::MethodCall(method_call) = original_expr.as_ref() {
+                if let Expr::MethodCall(method_call) = original_expr.as_ref() {
                     let method_name = method_call.method.to_string();
                     let local_semantic_op = Self::extract_receiver_name(&method_call.receiver).and_then(|name| {
                         let type_info = crate::type_info::lookup_by_name(&name)?;
@@ -1103,60 +941,6 @@ impl OwnershipVisitor {
                             }
                         }
                     }
-                } else if let Some(op) = None::<&str> {
-                    let new_expr: Expr = match op {
-                        "thread_spawn" => {
-                            // Dead code path (None::<&str> is always None)
-                            syn::parse_quote! {
-                                borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
-                            }
-                        },
-                        "channel_new" => {
-                            // mpsc::channel returns a tuple, handle specially
-                            syn::parse_quote! {
-                                {
-                                    let (__tx, __rx) = #original_expr;
-                                    borrowscope_runtime::track_channel(#var_name, #location, __tx, __rx)
-                                }
-                            }
-                        },
-                        _ => syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        },
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if let Some(is_sync) = None::<bool> {
-                    // OnceCell::new or OnceLock::new - register the variable
-                    let new_expr: Expr = if is_sync {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_once_lock_new(#var_name, #location, #original_expr)
-                        }
-                    } else {
-                        syn::parse_quote! {
-                            borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
-                        }
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
-                } else if let Some(op) = None::<&str> {
-                    // MaybeUninit::uninit or MaybeUninit::new - register the variable
-                    let new_expr: Expr = match op {
-                        "maybe_uninit_uninit" => syn::parse_quote! {
-                            borrowscope_runtime::track_maybe_uninit_uninit(#var_name, #location, #original_expr)
-                        },
-                        "maybe_uninit_new" => syn::parse_quote! {
-                            borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
-                        },
-                        _ => syn::parse_quote! {
-                            borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                        },
-                    };
-                    *init.expr = new_expr;
-                    visit_mut::visit_local_mut(self, local);
-                    return;
                 }
             }
 
@@ -1226,7 +1010,7 @@ impl OwnershipVisitor {
     }
 
     /// Transform expression based on analyzer's initializer_kind
-    /// Returns None if no transformation applies (fall back to syntactic detection)
+    /// Returns None if no transformation applies for this initializer kind
     fn transform_by_initializer_kind(
         &mut self,
         init_kind: &str,
@@ -1400,7 +1184,7 @@ impl OwnershipVisitor {
             // Primitives, references, closures - no special tracking needed
             "primitive" | "ref" | "ref_mut" | "closure" | "tuple" | "array" => None,
 
-            // Unknown - fall back to syntactic detection
+            // Unknown initializer kind — no special tracking
             _ => None,
         }
     }

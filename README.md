@@ -63,6 +63,8 @@ fn main() {
 
 ### Automatic Instrumentation (Macro)
 
+> **Prerequisite:** Run `cargo run -p borrowscope-analyzer -- .` before building. See [Static Analysis](#static-analysis-borrowscope-analyzer--required).
+
 ```rust
 use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
@@ -199,17 +201,19 @@ cd examples/ownership-patterns
 cargo run
 ```
 
-## Static Analysis (borrowscope-analyzer)
+## Static Analysis (borrowscope-analyzer) — Required
 
-For enhanced tracking accuracy, run the static analyzer before building:
+The `#[trace_borrow]` macro requires static analysis data from `borrowscope-analyzer`. Run the analyzer before building:
 
 ```bash
-# Analyze your project
+# Step 1: Analyze your project (generates .borrowscope/type-info.json)
 cargo run -p borrowscope-analyzer -- /path/to/your/project
 
-# Then build with macro instrumentation
+# Step 2: Build with macro instrumentation
 cargo build
 ```
+
+> **Note:** The macro will fail with a clear error message if the analyzer has not been run. This ensures 100% semantic accuracy — no heuristic fallbacks.
 
 The analyzer extracts type information that procedural macros cannot access, enabling:
 - Correct tracking of type aliases (`type MyRc<T> = Rc<T>`)
