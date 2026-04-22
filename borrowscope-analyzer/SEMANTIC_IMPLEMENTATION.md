@@ -323,7 +323,7 @@ Falls back to name-based matching only when no analyzer data is available.
 
 #### 2.2.2 Self-Borrow Inference (47 patterns)
 
-`infer_self_borrow_type()` does semantic lookup first via `method_calls[].self_borrow`, heuristic fallback only when no analyzer data exists.
+`infer_self_borrow_type()` does semantic lookup first via `method_calls[].self_borrow`, with `method_borrows` top-level map as secondary fallback.
 
 | Category | Count | Pattern IDs | `self_borrow` value |
 |----------|-------|-------------|---------------------|
@@ -525,7 +525,7 @@ To achieve 109/109 semantic patterns, only **2 fields** need to be consumed:
 | **P0** | `method_calls[]` (per-variable) | 69 patterns (P1: 13, P3: 47, P4: 5, P5: 1, partial: 3) |
 | **P0** | `expressions` (top-level) | 4 patterns (P2: spawn + transmute) |
 
-The other 29 ignored variable fields and 12 ignored top-level maps are **nice-to-have** for richer tracking but not required for the 109/109 goal.
+The other 27 variable fields and 17 top-level maps provide **enrichment data** for richer tracking events (live variables across await, unsafe operation kinds, closure fn_trait, match bindings, etc.).
 
 #### E. Complete Macro Method Audit
 
@@ -557,13 +557,13 @@ Every method in the macro classified by whether the analyzer can replace its heu
 
 | # | Method | Line | What It Does | Status | Notes |
 |---|--------|------|-------------|--------|-------|
-| 18 | `infer_self_borrow_type()` | 462 | Semantic lookup of `method_calls[].self_borrow`, heuristic fallback | ✅ **Semantic** | Reads analyzer data first, falls back to name-based guessing |
+| 18 | `infer_self_borrow_type()` | 462 | Semantic lookup of `method_calls[].self_borrow` + `method_borrows` fallback | ✅ **Semantic** | Reads analyzer data; analyzer is mandatory |
 | 19 | `transform_method_call()` | 548 | Wraps receiver with `track_borrow`/`track_borrow_mut` based on inferred borrow | ✅ **Semantic** (uses #18) | Semantic via `infer_self_borrow_type` lookup |
 | 20 | `transform_clone()` | 1619 | Emits `track_clone` for `.clone()` call | ✅ **Semantic** | Checks `is_trait_method`/`trait_name` to verify `Clone::clone` |
 | 21 | `transform_lock()` | 1634 | Emits `track_lock` for `.lock()`/`.read()`/`.write()` | ✅ **Semantic** | Guarded by `semantic_op` check before dispatch |
 | 22 | `transform_unwrap()` | 1653 | Emits `track_unwrap` for `.unwrap()`/`.expect()` etc. | ✅ **Semantic** | Verifies `semantic_op` contains `"option"` or `"result"` |
 | 23 | `transform_call_expr()` | 1419 | Detects `transmute` by exact ident match + `has_transmute_expression()` | ✅ **Semantic** | Verifies via analyzer `expressions[]`; falls back only when no analyzer data |
-| 24 | `transform_closure()` | 710 | Uses analyzer `closure_captures[]` for precise capture kinds; falls back to AST walking | ✅ **Semantic** | Reads `closure_captures[]` from type-info.json via `current_let_binding` context |
+| 24 | `transform_closure()` | 710 | Uses analyzer `closure_captures[]` for precise capture kinds | ✅ **Semantic** | Reads `closure_captures[]` from type-info.json; analyzer is mandatory |
 | 25 | `transform_by_initializer_kind()` | 1129 | Dispatches on `initializer_kind` from analyzer | ✅ **Semantic** | — Already uses analyzer |
 | 26 | `lookup_type_info()` | 120 | Looks up variable in type-info.json | ✅ **Semantic** | — Already uses analyzer |
 
@@ -571,7 +571,7 @@ Every method in the macro classified by whether the analyzer can replace its heu
 
 | # | Method | Line | What It Does | Needs Analyzer? |
 |---|--------|------|-------------|----------------|
-| 27 | `transform_local()` | 751 | Transforms `let` statements — wraps initializer with `track_new` | ✅ Uses analyzer for `initializer_kind`, falls back to `detect_*()` when no data |
+| 27 | `transform_local()` | 751 | Transforms `let` statements — wraps initializer with `track_new` | ✅ Uses analyzer for `initializer_kind`; analyzer is mandatory |
 | 28 | `transform_reference()` | 1319 | Wraps `&x`/`&mut x` with `track_borrow`/`track_borrow_mut` | ❌ No — reference expressions are syntactically unambiguous |
 | 29 | `transform_unsafe_block()` | 1375 | Wraps unsafe blocks with enter/exit tracking | ⚠️ Could use `unsafe_operations` for richer context |
 | 30 | `transform_ptr_cast()` | 1396 | Wraps `x as *const T` with `track_raw_ptr` | ❌ No — pointer casts are syntactically unambiguous |
@@ -695,7 +695,7 @@ Both are already in the `MethodCallInfo` output. The classification happens on t
 | File | Change |
 |------|--------|
 | `type_info.rs` | Added `MethodCallInfo` and `ExpressionInfo` structs with `#[serde(default)]` fields |
-| `transform_visitor.rs` | `infer_self_borrow_type()` does semantic lookup first, heuristic fallback |
+| `transform_visitor.rs` | `infer_self_borrow_type()` does semantic lookup via `method_calls[].self_borrow` + `method_borrows` fallback |
 | `transform_visitor.rs` | All 18 method dispatch points use `semantic_op` lookup |
 | `transform_visitor.rs` | Clone dispatch checks `is_trait_method`/`trait_name` |
 | `transform_visitor.rs` | Unwrap dispatch verifies Option/Result via `semantic_op` |
@@ -723,7 +723,7 @@ The macro uses `crate::type_info::lookup_by_name(var_name)` to find analyzer dat
 
 ### 5.1 Per-Phase Test Cases (Spec Examples)
 
-> **Note:** These are specification examples showing what each phase covers, not actual files in the repo. Real tests live in `borrowscope-macro/tests/` (567 tests) and `borrowscope-analyzer/tests/fixture_tests.rs` (8 fixture tests).
+> **Note:** These are specification examples showing what each phase covers. Real tests live in `borrowscope-macro/tests/` (187 unit tests), `borrowscope-runtime/tests/` (74 lib + 79 phase tests), and `borrowscope-analyzer/tests/fixture_tests.rs` (8 fixture tests).
 
 Each phase describes a standalone Rust file pattern that exercises every pattern in that phase. The analyzer runs first, then the macro builds with the analyzer output.
 
@@ -904,7 +904,7 @@ cargo test -p borrowscope-macro
 
 ### 5.3 Success Criteria
 
-1. **Zero syntactic detection in primary dispatch** — no `detect_*()` calls in the primary code path (10 `detect_*` functions remain in `smart_pointer.rs` as initializer fallback when no analyzer data):
+1. **Zero syntactic detection in primary dispatch** — no `detect_*()` calls remain (`smart_pointer.rs` deleted, analyzer mandatory):
    ```bash
    grep -rn 'detect_smart_pointer_new\|detect_rc_clone\|detect_refcell_borrow\|detect_cell_operation\|detect_box_pin\|detect_box_raw_op\|detect_pin_operation\|detect_cow_creation\|detect_cow_to_mut\|detect_downgrade\|detect_weak_upgrade\|detect_once_cell_new\|detect_once_cell_method\|detect_maybe_uninit_new\|detect_maybe_uninit_method\|detect_concurrency_op' borrowscope-macro/src/
    # Expected: no output
