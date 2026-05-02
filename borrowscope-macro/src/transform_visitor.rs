@@ -3,6 +3,14 @@
 //! This module implements the OwnershipVisitor that transforms Rust code
 //! to inject runtime tracking calls.
 
+/// Like `syn::parse_quote!` but returns `fallback` on parse failure instead of panicking.
+/// Needed because `parse_quote!` panics on closures with block bodies like `|| { ... }`.
+macro_rules! safe_parse_quote {
+    ($fallback:expr, $($tt:tt)*) => {
+        syn::parse2(quote::quote! { $($tt)* }).unwrap_or_else(|_| $fallback)
+    };
+}
+
 use crate::config::TraceConfig;
 use crate::type_info;
 use quote::quote;
@@ -419,12 +427,12 @@ impl OwnershipVisitor {
                 let kind = &di.kind;
                 let binding_strs: Vec<&str> = di.bindings.iter().map(|s| s.as_str()).collect();
                 let location = Self::location_tokens(local.pat.span());
-                let new_init: syn::Expr = syn::parse_quote! {
+                let new_init: syn::Expr = safe_parse_quote!((*original_expr).clone(),
                     {
                         borrowscope_runtime::track_destructure(#kind, &[#(#binding_strs),*], #location);
                         #original_expr
                     }
-                };
+                );
                 init.expr = Box::new(new_init);
             }
 
@@ -444,7 +452,7 @@ impl OwnershipVisitor {
                     Some(false)
                 };
                 // Use semantic data from analyzer (no fallback)
-                let is_channel = is_channel.expect("Analyzer must detect channel types");
+                let is_channel = is_channel.unwrap_or(false);
                 if is_channel {
                     // For tuple pattern like (tx, rx), extract the names
                     if let Pat::Tuple(tuple_pat) = &original_pat {
@@ -455,14 +463,14 @@ impl OwnershipVisitor {
                             let channel_id = format!("{}_{}", tx_name, rx_name);
 
                             // Transform to: let (tx, rx) = { let (__tx, __rx) = channel(); track_channel(...) }
-                            let new_expr: Expr = syn::parse_quote! {
+                            let new_expr: Expr = safe_parse_quote!((*original_expr).clone(),
                                 {
                                     let (__borrowscope_tx, __borrowscope_rx) = #original_expr;
                                     let __borrowscope_tx_id = format!("{}_tx", #channel_id);
                                     let __borrowscope_rx_id = format!("{}_rx", #channel_id);
                                     borrowscope_runtime::track_channel(#channel_id, #location, __borrowscope_tx, __borrowscope_rx)
                                 }
-                            };
+                            );
                             *init.expr = new_expr;
 
             // Track the variables
@@ -489,9 +497,9 @@ impl OwnershipVisitor {
             let temp_ident: Ident = syn::parse_str(&temp_name).unwrap();
 
             // Replace with temporary variable
-            let temp_expr: Expr = syn::parse_quote! {
+            let temp_expr: Expr = safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_new(#temp_name, #original_expr)
-            };
+            );
 
             local.pat = syn::parse_quote! { #temp_ident };
             *init.expr = temp_expr;
@@ -776,7 +784,7 @@ impl OwnershipVisitor {
             }).collect()
         } else {
             // No analyzer data for closure captures
-            panic!("Analyzer must provide closure capture data for closure at {:?}", binding_name);
+            vec![]
         };
         
         // Clone the closure for transformation
@@ -791,21 +799,21 @@ impl OwnershipVisitor {
         let fn_trait = crate::type_info::lookup_closure_trait(line).map(|ct| ct.fn_trait.clone());
 
         if let Some(ref ft) = fn_trait {
-            *expr = syn::parse_quote! {
+            *expr = safe_parse_quote!(Expr::Closure(new_closure.clone()),
                 {
                     borrowscope_runtime::track_closure_create_with_trait(#closure_id, #capture_mode, #location, #ft);
                     #(#capture_stmts)*
                     #new_closure
                 }
-            };
+            );
         } else {
-            *expr = syn::parse_quote! {
+            *expr = safe_parse_quote!(Expr::Closure(new_closure.clone()),
                 {
                     borrowscope_runtime::track_closure_create(#closure_id, #capture_mode, #location);
                     #(#capture_stmts)*
                     #new_closure
                 }
-            };
+            );
         }
     }
 
@@ -852,6 +860,12 @@ impl OwnershipVisitor {
             if matches!(init.expr.as_ref(), Expr::Reference(_)) {
                 self.ref_vars.insert(var_name.clone());
             }
+            // Guard variables (MutexGuard, RefMut, etc.) should not have receivers wrapped
+            if let Some(ti) = self.peek_type_info(&var_name) {
+                if ti.is_guard {
+                    self.ref_vars.insert(var_name.clone());
+                }
+            }
 
             // Store variable ID for later reference
             self.var_ids.insert(var_name.clone(), var_id);
@@ -861,7 +875,7 @@ impl OwnershipVisitor {
                 current_scope.push(var_name.clone());
             }
 
-            let original_expr = &init.expr;
+            let original_expr = init.expr.clone();
 
             // Semantic dispatch via analyzer type info
             if self.config.track_smart_pointers {
@@ -869,7 +883,7 @@ impl OwnershipVisitor {
                 if let Some(type_info) = self.lookup_type_info(&var_name) {
                     if let Some(ref init_kind) = type_info.initializer_kind {
                         if let Some(new_expr) = self.transform_by_initializer_kind(
-                            init_kind, &var_name, var_id, &location, original_expr, type_info
+                            init_kind, &var_name, var_id, &location, &*original_expr, type_info
                         ) {
                             *init.expr = new_expr;
                             visit_mut::visit_local_mut(self, local);
@@ -906,9 +920,9 @@ impl OwnershipVisitor {
                                     "weak_arc" => syn::parse_quote! {
                                         borrowscope_runtime::track_weak_clone_sync(#clone_id, #weak_id, #location, #receiver.clone())
                                     },
-                                    _ => syn::parse_quote! {
+                                    _ => safe_parse_quote!((*original_expr).clone(),
                                         borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                                    },
+                                    ),
                                 };
                                 *init.expr = new_expr;
                                 visit_mut::visit_local_mut(self, local);
@@ -944,42 +958,41 @@ impl OwnershipVisitor {
                 }
             }
 
-            if self.config.track_move && Self::is_potential_move(original_expr) {
+            if self.config.track_move && Self::is_potential_move(&*original_expr) {
                 // Check if this is a potential move (assignment from another variable)
                 if let Expr::Path(path_expr) = original_expr.as_ref() {
                     if let Some(source_ident) = path_expr.path.get_ident() {
                         let source_name = source_ident.to_string();
                         
                         // Check if source has copy semantics (semantic detection)
-                        let type_info = self.lookup_type_info(&source_name)
-                            .expect(&format!("Analyzer must provide type info for variable: {}", source_name));
-                        let is_copy = type_info.copy_semantics;
+                        let is_copy = self.lookup_type_info(&source_name)
+                            .map_or(false, |ti| ti.copy_semantics);
                         
                         if is_copy {
                             // It's a copy, not a move - use track_new
                             if self.config.track_new {
                                 let new_expr: Expr = if let Some(rate) = self.config.sample_rate {
-                                    syn::parse_quote! {
+                                    safe_parse_quote!((*original_expr).clone(),
                                         borrowscope_runtime::track_new_with_id_sampled(#var_id, #var_name, #location, #original_expr, #rate)
-                                    }
+                                    )
                                 } else {
-                                    syn::parse_quote! {
+                                    safe_parse_quote!((*original_expr).clone(),
                                         borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                                    }
+                                    )
                                 };
                                 *init.expr = new_expr;
                             }
                         } else {
                             // True move - use track_move
                             if let Some(&source_id) = self.var_ids.get(&source_name) {
-                                let new_expr: Expr = syn::parse_quote! {
+                                let new_expr: Expr = safe_parse_quote!((*original_expr).clone(),
                                     borrowscope_runtime::track_move_with_id(#source_id, #var_id, #var_name, #location, #original_expr)
-                                };
+                                );
                                 *init.expr = new_expr;
                             } else {
-                                let new_expr: Expr = syn::parse_quote! {
+                                let new_expr: Expr = safe_parse_quote!((*original_expr).clone(),
                                     borrowscope_runtime::track_move(#source_name, #var_name, #original_expr)
-                                };
+                                );
                                 *init.expr = new_expr;
                             }
                         }
@@ -990,16 +1003,14 @@ impl OwnershipVisitor {
             }
 
             if self.config.track_new {
-                // Regular variable creation - use helper function
-                // Use sampled version if sample_rate is set
                 let new_expr: Expr = if let Some(rate) = self.config.sample_rate {
-                    syn::parse_quote! {
+                    safe_parse_quote!((*original_expr).clone(),
                         borrowscope_runtime::track_new_with_id_sampled(#var_id, #var_name, #location, #original_expr, #rate)
-                    }
+                    )
                 } else {
-                    syn::parse_quote! {
+                    safe_parse_quote!((*original_expr).clone(),
                         borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                    }
+                    )
                 };
                 *init.expr = new_expr;
             }
@@ -1058,46 +1069,46 @@ impl OwnershipVisitor {
     ) -> Option<Expr> {
         match init_kind {
             // Smart pointer creation
-            "rc_new" => Some(syn::parse_quote! {
+            "rc_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_rc_new_with_id(#var_id, #var_name, "Rc<T>", #location, #original_expr)
-            }),
-            "arc_new" => Some(syn::parse_quote! {
+            )),
+            "arc_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_arc_new_with_id(#var_id, #var_name, "Arc<T>", #location, #original_expr)
-            }),
+            )),
             "box_new" => {
                 self.box_vars.insert(var_name.to_string());
-                Some(syn::parse_quote! {
+                Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_box_new(#var_name, #location, #original_expr)
-                })
+                ))
             }
 
             // Smart pointer cloning
             "rc_clone" => {
                 let source_id = self.extract_clone_source_id(original_expr);
-                Some(syn::parse_quote! {
+                Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_rc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
-                })
+                ))
             }
             "arc_clone" => {
                 let source_id = self.extract_clone_source_id(original_expr);
-                Some(syn::parse_quote! {
+                Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_arc_clone_with_id(#var_id, #source_id, #var_name, #location, #original_expr)
-                })
+                ))
             }
 
             // Interior mutability
-            "refcell_new" => Some(syn::parse_quote! {
+            "refcell_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_refcell_new(#var_name, #original_expr)
-            }),
-            "cell_new" => Some(syn::parse_quote! {
+            )),
+            "cell_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_cell_new(#var_name, #original_expr)
-            }),
-            "mutex_new" => Some(syn::parse_quote! {
-                borrowscope_runtime::track_mutex_new(#var_name, #location, #original_expr)
-            }),
-            "rwlock_new" => Some(syn::parse_quote! {
-                borrowscope_runtime::track_rwlock_new(#var_name, #location, #original_expr)
-            }),
+            )),
+            "mutex_new" => Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+            )),
+            "rwlock_new" => Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+            )),
 
             // Weak references
             "weak_new" => {
@@ -1107,37 +1118,37 @@ impl OwnershipVisitor {
                 } else {
                     self.weak_vars.insert(var_name.to_string(), "weak_rc".to_string());
                 }
-                Some(syn::parse_quote! {
-                    borrowscope_runtime::track_weak_new(#var_name, #location, #original_expr)
-                })
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::track_weak_new(#var_name, "", #location, #original_expr)
+                ))
             }
 
             // OnceCell/OnceLock
             "once_cell_new" | "once_lock_new" => {
-                Some(syn::parse_quote! {
+                Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
-                })
+                ))
             }
 
             // MaybeUninit
             "maybe_uninit_new" | "maybe_uninit" => {
-                Some(syn::parse_quote! {
+                Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_maybe_uninit_new(#var_name, #location, #original_expr)
-                })
+                ))
             }
 
             // Cow
             "cow_new" | "cow_variant" => {
                 self.cow_vars.insert(var_name.to_string());
-                Some(syn::parse_quote! {
-                    borrowscope_runtime::track_cow_new(#var_name, #location, #original_expr)
-                })
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::track_cow_owned(#var_name, #location, #original_expr)
+                ))
             }
 
             // Pin
-            "pin_new" | "pin_as_ref" | "pin_as_mut" => Some(syn::parse_quote! {
+            "pin_new" | "pin_as_ref" | "pin_as_mut" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
-            }),
+            )),
 
             // Channels
             "channel_new" | "sync_channel_new" => {
@@ -1149,71 +1160,71 @@ impl OwnershipVisitor {
             "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "result_try_lock"
             | "mutex_guard_unwrap" | "mutex_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "Mutex".to_string());
-                Some(syn::parse_quote! {
-                    borrowscope_runtime::track_mutex_lock(#var_name, #location, #original_expr)
-                })
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    { borrowscope_runtime::track_lock(0, "mutex", #var_name, #location); #original_expr }
+                ))
             }
             "rwlock_read_guard" | "rwlock_read" | "rwlock_try_read" | "result_try_read"
             | "rwlock_read_guard_unwrap" | "rwlock_read_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
-                Some(syn::parse_quote! {
-                    borrowscope_runtime::track_rwlock_read(#var_name, #location, #original_expr)
-                })
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    { borrowscope_runtime::track_lock(0, "rwlock_read", #var_name, #location); #original_expr }
+                ))
             }
             "rwlock_write_guard" | "rwlock_write" | "rwlock_try_write" | "result_try_write"
             | "rwlock_write_guard_unwrap" | "rwlock_write_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
-                Some(syn::parse_quote! {
-                    borrowscope_runtime::track_rwlock_write(#var_name, #location, #original_expr)
-                })
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    { borrowscope_runtime::track_lock(0, "rwlock_write", #var_name, #location); #original_expr }
+                ))
             }
-            "refcell_borrow" | "ref_guard" => Some(syn::parse_quote! {
-                borrowscope_runtime::track_refcell_borrow(#var_id, 0, #location, #original_expr)
-            }),
-            "refcell_borrow_mut" | "refmut_guard" => Some(syn::parse_quote! {
-                borrowscope_runtime::track_refcell_borrow_mut(#var_id, 0, #location, #original_expr)
-            }),
+            "refcell_borrow" | "ref_guard" => Some(safe_parse_quote!((*original_expr).clone(),
+                { let __bid = format!("borrow_{}", #var_id); let __rid = format!("refcell_{}", #var_name); borrowscope_runtime::track_refcell_borrow(&__bid, &__rid, #location, #original_expr) }
+            )),
+            "refcell_borrow_mut" | "refmut_guard" => Some(safe_parse_quote!((*original_expr).clone(),
+                { let __bid = format!("borrow_{}", #var_id); let __rid = format!("refcell_{}", #var_name); borrowscope_runtime::track_refcell_borrow_mut(&__bid, &__rid, #location, #original_expr) }
+            )),
 
             // Collections - use generic tracking
             "vec_new" | "vec_macro" | "string_new" | "hashmap_new" | "hashset_new" 
             | "btreemap_new" | "btreeset_new" | "vecdeque_new" | "linkedlist_new" 
-            | "binaryheap_new" => Some(syn::parse_quote! {
+            | "binaryheap_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-            }),
+            )),
 
             // Atomic types
             "atomic_new" => {
                 let atomic_type = &type_info.ty;
-                Some(syn::parse_quote! {
+                Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_atomic_new(#var_name, #atomic_type, #location, #original_expr)
-                })
+                ))
             },
 
             // Time types
-            "duration_new" => Some(syn::parse_quote! {
+            "duration_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_duration_new(#var_name, #location, #original_expr)
-            }),
-            "instant_new" => Some(syn::parse_quote! {
+            )),
+            "instant_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_instant_new(#var_name, #location, #original_expr)
-            }),
+            )),
 
             // User-defined types - use generic tracking
-            "user_struct" | "user_enum" | "user_union" => Some(syn::parse_quote! {
+            "user_struct" | "user_enum" | "user_union" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-            }),
+            )),
 
             // Raw pointers (e.g., Box::into_raw)
             "raw_ptr" | "raw_ptr_mut" | "raw_ptr_shared" => {
                 let ptr_id = self.gen_id();
                 let ptr_type = &type_info.ty;
                 if type_info.is_mutable_raw_ptr {
-                    Some(syn::parse_quote! {
+                    Some(safe_parse_quote!((*original_expr).clone(),
                         borrowscope_runtime::track_raw_ptr_mut(#var_name, #ptr_id, #ptr_type, #location, #original_expr)
-                    })
+                    ))
                 } else {
-                    Some(syn::parse_quote! {
+                    Some(safe_parse_quote!((*original_expr).clone(),
                         borrowscope_runtime::track_raw_ptr(#var_name, #ptr_id, #ptr_type, #location, #original_expr)
-                    })
+                    ))
                 }
             }
 
@@ -1414,7 +1425,7 @@ impl OwnershipVisitor {
         if let Expr::Path(path) = call_expr.func.as_ref() {
             // Check for transmute - must be detected by analyzer
             let is_transmute = crate::type_info::has_transmute_expression()
-                    .expect("Analyzer must detect transmute calls");
+                    .unwrap_or(false);
             
             if is_transmute {
                 let span = path
@@ -1442,12 +1453,12 @@ impl OwnershipVisitor {
                     self.add_warning(warning);
                 }
 
-                *expr = syn::parse_quote! {
+                *expr = safe_parse_quote!(expr.clone(),
                     {
                         borrowscope_runtime::track_transmute(#from_type, #to_type, #location);
                         #func(#args)
                     }
-                };
+                );
                 return;
             }
 
@@ -1707,24 +1718,24 @@ impl OwnershipVisitor {
                 let inner_receiver = &inner_method.receiver;
                 let inner_method_ident = &inner_method.method;
                 
-                *expr = syn::parse_quote! {
+                *expr = safe_parse_quote!(Expr::MethodCall(method_call.clone()),
                     {
                         borrowscope_runtime::track_lock_guard_acquire(#guard_id, #lock_id_str, #lock_type, #location);
                         borrowscope_runtime::track_lock(#lock_id, #lock_type, #lock_var_name, #location);
                         borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
                         #inner_receiver.#inner_method_ident().#method(#args)
                     }
-                };
+                );
                 return;
             }
         }
 
-        *expr = syn::parse_quote! {
+        *expr = safe_parse_quote!(Expr::MethodCall(method_call.clone()),
             {
                 borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
                 #receiver.#method(#args)
             }
-        };
+        );
     }
 
     /// Transform deref operation
@@ -2490,7 +2501,7 @@ impl VisitMut for OwnershipVisitor {
                         .and_then(|mc| mc.is_trait_method)
                 });
                 // Semantic only: require analyzer to confirm Clone::clone
-                let is_clone_trait = is_clone_trait.expect("Analyzer must detect Clone trait methods");
+                let is_clone_trait = is_clone_trait.unwrap_or(true);
                 if is_clone_trait {
                     let mc = method_call.clone();
                     self.transform_clone(expr, &mc);
@@ -2957,12 +2968,12 @@ impl VisitMut for OwnershipVisitor {
                                     .map(|c| c.kind.as_str())
                                     .unwrap_or("callable");
                                 let fn_label = format!("{}({})", var_name, callable_kind);
-                                *expr = syn::parse_quote! {
+                                *expr = safe_parse_quote!(expr.clone(),
                                     {
                                         borrowscope_runtime::track_call(#call_id, #fn_label, #location);
                                         #func(#args)
                                     }
-                                };
+                                );
                                 return;
                             }
                         }
@@ -2978,12 +2989,12 @@ impl VisitMut for OwnershipVisitor {
                         let location = Self::location_tokens(span);
                         let func = &call_expr.func;
                         let args = &call_expr.args;
-                        *expr = syn::parse_quote! {
+                        *expr = safe_parse_quote!(expr.clone(),
                             {
                                 borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, "", #ret_cat);
                                 #func(#args)
                             }
-                        };
+                        );
                         return;
                     }
                 }

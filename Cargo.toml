@@ -13,6 +13,7 @@ exclude = [
     "examples/graph-visualization",
     "examples/allocator-sim",
     "examples/type-coverage",
+    "examples/macro-examples",
 ]
 
 [workspace.package]

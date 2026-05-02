@@ -1,0 +1,102 @@
+[package]
+name = "macro-examples"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }
+borrowscope-macro = { path = "../../borrowscope-macro" }
+
+[[bin]]
+name = "ownership"
+path = "src/ownership.rs"
+
+[[bin]]
+name = "smart-pointers"
+path = "src/smart_pointers.rs"
+
+[[bin]]
+name = "methods"
+path = "src/methods.rs"
+
+[[bin]]
+name = "control-flow"
+path = "src/control_flow.rs"
+
+[[bin]]
+name = "loops"
+path = "src/loops.rs"
+
+[[bin]]
+name = "branches"
+path = "src/branches.rs"
+
+[[bin]]
+name = "expressions"
+path = "src/expressions.rs"
+
+[[bin]]
+name = "unsafe-ops"
+path = "src/unsafe_ops.rs"
+
+[[bin]]
+name = "async-ops"
+path = "src/async_ops.rs"
+
+[[bin]]
+name = "concurrency"
+path = "src/concurrency.rs"
+
+[[bin]]
+name = "once-cell"
+path = "src/once_cell.rs"
+
+[[bin]]
+name = "maybe-uninit"
+path = "src/maybe_uninit.rs"
+
+[[bin]]
+name = "try-operator"
+path = "src/try_operator.rs"
+
+[[bin]]
+name = "comprehensive"
+path = "src/comprehensive.rs"
+
+[[bin]]
+name = "extended-smart-pointers"
+path = "src/extended_smart_pointers.rs"
+
+[[bin]]
+name = "filter-sampling"
+path = "src/filter_sampling.rs"
+
+[[bin]]
+name = "config-options"
+path = "src/config_options.rs"
+
+[[bin]]
+name = "conditional-compilation"
+path = "src/conditional_compilation.rs"
+
+[[bin]]
+name = "high-priority-tracking"
+path = "src/high_priority_tracking.rs"
+
+[[bin]]
+name = "medium-priority-tracking"
+path = "src/medium_priority_tracking.rs"
+
+[[bin]]
+name = "manual-tracking"
+path = "src/manual_tracking.rs"
+
+[[bin]]
+name = "better-error-messages"
+path = "src/better_error_messages.rs"
+[[bin]]
+name = "test-minimal"
+path = "src/test_minimal.rs"
+[[bin]]
+name = "test-block-closure"
+path = "src/test_block_closure.rs"
