@@ -70,6 +70,24 @@ pub struct OwnershipVisitor {
     decl_counts: HashMap<String, u32>,
 }
 
+/// Check if an expression contains constructs that cause rustc parsing issues
+/// when embedded as function arguments (closures with block bodies, macro calls, etc.).
+fn contains_block_closure(expr: &Expr) -> bool {
+    match expr {
+        Expr::Closure(c) => matches!(*c.body, Expr::Block(_)),
+        Expr::Macro(_) => true, // Macros like vec![] expand to blocks
+        Expr::Block(_) | Expr::Unsafe(_) | Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => true,
+        Expr::MethodCall(mc) => mc.args.iter().any(|a| contains_block_closure(a))
+            || contains_block_closure(&mc.receiver),
+        Expr::Call(c) => c.args.iter().any(|a| contains_block_closure(a))
+            || contains_block_closure(&c.func),
+        Expr::Reference(r) => contains_block_closure(&r.expr),
+        Expr::Unary(u) => contains_block_closure(&u.expr),
+        Expr::Try(t) => contains_block_closure(&t.expr),
+        _ => false,
+    }
+}
+
 impl OwnershipVisitor {
     /// Create a new visitor with default config
     pub fn new() -> Self {
@@ -1003,16 +1021,33 @@ impl OwnershipVisitor {
             }
 
             if self.config.track_new {
-                let new_expr: Expr = if let Some(rate) = self.config.sample_rate {
-                    safe_parse_quote!((*original_expr).clone(),
-                        borrowscope_runtime::track_new_with_id_sampled(#var_id, #var_name, #location, #original_expr, #rate)
-                    )
-                } else {
-                    safe_parse_quote!((*original_expr).clone(),
-                        borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                    )
-                };
-                *init.expr = new_expr;
+                // Visit first so all inner transforms are applied
+                visit_mut::visit_local_mut(self, local);
+
+                // Check the TRANSFORMED expression for block-producing constructs
+                if let Some(init) = &mut local.init {
+                    if contains_block_closure(&init.expr) {
+                        // Transformed expression has blocks — emit track_new separately
+                        let track_stmt: syn::Stmt = syn::parse_quote! {
+                            borrowscope_runtime::track_new(#var_name, &#var_name);
+                        };
+                        self.pending_inserts.push((self.current_stmt_index + 1, track_stmt));
+                    } else {
+                        // Safe to embed as function argument
+                        let transformed_expr = init.expr.clone();
+                        let new_expr: Expr = if let Some(rate) = self.config.sample_rate {
+                            safe_parse_quote!((*transformed_expr).clone(),
+                                borrowscope_runtime::track_new_with_id_sampled(#var_id, #var_name, #location, #transformed_expr, #rate)
+                            )
+                        } else {
+                            safe_parse_quote!((*transformed_expr).clone(),
+                                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #transformed_expr)
+                            )
+                        };
+                        *init.expr = new_expr;
+                    }
+                }
+                return;
             }
         }
 
@@ -1067,6 +1102,11 @@ impl OwnershipVisitor {
         original_expr: &Expr,
         type_info: &type_info::VariableTypeInfo,
     ) -> Option<Expr> {
+        // Skip wrapping for expressions containing macros, closures with block bodies, etc.
+        // These cause rustc parsing failures when embedded as function arguments.
+        if contains_block_closure(original_expr) {
+            return None;
+        }
         match init_kind {
             // Smart pointer creation
             "rc_new" => Some(safe_parse_quote!((*original_expr).clone(),
@@ -1156,27 +1196,21 @@ impl OwnershipVisitor {
                 None // Let default handling work
             }
 
-            // Guards - track for drop
+            // Guards - mark for drop tracking, let track_new/transform_unwrap handle the rest
             "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "result_try_lock"
             | "mutex_guard_unwrap" | "mutex_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "Mutex".to_string());
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    { borrowscope_runtime::track_lock(0, "mutex", #var_name, #location); #original_expr }
-                ))
+                None
             }
             "rwlock_read_guard" | "rwlock_read" | "rwlock_try_read" | "result_try_read"
             | "rwlock_read_guard_unwrap" | "rwlock_read_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    { borrowscope_runtime::track_lock(0, "rwlock_read", #var_name, #location); #original_expr }
-                ))
+                None
             }
             "rwlock_write_guard" | "rwlock_write" | "rwlock_try_write" | "result_try_write"
             | "rwlock_write_guard_unwrap" | "rwlock_write_guard_mapped" => {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    { borrowscope_runtime::track_lock(0, "rwlock_write", #var_name, #location); #original_expr }
-                ))
+                None
             }
             "refcell_borrow" | "ref_guard" => Some(safe_parse_quote!((*original_expr).clone(),
                 { let __bid = format!("borrow_{}", #var_id); let __rid = format!("refcell_{}", #var_name); borrowscope_runtime::track_refcell_borrow(&__bid, &__rid, #location, #original_expr) }
@@ -1424,8 +1458,8 @@ impl OwnershipVisitor {
     fn transform_call_expr(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
         if let Expr::Path(path) = call_expr.func.as_ref() {
             // Check for transmute - must be detected by analyzer
-            let is_transmute = crate::type_info::has_transmute_expression()
-                    .unwrap_or(false);
+            let fn_name = path.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default();
+            let is_transmute = fn_name == "transmute" && crate::type_info::has_transmute_expression().unwrap_or(false);
             
             if is_transmute {
                 let span = path
@@ -1730,12 +1764,20 @@ impl OwnershipVisitor {
             }
         }
 
-        *expr = safe_parse_quote!(Expr::MethodCall(method_call.clone()),
-            {
+        let has_complex_args = method_call.args.iter().any(|arg| matches!(arg, Expr::Closure(_) | Expr::Block(_) | Expr::Unsafe(_)));
+        if has_complex_args {
+            let track_stmt: syn::Stmt = syn::parse_quote! {
                 borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
-                #receiver.#method(#args)
-            }
-        );
+            };
+            self.pending_inserts.push((self.current_stmt_index, track_stmt));
+        } else {
+            *expr = safe_parse_quote!(Expr::MethodCall(method_call.clone()),
+                {
+                    borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
+                    #receiver.#method(#args)
+                }
+            );
+        }
     }
 
     /// Transform deref operation

@@ -100,3 +100,7 @@ path = "src/test_minimal.rs"
 [[bin]]
 name = "test-block-closure"
 path = "src/test_block_closure.rs"
+
+[[bin]]
+name = "test-lock"
+path = "src/test_lock.rs"
