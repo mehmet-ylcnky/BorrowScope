@@ -1,0 +1,10 @@
+[package]
+name = "battle-test-ripgrep"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }
+borrowscope-macro = { path = "../../borrowscope-macro" }
+globset = "0.4"
+regex = "1"

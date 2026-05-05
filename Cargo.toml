@@ -16,6 +16,7 @@ exclude = [
     "examples/macro-examples",
     "examples/battle-test",
     "examples/battle-test-uuid",
+    "examples/battle-test-ripgrep",
 ]
 
 [workspace.package]
