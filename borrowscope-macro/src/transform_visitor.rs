@@ -1177,9 +1177,14 @@ impl OwnershipVisitor {
             }
 
             // OnceCell/OnceLock
-            "once_cell_new" | "once_lock_new" => {
+            "once_cell_new" => {
                 Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
+                ))
+            }
+            "once_lock_new" => {
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
                 ))
             }
 
