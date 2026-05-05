@@ -904,7 +904,6 @@ impl OwnershipVisitor {
                             init_kind, &var_name, var_id, &location, &*original_expr, type_info
                         ) {
                             *init.expr = new_expr;
-                            visit_mut::visit_local_mut(self, local);
                             return;
                         }
                     }
@@ -1212,12 +1211,8 @@ impl OwnershipVisitor {
                 self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
                 None
             }
-            "refcell_borrow" | "ref_guard" => Some(safe_parse_quote!((*original_expr).clone(),
-                { let __bid = format!("borrow_{}", #var_id); let __rid = format!("refcell_{}", #var_name); borrowscope_runtime::track_refcell_borrow(&__bid, &__rid, #location, #original_expr) }
-            )),
-            "refcell_borrow_mut" | "refmut_guard" => Some(safe_parse_quote!((*original_expr).clone(),
-                { let __bid = format!("borrow_{}", #var_id); let __rid = format!("refcell_{}", #var_name); borrowscope_runtime::track_refcell_borrow_mut(&__bid, &__rid, #location, #original_expr) }
-            )),
+            "refcell_borrow" | "ref_guard" => None, // Handled by visit_expr_mut RefCell borrow dispatch
+            "refcell_borrow_mut" | "refmut_guard" => None, // Handled by visit_expr_mut RefCell borrow_mut dispatch
 
             // Collections - use generic tracking
             "vec_new" | "vec_macro" | "string_new" | "hashmap_new" | "hashset_new" 
@@ -1487,6 +1482,8 @@ impl OwnershipVisitor {
                     self.add_warning(warning);
                 }
 
+                let func = &call_expr.func;
+                let args = &call_expr.args;
                 *expr = safe_parse_quote!(expr.clone(),
                     {
                         borrowscope_runtime::track_transmute(#from_type, #to_type, #location);
@@ -2354,10 +2351,20 @@ impl VisitMut for OwnershipVisitor {
     }
 
     fn visit_expr_mut(&mut self, expr: &mut Expr) {
-        // Handle closures before default traversal
+        // Handle closures — only transform when directly assigned to a variable
+        // (not when nested inside a function call like unwrap_or_else(|| { ... }))
         if let Expr::Closure(closure) = expr.clone() {
-            self.transform_closure(expr, &closure);
-            return;
+            if self.current_let_binding.is_some() {
+                // Check if this closure is the direct init expression by verifying
+                // the binding name matches a closure type in analyzer data
+                let is_direct_binding = self.current_let_binding.as_ref()
+                    .and_then(|name| self.peek_type_info(name))
+                    .map_or(false, |ti| ti.is_closure);
+                if is_direct_binding {
+                    self.transform_closure(expr, &closure);
+                    return;
+                }
+            }
         }
 
         // Handle async blocks before default traversal
@@ -2493,14 +2500,10 @@ impl VisitMut for OwnershipVisitor {
                     if let Some(ref rname) = receiver_name {
                         let location = Self::location_tokens(method_call.method.span());
                         let fn_name = format!("{}::{}", rname, method_name);
-                        let call_expr = expr.clone();
-                        *expr = syn::parse_quote! {
-                            {
-                                borrowscope_runtime::track_unsafe_fn_call(#fn_name, #location);
-                                #call_expr
-                            }
+                        let track_stmt: syn::Stmt = syn::parse_quote! {
+                            borrowscope_runtime::track_unsafe_fn_call(#fn_name, #location);
                         };
-                        return;
+                        self.pending_inserts.push((self.current_stmt_index, track_stmt));
                     }
                 }
             }
@@ -2865,13 +2868,10 @@ impl VisitMut for OwnershipVisitor {
                             let location = Self::location_tokens(method_call.method.span());
                             let recv_ty = mc.receiver_type.as_deref().unwrap_or("");
                             let res_ty = mc.result_type.as_deref().unwrap_or("");
-                            let call_expr = expr.clone();
-                            *expr = syn::parse_quote! {
-                                {
-                                    borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, #recv_ty, #res_ty);
-                                    #call_expr
-                                }
+                            let track_stmt: syn::Stmt = syn::parse_quote! {
+                                borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, #recv_ty, #res_ty);
                             };
+                            self.pending_inserts.push((self.current_stmt_index, track_stmt));
                         }
                     }
                 }
@@ -3010,13 +3010,10 @@ impl VisitMut for OwnershipVisitor {
                                     .map(|c| c.kind.as_str())
                                     .unwrap_or("callable");
                                 let fn_label = format!("{}({})", var_name, callable_kind);
-                                *expr = safe_parse_quote!(expr.clone(),
-                                    {
-                                        borrowscope_runtime::track_call(#call_id, #fn_label, #location);
-                                        #func(#args)
-                                    }
-                                );
-                                return;
+                                let track_stmt: syn::Stmt = syn::parse_quote! {
+                                    borrowscope_runtime::track_call(#call_id, #fn_label, #location);
+                                };
+                                self.pending_inserts.push((self.current_stmt_index, track_stmt));
                             }
                         }
                     }
@@ -3029,15 +3026,10 @@ impl VisitMut for OwnershipVisitor {
                         let fn_name = &fc.function_name;
                         let ret_cat = &fc.return_category;
                         let location = Self::location_tokens(span);
-                        let func = &call_expr.func;
-                        let args = &call_expr.args;
-                        *expr = safe_parse_quote!(expr.clone(),
-                            {
-                                borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, "", #ret_cat);
-                                #func(#args)
-                            }
-                        );
-                        return;
+                        let track_stmt: syn::Stmt = syn::parse_quote! {
+                            borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, "", #ret_cat);
+                        };
+                        self.pending_inserts.push((self.current_stmt_index, track_stmt));
                     }
                 }
             }
