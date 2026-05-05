@@ -68,6 +68,8 @@ pub struct OwnershipVisitor {
     current_let_binding: Option<String>,
     /// Declaration count per variable name in current function (for disambiguation)
     decl_counts: HashMap<String, u32>,
+    /// When true, skip region tracking (inside closure bodies or function call arguments)
+    in_nested_expr: bool,
 }
 
 /// Check if an expression contains constructs that cause rustc parsing issues
@@ -143,6 +145,7 @@ impl OwnershipVisitor {
             current_function: None,
             current_let_binding: None,
             decl_counts: HashMap::new(),
+            in_nested_expr: false,
         }
     }
 
@@ -1021,7 +1024,11 @@ impl OwnershipVisitor {
 
             if self.config.track_new {
                 // Visit first so all inner transforms are applied
+                // Set in_nested_expr to prevent region tracking in closure/block bodies
+                let prev_nested = self.in_nested_expr;
+                self.in_nested_expr = true;
                 visit_mut::visit_local_mut(self, local);
+                self.in_nested_expr = prev_nested;
 
                 // Check the TRANSFORMED expression for block-producing constructs
                 if let Some(init) = &mut local.init {
@@ -2221,8 +2228,8 @@ impl VisitMut for OwnershipVisitor {
         // Push new scope
         self.scope_stack.push(Vec::new());
 
-        // Emit scope enter (gated by track_control_flow, skip depth 1 = function body)
-        if self.config.track_control_flow && self.scope_depth > 1 {
+        // Emit scope enter (gated by track_control_flow, skip depth 1 = function body, skip nested exprs)
+        if self.config.track_control_flow && self.scope_depth > 1 && !self.in_nested_expr {
             let scope_name = format!("scope_{}", self.scope_depth);
             let enter_stmt: Stmt = syn::parse_quote! {
                 borrowscope_runtime::track_region_enter(#region_id, #scope_name, concat!(file!(), ":", line!()));
@@ -2234,7 +2241,7 @@ impl VisitMut for OwnershipVisitor {
         self.pending_inserts.clear();
 
         // Visit all statements in the block (start from 1 if we inserted region_enter)
-        let start = if self.config.track_control_flow && self.scope_depth > 1 { 1 } else { 0 };
+        let start = if self.config.track_control_flow && self.scope_depth > 1 && !self.in_nested_expr { 1 } else { 0 };
         for (idx, stmt) in block.stmts.iter_mut().enumerate().skip(start) {
             self.current_stmt_index = idx;
             self.visit_stmt_mut(stmt);
@@ -2324,7 +2331,7 @@ impl VisitMut for OwnershipVisitor {
         }
 
         // Emit scope exit before decrementing depth
-        if self.config.track_control_flow && self.scope_depth > 1 {
+        if self.config.track_control_flow && self.scope_depth > 1 && !self.in_nested_expr {
             let exit_stmt: Stmt = syn::parse_quote! {
                 borrowscope_runtime::track_region_exit(#region_id, concat!(file!(), ":", line!()));
             };
