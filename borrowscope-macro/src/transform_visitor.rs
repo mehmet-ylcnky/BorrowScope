@@ -459,21 +459,28 @@ impl OwnershipVisitor {
 
             // Special handling for mpsc::channel() which returns (Sender, Receiver)
             if self.config.track_smart_pointers {
-                // Semantic check: look up tuple element type info for channel_new
+                // Semantic check: look up the tuple variable's type for channel detection
                 let is_channel = if let Pat::Tuple(tuple_pat) = &original_pat {
                     if tuple_pat.elems.len() == 2 {
-                        let first = Self::extract_pattern_name(&tuple_pat.elems[0]);
-                        self.lookup_type_info(&first)
+                        // Try looking up by tuple pattern name "(tx, rx)"
+                        let raw_pat = quote::quote!(#original_pat).to_string();
+                        let pat_name = raw_pat.split(',').map(|s| s.trim()).collect::<Vec<_>>().join(", ");
+                        let pat_name = format!("({})", &pat_name[1..pat_name.len()-1]); // ensure parens
+                        let from_tuple = self.lookup_type_info(&pat_name)
                             .and_then(|ti| ti.initializer_kind.as_deref())
-                            .map(|k| k == "channel_new")
+                            .map(|k| k == "channel_new" || k == "tuple");
+                        // Also check if the type contains "Sender"
+                        let from_type = self.lookup_type_info(&pat_name)
+                            .map(|ti| ti.ty.contains("Sender"));
+                        from_tuple.or(from_type).unwrap_or(false) && 
+                            self.lookup_type_info(&pat_name)
+                                .map_or(false, |ti| ti.ty.contains("Sender"))
                     } else {
-                        Some(false)
+                        false
                     }
                 } else {
-                    Some(false)
+                    false
                 };
-                // Use semantic data from analyzer (no fallback)
-                let is_channel = is_channel.unwrap_or(false);
                 if is_channel {
                     // For tuple pattern like (tx, rx), extract the names
                     if let Pat::Tuple(tuple_pat) = &original_pat {
