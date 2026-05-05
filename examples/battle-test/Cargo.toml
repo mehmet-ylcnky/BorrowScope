@@ -1,0 +1,13 @@
+[package]
+name = "battle-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+borrowscope-runtime = { path = "../../borrowscope-runtime", features = ["track"] }
+borrowscope-macro = { path = "../../borrowscope-macro" }
+lru = "0.12"
+
+[[bin]]
+name = "diagram"
+path = "src/diagram.rs"
