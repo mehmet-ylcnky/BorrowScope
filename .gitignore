@@ -38,3 +38,4 @@ borrowscope-macro-intro/
 battle-test/
 borrowscope-lsp/
 .borrowscope/
+.vscode/
