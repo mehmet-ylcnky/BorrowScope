@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BorrowScope: Eliminating Heuristics from Rust Procedural Macros</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .section-container { margin-bottom: 3rem; }
+        .loading { text-align: center; color: var(--secondary-color); font-style: italic; padding: 2rem; }
+        .navigation { position: fixed; top: 20px; right: 20px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 280px; max-height: 90vh; overflow-y: auto; z-index: 1000; }
+        .navigation h3 { margin-top: 0; font-size: 1rem; color: var(--primary-color); }
+        .navigation ul { list-style: none; padding: 0; margin: 0; }
+        .navigation li { margin: 0.3rem 0; }
+        .navigation a { color: var(--secondary-color); text-decoration: none; font-size: 0.9rem; }
+        .navigation a:hover { text-decoration: underline; }
+        @media (max-width: 1200px) { .navigation { display: none; } }
+        .back-link { display: inline-block; margin-bottom: 1rem; color: var(--secondary-color); text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .back-link::before { content: "← "; }
+        pre.ascii-diagram { font-family: monospace; font-size: 0.75rem; line-height: 1.2; overflow-x: auto; background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 6px; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        th { background: var(--code-bg); }
+        .status-complete { color: #27ae60; font-weight: bold; }
+        .status-zero { color: #e74c3c; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <a href="../" class="back-link">Back to BorrowScope</a>
+
+    <div class="navigation">
+        <h3>Quick Navigation</h3>
+        <nav class="toc">
+            <ul>
+                <li><a href="#abstract">Abstract</a></li>
+                <li><a href="#introduction">1. Introduction</a></li>
+                <li><a href="#background">2. Background</a></li>
+                <li><a href="#architecture">3. Architecture</a></li>
+                <li><a href="#analyzer">4. The Analyzer</a></li>
+                <li><a href="#macro">5. The Macro</a></li>
+                <li><a href="#runtime">6. The Runtime</a></li>
+                <li><a href="#evaluation">7. Evaluation</a></li>
+                <li><a href="#performance">8. Performance</a></li>
+                <li><a href="#limitations">9. Limitations</a></li>
+                <li><a href="#conclusion">10. Conclusion</a></li>
+                <li><a href="#references">References</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="header">
+        <h1 class="title"><strong>BorrowScope</strong>: Eliminating Heuristics from Rust Procedural Macros Through Pre-Build Semantic Analysis</h1>
+        <p class="subtitle">A Complete System for Runtime Ownership Visualization with 100% Semantic Coverage</p>
+        <div class="logo-container">
+            <img src="logo.png" alt="BorrowScope Logo" class="logo">
+        </div>
+        <div class="authors">
+            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank" class="author-link">Mehmet Yalcinkaya, PhD</a><br>
+            Senior Software Engineer<br><br>
+            <strong>Date:</strong> May 2026<br>
+            <strong>Version:</strong> 2.0 (supersedes March 2026 whitepaper)<br>
+            <div class="badges">
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
+                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github" alt="GitHub Repository">
+                </a>
+                <a href="https://github.com/rust-lang/rust-analyzer/pull/21835" target="_blank">
+                    <img src="https://img.shields.io/badge/rust--analyzer-PR%20%2321835%20Merged-orange?style=for-the-badge&logo=rust" alt="rust-analyzer PR">
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <div id="abstract" class="section-container">
+            <div class="loading">Loading abstract...</div>
+        </div>
+        <div id="introduction" class="section-container">
+            <div class="loading">Loading introduction...</div>
+        </div>
+        <div id="background" class="section-container">
+            <div class="loading">Loading background...</div>
+        </div>
+        <div id="architecture" class="section-container">
+            <div class="loading">Loading architecture...</div>
+        </div>
+        <div id="analyzer" class="section-container">
+            <div class="loading">Loading analyzer...</div>
+        </div>
+        <div id="macro" class="section-container">
+            <div class="loading">Loading macro...</div>
+        </div>
+        <div id="runtime" class="section-container">
+            <div class="loading">Loading runtime...</div>
+        </div>
+        <div id="evaluation" class="section-container">
+            <div class="loading">Loading evaluation...</div>
+        </div>
+        <div id="performance" class="section-container">
+            <div class="loading">Loading performance...</div>
+        </div>
+        <div id="limitations" class="section-container">
+            <div class="loading">Loading limitations...</div>
+        </div>
+        <div id="conclusion" class="section-container">
+            <div class="loading">Loading conclusion...</div>
+        </div>
+        <div id="references" class="section-container">
+            <div class="loading">Loading references...</div>
+        </div>
+    </main>
+
+    <footer>
+        <p><strong>BorrowScope</strong>: Eliminating Heuristics from Rust Procedural Macros</p>
+        <p>Part of the <a href="../">BorrowScope Project</a></p>
+        <p class="dedication">Dedicated to the Rust community and the rust-analyzer team.</p>
+    </footer>
+
+    <script>
+        const sections = [
+            { id: 'abstract', file: 'abstract.html' },
+            { id: 'introduction', file: 'introduction.html' },
+            { id: 'background', file: 'background.html' },
+            { id: 'architecture', file: 'architecture.html' },
+            { id: 'analyzer', file: 'analyzer.html' },
+            { id: 'macro', file: 'macro.html' },
+            { id: 'runtime', file: 'runtime.html' },
+            { id: 'evaluation', file: 'evaluation.html' },
+            { id: 'performance', file: 'performance.html' },
+            { id: 'limitations', file: 'limitations.html' },
+            { id: 'conclusion', file: 'conclusion.html' },
+            { id: 'references', file: 'references.html' }
+        ];
+
+        sections.forEach(section => {
+            fetch(section.file)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById(section.id).innerHTML = html;
+                })
+                .catch(err => {
+                    document.getElementById(section.id).innerHTML =
+                        `<p class="error">Failed to load ${section.file}</p>`;
+                });
+        });
+    </script>
+    <script src="scripts.js"></script>
+</body>
+</html>
