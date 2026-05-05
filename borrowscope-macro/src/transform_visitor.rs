@@ -2242,7 +2242,8 @@ impl VisitMut for OwnershipVisitor {
 
         // Insert pending statements in reverse order to maintain indices
         for (idx, stmt) in self.pending_inserts.drain(..).rev() {
-            block.stmts.insert(idx, stmt);
+            let clamped_idx = idx.min(block.stmts.len());
+            block.stmts.insert(clamped_idx, stmt);
         }
 
         // Pop scope and insert drops in LIFO order (only if track_drop is enabled)
@@ -2488,7 +2489,11 @@ impl VisitMut for OwnershipVisitor {
             
             // Semantic operation lookup: resolve the canonical operation from analyzer data
             let mc_info = receiver_name.as_ref().and_then(|name| {
-                let type_info = crate::type_info::lookup_by_name(name)?;
+                let type_info = if let Some(ref fn_name) = self.current_function {
+                    crate::type_info::lookup_in_function(fn_name, name, None)
+                } else {
+                    crate::type_info::lookup_by_name(name)
+                }?;
                 type_info.method_calls.iter()
                     .find(|mc| mc.method == method_name)
             });
