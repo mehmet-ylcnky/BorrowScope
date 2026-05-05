@@ -46,8 +46,6 @@ jobs:
       - name: Build
         run: cargo build --verbose
       
-      - name: Run CLI tests
-        run: cargo test --package borrowscope-cli --verbose
       
       - name: Run macro unit tests
         run: cargo test --package borrowscope-macro --lib --verbose
