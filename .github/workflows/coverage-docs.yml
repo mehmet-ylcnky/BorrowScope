@@ -22,7 +22,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       
       - name: Generate HTML coverage report
-        run: cargo llvm-cov --all-features --workspace --html
+        run: cargo llvm-cov --features track --package borrowscope-runtime --package borrowscope-macro --lib --html
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
