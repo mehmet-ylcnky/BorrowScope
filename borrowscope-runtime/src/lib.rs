@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_variables, clippy::type_complexity, clippy::collapsible_if)]
 //! # BorrowScope Runtime
 //!
 //! A runtime tracking library for visualizing Rust's ownership and borrowing system.

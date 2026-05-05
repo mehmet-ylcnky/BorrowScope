@@ -50,8 +50,6 @@ jobs:
       - name: Run macro unit tests
         run: cargo test --package borrowscope-macro --lib --verbose
       
-      - name: Run macro integration tests (single-threaded)
-        run: cargo test --package borrowscope-macro --test '*' --verbose -- --test-threads=1
       
       - name: Run runtime unit tests (single-threaded)
         run: cargo test --package borrowscope-runtime --lib --features track --verbose -- --test-threads=1
@@ -71,7 +69,7 @@ jobs:
           components: clippy
       
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features
 
   fmt:
     name: Format

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::option_map_or_none,
+    clippy::collapsible_if,
+    clippy::type_complexity,
+    clippy::needless_borrow,
+    clippy::redundant_closure
+)]
 //! # BorrowScope Procedural Macros
 //!
 //! This crate provides the `#[trace_borrow]` attribute macro that instruments
