@@ -658,33 +658,27 @@ impl OwnershipVisitor {
         // Extract receiver name for tracking
         if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
             // Skip wrapping if receiver is already a reference variable
-            // (e.g., let r = &mut data; r.push(4) - r is already &mut)
             if self.ref_vars.contains(&receiver_name) {
-                // Just visit arguments, don't wrap the receiver
                 for arg in &mut method_call.args {
                     self.visit_expr_mut(arg);
                 }
                 return;
             }
 
-            let receiver_expr = method_call.receiver.clone();
-
-            // Wrap receiver with appropriate borrow tracking
-            let wrapped_receiver: Expr = match borrow_type {
-                SelfBorrowType::Immutable => {
-                    syn::parse_quote! {
-                        borrowscope_runtime::track_borrow("method_borrow", &#receiver_expr)
-                    }
-                }
-                SelfBorrowType::Mutable => {
-                    syn::parse_quote! {
-                        borrowscope_runtime::track_borrow_mut("method_borrow", &mut #receiver_expr)
-                    }
-                }
+            // Emit method borrow tracking as separate statement via pending_inserts
+            // (wrapping the receiver creates borrow conflicts with the method call itself)
+            let rname = &receiver_name;
+            let method = &method_name;
+            let borrow_kind = match borrow_type {
+                SelfBorrowType::Mutable => "mutable",
+                SelfBorrowType::Immutable => "immutable",
                 SelfBorrowType::Consuming => unreachable!(),
             };
-
-            method_call.receiver = Box::new(wrapped_receiver);
+            let location = Self::location_tokens(method_call.method.span());
+            let track_stmt: syn::Stmt = syn::parse_quote! {
+                borrowscope_runtime::track_method_call(0, #rname, #location, #borrow_kind, #method);
+            };
+            self.pending_inserts.push((self.current_stmt_index, track_stmt));
         }
 
         // Visit arguments

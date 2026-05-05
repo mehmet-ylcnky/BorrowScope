@@ -14,6 +14,7 @@ exclude = [
     "examples/allocator-sim",
     "examples/type-coverage",
     "examples/macro-examples",
+    "examples/battle-test",
 ]
 
 [workspace.package]
