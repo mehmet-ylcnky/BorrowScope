@@ -1,2 +1,11 @@
+# Source code (belongs on main branch, not gh-pages)
+borrowscope-analyzer/
+borrowscope-macro/
+borrowscope-runtime/
+examples/
 target/
-**/target/
+.borrowscope/
+.vscode/
+Cargo.lock
+Cargo.toml
+*.bak
