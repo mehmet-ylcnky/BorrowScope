@@ -80,9 +80,18 @@ fn test_phase5_mixed_clone_types() {
     let _arc2 = track_arc_clone_with_id(3, 0, "arc2", "test:3", arc.clone());
 
     let events = get_events();
-    let generic_count = events.iter().filter(|e| matches!(e, Event::Clone { .. })).count();
-    let rc_count = events.iter().filter(|e| matches!(e, Event::RcClone { .. })).count();
-    let arc_count = events.iter().filter(|e| matches!(e, Event::ArcClone { .. })).count();
+    let generic_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::Clone { .. }))
+        .count();
+    let rc_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::RcClone { .. }))
+        .count();
+    let arc_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::ArcClone { .. }))
+        .count();
 
     assert_eq!(generic_count, 1, "One generic Clone");
     assert_eq!(rc_count, 1, "One RcClone");
@@ -97,7 +106,10 @@ fn test_phase5_clone_preserves_var_name() {
     let v = vec![1, 2, 3];
     track_clone(1, "my_vector", "file.rs:10:4");
     let events = get_events();
-    if let Some(Event::Clone { var_name, location, .. }) = events.iter().find(|e| matches!(e, Event::Clone { .. })) {
+    if let Some(Event::Clone {
+        var_name, location, ..
+    }) = events.iter().find(|e| matches!(e, Event::Clone { .. }))
+    {
         assert_eq!(var_name, "my_vector");
         assert_eq!(location, "file.rs:10:4");
     } else {

@@ -146,13 +146,13 @@ pub struct FunctionCallInfo {
 pub struct TraitImplInfo {
     /// Type name
     pub type_name: String,
-    
+
     // Access operators
     pub implements_deref: bool,
     pub implements_deref_mut: bool,
     pub implements_index: bool,
     pub implements_index_mut: bool,
-    
+
     // Conversion traits
     pub implements_from: bool,
     pub implements_into: bool,
@@ -161,13 +161,13 @@ pub struct TraitImplInfo {
     pub implements_borrow: bool,
     pub implements_borrow_mut: bool,
     pub implements_to_owned: bool,
-    
+
     // Comparison traits
     pub implements_partial_eq: bool,
     pub implements_eq: bool,
     pub implements_partial_ord: bool,
     pub implements_ord: bool,
-    
+
     // Arithmetic traits
     pub implements_add: bool,
     pub implements_sub: bool,
@@ -180,7 +180,7 @@ pub struct TraitImplInfo {
     pub implements_mul_assign: bool,
     pub implements_div_assign: bool,
     pub implements_rem_assign: bool,
-    
+
     // Bitwise traits
     pub implements_bit_and: bool,
     pub implements_bit_or: bool,
@@ -193,7 +193,7 @@ pub struct TraitImplInfo {
     pub implements_bit_xor_assign: bool,
     pub implements_shl_assign: bool,
     pub implements_shr_assign: bool,
-    
+
     // Other traits
     pub implements_range_bounds: bool,
     pub implements_termination: bool,
@@ -454,12 +454,12 @@ pub struct VariableTypeInfo {
     pub name: String,
     /// Fully resolved type string (e.g., "Rc<String>", "Vec<i32>")
     pub ty: String,
-    
+
     // Core trait implementations (semantic via impls_trait)
     pub is_copy: bool,
     pub is_clone: bool,
     pub is_drop: bool,
-    pub is_send: bool,  // Cannot be detected - Send is not a lang item
+    pub is_send: bool, // Cannot be detected - Send is not a lang item
     pub is_sync: bool,
     pub is_sized: bool,
 
@@ -504,13 +504,13 @@ pub struct VariableTypeInfo {
 
     // Atomics (semantic via ADT)
     pub is_atomic: bool,
-    
+
     // Comparison (semantic via ADT)
     pub is_ordering: bool,
-    
+
     // Threading (semantic via ADT)
     pub is_join_handle: bool,
-    
+
     // Time (semantic via ADT)
     pub is_duration: bool,
     pub is_instant: bool,
@@ -520,23 +520,23 @@ pub struct VariableTypeInfo {
     pub is_fn_ptr: bool,
     pub is_future: bool,
     pub is_iterator: bool,
-    
+
     // Callable check (semantic via Type::impls_fnonce)
     #[serde(default)]
     pub is_callable: bool,
-    
+
     // Future output type (semantic via Type::future_output)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub future_output_type: Option<String>,
-    
+
     // Iterator item type (semantic via Type::iterator_item)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iterator_item_type: Option<String>,
-    
+
     // Memory layout (semantic via Adt::layout)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutInfo>,
-    
+
     // Trait objects (semantic via as_dyn_trait)
     pub is_dyn_trait: bool,
 
@@ -548,7 +548,7 @@ pub struct VariableTypeInfo {
     // Static/const binding (semantic via syntax kind)
     pub is_static: bool,
     pub is_const: bool,
-    
+
     // Copy semantics (semantic via is_copy || is_primitive)
     #[serde(default)]
     pub copy_semantics: bool,
@@ -567,29 +567,29 @@ pub struct VariableTypeInfo {
     // Values: "move", "ref", "ref_mut"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binding_mode: Option<String>,
-    
+
     // Reference analysis (semantic via Type methods)
     #[serde(default)]
     pub contains_reference: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reference_mutability: Option<String>, // "shared" or "mutable" if is_reference
-    
+
     // Binding flags (semantic via Local methods)
     #[serde(default)]
     pub is_ref_binding: bool, // ref or ref mut pattern
-    
+
     // Deref chain (semantic via Type::autoderef)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deref_chain: Vec<String>,
-    
+
     // Struct fields (semantic via Type::fields)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<FieldInfo>,
-    
+
     // Expression adjustments (semantic via sema.expr_adjustments)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub adjustments: Vec<AdjustmentInfo>,
-    
+
     // Pattern adjustments (semantic via sema.pattern_adjustments)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pattern_adjustments: Vec<String>,
@@ -617,23 +617,23 @@ pub struct VariableTypeInfo {
     pub file: String,
     pub line: u32,
     pub column: u32,
-    
+
     // Byte offsets for precise matching
     pub span_start: u32,
     pub span_end: u32,
-    
+
     // Drop point - where the variable goes out of scope (semantic via enclosing block)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_line: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub drop_column: Option<u32>,
-    
+
     // Scope tracking
     pub scope_id: Option<u32>,
-    
+
     /// Containing function name (for disambiguation)
     pub function_name: Option<String>,
-    
+
     /// Declaration index within function (0-based, for disambiguation)
     pub decl_index: Option<u32>,
 }
@@ -824,7 +824,7 @@ impl ProjectTypeInfo {
             by_function: HashMap::new(),
         }
     }
-    
+
     /// Build the by_name and by_function indices from files data
     pub fn build_name_index(&mut self) {
         self.by_name.clear();
@@ -832,8 +832,11 @@ impl ProjectTypeInfo {
         for vars in self.files.values() {
             for var in vars {
                 // by_name index
-                self.by_name.entry(var.name.clone()).or_default().push(var.clone());
-                
+                self.by_name
+                    .entry(var.name.clone())
+                    .or_default()
+                    .push(var.clone());
+
                 // by_function index
                 if let Some(ref fn_name) = var.function_name {
                     self.by_function

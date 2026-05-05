@@ -52,7 +52,10 @@ fn test_phase4_all_five_counted() {
     track_unwrap(4, "unwrap_or_else", "d", "test:4");
     track_unwrap(5, "unwrap_or_default", "e", "test:5");
     let events = get_events();
-    let count = events.iter().filter(|e| matches!(e, Event::Unwrap { .. })).count();
+    let count = events
+        .iter()
+        .filter(|e| matches!(e, Event::Unwrap { .. }))
+        .count();
     assert_eq!(count, 5, "All 5 unwrap variants should be tracked");
 }
 
@@ -61,7 +64,9 @@ fn test_phase4_unwrap_preserves_method_name() {
     reset();
     track_unwrap(1, "expect", "opt", "test:1");
     let events = get_events();
-    if let Some(Event::Unwrap { method, .. }) = events.iter().find(|e| matches!(e, Event::Unwrap { .. })) {
+    if let Some(Event::Unwrap { method, .. }) =
+        events.iter().find(|e| matches!(e, Event::Unwrap { .. }))
+    {
         assert_eq!(method, "expect");
     } else {
         panic!("Expected Unwrap event");
@@ -73,7 +78,9 @@ fn test_phase4_unwrap_preserves_var_name() {
     reset();
     track_unwrap(1, "unwrap", "my_option", "test:1");
     let events = get_events();
-    if let Some(Event::Unwrap { var_name, .. }) = events.iter().find(|e| matches!(e, Event::Unwrap { .. })) {
+    if let Some(Event::Unwrap { var_name, .. }) =
+        events.iter().find(|e| matches!(e, Event::Unwrap { .. }))
+    {
         assert_eq!(var_name, "my_option");
     } else {
         panic!("Expected Unwrap event");
@@ -85,7 +92,9 @@ fn test_phase4_unwrap_preserves_location() {
     reset();
     track_unwrap(1, "unwrap", "opt", "file.rs:42:8");
     let events = get_events();
-    if let Some(Event::Unwrap { location, .. }) = events.iter().find(|e| matches!(e, Event::Unwrap { .. })) {
+    if let Some(Event::Unwrap { location, .. }) =
+        events.iter().find(|e| matches!(e, Event::Unwrap { .. }))
+    {
         assert_eq!(location, "file.rs:42:8");
     } else {
         panic!("Expected Unwrap event");
@@ -101,6 +110,9 @@ fn test_phase4_sequential_unwraps() {
         track_unwrap(i, "unwrap", &format!("opt_{}", i), &format!("test:{}", i));
     }
     let events = get_events();
-    let count = events.iter().filter(|e| matches!(e, Event::Unwrap { .. })).count();
+    let count = events
+        .iter()
+        .filter(|e| matches!(e, Event::Unwrap { .. }))
+        .count();
     assert_eq!(count, 10);
 }

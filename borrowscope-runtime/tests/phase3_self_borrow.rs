@@ -43,7 +43,10 @@ fn test_phase3_mutable_borrow_with_id() {
     let mut v = vec![1, 2, 3];
     let _r = track_borrow_mut_with_id(1, 0, "method_borrow", "test:1", &mut v);
     let events = get_events();
-    assert!(!events.is_empty(), "Mutable borrow with ID should produce events");
+    assert!(
+        !events.is_empty(),
+        "Mutable borrow with ID should produce events"
+    );
 }
 
 // === Multiple borrows on same variable ===
@@ -56,7 +59,10 @@ fn test_phase3_multiple_immutable_borrows() {
     let _r2 = track_borrow("borrow_2", &v);
     let _r3 = track_borrow("borrow_3", &v);
     let events = get_events();
-    let borrow_count = events.iter().filter(|e| matches!(e, Event::Borrow { .. })).count();
+    let borrow_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::Borrow { .. }))
+        .count();
     assert_eq!(borrow_count, 3, "Three borrows should produce 3 events");
 }
 
@@ -75,7 +81,10 @@ fn test_phase3_borrow_lifecycle() {
     let events = get_events();
     let has_borrow = events.iter().any(|e| matches!(e, Event::Borrow { .. }));
     let has_drop = events.iter().any(|e| matches!(e, Event::Drop { .. }));
-    assert!(has_borrow && has_drop, "Should have both borrow and drop events");
+    assert!(
+        has_borrow && has_drop,
+        "Should have both borrow and drop events"
+    );
 }
 
 // === Interleaved mutable and immutable ===
@@ -124,7 +133,10 @@ fn test_phase3_multiple_clones() {
     track_clone(2, "v", "test:2");
     track_clone(3, "v", "test:3");
     let events = get_events();
-    let clone_count = events.iter().filter(|e| matches!(e, Event::Clone { .. })).count();
+    let clone_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::Clone { .. }))
+        .count();
     assert_eq!(clone_count, 3);
 }
 
@@ -137,7 +149,10 @@ fn test_phase3_rc_clone_is_rc_clone_not_generic() {
     let _rc2 = track_rc_clone_with_id(2, 1, "rc2", "test:1", rc.clone());
     let events = get_events();
     assert!(events.iter().any(|e| matches!(e, Event::RcClone { .. })));
-    assert!(!events.iter().any(|e| matches!(e, Event::Clone { .. })), "Rc clone should NOT produce generic Clone");
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::Clone { .. })),
+        "Rc clone should NOT produce generic Clone"
+    );
 }
 
 #[test]
@@ -147,5 +162,8 @@ fn test_phase3_arc_clone_is_arc_clone_not_generic() {
     let _arc2 = track_arc_clone_with_id(2, 1, "arc2", "test:1", arc.clone());
     let events = get_events();
     assert!(events.iter().any(|e| matches!(e, Event::ArcClone { .. })));
-    assert!(!events.iter().any(|e| matches!(e, Event::Clone { .. })), "Arc clone should NOT produce generic Clone");
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::Clone { .. })),
+        "Arc clone should NOT produce generic Clone"
+    );
 }

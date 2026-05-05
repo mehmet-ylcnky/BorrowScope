@@ -17,7 +17,8 @@ fn test_maybe_uninit_uninit() {
     let _lock = test_utils::TEST_LOCK.lock();
     reset();
 
-    let _uninit: MaybeUninit<i32> = track_maybe_uninit_uninit("data", "test:1", MaybeUninit::uninit());
+    let _uninit: MaybeUninit<i32> =
+        track_maybe_uninit_uninit("data", "test:1", MaybeUninit::uninit());
 
     let events = get_events();
     assert_eq!(events.len(), 1);
@@ -101,7 +102,8 @@ fn test_maybe_uninit_assume_init_read() {
     reset();
 
     let init: MaybeUninit<i32> = MaybeUninit::new(42);
-    let value = track_maybe_uninit_assume_init_read("data", "test:1", unsafe { init.assume_init_read() });
+    let value =
+        track_maybe_uninit_assume_init_read("data", "test:1", unsafe { init.assume_init_read() });
 
     assert_eq!(value, 42);
 
@@ -162,7 +164,8 @@ fn test_maybe_uninit_full_lifecycle() {
     reset();
 
     // Create uninitialized
-    let mut uninit: MaybeUninit<i32> = track_maybe_uninit_uninit("data", "test:1", MaybeUninit::uninit());
+    let mut uninit: MaybeUninit<i32> =
+        track_maybe_uninit_uninit("data", "test:1", MaybeUninit::uninit());
 
     // Write value
     let _ = track_maybe_uninit_write("data", "test:2", uninit.write(42));
@@ -182,11 +185,8 @@ fn test_maybe_uninit_with_drop_type() {
     reset();
 
     // Create with value
-    let mut init: MaybeUninit<Vec<i32>> = track_maybe_uninit_new(
-        "vec",
-        "test:1",
-        MaybeUninit::new(vec![1, 2, 3]),
-    );
+    let mut init: MaybeUninit<Vec<i32>> =
+        track_maybe_uninit_new("vec", "test:1", MaybeUninit::new(vec![1, 2, 3]));
 
     // Drop properly
     unsafe { init.assume_init_drop() };

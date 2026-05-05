@@ -88,18 +88,18 @@ pub struct VariableTypeInfo {
     pub is_tuple_binding: bool,
     pub is_mut_binding: bool,
     pub is_impl_trait: bool,
-    
+
     // Copy semantics (true if assignment is copy, not move)
     #[serde(default)]
     pub copy_semantics: bool,
-    
+
     // Initializer pattern (semantic)
     pub initializer_kind: Option<String>,
-    
+
     // Function context (for disambiguation)
     pub function_name: Option<String>,
     pub decl_index: Option<u32>,
-    
+
     // Method calls on this variable (semantic operation tracking)
     #[serde(default)]
     pub method_calls: Vec<MethodCallInfo>,
@@ -620,7 +620,7 @@ impl TypeInfoCache {
         let content = std::fs::read_to_string(&json_path).ok()?;
         let info: ProjectTypeInfo = serde_json::from_str(&content).ok()?;
 
-        Some(Self { 
+        Some(Self {
             by_name: info.by_name,
             by_function: info.by_function,
             expressions: info.expressions,
@@ -645,24 +645,33 @@ impl TypeInfoCache {
     }
 
     /// Lookup by function name and variable name (preferred)
-    pub fn lookup_in_function(&self, fn_name: &str, var_name: &str, decl_index: Option<u32>) -> Option<&VariableTypeInfo> {
+    pub fn lookup_in_function(
+        &self,
+        fn_name: &str,
+        var_name: &str,
+        decl_index: Option<u32>,
+    ) -> Option<&VariableTypeInfo> {
         let fn_vars = self.by_function.get(fn_name)?;
         let entries = fn_vars.get(var_name)?;
-        
+
         if entries.len() == 1 {
             return Some(&entries[0]);
         }
-        
+
         // Multiple entries - try to match by decl_index
         if let Some(idx) = decl_index {
             if let Some(entry) = entries.iter().find(|e| e.decl_index == Some(idx)) {
                 return Some(entry);
             }
         }
-        
+
         // Fall back to same_classification check
         let first = entries.first()?;
-        if entries.iter().skip(1).all(|e| Self::same_classification(first, e)) {
+        if entries
+            .iter()
+            .skip(1)
+            .all(|e| Self::same_classification(first, e))
+        {
             Some(first)
         } else {
             None
@@ -680,7 +689,11 @@ impl TypeInfoCache {
         }
         // Multiple entries - check if all have same type classification
         let first = &entries[0];
-        if entries.iter().skip(1).all(|e| Self::same_classification(first, e)) {
+        if entries
+            .iter()
+            .skip(1)
+            .all(|e| Self::same_classification(first, e))
+        {
             Some(first)
         } else {
             None // Ambiguous
@@ -688,11 +701,17 @@ impl TypeInfoCache {
     }
 
     fn same_classification(a: &VariableTypeInfo, b: &VariableTypeInfo) -> bool {
-        a.is_rc == b.is_rc && a.is_arc == b.is_arc && a.is_box == b.is_box
-            && a.is_refcell == b.is_refcell && a.is_cell == b.is_cell
-            && a.is_reference == b.is_reference && a.is_mutable_reference == b.is_mutable_reference
-            && a.is_raw_ptr == b.is_raw_ptr && a.is_mutex == b.is_mutex
-            && a.is_rwlock == b.is_rwlock && a.is_guard == b.is_guard
+        a.is_rc == b.is_rc
+            && a.is_arc == b.is_arc
+            && a.is_box == b.is_box
+            && a.is_refcell == b.is_refcell
+            && a.is_cell == b.is_cell
+            && a.is_reference == b.is_reference
+            && a.is_mutable_reference == b.is_mutable_reference
+            && a.is_raw_ptr == b.is_raw_ptr
+            && a.is_mutex == b.is_mutex
+            && a.is_rwlock == b.is_rwlock
+            && a.is_guard == b.is_guard
             && a.initializer_kind == b.initializer_kind
     }
 }
@@ -719,7 +738,11 @@ pub fn get_type_info() -> Option<&'static TypeInfoCache> {
 }
 
 /// Lookup type info by function name and variable name (preferred)
-pub fn lookup_in_function(fn_name: &str, var_name: &str, decl_index: Option<u32>) -> Option<&'static VariableTypeInfo> {
+pub fn lookup_in_function(
+    fn_name: &str,
+    var_name: &str,
+    decl_index: Option<u32>,
+) -> Option<&'static VariableTypeInfo> {
     get_type_info()?.lookup_in_function(fn_name, var_name, decl_index)
 }
 
@@ -741,10 +764,17 @@ pub fn is_union(name: &str) -> bool {
 }
 
 /// Lookup method call info for a variable at a specific location
-pub fn lookup_method_call(var_name: &str, line: u32, column: u32) -> Option<&'static MethodCallInfo> {
+pub fn lookup_method_call(
+    var_name: &str,
+    line: u32,
+    column: u32,
+) -> Option<&'static MethodCallInfo> {
     let type_info = get_type_info()?;
     let var_info = type_info.lookup(var_name)?;
-    var_info.method_calls.iter().find(|mc| mc.line == line && mc.column == column)
+    var_info
+        .method_calls
+        .iter()
+        .find(|mc| mc.line == line && mc.column == column)
 }
 
 /// Lookup expression info at a specific location
@@ -762,9 +792,13 @@ pub fn has_transmute_expression() -> Option<bool> {
     if type_info.expressions.is_empty() {
         return None; // No expression data — can't determine
     }
-    Some(type_info.expressions.values()
-        .flat_map(|v| v.iter())
-        .any(|e| e.operation == "core::intrinsics::transmute"))
+    Some(
+        type_info
+            .expressions
+            .values()
+            .flat_map(|v| v.iter())
+            .any(|e| e.operation == "core::intrinsics::transmute"),
+    )
 }
 
 /// Find a transmute expression's type info from semantic data by line number.
@@ -786,101 +820,150 @@ pub fn find_transmute_types(line: u32) -> Option<(&'static str, &'static str)> {
 /// Lookup await point at a specific line
 pub fn lookup_await_point(line: u32) -> Option<&'static AwaitPointInfo> {
     let ti = get_type_info()?;
-    ti.await_points.values().flat_map(|v| v.iter()).find(|a| a.line == line)
+    ti.await_points
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|a| a.line == line)
 }
 
 /// Lookup borrow spans for a variable
 pub fn lookup_borrow_spans(variable: &str) -> Vec<&'static BorrowSpanInfo> {
     get_type_info().map_or(vec![], |ti| {
-        ti.borrow_spans.values().flat_map(|v| v.iter()).filter(|b| b.variable == variable).collect()
+        ti.borrow_spans
+            .values()
+            .flat_map(|v| v.iter())
+            .filter(|b| b.variable == variable)
+            .collect()
     })
 }
 
 /// Lookup unsafe operation at a specific line
 pub fn lookup_unsafe_operation(line: u32) -> Option<&'static UnsafeOperationInfo> {
     let ti = get_type_info()?;
-    ti.unsafe_operations.values().flat_map(|v| v.iter()).find(|u| u.line == line)
+    ti.unsafe_operations
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|u| u.line == line)
 }
 
 /// Lookup closure trait info at a specific line
 pub fn lookup_closure_trait(line: u32) -> Option<&'static ClosureTraitInfo> {
     let ti = get_type_info()?;
-    ti.closure_traits.values().flat_map(|v| v.iter()).find(|c| c.line == line)
+    ti.closure_traits
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|c| c.line == line)
 }
 
 /// Lookup field access at a specific line/column
 pub fn lookup_field_access(line: u32, column: u32) -> Option<&'static FieldAccessInfo> {
     let ti = get_type_info()?;
-    ti.field_accesses.values().flat_map(|v| v.iter()).find(|f| f.line == line && f.column == column)
+    ti.field_accesses
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|f| f.line == line && f.column == column)
 }
 
 /// Lookup destructuring at a specific line
 pub fn lookup_destructuring(line: u32) -> Option<&'static DestructuringInfo> {
     let ti = get_type_info()?;
-    ti.destructuring.values().flat_map(|v| v.iter()).find(|d| d.line == line)
+    ti.destructuring
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|d| d.line == line)
 }
 
 /// Lookup match binding at a specific line
 pub fn lookup_match_binding(line: u32) -> Option<&'static MatchBindingInfo> {
     let ti = get_type_info()?;
-    ti.match_bindings.values().flat_map(|v| v.iter()).find(|m| m.line == line)
+    ti.match_bindings
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|m| m.line == line)
 }
 
 /// Lookup variant construction at a specific line
 pub fn lookup_variant(line: u32, column: u32) -> Option<&'static VariantInfo> {
     let ti = get_type_info()?;
-    ti.variants.values().flat_map(|v| v.iter()).find(|v| v.line == line && v.column == column)
+    ti.variants
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|v| v.line == line && v.column == column)
 }
 
 /// Lookup lifetime at a specific line
 #[allow(dead_code)]
 pub fn lookup_lifetime(line: u32) -> Option<&'static LifetimeInfoEntry> {
     let ti = get_type_info()?;
-    ti.lifetimes.values().flat_map(|v| v.iter()).find(|l| l.line == line)
+    ti.lifetimes
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|l| l.line == line)
 }
 
 /// Lookup label at a specific line
 pub fn lookup_label(line: u32) -> Option<&'static LabelInfoEntry> {
     let ti = get_type_info()?;
-    ti.labels.values().flat_map(|v| v.iter()).find(|l| l.line == line)
+    ti.labels
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|l| l.line == line)
 }
 
 /// Lookup const pattern at a specific line
 #[allow(dead_code)]
 pub fn lookup_const_pattern(line: u32) -> Option<&'static ConstPatternInfo> {
     let ti = get_type_info()?;
-    ti.const_patterns.values().flat_map(|v| v.iter()).find(|c| c.line == line)
+    ti.const_patterns
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|c| c.line == line)
 }
 
 /// Lookup callable at a specific line
 pub fn lookup_callable(line: u32, column: u32) -> Option<&'static CallableInfoEntry> {
     let ti = get_type_info()?;
-    ti.callables.values().flat_map(|v| v.iter()).find(|c| c.line == line && c.column == column)
+    ti.callables
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|c| c.line == line && c.column == column)
 }
 
 /// Lookup record field expression at a specific line/column
 pub fn lookup_record_field_expr(line: u32, column: u32) -> Option<&'static RecordFieldExprInfo> {
     let ti = get_type_info()?;
-    ti.record_field_exprs.values().flat_map(|v| v.iter()).find(|r| r.line == line && r.column == column)
+    ti.record_field_exprs
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|r| r.line == line && r.column == column)
 }
 
 /// Lookup record field pattern at a specific line/column
 #[allow(dead_code)]
 pub fn lookup_record_field_pat(line: u32, column: u32) -> Option<&'static RecordFieldPatInfo> {
     let ti = get_type_info()?;
-    ti.record_field_pats.values().flat_map(|v| v.iter()).find(|r| r.line == line && r.column == column)
+    ti.record_field_pats
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|r| r.line == line && r.column == column)
 }
 
 /// Lookup method borrow at a specific line
 pub fn lookup_method_borrow(line: u32, column: u32) -> Option<&'static MethodBorrowInfo> {
     let ti = get_type_info()?;
-    ti.method_borrows.values().flat_map(|v| v.iter()).find(|m| m.line == line && m.column == column)
+    ti.method_borrows
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|m| m.line == line && m.column == column)
 }
 
 /// Lookup function call at a specific line
 pub fn lookup_function_call(line: u32, column: u32) -> Option<&'static FunctionCallInfoEntry> {
     let ti = get_type_info()?;
-    ti.function_calls.values().flat_map(|v| v.iter()).find(|f| f.line == line && f.column == column)
+    ti.function_calls
+        .values()
+        .flat_map(|v| v.iter())
+        .find(|f| f.line == line && f.column == column)
 }
 
 /// Lookup trait impl info for a type
@@ -1080,17 +1163,22 @@ mod tests {
         // The actual panic is gated by #[cfg(not(test))] so it won't fire in tests,
         // but we verify get_type_info() returns None when no data is loaded
         // (which would trigger the panic in non-test builds)
-        assert!(get_type_info().is_none() || get_type_info().is_some(),
-            "get_type_info should return a valid Option");
+        assert!(
+            get_type_info().is_none() || get_type_info().is_some(),
+            "get_type_info should return a valid Option"
+        );
     }
 
     #[test]
     fn test_analyzer_data_loads_from_test_project() {
         // Verify the semantic test project's type-info.json loads correctly
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/semantic_test_project");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/semantic_test_project");
         let loaded = super::load_from_path(&path);
-        assert!(loaded, "Should load type-info.json from semantic_test_project");
+        assert!(
+            loaded,
+            "Should load type-info.json from semantic_test_project"
+        );
         let ti = get_type_info();
         assert!(ti.is_some(), "Type info should be available after loading");
     }

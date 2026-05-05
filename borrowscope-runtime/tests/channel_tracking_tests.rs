@@ -310,11 +310,7 @@ fn test_channel_multi_producer() {
     let _ = track_channel_send("tx2", "test:2", tx2.send(2));
     let _ = track_channel_send("tx3", "test:3", tx3.send(3));
 
-    let mut values = vec![
-        rx.recv().unwrap(),
-        rx.recv().unwrap(),
-        rx.recv().unwrap(),
-    ];
+    let mut values = vec![rx.recv().unwrap(), rx.recv().unwrap(), rx.recv().unwrap()];
     values.sort();
 
     assert_eq!(values, vec![1, 2, 3]);

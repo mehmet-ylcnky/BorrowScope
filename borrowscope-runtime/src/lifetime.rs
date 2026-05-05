@@ -105,7 +105,9 @@ impl Timeline {
                         (owner_id.clone(), *timestamp, *mutable),
                     );
                 }
-                Event::Drop { var_id, timestamp, .. } => {
+                Event::Drop {
+                    var_id, timestamp, ..
+                } => {
                     if let Some((borrowed_id, start_time, is_mutable)) =
                         active_borrows.remove(var_id)
                     {

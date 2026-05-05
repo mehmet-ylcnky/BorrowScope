@@ -14,7 +14,11 @@ fn main() {
     let boxed_int = track_box_new("boxed_int", "main.rs:12", Box::new(42));
     println!("Created boxed_int: {}", *boxed_int);
 
-    let boxed_string = track_box_new("boxed_string", "main.rs:15", Box::new(String::from("hello")));
+    let boxed_string = track_box_new(
+        "boxed_string",
+        "main.rs:15",
+        Box::new(String::from("hello")),
+    );
     println!("Created boxed_string: {}", *boxed_string);
 
     let boxed_vec = track_box_new("boxed_vec", "main.rs:18", Box::new(vec![1, 2, 3]));

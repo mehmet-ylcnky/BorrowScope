@@ -158,15 +158,15 @@ pub fn create_ambiguous_warning(
     name: &str,
     span: Span,
 ) -> proc_macro2::TokenStream {
-    let message = format!(
-        "{} Hint: {}",
-        pattern.message(),
-        pattern.hint(name)
-    );
+    let message = format!("{} Hint: {}", pattern.message(), pattern.hint(name));
 
     // Generate unique warning name
     let counter = WARNING_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let warning_name = format!("BorrowScope{}Warning{}", pattern.code().replace("::", "_"), counter);
+    let warning_name = format!(
+        "BorrowScope{}Warning{}",
+        pattern.code().replace("::", "_"),
+        counter
+    );
 
     let warning = FormattedWarning::new_deprecated(&warning_name, &message, span);
 
@@ -211,7 +211,10 @@ mod tests {
     #[test]
     fn test_pattern_codes() {
         assert_eq!(AmbiguousPattern::PossibleFfi.code(), "borrowscope::ffi");
-        assert_eq!(AmbiguousPattern::PossibleStatic.code(), "borrowscope::static");
+        assert_eq!(
+            AmbiguousPattern::PossibleStatic.code(),
+            "borrowscope::static"
+        );
         assert_eq!(AmbiguousPattern::PossibleUnion.code(), "borrowscope::union");
         assert_eq!(AmbiguousPattern::Transmute.code(), "borrowscope::transmute");
     }

@@ -13,7 +13,7 @@ fn test_vec_push_with_semantic_lookup() {
         v.push(1); // Should detect mutable borrow (semantic or heuristic)
         v.push(2);
     }
-    
+
     example();
 }
 
@@ -24,7 +24,7 @@ fn test_vec_len_with_semantic_lookup() {
         let v = vec![1, 2, 3];
         let _len = v.len(); // Should detect immutable borrow (semantic or heuristic)
     }
-    
+
     example();
 }
 
@@ -35,7 +35,7 @@ fn test_string_as_str_with_semantic_lookup() {
         let s = String::from("hello");
         let _slice = s.as_str(); // Should detect immutable borrow (semantic or heuristic)
     }
-    
+
     example();
 }
 
@@ -46,6 +46,6 @@ fn test_option_unwrap_with_semantic_lookup() {
         let opt = Some(42);
         let _val = opt.unwrap(); // Should detect consuming (semantic or heuristic)
     }
-    
+
     example();
 }

@@ -17,10 +17,16 @@ fn main() {
     println!("Created Rc with value: {:?}", rc);
 
     let weak1 = track_weak_new("weak1", "rc", "main.rs:15", Rc::downgrade(&rc));
-    println!("Created weak1 from rc (weak_count: {})", Rc::weak_count(&rc));
+    println!(
+        "Created weak1 from rc (weak_count: {})",
+        Rc::weak_count(&rc)
+    );
 
     let weak2 = track_weak_clone("weak2", "weak1", "main.rs:18", weak1.clone());
-    println!("Cloned weak2 from weak1 (weak_count: {})", Rc::weak_count(&rc));
+    println!(
+        "Cloned weak2 from weak1 (weak_count: {})",
+        Rc::weak_count(&rc)
+    );
 
     // Upgrade while Rc is alive
     let upgraded = track_weak_upgrade("weak1", "main.rs:22", weak1.upgrade());

@@ -199,7 +199,9 @@ pub fn build_graph(events: &[Event]) -> OwnershipGraph {
                 );
             }
 
-            Event::Drop { var_id, timestamp, .. } => {
+            Event::Drop {
+                var_id, timestamp, ..
+            } => {
                 // Mark variable as dropped
                 if let Some(var) = var_map.get_mut(var_id) {
                     var.dropped_at = Some(*timestamp);

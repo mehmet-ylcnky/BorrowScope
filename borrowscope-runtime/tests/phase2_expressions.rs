@@ -67,7 +67,9 @@ fn test_phase2_weak_upgrade() {
     let weak = std::rc::Rc::downgrade(&rc);
     let _upgraded = track_weak_upgrade("weak_w", "test:1", weak.upgrade());
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::WeakUpgrade { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::WeakUpgrade { .. })));
 }
 
 #[test]
@@ -118,13 +120,19 @@ fn test_phase2_cow_borrowed() {
     reset();
     let _cow = track_cow_borrowed("cow_c", "test:1", std::borrow::Cow::Borrowed("hello"));
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::CowBorrowed { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::CowBorrowed { .. })));
 }
 
 #[test]
 fn test_phase2_cow_owned() {
     reset();
-    let _cow = track_cow_owned("cow_c", "test:1", std::borrow::Cow::<str>::Owned(String::from("world")));
+    let _cow = track_cow_owned(
+        "cow_c",
+        "test:1",
+        std::borrow::Cow::<str>::Owned(String::from("world")),
+    );
     let events = get_events();
     assert!(events.iter().any(|e| matches!(e, Event::CowOwned { .. })));
 }
@@ -146,7 +154,9 @@ fn test_phase2_thread_spawn() {
     reset();
     let _h = track_thread_spawn("handle", "test:1", std::thread::spawn(|| 42));
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::ThreadSpawn { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::ThreadSpawn { .. })));
 }
 
 // === Clone ===
@@ -165,7 +175,12 @@ fn test_phase2_clone() {
 #[test]
 fn test_phase2_atomic_new() {
     reset();
-    let _a = track_atomic_new("flag", "AtomicBool", "test:1", std::sync::atomic::AtomicBool::new(false));
+    let _a = track_atomic_new(
+        "flag",
+        "AtomicBool",
+        "test:1",
+        std::sync::atomic::AtomicBool::new(false),
+    );
     let events = get_events();
     assert!(events.iter().any(|e| matches!(e, Event::New { .. })));
 }
@@ -194,7 +209,9 @@ fn test_phase2_await_with_live_vars() {
     track_await_start_with_live_vars(1, "my_future", "test:1", &["x", "y", "z"]);
     track_await_end(1, "test:1");
     let events = get_events();
-    let await_start = events.iter().find(|e| matches!(e, Event::AwaitStart { .. }));
+    let await_start = events
+        .iter()
+        .find(|e| matches!(e, Event::AwaitStart { .. }));
     assert!(await_start.is_some());
     if let Some(Event::AwaitStart { live_variables, .. }) = await_start {
         assert_eq!(live_variables.len(), 3);
@@ -208,9 +225,16 @@ fn test_phase2_unsafe_block_enriched() {
     track_unsafe_block_enter_enriched(1, "test:1", "deref_raw_ptr", Some("*const i32"));
     track_unsafe_block_exit(1, "test:1");
     let events = get_events();
-    let enter = events.iter().find(|e| matches!(e, Event::UnsafeBlockEnter { .. }));
+    let enter = events
+        .iter()
+        .find(|e| matches!(e, Event::UnsafeBlockEnter { .. }));
     assert!(enter.is_some());
-    if let Some(Event::UnsafeBlockEnter { operation_kind, operation_context, .. }) = enter {
+    if let Some(Event::UnsafeBlockEnter {
+        operation_kind,
+        operation_context,
+        ..
+    }) = enter
+    {
         assert_eq!(operation_kind.as_deref(), Some("deref_raw_ptr"));
         assert_eq!(operation_context.as_deref(), Some("*const i32"));
     }
@@ -221,7 +245,9 @@ fn test_phase2_closure_with_trait() {
     reset();
     track_closure_create_with_trait(1, "move", "test:1", "FnOnce");
     let events = get_events();
-    let create = events.iter().find(|e| matches!(e, Event::ClosureCreate { .. }));
+    let create = events
+        .iter()
+        .find(|e| matches!(e, Event::ClosureCreate { .. }));
     assert!(create.is_some());
     if let Some(Event::ClosureCreate { fn_trait, .. }) = create {
         assert_eq!(fn_trait.as_deref(), Some("FnOnce"));
@@ -255,8 +281,14 @@ fn test_phase2_destructure() {
     reset();
     track_destructure("tuple", &["a", "b", "c"], "test:1");
     let events = get_events();
-    let new_count = events.iter().filter(|e| matches!(e, Event::New { .. })).count();
-    assert_eq!(new_count, 3, "Destructure of 3 bindings should produce 3 New events");
+    let new_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::New { .. }))
+        .count();
+    assert_eq!(
+        new_count, 3,
+        "Destructure of 3 bindings should produce 3 New events"
+    );
 }
 
 #[test]
@@ -291,7 +323,10 @@ fn test_phase2_var_read_write() {
     track_var_read("x", "10:4");
     track_var_write("x", "11:4");
     let events = get_events();
-    assert!(events.len() >= 2, "var_read and var_write should produce events");
+    assert!(
+        events.len() >= 2,
+        "var_read and var_write should produce events"
+    );
 }
 
 // === Drop with location ===

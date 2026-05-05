@@ -541,4 +541,3 @@ pub fn track_cow_to_mut(
         tracker.record_cow_to_mut(cow_id, cloned, location);
     }
 }
-

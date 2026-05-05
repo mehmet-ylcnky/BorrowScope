@@ -1,7 +1,7 @@
 //! Query functions for retrieving and summarizing events
 
-use crate::event::Event;
 use super::TRACKER;
+use crate::event::Event;
 
 pub fn reset() {
     let mut tracker = TRACKER.lock();
@@ -61,7 +61,13 @@ pub fn get_events_filtered<F>(predicate: F) -> Vec<Event>
 where
     F: Fn(&Event) -> bool,
 {
-    TRACKER.lock().events().iter().filter(|e| predicate(e)).cloned().collect()
+    TRACKER
+        .lock()
+        .events()
+        .iter()
+        .filter(|e| predicate(e))
+        .cloned()
+        .collect()
 }
 
 /// Get all `New` events.
@@ -266,4 +272,3 @@ pub fn get_summary() -> TrackingSummary {
 pub fn print_summary() {
     println!("{}", get_summary());
 }
-

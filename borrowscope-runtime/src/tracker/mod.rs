@@ -285,7 +285,11 @@ impl Tracker {
         let timestamp = Self::next_timestamp();
         let var_id = format!("var_{} @ {}", id, location);
 
-        self.events.push(Event::Drop { timestamp, var_id, location: None });
+        self.events.push(Event::Drop {
+            timestamp,
+            var_id,
+            location: None,
+        });
     }
 
     /// Record an Rc::new event with explicit ID and location (advanced API)
@@ -579,7 +583,13 @@ impl Tracker {
         });
     }
 
-    pub fn record_unsafe_block_enter_enriched(&mut self, block_id: usize, location: &str, kind: &str, context: Option<&str>) {
+    pub fn record_unsafe_block_enter_enriched(
+        &mut self,
+        block_id: usize,
+        location: &str,
+        kind: &str,
+        context: Option<&str>,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::UnsafeBlockEnter {
             timestamp,
@@ -687,7 +697,13 @@ impl Tracker {
         });
     }
 
-    pub fn record_await_start_with_live_vars(&mut self, await_id: usize, future_name: &str, location: &str, live_variables: &[&str]) {
+    pub fn record_await_start_with_live_vars(
+        &mut self,
+        await_id: usize,
+        future_name: &str,
+        location: &str,
+        live_variables: &[&str],
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::AwaitStart {
             timestamp,
@@ -754,7 +770,13 @@ impl Tracker {
     }
 
     /// Record match arm taken
-    pub fn record_match_arm(&mut self, match_id: usize, arm_index: usize, pattern: &str, location: &str) {
+    pub fn record_match_arm(
+        &mut self,
+        match_id: usize,
+        arm_index: usize,
+        pattern: &str,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::MatchArm {
             timestamp,
@@ -766,7 +788,14 @@ impl Tracker {
         });
     }
 
-    pub fn record_match_arm_with_bindings(&mut self, match_id: usize, arm_index: usize, pattern: &str, location: &str, bindings: &[&str]) {
+    pub fn record_match_arm_with_bindings(
+        &mut self,
+        match_id: usize,
+        arm_index: usize,
+        pattern: &str,
+        location: &str,
+        bindings: &[&str],
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::MatchArm {
             timestamp,
@@ -832,7 +861,13 @@ impl Tracker {
     }
 
     /// Record field access
-    pub fn record_field_access(&mut self, access_id: usize, base: &str, field: &str, location: &str) {
+    pub fn record_field_access(
+        &mut self,
+        access_id: usize,
+        base: &str,
+        field: &str,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::FieldAccess {
             timestamp,
@@ -857,7 +892,14 @@ impl Tracker {
     }
 
     /// Record method call with type metadata
-    pub fn record_method_call(&mut self, call_id: usize, fn_name: &str, location: &str, receiver_type: &str, result_type: &str) {
+    pub fn record_method_call(
+        &mut self,
+        call_id: usize,
+        fn_name: &str,
+        location: &str,
+        receiver_type: &str,
+        result_type: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::Call {
             timestamp,
@@ -882,7 +924,13 @@ impl Tracker {
     }
 
     /// Record unwrap call
-    pub fn record_unwrap(&mut self, unwrap_id: usize, method: &str, var_name: &str, location: &str) {
+    pub fn record_unwrap(
+        &mut self,
+        unwrap_id: usize,
+        method: &str,
+        var_name: &str,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::Unwrap {
             timestamp,
@@ -950,7 +998,13 @@ impl Tracker {
         });
     }
 
-    pub fn record_closure_create_with_trait(&mut self, closure_id: usize, capture_mode: &str, location: &str, fn_trait: &str) {
+    pub fn record_closure_create_with_trait(
+        &mut self,
+        closure_id: usize,
+        capture_mode: &str,
+        location: &str,
+        fn_trait: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::ClosureCreate {
             timestamp,
@@ -1074,7 +1128,13 @@ impl Tracker {
         });
     }
 
-    pub fn record_closure_capture(&mut self, closure_id: usize, var_name: &str, capture_mode: &str, location: &str) {
+    pub fn record_closure_capture(
+        &mut self,
+        closure_id: usize,
+        var_name: &str,
+        capture_mode: &str,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::ClosureCapture {
             timestamp,
@@ -1089,7 +1149,13 @@ impl Tracker {
     // Phase 9: Extended Smart Pointer & Concurrency Record Methods
     // =========================================================================
 
-    pub fn record_weak_new(&mut self, var_name: &str, source_id: &str, weak_count: usize, location: &str) -> String {
+    pub fn record_weak_new(
+        &mut self,
+        var_name: &str,
+        source_id: &str,
+        weak_count: usize,
+        location: &str,
+    ) -> String {
         let timestamp = Self::next_timestamp();
         let var_id = self.next_var_id(var_name);
         self.events.push(Event::WeakNew {
@@ -1103,7 +1169,13 @@ impl Tracker {
         var_id
     }
 
-    pub fn record_weak_clone(&mut self, var_name: &str, source_id: &str, weak_count: usize, location: &str) -> String {
+    pub fn record_weak_clone(
+        &mut self,
+        var_name: &str,
+        source_id: &str,
+        weak_count: usize,
+        location: &str,
+    ) -> String {
         let timestamp = Self::next_timestamp();
         let var_id = self.next_var_id(var_name);
         self.events.push(Event::WeakClone {
@@ -1161,7 +1233,13 @@ impl Tracker {
         var_id
     }
 
-    pub fn record_lock_guard_acquire(&mut self, guard_id: &str, lock_id: &str, lock_type: &str, location: &str) {
+    pub fn record_lock_guard_acquire(
+        &mut self,
+        guard_id: &str,
+        lock_id: &str,
+        lock_type: &str,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::LockGuardAcquire {
             timestamp,
@@ -1264,7 +1342,12 @@ impl Tracker {
         });
     }
 
-    pub fn record_channel_receiver_new(&mut self, receiver_id: &str, channel_id: &str, location: &str) {
+    pub fn record_channel_receiver_new(
+        &mut self,
+        receiver_id: &str,
+        channel_id: &str,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::ChannelReceiverNew {
             timestamp,
@@ -1330,7 +1413,12 @@ impl Tracker {
         });
     }
 
-    pub fn record_once_cell_get_or_init(&mut self, cell_id: &str, was_initialized: bool, location: &str) {
+    pub fn record_once_cell_get_or_init(
+        &mut self,
+        cell_id: &str,
+        was_initialized: bool,
+        location: &str,
+    ) {
         let timestamp = Self::next_timestamp();
         self.events.push(Event::OnceCellGetOrInit {
             timestamp,
@@ -1344,7 +1432,12 @@ impl Tracker {
     // MaybeUninit Record Methods
     // =========================================================================
 
-    pub fn record_maybe_uninit_new(&mut self, name: &str, initialized: bool, location: &str) -> String {
+    pub fn record_maybe_uninit_new(
+        &mut self,
+        name: &str,
+        initialized: bool,
+        location: &str,
+    ) -> String {
         let timestamp = Self::next_timestamp();
         let var_id = self.next_var_id(name);
         self.events.push(Event::MaybeUninitNew {
@@ -1412,37 +1505,36 @@ impl Default for Tracker {
     }
 }
 
+mod async_tracking;
+mod concurrency;
+mod control_flow;
+mod core;
+mod expressions;
+mod interior_mut;
+mod maybe_uninit;
+mod query;
 /// Track a new variable creation.
 ///
 /// Records a `New` event and returns the value unchanged. Use this when
-
 // Submodules with public tracking functions
 mod sampling;
-mod core;
-mod query;
 mod smart_pointers;
-mod interior_mut;
-mod unsafe_code;
-mod async_tracking;
-mod control_flow;
-mod expressions;
 mod statics;
-mod concurrency;
-mod maybe_uninit;
+mod unsafe_code;
 
 // Re-export all public items
-pub use sampling::*;
 pub use self::core::*;
-pub use query::*;
-pub use smart_pointers::*;
-pub use interior_mut::*;
-pub use unsafe_code::*;
 pub use async_tracking::*;
+pub use concurrency::*;
 pub use control_flow::*;
 pub use expressions::*;
-pub use statics::*;
-pub use concurrency::*;
+pub use interior_mut::*;
 pub use maybe_uninit::*;
+pub use query::*;
+pub use sampling::*;
+pub use smart_pointers::*;
+pub use statics::*;
+pub use unsafe_code::*;
 
 #[cfg(test)]
 mod tests {
@@ -1764,14 +1856,24 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 2);
 
-        if let Event::Break { break_id, loop_label, .. } = &events[0] {
+        if let Event::Break {
+            break_id,
+            loop_label,
+            ..
+        } = &events[0]
+        {
             assert_eq!(break_id, "1");
             assert!(loop_label.is_none());
         } else {
             panic!("Expected Break event");
         }
 
-        if let Event::Break { break_id, loop_label, .. } = &events[1] {
+        if let Event::Break {
+            break_id,
+            loop_label,
+            ..
+        } = &events[1]
+        {
             assert_eq!(break_id, "2");
             assert_eq!(loop_label.as_deref(), Some("outer"));
         } else {
@@ -1790,7 +1892,12 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 2);
 
-        if let Event::Continue { continue_id, loop_label, .. } = &events[0] {
+        if let Event::Continue {
+            continue_id,
+            loop_label,
+            ..
+        } = &events[0]
+        {
             assert_eq!(continue_id, "1");
             assert!(loop_label.is_none());
         } else {
@@ -1808,7 +1915,12 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 1);
 
-        if let Event::StructCreate { struct_id, type_name, .. } = &events[0] {
+        if let Event::StructCreate {
+            struct_id,
+            type_name,
+            ..
+        } = &events[0]
+        {
             assert_eq!(struct_id, "1");
             assert_eq!(type_name, "Point");
         } else {
@@ -1845,7 +1957,12 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 2);
 
-        if let Event::Range { range_id, range_type, .. } = &events[0] {
+        if let Event::Range {
+            range_id,
+            range_type,
+            ..
+        } = &events[0]
+        {
             assert_eq!(range_id, "1");
             assert_eq!(range_type, "half_open");
         } else {
@@ -1881,7 +1998,10 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 1);
 
-        if let Event::TypeCast { cast_id, to_type, .. } = &events[0] {
+        if let Event::TypeCast {
+            cast_id, to_type, ..
+        } = &events[0]
+        {
             assert_eq!(cast_id, "1");
             assert_eq!(to_type, "i64");
         } else {
@@ -1899,7 +2019,12 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 1);
 
-        if let Event::ClosureCreate { closure_id, capture_mode, .. } = &events[0] {
+        if let Event::ClosureCreate {
+            closure_id,
+            capture_mode,
+            ..
+        } = &events[0]
+        {
             assert_eq!(closure_id, "1");
             assert_eq!(capture_mode, "move");
         } else {
@@ -1917,7 +2042,10 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 1);
 
-        if let Event::LetElse { let_id, pattern, .. } = &events[0] {
+        if let Event::LetElse {
+            let_id, pattern, ..
+        } = &events[0]
+        {
             assert_eq!(let_id, "1");
             assert_eq!(pattern, "Some(x)");
         } else {
@@ -1935,7 +2063,10 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 1);
 
-        if let Event::BinaryOp { op_id, operator, .. } = &events[0] {
+        if let Event::BinaryOp {
+            op_id, operator, ..
+        } = &events[0]
+        {
             assert_eq!(op_id, "1");
             assert_eq!(operator, "+");
         } else {
@@ -1954,7 +2085,10 @@ mod tests {
         let events = get_events();
         assert_eq!(events.len(), 2);
 
-        if let Event::RegionEnter { region_id, name, .. } = &events[0] {
+        if let Event::RegionEnter {
+            region_id, name, ..
+        } = &events[0]
+        {
             assert_eq!(region_id, "1");
             assert_eq!(name, "scope");
         } else {

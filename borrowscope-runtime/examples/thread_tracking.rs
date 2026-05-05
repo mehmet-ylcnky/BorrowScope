@@ -13,10 +13,14 @@ fn main() {
 
     // Basic thread spawn and join
     println!("--- Basic Thread ---");
-    let handle = track_thread_spawn("worker", "main.rs:14", thread::spawn(|| {
-        println!("  [worker] Hello from spawned thread!");
-        42
-    }));
+    let handle = track_thread_spawn(
+        "worker",
+        "main.rs:14",
+        thread::spawn(|| {
+            println!("  [worker] Hello from spawned thread!");
+            42
+        }),
+    );
 
     let result = track_thread_join("worker", "main.rs:19", handle.join());
     println!("Worker returned: {:?}", result);
@@ -24,10 +28,14 @@ fn main() {
     // Thread with moved data
     println!("\n--- Thread with Moved Data ---");
     let data = vec![1, 2, 3, 4, 5];
-    let handle = track_thread_spawn("processor", "main.rs:25", thread::spawn(move || {
-        println!("  [processor] Processing {:?}", data);
-        data.iter().sum::<i32>()
-    }));
+    let handle = track_thread_spawn(
+        "processor",
+        "main.rs:25",
+        thread::spawn(move || {
+            println!("  [processor] Processing {:?}", data);
+            data.iter().sum::<i32>()
+        }),
+    );
 
     let sum = track_thread_join("processor", "main.rs:30", handle.join());
     println!("Sum computed by thread: {:?}", sum);
@@ -52,7 +60,11 @@ fn main() {
         .into_iter()
         .enumerate()
         .map(|(i, h)| {
-            track_thread_join(&format!("parallel_{}", i), &format!("main.rs:50:{}", i), h.join())
+            track_thread_join(
+                &format!("parallel_{}", i),
+                &format!("main.rs:50:{}", i),
+                h.join(),
+            )
         })
         .collect();
 
@@ -66,12 +78,14 @@ fn main() {
         output: i32,
     }
 
-    let handle = track_thread_spawn("compute", "main.rs:63", thread::spawn(|| {
-        ComputeResult {
+    let handle = track_thread_spawn(
+        "compute",
+        "main.rs:63",
+        thread::spawn(|| ComputeResult {
             input: 5,
             output: 5 * 5,
-        }
-    }));
+        }),
+    );
 
     let result = track_thread_join("compute", "main.rs:70", handle.join());
     println!("Compute result: {:?}", result);

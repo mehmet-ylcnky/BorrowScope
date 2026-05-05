@@ -23,9 +23,7 @@ fn test_async_block_enter_exit() {
 
     match &events[0] {
         Event::AsyncBlockEnter {
-            block_id,
-            location,
-            ..
+            block_id, location, ..
         } => {
             assert_eq!(block_id, "1");
             assert_eq!(location, "test.rs:10:5");
@@ -35,9 +33,7 @@ fn test_async_block_enter_exit() {
 
     match &events[1] {
         Event::AsyncBlockExit {
-            block_id,
-            location,
-            ..
+            block_id, location, ..
         } => {
             assert_eq!(block_id, "1");
             assert_eq!(location, "test.rs:12:5");
@@ -109,9 +105,7 @@ fn test_await_start_end() {
 
     match &events[1] {
         Event::AwaitEnd {
-            await_id,
-            location,
-            ..
+            await_id, location, ..
         } => {
             assert_eq!(await_id, "1");
             assert_eq!(location, "test.rs:20:5");

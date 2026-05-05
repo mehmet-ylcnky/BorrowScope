@@ -15,7 +15,11 @@ fn main() {
     let pinned_int = track_pin_new("pinned_int", "main.rs:13", Box::pin(42));
     println!("Pinned integer: {}", *pinned_int);
 
-    let pinned_string = track_pin_new("pinned_string", "main.rs:16", Box::pin(String::from("pinned!")));
+    let pinned_string = track_pin_new(
+        "pinned_string",
+        "main.rs:16",
+        Box::pin(String::from("pinned!")),
+    );
     println!("Pinned string: {}", &*pinned_string);
 
     // Pin with struct

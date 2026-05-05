@@ -526,7 +526,7 @@ impl Parse for TraceArg {
                 input.parse::<Token![=]>()?;
                 let value: LitStr = input.parse()?;
                 let pattern = value.value();
-                
+
                 // Validate filter pattern
                 if pattern.is_empty() {
                     return Err(syn::Error::new(
@@ -534,7 +534,7 @@ impl Parse for TraceArg {
                         "filter pattern cannot be empty"
                     ));
                 }
-                
+
                 // Check for invalid characters (only alphanumeric, _, *, ? allowed)
                 for ch in pattern.chars() {
                     if !ch.is_alphanumeric() && ch != '_' && ch != '*' && ch != '?' {
@@ -548,14 +548,14 @@ impl Parse for TraceArg {
                         ));
                     }
                 }
-                
+
                 Ok(TraceArg::Filter(pattern))
             }
             "sample" => {
                 input.parse::<Token![=]>()?;
                 let value: syn::LitFloat = input.parse()?;
                 let rate: f64 = value.base10_parse()?;
-                
+
                 // Validate sample rate range
                 if rate < 0.0 || rate > 1.0 {
                     return Err(syn::Error::new(
@@ -566,7 +566,7 @@ impl Parse for TraceArg {
                         )
                     ));
                 }
-                
+
                 Ok(TraceArg::Sample(rate))
             }
             _ => Err(syn::Error::new(
@@ -720,7 +720,10 @@ mod tests {
             let input = format!("filter = \"{}\"", pattern);
             let result: syn::Result<TraceArg> = syn::parse_str(&input);
             assert!(result.is_err(), "Pattern '{}' should be invalid", pattern);
-            assert!(result.unwrap_err().to_string().contains("invalid character"));
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid character"));
         }
     }
 
@@ -742,7 +745,10 @@ mod tests {
             let input = format!("sample = {}", rate);
             let result: syn::Result<TraceArg> = syn::parse_str(&input);
             assert!(result.is_err(), "Rate {} should be invalid", rate);
-            assert!(result.unwrap_err().to_string().contains("between 0.0 and 1.0"));
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("between 0.0 and 1.0"));
         }
     }
 }

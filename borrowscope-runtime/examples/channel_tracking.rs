@@ -51,7 +51,8 @@ fn main() {
     let receiver = thread::spawn(move || {
         let mut received = Vec::new();
         for i in 1..=3 {
-            if let Ok(val) = track_channel_recv("cross_thread_rx", &format!("recv:{}", i), rx.recv())
+            if let Ok(val) =
+                track_channel_recv("cross_thread_rx", &format!("recv:{}", i), rx.recv())
             {
                 received.push(val);
             }

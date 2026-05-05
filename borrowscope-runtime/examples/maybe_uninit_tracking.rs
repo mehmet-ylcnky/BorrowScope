@@ -11,7 +11,8 @@ fn main() {
 
     // Create uninitialized memory
     println!("--- Creating uninitialized memory ---");
-    let mut uninit: MaybeUninit<i32> = track_maybe_uninit_uninit("data", "main:1", MaybeUninit::uninit());
+    let mut uninit: MaybeUninit<i32> =
+        track_maybe_uninit_uninit("data", "main:1", MaybeUninit::uninit());
     println!("Created uninitialized MaybeUninit<i32>");
 
     // Write a value
@@ -38,12 +39,19 @@ fn main() {
     println!("\n--- Array initialization pattern ---");
     let mut arr: [MaybeUninit<i32>; 3] = unsafe { MaybeUninit::uninit().assume_init() };
     for (i, elem) in arr.iter_mut().enumerate() {
-        let _ = track_maybe_uninit_write(&format!("arr[{}]", i), "main:6", elem.write((i * 10) as i32));
+        let _ = track_maybe_uninit_write(
+            &format!("arr[{}]", i),
+            "main:6",
+            elem.write((i * 10) as i32),
+        );
     }
     println!("Initialized array elements");
 
     // Read array values
-    let values: Vec<i32> = arr.iter().map(|e| unsafe { e.assume_init_read() }).collect();
+    let values: Vec<i32> = arr
+        .iter()
+        .map(|e| unsafe { e.assume_init_read() })
+        .collect();
     println!("Array values: {:?}", values);
 
     // Dropping initialized value

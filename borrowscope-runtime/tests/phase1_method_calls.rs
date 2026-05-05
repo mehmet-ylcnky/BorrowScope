@@ -33,7 +33,9 @@ fn test_phase1_refcell_borrow() {
     let r = std::cell::RefCell::new(String::from("hello"));
     let _g = track_refcell_borrow("borrow_0", "refcell_r", "test:1", r.borrow());
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::RefCellBorrow { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::RefCellBorrow { .. })));
 }
 
 #[test]
@@ -42,8 +44,16 @@ fn test_phase1_refcell_borrow_mut() {
     let r = std::cell::RefCell::new(42);
     let _g = track_refcell_borrow_mut("borrow_0", "refcell_r", "test:1", r.borrow_mut());
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::RefCellBorrow { is_mutable: true, .. })),
-        "RefCell::borrow_mut should produce RefCellBorrow {{ is_mutable: true }}");
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::RefCellBorrow {
+                is_mutable: true,
+                ..
+            }
+        )),
+        "RefCell::borrow_mut should produce RefCellBorrow {{ is_mutable: true }}"
+    );
 }
 
 // === Mutex/RwLock lock operations ===
@@ -96,7 +106,9 @@ fn test_phase1_once_cell_set() {
     let once = std::cell::OnceCell::new();
     let _ = track_once_cell_set("once_o", "test:1", once.set(42));
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::OnceCellSet { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::OnceCellSet { .. })));
 }
 
 #[test]
@@ -106,7 +118,9 @@ fn test_phase1_once_cell_get() {
     let _ = once.set(42);
     let _ = track_once_cell_get("once_o", "test:1", once.get());
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::OnceCellGet { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::OnceCellGet { .. })));
 }
 
 // === MaybeUninit operations ===
@@ -117,7 +131,9 @@ fn test_phase1_maybe_uninit_write() {
     let mut mu = std::mem::MaybeUninit::<i32>::uninit();
     let _ = track_maybe_uninit_write("uninit_mu", "test:1", mu.write(42));
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::MaybeUninitWrite { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::MaybeUninitWrite { .. })));
 }
 
 #[test]
@@ -126,7 +142,9 @@ fn test_phase1_maybe_uninit_assume_init() {
     let mu = std::mem::MaybeUninit::<i32>::new(42);
     let _ = track_maybe_uninit_assume_init("uninit_mu", "test:1", unsafe { mu.assume_init() });
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::MaybeUninitAssumeInit { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::MaybeUninitAssumeInit { .. })));
 }
 
 // === Channel operations ===
@@ -138,8 +156,12 @@ fn test_phase1_channel_send_recv() {
     let _ = track_channel_send("sender_tx", "test:1", tx.send(42));
     let _ = track_channel_recv("receiver_rx", "test:1", rx.recv());
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::ChannelSend { .. })));
-    assert!(events.iter().any(|e| matches!(e, Event::ChannelRecv { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::ChannelSend { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::ChannelRecv { .. })));
 }
 
 #[test]
@@ -174,8 +196,14 @@ fn test_phase1_unwrap_all_variants() {
     track_unwrap(4, "opt_d", "unwrap_or_else", "test:4");
     track_unwrap(5, "opt_e", "unwrap_or_default", "test:5");
     let events = get_events();
-    let unwrap_count = events.iter().filter(|e| matches!(e, Event::Unwrap { .. })).count();
-    assert_eq!(unwrap_count, 5, "All 5 unwrap variants should produce events");
+    let unwrap_count = events
+        .iter()
+        .filter(|e| matches!(e, Event::Unwrap { .. }))
+        .count();
+    assert_eq!(
+        unwrap_count, 5,
+        "All 5 unwrap variants should produce events"
+    );
 }
 
 // === Unsafe fn call ===
@@ -185,7 +213,9 @@ fn test_phase1_unsafe_fn_call() {
     reset();
     track_unsafe_fn_call("dangerous_fn", "test:1");
     let events = get_events();
-    assert!(events.iter().any(|e| matches!(e, Event::UnsafeFnCall { .. })));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::UnsafeFnCall { .. })));
 }
 
 // === Method call with receiver/result type ===
@@ -196,5 +226,8 @@ fn test_phase1_method_call_metadata() {
     track_method_call(1, "v::push", "test:1", "Vec<i32>", "()");
     let events = get_events();
     let call_event = events.iter().find(|e| matches!(e, Event::Call { .. }));
-    assert!(call_event.is_some(), "track_method_call should produce Call event");
+    assert!(
+        call_event.is_some(),
+        "track_method_call should produce Call event"
+    );
 }

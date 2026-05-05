@@ -37,7 +37,7 @@ fn main() {
 
     // Range expressions
     track_range(400, "half_open", "main.rs:34"); // 0..10
-    track_range(401, "closed", "main.rs:35");    // 0..=10
+    track_range(401, "closed", "main.rs:35"); // 0..=10
 
     // Array creation
     track_array_create(500, 4, "main.rs:38");

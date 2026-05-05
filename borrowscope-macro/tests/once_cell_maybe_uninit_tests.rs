@@ -12,91 +12,106 @@ use borrowscope_runtime::*;
 #[serial]
 fn test_once_cell_new_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::cell::OnceCell;
         let _cell: OnceCell<i32> = OnceCell::new();
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
-    assert!(events.iter().any(|e| e.is_once_cell()), "Should have OnceCell event");
+    assert!(
+        events.iter().any(|e| e.is_once_cell()),
+        "Should have OnceCell event"
+    );
 }
 
 #[test]
 #[serial]
 fn test_once_lock_new_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::sync::OnceLock;
         let _lock: OnceLock<i32> = OnceLock::new();
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
-    assert!(events.iter().any(|e| e.is_once_cell()), "Should have OnceLock event");
+    assert!(
+        events.iter().any(|e| e.is_once_cell()),
+        "Should have OnceLock event"
+    );
 }
 
 #[test]
 #[serial]
 fn test_once_cell_set_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::cell::OnceCell;
         let cell: OnceCell<i32> = OnceCell::new();
         let _ = cell.set(42);
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let once_cell_events: Vec<_> = events.iter().filter(|e| e.is_once_cell()).collect();
-    assert!(once_cell_events.len() >= 2, "Should have at least 2 OnceCell events (new + set)");
+    assert!(
+        once_cell_events.len() >= 2,
+        "Should have at least 2 OnceCell events (new + set)"
+    );
 }
 
 #[test]
 #[serial]
 fn test_once_cell_get_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::cell::OnceCell;
         let cell: OnceCell<i32> = OnceCell::new();
         let _ = cell.get();
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let once_cell_events: Vec<_> = events.iter().filter(|e| e.is_once_cell()).collect();
-    assert!(once_cell_events.len() >= 2, "Should have at least 2 OnceCell events (new + get)");
+    assert!(
+        once_cell_events.len() >= 2,
+        "Should have at least 2 OnceCell events (new + get)"
+    );
 }
 
 #[test]
 #[serial]
 fn test_once_cell_get_or_init_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::cell::OnceCell;
         let cell: OnceCell<i32> = OnceCell::new();
         let _ = cell.get_or_init(|| 42);
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let once_cell_events: Vec<_> = events.iter().filter(|e| e.is_once_cell()).collect();
-    assert!(once_cell_events.len() >= 2, "Should have at least 2 OnceCell events (new + get_or_init)");
+    assert!(
+        once_cell_events.len() >= 2,
+        "Should have at least 2 OnceCell events (new + get_or_init)"
+    );
 }
 
 // =============================================================================
@@ -107,110 +122,128 @@ fn test_once_cell_get_or_init_transform() {
 #[serial]
 fn test_maybe_uninit_uninit_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
         let _uninit: MaybeUninit<i32> = MaybeUninit::uninit();
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
-    assert!(events.iter().any(|e| e.is_maybe_uninit()), "Should have MaybeUninit event");
+    assert!(
+        events.iter().any(|e| e.is_maybe_uninit()),
+        "Should have MaybeUninit event"
+    );
 }
 
 #[test]
 #[serial]
 fn test_maybe_uninit_new_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
         let _init: MaybeUninit<i32> = MaybeUninit::new(42);
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
-    assert!(events.iter().any(|e| e.is_maybe_uninit()), "Should have MaybeUninit event");
+    assert!(
+        events.iter().any(|e| e.is_maybe_uninit()),
+        "Should have MaybeUninit event"
+    );
 }
 
 #[test]
 #[serial]
 fn test_maybe_uninit_write_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
         let mut uninit: MaybeUninit<i32> = MaybeUninit::uninit();
         let _ = uninit.write(42);
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
-    assert!(maybe_uninit_events.len() >= 2, "Should have at least 2 MaybeUninit events (uninit + write)");
+    assert!(
+        maybe_uninit_events.len() >= 2,
+        "Should have at least 2 MaybeUninit events (uninit + write)"
+    );
 }
 
 #[test]
 #[serial]
 fn test_maybe_uninit_assume_init_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
         let init: MaybeUninit<i32> = MaybeUninit::new(42);
         let _ = unsafe { init.assume_init() };
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
-    assert!(maybe_uninit_events.len() >= 2, "Should have at least 2 MaybeUninit events (new + assume_init)");
+    assert!(
+        maybe_uninit_events.len() >= 2,
+        "Should have at least 2 MaybeUninit events (new + assume_init)"
+    );
 }
 
 #[test]
 #[serial]
 fn test_maybe_uninit_assume_init_read_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
         let init: MaybeUninit<i32> = MaybeUninit::new(42);
         let _ = unsafe { init.assume_init_read() };
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
-    assert!(maybe_uninit_events.len() >= 2, "Should have at least 2 MaybeUninit events (new + assume_init_read)");
+    assert!(
+        maybe_uninit_events.len() >= 2,
+        "Should have at least 2 MaybeUninit events (new + assume_init_read)"
+    );
 }
 
 #[test]
 #[serial]
 fn test_maybe_uninit_assume_init_drop_transform() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
         let mut init: MaybeUninit<String> = MaybeUninit::new(String::from("test"));
         unsafe { init.assume_init_drop() };
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
-    assert!(maybe_uninit_events.len() >= 2, "Should have at least 2 MaybeUninit events (new + assume_init_drop)");
+    assert!(
+        maybe_uninit_events.len() >= 2,
+        "Should have at least 2 MaybeUninit events (new + assume_init_drop)"
+    );
 }
 
 // =============================================================================
@@ -221,7 +254,7 @@ fn test_maybe_uninit_assume_init_drop_transform() {
 #[serial]
 fn test_once_cell_full_lifecycle() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::cell::OnceCell;
@@ -231,19 +264,22 @@ fn test_once_cell_full_lifecycle() {
         let _ = cell.get(); // Some
         let _ = cell.get_or_init(|| String::from("other")); // Returns existing
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let once_cell_events: Vec<_> = events.iter().filter(|e| e.is_once_cell()).collect();
-    assert!(once_cell_events.len() >= 5, "Should have at least 5 OnceCell events");
+    assert!(
+        once_cell_events.len() >= 5,
+        "Should have at least 5 OnceCell events"
+    );
 }
 
 #[test]
 #[serial]
 fn test_maybe_uninit_full_lifecycle() {
     reset();
-    
+
     #[trace_borrow]
     fn test_fn() {
         use std::mem::MaybeUninit;
@@ -251,10 +287,13 @@ fn test_maybe_uninit_full_lifecycle() {
         let _ = uninit.write(42);
         let _ = unsafe { uninit.assume_init() };
     }
-    
+
     test_fn();
-    
+
     let events = get_events();
     let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
-    assert!(maybe_uninit_events.len() >= 3, "Should have at least 3 MaybeUninit events");
+    assert!(
+        maybe_uninit_events.len() >= 3,
+        "Should have at least 3 MaybeUninit events"
+    );
 }

@@ -78,7 +78,12 @@ pub enum Event {
     },
 
     /// Variable dropped via [`track_drop`](crate::track_drop).
-    Drop { timestamp: u64, var_id: String, #[serde(default, skip_serializing_if = "Option::is_none")] location: Option<String> },
+    Drop {
+        timestamp: u64,
+        var_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        location: Option<String>,
+    },
 
     /// `Rc::new` allocation with reference counting.
     RcNew {
@@ -291,7 +296,6 @@ pub enum Event {
     },
 
     // ========== Phase 5: Extended Tracking ==========
-
     /// Loop entered (for, while, loop)
     LoopEnter {
         timestamp: u64,
@@ -427,7 +431,6 @@ pub enum Event {
     },
 
     // ========== Phase 6: Additional Tracking ==========
-
     /// Break statement
     Break {
         timestamp: u64,
@@ -528,7 +531,6 @@ pub enum Event {
     // =========================================================================
     // Phase 8: Enhanced Tracking Events
     // =========================================================================
-
     /// Function entry
     FnEnter {
         timestamp: u64,
@@ -557,7 +559,6 @@ pub enum Event {
     // =========================================================================
     // Phase 9: Extended Smart Pointer & Concurrency Tracking
     // =========================================================================
-
     /// Weak::new or Rc::downgrade
     WeakNew {
         timestamp: u64,
@@ -713,7 +714,6 @@ pub enum Event {
     // =========================================================================
     // OnceCell / OnceLock Events
     // =========================================================================
-
     /// OnceCell::new or OnceLock::new
     OnceCellNew {
         timestamp: u64,
@@ -750,7 +750,6 @@ pub enum Event {
     // =========================================================================
     // MaybeUninit Events
     // =========================================================================
-
     /// MaybeUninit::uninit or MaybeUninit::new
     MaybeUninitNew {
         timestamp: u64,

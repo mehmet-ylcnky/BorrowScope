@@ -240,4 +240,3 @@ pub fn track_closure_capture(
         tracker.record_closure_capture(closure_id, var_name, capture_mode, location);
     }
 }
-

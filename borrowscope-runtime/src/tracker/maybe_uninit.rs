@@ -87,4 +87,3 @@ pub fn track_maybe_uninit_assume_init_drop(
         tracker.record_maybe_uninit_assume_init_drop(var_id, location);
     }
 }
-

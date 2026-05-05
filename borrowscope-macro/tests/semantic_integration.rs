@@ -13,10 +13,14 @@ fn test_macro_uses_semantic_data() {
     reset();
     test_semantic();
     let events = get_events();
-    
+
     // Should have tracked the 3 variables
-    assert!(events.len() >= 3, "Expected at least 3 events, got {}", events.len());
-    
+    assert!(
+        events.len() >= 3,
+        "Expected at least 3 events, got {}",
+        events.len()
+    );
+
     // Print events for inspection
     for event in &events {
         println!("{:?}", event);

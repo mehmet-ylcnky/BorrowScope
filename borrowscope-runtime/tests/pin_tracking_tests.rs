@@ -236,8 +236,7 @@ fn test_pin_result() {
     let _lock = test_utils::TEST_LOCK.lock();
     reset();
 
-    let pinned_ok: Pin<Box<Result<i32, &str>>> =
-        track_pin_new("ok", "test:1", Box::pin(Ok(42)));
+    let pinned_ok: Pin<Box<Result<i32, &str>>> = track_pin_new("ok", "test:1", Box::pin(Ok(42)));
     let pinned_err: Pin<Box<Result<i32, &str>>> =
         track_pin_new("err", "test:2", Box::pin(Err("error")));
 

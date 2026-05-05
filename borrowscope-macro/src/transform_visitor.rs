@@ -18,8 +18,8 @@ use std::collections::{HashMap, HashSet};
 use syn::{
     spanned::Spanned,
     visit_mut::{self, VisitMut},
-    Block, Expr, ExprCall, ExprCast, ExprClosure, ExprMethodCall, ExprReference, ExprUnsafe,
-    Ident, Index, ItemFn, Local, Pat, Stmt,
+    Block, Expr, ExprCall, ExprCast, ExprClosure, ExprMethodCall, ExprReference, ExprUnsafe, Ident,
+    Index, ItemFn, Local, Pat, Stmt,
 };
 
 /// Type of self borrow in method call
@@ -78,11 +78,21 @@ fn contains_block_closure(expr: &Expr) -> bool {
     match expr {
         Expr::Closure(c) => matches!(*c.body, Expr::Block(_)),
         Expr::Macro(_) => true, // Macros like vec![] expand to blocks
-        Expr::Block(_) | Expr::Unsafe(_) | Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) | Expr::Try(_) => true,
-        Expr::MethodCall(mc) => mc.args.iter().any(|a| contains_block_closure(a))
-            || contains_block_closure(&mc.receiver),
-        Expr::Call(c) => c.args.iter().any(|a| contains_block_closure(a))
-            || contains_block_closure(&c.func),
+        Expr::Block(_)
+        | Expr::Unsafe(_)
+        | Expr::If(_)
+        | Expr::Match(_)
+        | Expr::ForLoop(_)
+        | Expr::While(_)
+        | Expr::Loop(_)
+        | Expr::Try(_) => true,
+        Expr::MethodCall(mc) => {
+            mc.args.iter().any(|a| contains_block_closure(a))
+                || contains_block_closure(&mc.receiver)
+        }
+        Expr::Call(c) => {
+            c.args.iter().any(|a| contains_block_closure(a)) || contains_block_closure(&c.func)
+        }
         Expr::Reference(r) => contains_block_closure(&r.expr),
         Expr::Unary(u) => contains_block_closure(&u.expr),
         Expr::Try(t) => contains_block_closure(&t.expr),
@@ -126,7 +136,7 @@ impl OwnershipVisitor {
                 "
             );
         }
-        
+
         Self {
             scope_depth: 0,
             var_ids: HashMap::new(),
@@ -183,7 +193,11 @@ impl OwnershipVisitor {
 
     /// Peek at type info without incrementing decl counter (for post-declaration lookups like drops)
     fn peek_type_info(&self, var_name: &str) -> Option<&'static type_info::VariableTypeInfo> {
-        let decl_idx = self.decl_counts.get(var_name).map(|c| c.saturating_sub(1)).unwrap_or(0);
+        let decl_idx = self
+            .decl_counts
+            .get(var_name)
+            .map(|c| c.saturating_sub(1))
+            .unwrap_or(0);
         if let Some(fn_name) = &self.current_function {
             if let Some(info) = type_info::lookup_in_function(fn_name, var_name, Some(decl_idx)) {
                 return Some(info);
@@ -275,7 +289,10 @@ impl OwnershipVisitor {
     }
 
     /// Wrap tracking call with sampling check if sample rate is set
-    fn wrap_with_sampling(&self, tracking_call: proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    fn wrap_with_sampling(
+        &self,
+        tracking_call: proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         match self.config.sample_rate {
             None => tracking_call,
             Some(rate) => {
@@ -465,16 +482,23 @@ impl OwnershipVisitor {
                     if tuple_pat.elems.len() == 2 {
                         // Try looking up by tuple pattern name "(tx, rx)"
                         let raw_pat = quote::quote!(#original_pat).to_string();
-                        let pat_name = raw_pat.split(',').map(|s| s.trim()).collect::<Vec<_>>().join(", ");
-                        let pat_name = format!("({})", &pat_name[1..pat_name.len()-1]); // ensure parens
-                        let from_tuple = self.lookup_type_info(&pat_name)
+                        let pat_name = raw_pat
+                            .split(',')
+                            .map(|s| s.trim())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let pat_name = format!("({})", &pat_name[1..pat_name.len() - 1]); // ensure parens
+                        let from_tuple = self
+                            .lookup_type_info(&pat_name)
                             .and_then(|ti| ti.initializer_kind.as_deref())
                             .map(|k| k == "channel_new" || k == "tuple");
                         // Also check if the type contains "Sender"
-                        let from_type = self.lookup_type_info(&pat_name)
+                        let from_type = self
+                            .lookup_type_info(&pat_name)
                             .map(|ti| ti.ty.contains("Sender"));
-                        from_tuple.or(from_type).unwrap_or(false) && 
-                            self.lookup_type_info(&pat_name)
+                        from_tuple.or(from_type).unwrap_or(false)
+                            && self
+                                .lookup_type_info(&pat_name)
                                 .map_or(false, |ti| ti.ty.contains("Sender"))
                     } else {
                         false
@@ -502,7 +526,7 @@ impl OwnershipVisitor {
                             );
                             *init.expr = new_expr;
 
-            // Track the variables
+                            // Track the variables
                             let tx_id = self.gen_id();
                             let rx_id = self.gen_id();
                             self.var_ids.insert(tx_name.clone(), tx_id);
@@ -552,12 +576,21 @@ impl OwnershipVisitor {
     }
 
     /// Infer self borrow type from method name using semantic lookup
-    fn infer_self_borrow_type(method_name: &str, receiver_name: Option<&str>, line: u32, column: u32) -> SelfBorrowType {
+    fn infer_self_borrow_type(
+        method_name: &str,
+        receiver_name: Option<&str>,
+        line: u32,
+        column: u32,
+    ) -> SelfBorrowType {
         // Semantic lookup from analyzer data
         if let Some(var_name) = receiver_name {
             if let Some(type_info) = crate::type_info::lookup_by_name(var_name) {
                 // Find method call by name
-                if let Some(method_call) = type_info.method_calls.iter().find(|mc| mc.method == method_name) {
+                if let Some(method_call) = type_info
+                    .method_calls
+                    .iter()
+                    .find(|mc| mc.method == method_name)
+                {
                     if let Some(ref self_borrow) = method_call.self_borrow {
                         return match self_borrow.as_str() {
                             "immutable" => SelfBorrowType::Immutable,
@@ -569,7 +602,7 @@ impl OwnershipVisitor {
                 }
             }
         }
-        
+
         // Fallback: check top-level method_borrows map by line/column
         if let Some(mb) = crate::type_info::lookup_method_borrow(line, column) {
             return match mb.borrow_kind.as_str() {
@@ -612,27 +645,29 @@ impl OwnershipVisitor {
         }
 
         let method_name = method_call.method.to_string();
-        
+
         // Skip wrapping for methods that return guards/borrows - wrapping creates
         // temporaries that cause lifetime issues (e.g., if let Ok(g) = mutex.try_lock())
         let receiver_name_for_guard = Self::extract_receiver_name(&method_call.receiver);
         let guard_semantic_op = receiver_name_for_guard.as_ref().and_then(|name| {
             let type_info = crate::type_info::lookup_by_name(name)?;
-            type_info.method_calls.iter()
+            type_info
+                .method_calls
+                .iter()
                 .find(|mc| mc.method == method_name)
                 .and_then(|mc| mc.operation.as_deref())
         });
         let is_guard_method = matches!(
             guard_semantic_op,
             Some("std::sync::poison::mutex::lock")
-            | Some("std::sync::poison::mutex::try_lock")
-            | Some("std::sync::poison::rwlock::read")
-            | Some("std::sync::poison::rwlock::try_read")
-            | Some("std::sync::poison::rwlock::write")
-            | Some("std::sync::poison::rwlock::try_write")
-            | Some("core::cell::borrow")
-            | Some("core::cell::borrow_mut")
-            | Some("core::cell::get_mut")
+                | Some("std::sync::poison::mutex::try_lock")
+                | Some("std::sync::poison::rwlock::read")
+                | Some("std::sync::poison::rwlock::try_read")
+                | Some("std::sync::poison::rwlock::write")
+                | Some("std::sync::poison::rwlock::try_write")
+                | Some("core::cell::borrow")
+                | Some("core::cell::borrow_mut")
+                | Some("core::cell::get_mut")
         );
         if is_guard_method {
             self.visit_expr_mut(&mut method_call.receiver);
@@ -641,10 +676,15 @@ impl OwnershipVisitor {
             }
             return;
         }
-        
+
         // Extract receiver name for semantic lookup
         let receiver_name = Self::extract_receiver_name(&method_call.receiver);
-        let borrow_type = Self::infer_self_borrow_type(&method_name, receiver_name.as_deref(), method_call.method.span().start().line as u32, method_call.method.span().start().column as u32);
+        let borrow_type = Self::infer_self_borrow_type(
+            &method_name,
+            receiver_name.as_deref(),
+            method_call.method.span().start().line as u32,
+            method_call.method.span().start().column as u32,
+        );
 
         // For consuming methods, just visit normally (move tracking happens at assignment level)
         if borrow_type == SelfBorrowType::Consuming {
@@ -678,7 +718,8 @@ impl OwnershipVisitor {
             let track_stmt: syn::Stmt = syn::parse_quote! {
                 borrowscope_runtime::track_method_call(0, #rname, #location, #borrow_kind, #method);
             };
-            self.pending_inserts.push((self.current_stmt_index, track_stmt));
+            self.pending_inserts
+                .push((self.current_stmt_index, track_stmt));
         }
 
         // Visit arguments
@@ -776,24 +817,30 @@ impl OwnershipVisitor {
     fn transform_closure(&mut self, expr: &mut Expr, closure: &ExprClosure) {
         let closure_id = self.gen_id();
         let location = Self::location_tokens(closure.or1_token.span);
-        
+
         // Determine capture mode from analyzer data
         let binding_name = self.current_let_binding.clone();
-        let semantic_captures = binding_name.as_ref()
+        let semantic_captures = binding_name
+            .as_ref()
             .and_then(|name| self.lookup_type_info(name))
             .filter(|ti| !ti.closure_captures.is_empty())
             .map(|ti| ti.closure_captures.clone());
 
         let capture_mode = if let Some(ref caps) = semantic_captures {
-            if caps.iter().any(|c| c.capture_kind == "move") { "move" } else { "ref" }
+            if caps.iter().any(|c| c.capture_kind == "move") {
+                "move"
+            } else {
+                "ref"
+            }
         } else if closure.capture.is_some() {
             "move"
         } else {
             "ref"
         };
-        
+
         // Build capture tracking statements - semantic only
-        let capture_stmts: Vec<proc_macro2::TokenStream> = if let Some(ref caps) = semantic_captures {
+        let capture_stmts: Vec<proc_macro2::TokenStream> = if let Some(ref caps) = semantic_captures
+        {
             caps.iter().map(|cap| {
                 let var = &cap.name;
                 let kind = match cap.capture_kind.as_str() {
@@ -809,13 +856,13 @@ impl OwnershipVisitor {
             // No analyzer data for closure captures
             vec![]
         };
-        
+
         // Clone the closure for transformation
         let mut new_closure = closure.clone();
-        
+
         // Visit the closure body to transform nested expressions
         self.visit_expr_mut(&mut new_closure.body);
-        
+
         // Wrap the closure with tracking
         // Enrich with fn_trait from analyzer closure_traits data
         let line = closure.or1_token.span.start().line as u32;
@@ -866,7 +913,7 @@ impl OwnershipVisitor {
             }
 
             let var_name = Self::extract_pattern_name(&local.pat);
-            
+
             // Set current let binding for closure capture lookup
             self.current_let_binding = Some(var_name.clone());
 
@@ -875,7 +922,7 @@ impl OwnershipVisitor {
                 visit_mut::visit_local_mut(self, local);
                 return;
             }
-            
+
             let var_id = self.gen_id();
             let location = Self::location_tokens(local.pat.span());
 
@@ -885,11 +932,27 @@ impl OwnershipVisitor {
             }
             // Guard variables (MutexGuard, RefMut, etc.) should not have receivers wrapped
             if let Some(ti) = self.peek_type_info(&var_name) {
-                if ti.is_guard || matches!(ti.initializer_kind.as_deref(), 
-                    Some("mutex_guard") | Some("mutex_lock") | Some("mutex_try_lock") | Some("mutex_guard_unwrap") |
-                    Some("rwlock_read_guard") | Some("rwlock_read") | Some("rwlock_try_read") | Some("rwlock_read_guard_unwrap") |
-                    Some("rwlock_write_guard") | Some("rwlock_write") | Some("rwlock_try_write") | Some("rwlock_write_guard_unwrap") |
-                    Some("refcell_borrow") | Some("refcell_borrow_mut") | Some("ref_guard") | Some("refmut_guard")) {
+                if ti.is_guard
+                    || matches!(
+                        ti.initializer_kind.as_deref(),
+                        Some("mutex_guard")
+                            | Some("mutex_lock")
+                            | Some("mutex_try_lock")
+                            | Some("mutex_guard_unwrap")
+                            | Some("rwlock_read_guard")
+                            | Some("rwlock_read")
+                            | Some("rwlock_try_read")
+                            | Some("rwlock_read_guard_unwrap")
+                            | Some("rwlock_write_guard")
+                            | Some("rwlock_write")
+                            | Some("rwlock_try_write")
+                            | Some("rwlock_write_guard_unwrap")
+                            | Some("refcell_borrow")
+                            | Some("refcell_borrow_mut")
+                            | Some("ref_guard")
+                            | Some("refmut_guard")
+                    )
+                {
                     self.ref_vars.insert(var_name.clone());
                 }
             }
@@ -910,7 +973,12 @@ impl OwnershipVisitor {
                 if let Some(type_info) = self.lookup_type_info(&var_name) {
                     if let Some(ref init_kind) = type_info.initializer_kind {
                         if let Some(new_expr) = self.transform_by_initializer_kind(
-                            init_kind, &var_name, var_id, &location, &*original_expr, type_info
+                            init_kind,
+                            &var_name,
+                            var_id,
+                            &location,
+                            &*original_expr,
+                            type_info,
                         ) {
                             *init.expr = new_expr;
                             return;
@@ -921,18 +989,23 @@ impl OwnershipVisitor {
                 // Check if assigning from a Weak clone (let weak2 = weak.clone())
                 if let Expr::MethodCall(method_call) = original_expr.as_ref() {
                     let method_name = method_call.method.to_string();
-                    let local_semantic_op = Self::extract_receiver_name(&method_call.receiver).and_then(|name| {
-                        let type_info = crate::type_info::lookup_by_name(&name)?;
-                        type_info.method_calls.iter()
-                            .find(|mc| mc.method == method_name)
-                            .and_then(|mc| mc.operation.clone())
-                    });
+                    let local_semantic_op = Self::extract_receiver_name(&method_call.receiver)
+                        .and_then(|name| {
+                            let type_info = crate::type_info::lookup_by_name(&name)?;
+                            type_info
+                                .method_calls
+                                .iter()
+                                .find(|mc| mc.method == method_name)
+                                .and_then(|mc| mc.operation.clone())
+                        });
                     let is_weak_clone = matches!(
                         local_semantic_op.as_deref(),
                         Some("alloc::rc::clone") | Some("alloc::sync::clone")
                     );
                     if is_weak_clone {
-                        if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                        if let Some(receiver_name) =
+                            Self::extract_receiver_name(&method_call.receiver)
+                        {
                             if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 // This is a Weak clone - track the new variable as Weak too
                                 self.weak_vars.insert(var_name.clone(), weak_type.clone());
@@ -962,7 +1035,9 @@ impl OwnershipVisitor {
                         Some("alloc::rc::upgrade") | Some("alloc::sync::upgrade")
                     );
                     if is_weak_upgrade {
-                        if let Some(receiver_name) = Self::extract_receiver_name(&method_call.receiver) {
+                        if let Some(receiver_name) =
+                            Self::extract_receiver_name(&method_call.receiver)
+                        {
                             if let Some(weak_type) = self.weak_vars.get(&receiver_name).cloned() {
                                 let weak_id = format!("weak_{}", receiver_name);
                                 let receiver = &method_call.receiver;
@@ -989,11 +1064,12 @@ impl OwnershipVisitor {
                 if let Expr::Path(path_expr) = original_expr.as_ref() {
                     if let Some(source_ident) = path_expr.path.get_ident() {
                         let source_name = source_ident.to_string();
-                        
+
                         // Check if source has copy semantics (semantic detection)
-                        let is_copy = self.lookup_type_info(&source_name)
+                        let is_copy = self
+                            .lookup_type_info(&source_name)
                             .map_or(false, |ti| ti.copy_semantics);
-                        
+
                         if is_copy {
                             // It's a copy, not a move - use track_new
                             if self.config.track_new {
@@ -1043,7 +1119,8 @@ impl OwnershipVisitor {
                         let track_stmt: syn::Stmt = syn::parse_quote! {
                             borrowscope_runtime::track_new(#var_name, &#var_name);
                         };
-                        self.pending_inserts.push((self.current_stmt_index + 1, track_stmt));
+                        self.pending_inserts
+                            .push((self.current_stmt_index + 1, track_stmt));
                     } else {
                         // Safe to embed as function argument
                         let transformed_expr = init.expr.clone();
@@ -1166,9 +1243,11 @@ impl OwnershipVisitor {
             "weak_new" => {
                 // Track as weak variable
                 if type_info.is_arc {
-                    self.weak_vars.insert(var_name.to_string(), "weak_arc".to_string());
+                    self.weak_vars
+                        .insert(var_name.to_string(), "weak_arc".to_string());
                 } else {
-                    self.weak_vars.insert(var_name.to_string(), "weak_rc".to_string());
+                    self.weak_vars
+                        .insert(var_name.to_string(), "weak_rc".to_string());
                 }
                 Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_weak_new(#var_name, "", #location, #original_expr)
@@ -1176,16 +1255,12 @@ impl OwnershipVisitor {
             }
 
             // OnceCell/OnceLock
-            "once_cell_new" => {
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
-                ))
-            }
-            "once_lock_new" => {
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-                ))
-            }
+            "once_cell_new" => Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
+            )),
+            "once_lock_new" => Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+            )),
 
             // MaybeUninit
             "maybe_uninit_new" | "maybe_uninit" => {
@@ -1203,9 +1278,11 @@ impl OwnershipVisitor {
             }
 
             // Pin
-            "pin_new" | "pin_as_ref" | "pin_as_mut" => Some(safe_parse_quote!((*original_expr).clone(),
-                borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
-            )),
+            "pin_new" | "pin_as_ref" | "pin_as_mut" => {
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::track_pin_new(#var_name, #location, #original_expr)
+                ))
+            }
 
             // Channels
             "channel_new" | "sync_channel_new" => {
@@ -1216,25 +1293,36 @@ impl OwnershipVisitor {
             // Guards - mark for drop tracking, let track_new/transform_unwrap handle the rest
             "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "result_try_lock"
             | "mutex_guard_unwrap" | "mutex_guard_mapped" => {
-                self.lock_guard_vars.insert(var_name.to_string(), "Mutex".to_string());
+                self.lock_guard_vars
+                    .insert(var_name.to_string(), "Mutex".to_string());
                 None
             }
-            "rwlock_read_guard" | "rwlock_read" | "rwlock_try_read" | "result_try_read"
-            | "rwlock_read_guard_unwrap" | "rwlock_read_guard_mapped" => {
-                self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
+            "rwlock_read_guard"
+            | "rwlock_read"
+            | "rwlock_try_read"
+            | "result_try_read"
+            | "rwlock_read_guard_unwrap"
+            | "rwlock_read_guard_mapped" => {
+                self.lock_guard_vars
+                    .insert(var_name.to_string(), "RwLock".to_string());
                 None
             }
-            "rwlock_write_guard" | "rwlock_write" | "rwlock_try_write" | "result_try_write"
-            | "rwlock_write_guard_unwrap" | "rwlock_write_guard_mapped" => {
-                self.lock_guard_vars.insert(var_name.to_string(), "RwLock".to_string());
+            "rwlock_write_guard"
+            | "rwlock_write"
+            | "rwlock_try_write"
+            | "result_try_write"
+            | "rwlock_write_guard_unwrap"
+            | "rwlock_write_guard_mapped" => {
+                self.lock_guard_vars
+                    .insert(var_name.to_string(), "RwLock".to_string());
                 None
             }
             "refcell_borrow" | "ref_guard" => None, // Handled by visit_expr_mut RefCell borrow dispatch
             "refcell_borrow_mut" | "refmut_guard" => None, // Handled by visit_expr_mut RefCell borrow_mut dispatch
 
             // Collections - use generic tracking
-            "vec_new" | "vec_macro" | "string_new" | "hashmap_new" | "hashset_new" 
-            | "btreemap_new" | "btreeset_new" | "vecdeque_new" | "linkedlist_new" 
+            "vec_new" | "vec_macro" | "string_new" | "hashmap_new" | "hashset_new"
+            | "btreemap_new" | "btreeset_new" | "vecdeque_new" | "linkedlist_new"
             | "binaryheap_new" => Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
             )),
@@ -1245,7 +1333,7 @@ impl OwnershipVisitor {
                 Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_atomic_new(#var_name, #atomic_type, #location, #original_expr)
                 ))
-            },
+            }
 
             // Time types
             "duration_new" => Some(safe_parse_quote!((*original_expr).clone(),
@@ -1256,9 +1344,11 @@ impl OwnershipVisitor {
             )),
 
             // User-defined types - use generic tracking
-            "user_struct" | "user_enum" | "user_union" => Some(safe_parse_quote!((*original_expr).clone(),
-                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
-            )),
+            "user_struct" | "user_enum" | "user_union" => {
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                ))
+            }
 
             // Raw pointers (e.g., Box::into_raw)
             "raw_ptr" | "raw_ptr_mut" | "raw_ptr_shared" => {
@@ -1390,7 +1480,10 @@ impl OwnershipVisitor {
                 if let Some(bs) = spans.iter().find(|b| b.start_line == ref_line) {
                     let kind = &bs.kind;
                     let start_loc = format!("{}:{}", bs.start_line, bs.start_column);
-                    let end_loc = bs.end_line.map(|el| format!("{}:{}", el, bs.end_column.unwrap_or(0))).unwrap_or_default();
+                    let end_loc = bs
+                        .end_line
+                        .map(|el| format!("{}:{}", el, bs.end_column.unwrap_or(0)))
+                        .unwrap_or_default();
                     let inner = expr.clone();
                     *expr = syn::parse_quote! {
                         {
@@ -1407,10 +1500,10 @@ impl OwnershipVisitor {
     fn transform_unsafe_block(&mut self, unsafe_expr: &mut ExprUnsafe) {
         let block_id = self.gen_id();
         let location = Self::location_tokens(unsafe_expr.unsafe_token.span);
-        
+
         // Visit the inner block first to transform any expressions inside
         self.visit_block_mut(&mut unsafe_expr.block);
-        
+
         let inner_block = &unsafe_expr.block;
 
         // Enrich with unsafe_operations data from analyzer
@@ -1471,9 +1564,15 @@ impl OwnershipVisitor {
     fn transform_call_expr(&mut self, expr: &mut Expr, call_expr: &ExprCall) {
         if let Expr::Path(path) = call_expr.func.as_ref() {
             // Check for transmute - must be detected by analyzer
-            let fn_name = path.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default();
-            let is_transmute = fn_name == "transmute" && crate::type_info::has_transmute_expression().unwrap_or(false);
-            
+            let fn_name = path
+                .path
+                .segments
+                .last()
+                .map(|s| s.ident.to_string())
+                .unwrap_or_default();
+            let is_transmute = fn_name == "transmute"
+                && crate::type_info::has_transmute_expression().unwrap_or(false);
+
             if is_transmute {
                 let span = path
                     .path
@@ -1692,7 +1791,8 @@ impl OwnershipVisitor {
         let track_stmt: syn::Stmt = syn::parse_quote! {
             borrowscope_runtime::track_try(#try_id, #location);
         };
-        self.pending_inserts.push((self.current_stmt_index, track_stmt));
+        self.pending_inserts
+            .push((self.current_stmt_index, track_stmt));
     }
 
     /// Transform clone method call
@@ -1711,7 +1811,12 @@ impl OwnershipVisitor {
     }
 
     /// Transform lock method calls (Mutex/RwLock)
-    fn transform_lock(&mut self, expr: &mut Expr, method_call: &syn::ExprMethodCall, lock_type: &str) {
+    fn transform_lock(
+        &mut self,
+        expr: &mut Expr,
+        method_call: &syn::ExprMethodCall,
+        lock_type: &str,
+    ) {
         let lock_id = self.gen_id();
         let guard_id = format!("guard_{}", lock_id);
         let location = Self::location_tokens(method_call.method.span());
@@ -1742,19 +1847,25 @@ impl OwnershipVisitor {
         // Check if receiver is a lock method call (e.g., mutex.lock().unwrap())
         if let Expr::MethodCall(inner_method) = receiver.as_ref() {
             let inner_method_name = inner_method.method.to_string();
-            let inner_semantic_op = Self::extract_receiver_name(&inner_method.receiver).and_then(|name| {
-                let type_info = crate::type_info::lookup_by_name(&name)?;
-                type_info.method_calls.iter()
-                    .find(|mc| mc.method == inner_method_name)
-                    .and_then(|mc| mc.operation.clone())
-            });
+            let inner_semantic_op =
+                Self::extract_receiver_name(&inner_method.receiver).and_then(|name| {
+                    let type_info = crate::type_info::lookup_by_name(&name)?;
+                    type_info
+                        .method_calls
+                        .iter()
+                        .find(|mc| mc.method == inner_method_name)
+                        .and_then(|mc| mc.operation.clone())
+                });
             let lock_type = match inner_semantic_op.as_deref() {
-                Some("std::sync::poison::mutex::lock") | Some("std::sync::poison::mutex::try_lock") => Some("mutex"),
-                Some("std::sync::poison::rwlock::read") | Some("std::sync::poison::rwlock::try_read") => Some("rwlock_read"),
-                Some("std::sync::poison::rwlock::write") | Some("std::sync::poison::rwlock::try_write") => Some("rwlock_write"),
+                Some("std::sync::poison::mutex::lock")
+                | Some("std::sync::poison::mutex::try_lock") => Some("mutex"),
+                Some("std::sync::poison::rwlock::read")
+                | Some("std::sync::poison::rwlock::try_read") => Some("rwlock_read"),
+                Some("std::sync::poison::rwlock::write")
+                | Some("std::sync::poison::rwlock::try_write") => Some("rwlock_write"),
                 _ => None,
             };
-            
+
             if let Some(lock_type) = lock_type {
                 let lock_id = self.gen_id();
                 let guard_id = format!("guard_{}", lock_id);
@@ -1763,7 +1874,7 @@ impl OwnershipVisitor {
                 let lock_id_str = format!("lock_{}", lock_var_name);
                 let inner_receiver = &inner_method.receiver;
                 let inner_method_ident = &inner_method.method;
-                
+
                 *expr = safe_parse_quote!(Expr::MethodCall(method_call.clone()),
                     {
                         borrowscope_runtime::track_lock_guard_acquire(#guard_id, #lock_id_str, #lock_type, #location);
@@ -1776,12 +1887,16 @@ impl OwnershipVisitor {
             }
         }
 
-        let has_complex_args = method_call.args.iter().any(|arg| matches!(arg, Expr::Closure(_) | Expr::Block(_) | Expr::Unsafe(_)));
+        let has_complex_args = method_call
+            .args
+            .iter()
+            .any(|arg| matches!(arg, Expr::Closure(_) | Expr::Block(_) | Expr::Unsafe(_)));
         if has_complex_args {
             let track_stmt: syn::Stmt = syn::parse_quote! {
                 borrowscope_runtime::track_unwrap(#unwrap_id, #method_name, #var_name, #location);
             };
-            self.pending_inserts.push((self.current_stmt_index, track_stmt));
+            self.pending_inserts
+                .push((self.current_stmt_index, track_stmt));
         } else {
             *expr = safe_parse_quote!(Expr::MethodCall(method_call.clone()),
                 {
@@ -1827,7 +1942,9 @@ impl OwnershipVisitor {
             // Look up match_bindings from analyzer for this arm
             let arm_line = pat.span().start().line as u32;
             let mb = crate::type_info::lookup_match_binding(arm_line);
-            let binding_names: Vec<String> = mb.map_or(vec![], |m| m.bindings.iter().map(|b| b.name.clone()).collect());
+            let binding_names: Vec<String> = mb.map_or(vec![], |m| {
+                m.bindings.iter().map(|b| b.name.clone()).collect()
+            });
 
             let new_body: Expr = if binding_names.is_empty() {
                 syn::parse_quote! {
@@ -1870,11 +1987,11 @@ impl OwnershipVisitor {
     fn transform_if(&mut self, expr: &mut Expr, if_expr: &syn::ExprIf) {
         let branch_id = self.gen_id();
         let location = Self::location_tokens(if_expr.if_token.span);
-        
+
         // Visit the condition first to transform any method calls (like weak.upgrade())
         let mut cond = if_expr.cond.clone();
         self.visit_expr_mut(&mut cond);
-        
+
         let then_branch = &if_expr.then_branch;
 
         let new_then: Block = syn::parse_quote! {
@@ -2055,7 +2172,13 @@ impl OwnershipVisitor {
     fn transform_struct(&mut self, expr: &mut Expr, struct_expr: &syn::ExprStruct) {
         let struct_id = self.gen_id();
         let location = Self::location_tokens(struct_expr.brace_token.span.open());
-        let type_name = quote::quote!(#struct_expr).to_string().split('{').next().unwrap_or("").trim().to_string();
+        let type_name = quote::quote!(#struct_expr)
+            .to_string()
+            .split('{')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let original = struct_expr.clone();
 
         // Check if this is an enum variant construction
@@ -2074,13 +2197,18 @@ impl OwnershipVisitor {
         }
 
         // Enrich with record_field_exprs data
-        let field_types: Vec<String> = struct_expr.fields.iter().map(|f| {
-            let fl = f.span().start().line as u32;
-            let fc = f.span().start().column as u32;
-            crate::type_info::lookup_record_field_expr(fl, fc)
-                .map(|r| format!("{}:{}", r.field_name, r.field_type))
-                .unwrap_or_default()
-        }).filter(|s| !s.is_empty()).collect();
+        let field_types: Vec<String> = struct_expr
+            .fields
+            .iter()
+            .map(|f| {
+                let fl = f.span().start().line as u32;
+                let fc = f.span().start().column as u32;
+                crate::type_info::lookup_record_field_expr(fl, fc)
+                    .map(|r| format!("{}:{}", r.field_name, r.field_type))
+                    .unwrap_or_default()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
 
         if field_types.is_empty() {
             *expr = syn::parse_quote! {
@@ -2197,12 +2325,13 @@ impl VisitMut for OwnershipVisitor {
             let original_stmts = std::mem::take(&mut func.block.stmts);
 
             // Check if last statement is an expression (return value)
-            let (body_stmts, return_expr) = if let Some(Stmt::Expr(expr, None)) = original_stmts.last() {
-                let body: Vec<_> = original_stmts[..original_stmts.len() - 1].to_vec();
-                (body, Some(expr.clone()))
-            } else {
-                (original_stmts, None)
-            };
+            let (body_stmts, return_expr) =
+                if let Some(Stmt::Expr(expr, None)) = original_stmts.last() {
+                    let body: Vec<_> = original_stmts[..original_stmts.len() - 1].to_vec();
+                    (body, Some(expr.clone()))
+                } else {
+                    (original_stmts, None)
+                };
 
             let enter_stmt: Stmt = syn::parse_quote! {
                 borrowscope_runtime::track_fn_enter(#fn_id, #fn_name_lit, #location);
@@ -2249,7 +2378,12 @@ impl VisitMut for OwnershipVisitor {
         self.pending_inserts.clear();
 
         // Visit all statements in the block (start from 1 if we inserted region_enter)
-        let start = if self.config.track_control_flow && self.scope_depth > 1 && !self.in_nested_expr { 1 } else { 0 };
+        let start =
+            if self.config.track_control_flow && self.scope_depth > 1 && !self.in_nested_expr {
+                1
+            } else {
+                0
+            };
         for (idx, stmt) in block.stmts.iter_mut().enumerate().skip(start) {
             self.current_stmt_index = idx;
             self.visit_stmt_mut(stmt);
@@ -2273,7 +2407,7 @@ impl VisitMut for OwnershipVisitor {
                             .map_or(true, |ti| !ti.copy_semantics && !ti.is_primitive)
                     })
                     .collect();
-                
+
                 if vars_to_drop.is_empty() {
                     // Emit scope exit even when no drops
                     if self.config.track_control_flow && self.scope_depth > 1 {
@@ -2285,7 +2419,7 @@ impl VisitMut for OwnershipVisitor {
                     self.scope_depth -= 1;
                     return;
                 }
-                
+
                 // Check if the last statement is an expression without semicolon (implicit return)
                 let has_trailing_expr = block
                     .stmts
@@ -2373,7 +2507,9 @@ impl VisitMut for OwnershipVisitor {
             if self.current_let_binding.is_some() {
                 // Check if this closure is the direct init expression by verifying
                 // the binding name matches a closure type in analyzer data
-                let is_direct_binding = self.current_let_binding.as_ref()
+                let is_direct_binding = self
+                    .current_let_binding
+                    .as_ref()
                     .and_then(|name| self.peek_type_info(name))
                     .map_or(false, |ti| ti.is_closure);
                 if is_direct_binding {
@@ -2501,7 +2637,7 @@ impl VisitMut for OwnershipVisitor {
         if let Expr::MethodCall(method_call) = expr {
             let method_name = method_call.method.to_string();
             let receiver_name = Self::extract_receiver_name(&method_call.receiver);
-            
+
             // Semantic operation lookup: resolve the canonical operation from analyzer data
             let mc_info = receiver_name.as_ref().and_then(|name| {
                 let type_info = if let Some(ref fn_name) = self.current_function {
@@ -2509,7 +2645,9 @@ impl VisitMut for OwnershipVisitor {
                 } else {
                     crate::type_info::lookup_by_name(name)
                 }?;
-                type_info.method_calls.iter()
+                type_info
+                    .method_calls
+                    .iter()
                     .find(|mc| mc.method == method_name)
             });
             let semantic_op = mc_info.and_then(|mc| mc.operation.clone());
@@ -2523,11 +2661,12 @@ impl VisitMut for OwnershipVisitor {
                         let track_stmt: syn::Stmt = syn::parse_quote! {
                             borrowscope_runtime::track_unsafe_fn_call(#fn_name, #location);
                         };
-                        self.pending_inserts.push((self.current_stmt_index, track_stmt));
+                        self.pending_inserts
+                            .push((self.current_stmt_index, track_stmt));
                     }
                 }
             }
-            
+
             // Check for Weak::clone first (before generic clone handling)
             if self.config.track_smart_pointers && method_name == "clone" {
                 if let Some(ref rname) = receiver_name {
@@ -2555,13 +2694,15 @@ impl VisitMut for OwnershipVisitor {
                     }
                 }
             }
-            
+
             // Check for generic clone
             // Semantic: verify Clone::clone trait via is_trait_method/trait_name
             if self.config.track_methods && method_name == "clone" {
                 let is_clone_trait = receiver_name.as_ref().and_then(|name| {
                     let type_info = crate::type_info::lookup_by_name(name)?;
-                    type_info.method_calls.iter()
+                    type_info
+                        .method_calls
+                        .iter()
                         .find(|mc| mc.method == "clone")
                         .and_then(|mc| mc.is_trait_method)
                 });
@@ -2581,13 +2722,13 @@ impl VisitMut for OwnershipVisitor {
                 let is_lock_op = matches!(
                     semantic_op.as_deref(),
                     Some("std::sync::poison::mutex::lock")
-                    | Some("std::sync::poison::mutex::try_lock")
-                    | Some("std::sync::poison::rwlock::read")
-                    | Some("std::sync::poison::rwlock::try_read")
-                    | Some("std::sync::poison::rwlock::write")
-                    | Some("std::sync::poison::rwlock::try_write")
+                        | Some("std::sync::poison::mutex::try_lock")
+                        | Some("std::sync::poison::rwlock::read")
+                        | Some("std::sync::poison::rwlock::try_read")
+                        | Some("std::sync::poison::rwlock::write")
+                        | Some("std::sync::poison::rwlock::try_write")
                 );
-                
+
                 if is_lock_op {
                     match method_name.as_str() {
                         "lock" | "try_lock" => {
@@ -2614,8 +2755,9 @@ impl VisitMut for OwnershipVisitor {
             if self.config.track_methods {
                 match method_name.as_str() {
                     "unwrap" | "expect" | "unwrap_or" | "unwrap_or_else" | "unwrap_or_default" => {
-                        let is_option_result = semantic_op.as_deref()
-                            .map_or(false, |op| op.starts_with("core::option::") || op.starts_with("core::result::"));
+                        let is_option_result = semantic_op.as_deref().map_or(false, |op| {
+                            op.starts_with("core::option::") || op.starts_with("core::result::")
+                        });
                         if is_option_result {
                             let mc = method_call.clone();
                             self.transform_unwrap(expr, &mc);
@@ -2653,7 +2795,8 @@ impl VisitMut for OwnershipVisitor {
                         Some("alloc::rc::upgrade") | Some("alloc::sync::upgrade")
                     );
                     if is_weak_upgrade {
-                        if let Some(weak_type) = self.weak_vars.get(receiver_name.as_str()).cloned() {
+                        if let Some(weak_type) = self.weak_vars.get(receiver_name.as_str()).cloned()
+                        {
                             let weak_id = format!("weak_{}", receiver_name);
                             *expr = match &*weak_type {
                                 "weak_rc" => syn::parse_quote! {
@@ -2673,8 +2816,10 @@ impl VisitMut for OwnershipVisitor {
                     let is_join = matches!(
                         semantic_op.as_deref(),
                         Some("std::thread::join_handle::join") | Some("std::thread::join")
-                    ) || (method_name == "join" && self.lookup_type_info(&receiver_name)
-                        .map_or(false, |ti| ti.is_join_handle));
+                    ) || (method_name == "join"
+                        && self
+                            .lookup_type_info(&receiver_name)
+                            .map_or(false, |ti| ti.is_join_handle));
                     if is_join && method_name == "join" {
                         let handle_id = format!("thread_{}", receiver_name);
                         *expr = syn::parse_quote! {
@@ -2722,7 +2867,7 @@ impl VisitMut for OwnershipVisitor {
                     }
                 }
             }
-            
+
             // Check for RefCell/Cell specific methods that need wrapping
             // Semantic: use operation to disambiguate "borrow" (RefCell vs Borrow trait),
             // "get" (Cell vs HashMap/Vec), "set" (Cell vs OnceCell)
@@ -2732,13 +2877,13 @@ impl VisitMut for OwnershipVisitor {
                     let borrow_id = format!("borrow_{}", self.gen_id());
                     let receiver_id = format!("refcell_{}", receiver_name);
                     let receiver = method_call.receiver.clone();
-                    
+
                     // RefCell::borrow - semantic only
                     let is_refcell_borrow = matches!(
                         semantic_op.as_deref(),
                         Some("core::cell::borrow") | Some("core::cell::borrow_mut")
                     );
-                    
+
                     match method_name.as_str() {
                         "borrow" if is_refcell_borrow => {
                             // Transform cell.borrow() -> track_refcell_borrow(id, cell_id, loc, cell.borrow())
@@ -2756,10 +2901,12 @@ impl VisitMut for OwnershipVisitor {
                         }
                         _ => {}
                     }
-                    
+
                     // Check for OnceCell/OnceLock methods - semantic only
-                    let is_once_cell = semantic_op.as_deref()
-                        .map_or(false, |op| op.starts_with("core::cell::once::") || op.starts_with("std::sync::once_lock::"));
+                    let is_once_cell = semantic_op.as_deref().map_or(false, |op| {
+                        op.starts_with("core::cell::once::")
+                            || op.starts_with("std::sync::once_lock::")
+                    });
                     if is_once_cell {
                         // Use method_name directly — already validated by canonical path prefix
                         let once_method = method_name.as_str();
@@ -2796,9 +2943,10 @@ impl VisitMut for OwnershipVisitor {
                             _ => {}
                         }
                     }
-                    
+
                     // Check for MaybeUninit methods — semantic only via operation path
-                    let is_maybe_uninit_op = semantic_op.as_deref()
+                    let is_maybe_uninit_op = semantic_op
+                        .as_deref()
                         .map_or(false, |op| op.starts_with("core::mem::maybe_uninit::"));
                     if is_maybe_uninit_op {
                         // Use method_name directly — already validated by canonical path prefix
@@ -2838,7 +2986,7 @@ impl VisitMut for OwnershipVisitor {
                             _ => {}
                         }
                     }
-                    
+
                     // Cell get/set methods
                     // Semantic: check operation to disambiguate "get" (Cell vs HashMap/Vec)
                     // and "set" (Cell vs OnceCell vs user types)
@@ -2876,7 +3024,7 @@ impl VisitMut for OwnershipVisitor {
                     }
                 }
             }
-            
+
             // Handle other method calls — emit track_method_call when analyzer provides type metadata
             self.transform_method_call(method_call);
             if self.config.track_methods {
@@ -2891,7 +3039,8 @@ impl VisitMut for OwnershipVisitor {
                             let track_stmt: syn::Stmt = syn::parse_quote! {
                                 borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, #recv_ty, #res_ty);
                             };
-                            self.pending_inserts.push((self.current_stmt_index, track_stmt));
+                            self.pending_inserts
+                                .push((self.current_stmt_index, track_stmt));
                         }
                     }
                 }
@@ -2907,8 +3056,11 @@ impl VisitMut for OwnershipVisitor {
                     if let Expr::Path(path) = unary.expr.as_ref() {
                         if let Some(ident) = path.path.get_ident() {
                             let vn = ident.to_string();
-                            let has_deref_adj = self.peek_type_info(&vn)
-                                .map_or(false, |ti| ti.adjustments.iter().any(|a| a.kind == "deref" || a.kind == "deref_mut"));
+                            let has_deref_adj = self.peek_type_info(&vn).map_or(false, |ti| {
+                                ti.adjustments
+                                    .iter()
+                                    .any(|a| a.kind == "deref" || a.kind == "deref_mut")
+                            });
                             if has_deref_adj {
                                 let u = unary.clone();
                                 self.transform_deref(expr, &u);
@@ -2952,13 +3104,13 @@ impl VisitMut for OwnershipVisitor {
                     let location = Self::location_tokens(span);
                     let ty = cast_expr.ty.clone();
                     let to_type_str = quote::quote!(#ty).to_string();
-                    
+
                     // First, recursively visit the inner expression
                     self.visit_expr_mut(&mut cast_expr.expr);
-                    
+
                     // Get the transformed inner expression
                     let transformed_inner = cast_expr.expr.clone();
-                    
+
                     // If the inner expression is a block (from a previous cast transformation),
                     // we need to wrap it in parentheses for the cast to be valid
                     let cast_expr_final: Expr = if matches!(*transformed_inner, Expr::Block(_)) {
@@ -2966,14 +3118,14 @@ impl VisitMut for OwnershipVisitor {
                     } else {
                         syn::parse_quote! { #transformed_inner as #ty }
                     };
-                    
+
                     *expr = syn::parse_quote! {
                         {
                             borrowscope_runtime::track_type_cast(#cast_id, #to_type_str, #location);
                             #cast_expr_final
                         }
                     };
-                    
+
                     // Don't visit nested expressions again - we've already handled them
                     return;
                 }
@@ -3033,12 +3185,18 @@ impl VisitMut for OwnershipVisitor {
                                 let track_stmt: syn::Stmt = syn::parse_quote! {
                                     borrowscope_runtime::track_call(#call_id, #fn_label, #location);
                                 };
-                                self.pending_inserts.push((self.current_stmt_index, track_stmt));
+                                self.pending_inserts
+                                    .push((self.current_stmt_index, track_stmt));
                             }
                         }
                     }
                     // Enrich with function_calls data (return_category) from analyzer
-                    let span = path.path.segments.last().map(|s| s.ident.span()).unwrap_or_else(proc_macro2::Span::call_site);
+                    let span = path
+                        .path
+                        .segments
+                        .last()
+                        .map(|s| s.ident.span())
+                        .unwrap_or_else(proc_macro2::Span::call_site);
                     let line = span.start().line as u32;
                     let col = span.start().column as u32;
                     if let Some(fc) = crate::type_info::lookup_function_call(line, col) {
@@ -3049,7 +3207,8 @@ impl VisitMut for OwnershipVisitor {
                         let track_stmt: syn::Stmt = syn::parse_quote! {
                             borrowscope_runtime::track_method_call(#call_id, #fn_name, #location, "", #ret_cat);
                         };
-                        self.pending_inserts.push((self.current_stmt_index, track_stmt));
+                        self.pending_inserts
+                            .push((self.current_stmt_index, track_stmt));
                     }
                 }
             }
@@ -3201,8 +3360,14 @@ mod tests {
         let output = block.to_token_stream().to_string();
         // Outer block is depth 1 (function body), so no region events
         // Inner block is depth 2, should have region_enter and region_exit
-        assert!(output.contains("track_region_enter"), "should emit track_region_enter for inner block");
-        assert!(output.contains("track_region_exit"), "should emit track_region_exit for inner block");
+        assert!(
+            output.contains("track_region_enter"),
+            "should emit track_region_enter for inner block"
+        );
+        assert!(
+            output.contains("track_region_exit"),
+            "should emit track_region_exit for inner block"
+        );
         // Only 1 pair — the inner block (depth 2), not the outer (depth 1 = function body)
         assert_eq!(output.matches("track_region_enter").count(), 1);
         assert_eq!(output.matches("track_region_exit").count(), 1);
@@ -3551,7 +3716,10 @@ mod tests {
         visitor.visit_expr_mut(&mut expr);
 
         // track_try is emitted via pending_inserts (separate statement)
-        assert!(!visitor.pending_inserts.is_empty(), "track_try should be in pending_inserts");
+        assert!(
+            !visitor.pending_inserts.is_empty(),
+            "track_try should be in pending_inserts"
+        );
     }
 
     #[test]
@@ -3855,7 +4023,7 @@ mod tests {
         let mut config = TraceConfig::standard();
         config.filter_pattern = Some("data*".to_string());
         let visitor = OwnershipVisitor::with_config(config);
-        
+
         assert!(visitor.matches_filter("data"));
         assert!(visitor.matches_filter("data_input"));
         assert!(!visitor.matches_filter("temp"));
@@ -3867,7 +4035,7 @@ mod tests {
         let mut config = TraceConfig::standard();
         config.filter_pattern = Some("name:user*".to_string());
         let visitor = OwnershipVisitor::with_config(config);
-        
+
         assert!(visitor.matches_filter("user_id"));
         assert!(visitor.matches_filter("username"));
         assert!(!visitor.matches_filter("admin"));
@@ -3887,7 +4055,10 @@ mod tests {
 
         let output = stmt.to_token_stream().to_string();
         // Should NOT contain track_new because "temp" doesn't match "data*"
-        assert!(!output.contains("track_new"), "temp should not be tracked with filter 'data*'");
+        assert!(
+            !output.contains("track_new"),
+            "temp should not be tracked with filter 'data*'"
+        );
     }
 
     #[test]
@@ -3904,7 +4075,10 @@ mod tests {
 
         let output = stmt.to_token_stream().to_string();
         // Should contain track_new because "data_input" matches "data*"
-        assert!(output.contains("track_new"), "data_input should be tracked with filter 'data*'");
+        assert!(
+            output.contains("track_new"),
+            "data_input should be tracked with filter 'data*'"
+        );
     }
 
     #[test]
@@ -3921,7 +4095,10 @@ mod tests {
 
         let output = stmt.to_token_stream().to_string();
         // Should use sampled version
-        assert!(output.contains("track_new_with_id_sampled"), "Should use sampled tracking");
+        assert!(
+            output.contains("track_new_with_id_sampled"),
+            "Should use sampled tracking"
+        );
         assert!(output.contains("0.1"), "Should include sample rate");
     }
 }

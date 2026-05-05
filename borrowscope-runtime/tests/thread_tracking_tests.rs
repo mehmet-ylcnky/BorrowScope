@@ -40,11 +40,7 @@ fn test_thread_spawn_with_closure() {
     reset();
 
     let value = 10;
-    let handle = track_thread_spawn(
-        "compute",
-        "test:1",
-        thread::spawn(move || value * 2),
-    );
+    let handle = track_thread_spawn("compute", "test:1", thread::spawn(move || value * 2));
 
     let result = handle.join().unwrap();
     assert_eq!(result, 20);
@@ -165,9 +161,7 @@ fn test_thread_move_data() {
     let handle = track_thread_spawn(
         "processor",
         "test:1",
-        thread::spawn(move || {
-            data.iter().sum::<i32>()
-        }),
+        thread::spawn(move || data.iter().sum::<i32>()),
     );
 
     let result = track_thread_join("processor", "test:2", handle.join());
@@ -231,12 +225,7 @@ fn test_thread_parallel_computation() {
         .into_iter()
         .enumerate()
         .map(|(i, h)| {
-            track_thread_join(
-                &format!("worker_{}", i),
-                &format!("join:{}", i),
-                h.join(),
-            )
-            .unwrap()
+            track_thread_join(&format!("worker_{}", i), &format!("join:{}", i), h.join()).unwrap()
         })
         .collect();
 

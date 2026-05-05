@@ -54,14 +54,14 @@ fn test_deserialize_method_calls() {
     let var: VariableTypeInfo = serde_json::from_str(json).unwrap();
     assert_eq!(var.name, "test_var");
     assert_eq!(var.method_calls.len(), 2);
-    
+
     let push_call = &var.method_calls[0];
     assert_eq!(push_call.method, "push");
     assert_eq!(push_call.line, 10);
     assert_eq!(push_call.column, 5);
     assert_eq!(push_call.operation, Some("alloc::vec::push".to_string()));
     assert_eq!(push_call.self_borrow, Some("mutable".to_string()));
-    
+
     let len_call = &var.method_calls[1];
     assert_eq!(len_call.method, "len");
     assert_eq!(len_call.self_borrow, Some("immutable".to_string()));

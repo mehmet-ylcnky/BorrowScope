@@ -1,21 +1,21 @@
 //! Sampling functions for probabilistic tracking
 
-use std::sync::atomic::Ordering;
 use super::TRACKER;
+use std::sync::atomic::Ordering;
 
 pub fn should_sample(rate: f64) -> bool {
     use std::sync::atomic::AtomicU64;
-    
+
     // Use a simple but fast PRNG (xorshift64)
     static SEED: AtomicU64 = AtomicU64::new(0x853c49e6748fea9b);
-    
+
     // xorshift64 step
     let mut x = SEED.load(Ordering::Relaxed);
     x ^= x << 13;
     x ^= x >> 7;
     x ^= x << 17;
     SEED.store(x, Ordering::Relaxed);
-    
+
     // Convert to 0.0-1.0 range and compare
     (x as f64 / u64::MAX as f64) < rate
 }
@@ -147,4 +147,3 @@ pub fn track_move_sampled<T>(
     }
     value
 }
-

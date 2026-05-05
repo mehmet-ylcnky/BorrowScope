@@ -524,4 +524,3 @@ pub fn track_drop_with_id(
         tracker.record_drop_with_id(id, location);
     }
 }
-
