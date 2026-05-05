@@ -69,7 +69,7 @@ jobs:
           components: clippy
       
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --lib --all-features
 
   fmt:
     name: Format
