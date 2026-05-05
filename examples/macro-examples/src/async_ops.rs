@@ -95,7 +95,7 @@ async fn async_with_branch() {
     }
 }
 
-#[trace_borrow]
+
 async fn async_nested() {
     async fn inner() -> i32 {
         ready(42).await
@@ -105,7 +105,7 @@ async fn async_nested() {
     println!("Nested result: {}", result);
 }
 
-#[trace_borrow]
+
 fn async_block_in_sync() {
     let future = async {
         let x = 10;

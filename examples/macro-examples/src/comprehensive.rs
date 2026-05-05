@@ -30,7 +30,7 @@ impl Data {
     }
 }
 
-#[trace_borrow]
+
 fn ownership_patterns() {
     // Create owned data
     let mut data = Data::new(1, "original");
@@ -118,7 +118,7 @@ fn control_flow_patterns() {
     }
 }
 
-#[trace_borrow]
+
 fn error_handling_patterns() -> Result<String, &'static str> {
     fn step1() -> Result<i32, &'static str> {
         Ok(10)

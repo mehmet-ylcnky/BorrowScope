@@ -35,7 +35,7 @@ fn assume_init_read_demo() {
     println!("Read value: {}", value);
 }
 
-#[trace_borrow]
+
 fn assume_init_drop_demo() {
     let mut data: MaybeUninit<Vec<i32>> = MaybeUninit::new(vec![1, 2, 3]);
     

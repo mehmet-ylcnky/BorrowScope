@@ -167,7 +167,7 @@ fn closure_as_argument() {
     println!("Doubled: {:?}", doubled);
 }
 
-#[trace_borrow]
+
 fn closure_returning() {
     fn make_adder(x: i32) -> impl Fn(i32) -> i32 {
         move |y| x + y

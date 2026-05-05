@@ -71,7 +71,7 @@ fn transmute_reference() {
     }
 }
 
-#[trace_borrow]
+
 fn nested_unsafe() {
     unsafe {
         println!("Outer unsafe");
