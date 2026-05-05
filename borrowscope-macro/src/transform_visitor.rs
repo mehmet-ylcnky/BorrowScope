@@ -78,7 +78,7 @@ fn contains_block_closure(expr: &Expr) -> bool {
     match expr {
         Expr::Closure(c) => matches!(*c.body, Expr::Block(_)),
         Expr::Macro(_) => true, // Macros like vec![] expand to blocks
-        Expr::Block(_) | Expr::Unsafe(_) | Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) => true,
+        Expr::Block(_) | Expr::Unsafe(_) | Expr::If(_) | Expr::Match(_) | Expr::ForLoop(_) | Expr::While(_) | Expr::Loop(_) | Expr::Try(_) => true,
         Expr::MethodCall(mc) => mc.args.iter().any(|a| contains_block_closure(a))
             || contains_block_closure(&mc.receiver),
         Expr::Call(c) => c.args.iter().any(|a| contains_block_closure(a))
@@ -86,6 +86,7 @@ fn contains_block_closure(expr: &Expr) -> bool {
         Expr::Reference(r) => contains_block_closure(&r.expr),
         Expr::Unary(u) => contains_block_closure(&u.expr),
         Expr::Try(t) => contains_block_closure(&t.expr),
+        Expr::Binary(b) => contains_block_closure(&b.left) || contains_block_closure(&b.right),
         _ => false,
     }
 }
@@ -890,7 +891,11 @@ impl OwnershipVisitor {
             }
             // Guard variables (MutexGuard, RefMut, etc.) should not have receivers wrapped
             if let Some(ti) = self.peek_type_info(&var_name) {
-                if ti.is_guard {
+                if ti.is_guard || matches!(ti.initializer_kind.as_deref(), 
+                    Some("mutex_guard") | Some("mutex_lock") | Some("mutex_try_lock") | Some("mutex_guard_unwrap") |
+                    Some("rwlock_read_guard") | Some("rwlock_read") | Some("rwlock_try_read") | Some("rwlock_read_guard_unwrap") |
+                    Some("rwlock_write_guard") | Some("rwlock_write") | Some("rwlock_try_write") | Some("rwlock_write_guard_unwrap") |
+                    Some("refcell_borrow") | Some("refcell_borrow_mut") | Some("ref_guard") | Some("refmut_guard")) {
                     self.ref_vars.insert(var_name.clone());
                 }
             }
@@ -1689,14 +1694,11 @@ impl OwnershipVisitor {
     fn transform_try(&mut self, expr: &mut Expr, try_expr: &syn::ExprTry) {
         let try_id = self.gen_id();
         let location = Self::location_tokens(try_expr.question_token.span);
-        let inner = &try_expr.expr;
-
-        *expr = syn::parse_quote! {
-            {
-                borrowscope_runtime::track_try(#try_id, #location);
-                #inner?
-            }
+        // Emit track_try as a separate statement to avoid block-wrapping issues
+        let track_stmt: syn::Stmt = syn::parse_quote! {
+            borrowscope_runtime::track_try(#try_id, #location);
         };
+        self.pending_inserts.push((self.current_stmt_index, track_stmt));
     }
 
     /// Transform clone method call
@@ -3554,8 +3556,8 @@ mod tests {
 
         visitor.visit_expr_mut(&mut expr);
 
-        let output = expr.to_token_stream().to_string();
-        assert!(output.contains("track_try"));
+        // track_try is emitted via pending_inserts (separate statement)
+        assert!(!visitor.pending_inserts.is_empty(), "track_try should be in pending_inserts");
     }
 
     #[test]

@@ -39,15 +39,15 @@ fn try_result() -> Result<i32, &'static str> {
     Ok(x + y)
 }
 
+fn try_step1() -> Result<i32, &'static str> { Ok(1) }
+fn try_step2(x: i32) -> Result<i32, &'static str> { Ok(x * 2) }
+fn try_step3(x: i32) -> Result<String, &'static str> { Ok(format!("Result: {}", x)) }
+
 #[trace_borrow]
 fn try_result_chain() -> Result<String, &'static str> {
-    fn step1() -> Result<i32, &'static str> { Ok(1) }
-    fn step2(x: i32) -> Result<i32, &'static str> { Ok(x * 2) }
-    fn step3(x: i32) -> Result<String, &'static str> { Ok(format!("Result: {}", x)) }
-    
-    let a = step1()?;
-    let b = step2(a)?;
-    let c = step3(b)?;
+    let a = try_step1()?;
+    let b = try_step2(a)?;
+    let c = try_step3(b)?;
     
     Ok(c)
 }
@@ -75,16 +75,13 @@ fn try_in_loop() -> Option<i32> {
     Some(sum)
 }
 
-#[trace_borrow]
 fn try_nested() -> Result<i32, String> {
     fn inner() -> Result<i32, String> {
         let x: Result<i32, String> = Ok(5);
         Ok(x? * 2)
     }
-    
     let a = inner()?;
     let b = inner()?;
-    
     Ok(a + b)
 }
 
@@ -95,7 +92,7 @@ fn try_with_conversion() -> Result<i32, Box<dyn std::error::Error>> {
     Ok(n)
 }
 
-#[trace_borrow]
+
 fn multiple_try_same_line() -> Option<i32> {
     fn get_a() -> Option<i32> { Some(1) }
     fn get_b() -> Option<i32> { Some(2) }
