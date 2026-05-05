@@ -15,6 +15,7 @@ exclude = [
     "examples/type-coverage",
     "examples/macro-examples",
     "examples/battle-test",
+    "examples/battle-test-uuid",
 ]
 
 [workspace.package]
