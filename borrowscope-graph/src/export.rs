@@ -244,6 +244,7 @@ pub fn to_msgpack_file(graph: &OwnershipGraph, path: &Path) -> Result<(), Export
 /// Import graph from MessagePack bytes.
 pub fn from_msgpack(data: &[u8]) -> Result<OwnershipGraph, ImportError> {
     let mut graph: OwnershipGraph = rmp_serde::from_slice(data)?;
+    check_version(&graph)?;
     graph.rebuild_indices();
     Ok(graph)
 }
@@ -361,6 +362,7 @@ pub fn apply_delta(graph: &mut OwnershipGraph, delta: &GraphDelta) {
 /// Import graph from JSON string.
 pub fn from_json(json: &str) -> Result<OwnershipGraph, ImportError> {
     let mut graph: OwnershipGraph = serde_json::from_str(json)?;
+    check_version(&graph)?;
     graph.rebuild_indices();
     Ok(graph)
 }
@@ -369,6 +371,18 @@ pub fn from_json(json: &str) -> Result<OwnershipGraph, ImportError> {
 pub fn from_json_file(path: &Path) -> Result<OwnershipGraph, ImportError> {
     let json = std::fs::read_to_string(path)?;
     from_json(&json)
+}
+
+fn check_version(graph: &OwnershipGraph) -> Result<(), ImportError> {
+    let found = graph.version();
+    let expected = crate::graph::GRAPH_VERSION;
+    if found != expected {
+        return Err(ImportError::VersionMismatch {
+            expected: expected.to_string(),
+            found: found.to_string(),
+        });
+    }
+    Ok(())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

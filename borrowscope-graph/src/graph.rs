@@ -21,6 +21,9 @@ pub enum Direction {
 /// The complete ownership graph with adjacency indices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnershipGraph {
+    /// Schema version for forward compatibility.
+    #[serde(default = "default_version")]
+    version: String,
     nodes: Vec<Node>,
     edges: Vec<Edge>,
     /// Node -> outgoing edge IDs
@@ -36,10 +39,18 @@ pub struct OwnershipGraph {
     next_edge_id: usize,
 }
 
+/// Current graph schema version.
+pub const GRAPH_VERSION: &str = "1.0";
+
+fn default_version() -> String {
+    GRAPH_VERSION.to_string()
+}
+
 impl OwnershipGraph {
     /// Create an empty graph.
     pub fn new() -> Self {
         Self {
+            version: GRAPH_VERSION.to_string(),
             nodes: Vec::new(),
             edges: Vec::new(),
             outgoing: HashMap::new(),
@@ -48,6 +59,11 @@ impl OwnershipGraph {
             next_node_id: 0,
             next_edge_id: 0,
         }
+    }
+
+    /// Get the graph's schema version.
+    pub fn version(&self) -> &str {
+        &self.version
     }
 
     /// Number of nodes in the graph.

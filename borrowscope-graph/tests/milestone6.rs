@@ -253,6 +253,21 @@ fn test_import_malformed_json_error() {
 }
 
 #[test]
+fn test_import_version_mismatch() {
+    // Manually craft JSON with wrong version
+    let json = r#"{"version":"99.0","nodes":[],"edges":[],"next_node_id":0,"next_edge_id":0}"#;
+    let result = from_json(json);
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        ImportError::VersionMismatch { expected, found } => {
+            assert_eq!(expected, "1.0");
+            assert_eq!(found, "99.0");
+        }
+        other => panic!("Expected VersionMismatch, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_import_preserves_indices() {
     let g = sample_graph();
     let json = to_json(&g).unwrap();
