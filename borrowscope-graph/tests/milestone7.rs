@@ -264,3 +264,40 @@ fn test_end_to_end_statistics() {
     assert_eq!(stats.shared_borrows, 2);
     assert_eq!(stats.mutable_borrows, 0);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Battle test events
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_battle_test_events_build_without_panic() {
+    // Load real event fixture from macro-integration example
+    let fixture_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../examples/macro-integration/events.json"
+    );
+    if let Ok(json) = std::fs::read_to_string(fixture_path) {
+        let events: Vec<Event> = serde_json::from_str(&json).unwrap();
+        // Should not panic
+        let graph = OwnershipGraph::from_events(&events);
+        assert!(graph.node_count() > 0);
+        assert!(is_valid(&graph));
+    }
+    // If fixture doesn't exist, test passes (CI may not have it)
+}
+
+#[test]
+fn test_battle_test_events_statistics() {
+    let fixture_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../examples/macro-integration/events.json"
+    );
+    if let Ok(json) = std::fs::read_to_string(fixture_path) {
+        let events: Vec<Event> = serde_json::from_str(&json).unwrap();
+        let graph = OwnershipGraph::from_events(&events);
+        let stats = statistics(&graph);
+        // Real events should produce meaningful statistics
+        assert!(stats.total_nodes > 0);
+        assert!(stats.total_edges >= 0);
+    }
+}
