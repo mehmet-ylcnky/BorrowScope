@@ -4,6 +4,7 @@ members = [
     "borrowscope-runtime",
     "borrowscope-macro",
     "borrowscope-analyzer",
+    "borrowscope-graph",
 ]
 exclude = [
     "examples/ownership-patterns",

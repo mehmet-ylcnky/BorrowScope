@@ -21,13 +21,7 @@ Thumbs.db
 *.tmp
 
 # Course materials and progress tracking (not part of the project)
-/course/
-/docs/
-/progress/
-borrowscope-graph/
-borrowscope-cli/
-borrowscope-web/
-borrowscope-memory/
+borrowscope-graph/docs/*
 examples/*/target/
 
 # gh-pages content (published separately)
