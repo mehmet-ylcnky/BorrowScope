@@ -2,18 +2,30 @@
 
 The analyzer produces a JSON file containing type information for all variable bindings in the project. This file is written to `.borrowscope/type-info.json` relative to the project root, creating the directory if it does not exist.
 
-### Schema Version 2.5 (Current)
+### Schema Version 3.0 (Current)
 
-**New in v2.5:**
-- `method_calls` array on each variable
-- `expressions` top-level field for standalone function calls
-- Fully semantic operation paths (e.g., `core::cell::set` instead of `cell_set`)
+**New in v3.0 (since v2.5):**
+- `is_mutable_raw_ptr` field (from upstream PR #21835)
+- `is_atomic`, `is_ordering`, `is_join_handle`, `is_duration`, `is_instant` ADT flags
+- `is_callable`, `is_never` type flags
+- `future_output_type`, `iterator_item_type` extracted generic parameters
+- `layout` field (size, alignment)
+- `copy_semantics`, `lifetime`, `binding_mode` metadata
+- `contains_reference`, `reference_mutability`, `is_ref_binding` reference details
+- `deref_chain`, `fields`, `adjustments`, `pattern_adjustments`, `type_arguments` structural info
+- `closure_captures` (Vec<ClosureCaptureInfo>) per variable
+- `usages` (Vec<VariableUsageInfo>) per variable
+- `drop_line`, `drop_column` for drop location tracking
+- `is_trait_method`, `trait_name`, `is_unsafe` on MethodCallInfo
+- 41 `implements_*` trait detection fields (Deref, Index, From, Into, PartialEq, Ord, arithmetic ops, etc.)
+- Top-level maps: `variants`, `lifetimes`, `labels`, `const_patterns`, `callables`, `record_field_exprs`, `record_field_pats`
+- Total: 105 fields per variable, 10 fields per method call, 22 top-level maps
 
 ### Quick Reference
 
 ```json
 {
-  "version": "2.5",
+  "version": "3.0",
   "files": {
     "src/main.rs": [{
       "name": "cell",
@@ -45,10 +57,20 @@ The analyzer produces a JSON file containing type information for all variable b
 }
 ```
 
-### MethodCallInfo Structure (v2.4+)
+### MethodCallInfo Structure (v3.0)
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `method` | string | Method name (e.g., "set", "clone", "join") |
+| `line` | u32 | Line number of the call |
+| `column` | u32 | Column number |
+| `operation` | Option<string> | Canonical path (e.g., "core::cell::set") |
+| `self_borrow` | Option<string> | "immutable", "mutable", or "consuming" |
+| `receiver_type` | string | Fully qualified receiver type |
+| `result_type` | Option<string> | Return type of the method |
+| `is_trait_method` | Option<bool> | Whether this is a trait method (vs inherent) |
+| `trait_name` | Option<string> | Trait name if trait method (e.g., "Clone") |
+| `is_unsafe` | Option<bool> | Whether this method call is unsafe ||------|-------------|
 | `method` | string | Method name (e.g., "set", "clone", "join") |
 | `line` | u32 | Line number of the call |
 | `column` | u32 | Column number |
@@ -118,11 +140,11 @@ The output follows a hierarchical structure with project-level metadata and per-
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                         type-info.json SCHEMA (v2.3)                        │
+│                         type-info.json SCHEMA (v3.0)                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  {                                                                          │
-│    "version": "2.3",              ◄─── Schema version for compatibility     │
+│    "version": "3.0",              ◄─── Schema version for compatibility     │
 │    "analyzer_version": "0.1.0",   ◄─── Analyzer binary version              │
 │    "files": {                     ◄─── Map: relative path → variables       │
 │      "src/main.rs": [                                                       │
@@ -172,6 +194,9 @@ The output follows a hierarchical structure with project-level metadata and per-
 │          "is_maybe_uninit": false,◄─── core::mem::MaybeUninit (v2.1+)       │
 │          "is_channel": false,     ◄─── mpsc::Sender/Receiver (v2.1+)        │
 │          "is_extern_type": false, ◄─── c_void, CStr, CString, OsStr, etc.   │
+│          "is_atomic": false,      ◄─── AtomicBool, AtomicU64, etc. (v3.0)   │
+│          "is_mutable_raw_ptr": false, ◄── *mut T (PR #21835, v3.0)          │
+│          "is_never": false,       ◄─── ! (never) type (v3.0)                │
 │                                                                             │
 │          // === Declaration type ===                                        │
 │          "is_static": false,      ◄─── static declaration                   │
@@ -184,6 +209,13 @@ The output follows a hierarchical structure with project-level metadata and per-
 │                                                                             │
 │          // === Initializer pattern (v2.1+) ===                             │
 │          "initializer_kind": "rc_new",  ◄─── Semantic init pattern          │
+│                                                                             │
+│          // === Rich metadata (v3.0) ===                                    │
+│          "method_calls": [...],   ◄─── All method calls on this variable    │
+│          "usages": [...],         ◄─── All read/write usages                │
+│          "closure_captures": [...], ◄── Captured variables (if closure)     │
+│          "drop_line": 25,         ◄─── Where variable is dropped            │
+│          "implements_deref": true, ◄── 41 trait impl flags (v3.0)           │
 │                                                                             │
 │          // === Source location ===                                         │
 │          "file": "src/main.rs",                                             │
@@ -210,7 +242,25 @@ The output follows a hierarchical structure with project-level metadata and per-
 │        ...                                                                  │
 │      },                                                                     │
 │      ...                                                                    │
-│    }                                                                        │
+│    },                                                                       │
+│    "expressions": { ... },        ◄─── Standalone function calls (v2.5+)    │
+│    "await_points": { ... },       ◄─── Await points with live vars (v3.0)   │
+│    "unsafe_operations": { ... },  ◄─── Unsafe blocks with kind (v3.0)       │
+│    "borrow_spans": { ... },       ◄─── Borrow start/end/use sites (v3.0)    │
+│    "destructuring": { ... },      ◄─── Destructuring patterns (v3.0)        │
+│    "match_bindings": { ... },     ◄─── Match arm bindings (v3.0)            │
+│    "field_accesses": { ... },     ◄─── Field reads/writes (v3.0)            │
+│    "method_borrows": { ... },     ◄─── Method borrow kinds (v3.0)           │
+│    "function_calls": { ... },     ◄─── Function call return types (v3.0)    │
+│    "trait_impls": { ... },        ◄─── Trait impls per type (v3.0)          │
+│    "closure_traits": { ... },     ◄─── Fn/FnMut/FnOnce per closure (v2.5+) │
+│    "variants": { ... },           ◄─── Enum variant constructions (v3.0)    │
+│    "lifetimes": { ... },          ◄─── Lifetime parameters (v3.0)           │
+│    "labels": { ... },             ◄─── Loop labels (v3.0)                   │
+│    "const_patterns": { ... },     ◄─── Const pattern bindings (v3.0)        │
+│    "callables": { ... },          ◄─── Callable expressions (v3.0)          │
+│    "record_field_exprs": { ... }, ◄─── Record field expressions (v3.0)      │
+│    "record_field_pats": { ... }   ◄─── Record field patterns (v3.0)         │
 │  }                                                                          │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -287,11 +337,57 @@ Boolean flags provide quick classification using semantic analysis (no string pa
 | `is_maybe_uninit` | ADT path == `core::mem::MaybeUninit` | Uninitialized memory |
 | `is_channel` | ADT path matches mpsc Sender/Receiver | Channel endpoints |
 | `is_extern_type` | ADT path matches FFI types | c_void, CStr, CString, OsStr, etc. |
+| `is_never` | `ty.is_never()` | The `!` (never) type |
 | `is_static` | Declaration syntax | static declaration |
 | `is_const` | Declaration syntax | const declaration |
 | `is_tuple_binding` | Pattern syntax | let (a, b) = ... |
 | `is_mut_binding` | Pattern syntax | let mut x = ... |
 | `is_impl_trait` | Type annotation syntax | impl Trait type |
+| `is_atomic` | ADT path matches atomic types | AtomicBool, AtomicU64, etc. |
+| `is_ordering` | ADT path == `core::sync::atomic::Ordering` | Atomic ordering |
+| `is_join_handle` | ADT path == `std::thread::JoinHandle` | Thread join handle |
+| `is_duration` | ADT path == `core::time::Duration` | Duration type |
+| `is_instant` | ADT path == `std::time::Instant` | Instant type |
+| `is_callable` | `ty.as_callable()` | Types that can be called |
+| `is_mutable_raw_ptr` | `ty.is_mutable_raw_ptr()` (PR #21835) | *mut T specifically |
+| `copy_semantics` | `is_copy` or `is_reference` | Whether assignment copies |
+| `is_ref_binding` | Pattern syntax | ref or ref mut pattern |
+
+**Additional Metadata Fields (v3.0)**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `future_output_type` | Option\<String\> | Output type of Future (e.g., "i32") |
+| `iterator_item_type` | Option\<String\> | Item type of Iterator (e.g., "&str") |
+| `layout` | Option\<LayoutInfo\> | Size and alignment (if known) |
+| `lifetime` | Option\<String\> | Lifetime parameter (e.g., "'a") |
+| `binding_mode` | Option\<String\> | Binding mode (move, ref, ref mut) |
+| `contains_reference` | bool | Whether type transitively contains references |
+| `reference_mutability` | Option\<String\> | "shared" or "mutable" if is_reference |
+| `deref_chain` | Vec\<String\> | Chain of types through Deref impls |
+| `fields` | Vec\<FieldInfo\> | Struct fields (name + type) |
+| `adjustments` | Vec\<AdjustmentInfo\> | Type adjustments (coercions) |
+| `pattern_adjustments` | Vec\<String\> | Pattern-level adjustments |
+| `type_arguments` | Vec\<String\> | Generic type arguments |
+| `closure_captures` | Vec\<ClosureCaptureInfo\> | Variables captured by closure |
+| `usages` | Vec\<VariableUsageInfo\> | All read/write usages of variable |
+| `drop_line` | Option\<u32\> | Line where variable is dropped |
+| `drop_column` | Option\<u32\> | Column where variable is dropped |
+
+**Trait Implementation Flags (v3.0)**
+
+41 additional `implements_*` boolean fields detect specific trait implementations:
+
+| Category | Fields |
+|----------|--------|
+| Conversion | `implements_deref`, `implements_deref_mut`, `implements_from`, `implements_into`, `implements_as_ref`, `implements_as_mut`, `implements_borrow`, `implements_borrow_mut`, `implements_to_owned` |
+| Comparison | `implements_partial_eq`, `implements_eq`, `implements_partial_ord`, `implements_ord` |
+| Indexing | `implements_index`, `implements_index_mut` |
+| Arithmetic | `implements_add`, `implements_sub`, `implements_mul`, `implements_div`, `implements_rem`, `implements_neg` |
+| Assign ops | `implements_add_assign`, `implements_sub_assign`, `implements_mul_assign`, `implements_div_assign`, `implements_rem_assign` |
+| Bitwise | `implements_bit_and`, `implements_bit_or`, `implements_bit_xor`, `implements_shl`, `implements_shr`, `implements_not` |
+| Bitwise assign | `implements_bit_and_assign`, `implements_bit_or_assign`, `implements_bit_xor_assign`, `implements_shl_assign`, `implements_shr_assign` |
+| Safety | `implements_range_bounds`, `implements_termination`, `implements_unwind_safe`, `implements_ref_unwind_safe` |
 
 **Initializer Pattern (v2.1+)**
 
@@ -823,7 +919,7 @@ The analyzer produces:
 
 ```json
 {
-  "version": "2.3",
+  "version": "3.0",
   "analyzer_version": "0.1.0",
   "files": {
     "src/main.rs": [
