@@ -11,6 +11,7 @@ pub mod builder;
 pub mod error;
 pub mod traversal;
 pub mod conflict;
+pub mod temporal;
 
 pub use node::{Node, NodeId, ScopeKind, ScopeNode, VariableNode};
 pub use edge::{CaptureMode, Edge, EdgeId, EdgeKind};
