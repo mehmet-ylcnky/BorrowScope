@@ -14,3 +14,11 @@ rmp-serde = "1"
 [dev-dependencies]
 pretty_assertions = "1"
 tempfile = "3"
+proptest = "1"
+
+[[bench]]
+name = "graph_bench"
+harness = false
+
+[dev-dependencies.criterion]
+version = "0.5"
