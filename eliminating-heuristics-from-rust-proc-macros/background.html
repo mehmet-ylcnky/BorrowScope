@@ -1,4 +1,117 @@
 <div class="section">
-    <h1>Background — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>2. Background</h1>
+
+    <h2>2.1 Rust's Compilation Pipeline</h2>
+    <p>
+        Rust compiles source code through a strict sequence of phases where each stage depends on the output of the
+        previous one. No information flows backward from later stages to earlier ones, meaning that a phase cannot access results that have not yet been computed. The critical ordering for this work is:
+    </p>
+    <div class="code-block">
+        <pre>
+  ┌───────────┐      ┌───────────┐     ┌───────────┐      ┌───────────┐     ┌───────────┐
+  │  PARSING  │────▶│   MACRO   │────▶│   NAME    │────▶│   TYPE    │────▶│  BORROW   │
+  │           │      │ EXPANSION │     │RESOLUTION │      │ CHECKING  │     │ CHECKING  │
+  └───────────┘      └───────────┘     └───────────┘      └───────────┘     └───────────┘
+       │                 │                 │                 │                 │
+       ▼                 ▼                 ▼                 ▼                 ▼
+  Token Stream     Expanded AST      Resolved Names     Typed HIR        Validated MIR
+                        ▲
+                        │
+              Proc macros run HERE
+              (no type info available)
+        </pre>
+    </div>
+    <p>
+        Procedural macros execute at the second stage. At this point, the compiler knows the syntactic structure of the
+        code but nothing about types, traits, or lifetimes. The type checker runs <em>after</em> macro expansion,
+        operating on the already-transformed code.
+    </p>
+    <p>
+        The diagram above illustrates this ordering. Source code is first parsed into a token stream. Procedural macros
+        then transform these tokens, producing an expanded AST. Only after expansion does the compiler resolve names
+        (linking identifiers to their definitions), perform type checking (inferring and verifying types), and finally
+        run the borrow checker (validating ownership and lifetime rules). The wall between macro expansion and type
+        checking is absolute: no information flows backward from later stages to earlier ones.
+    </p>
+
+    <h2>2.2 Procedural Macro Constraints</h2>
+    <p>
+        A procedural macro is a function that takes a <code>TokenStream</code> and returns a <code>TokenStream</code>.
+        It can inspect tokens, restructure them, and generate new code. What it <em>cannot</em> do:
+    </p>
+    <ul>
+        <li>Query the type of any expression or variable</li>
+        <li>Check whether a type implements a trait</li>
+        <li>Resolve a path to its definition (e.g., determine that <code>MyVec</code> is an alias for <code>Vec</code>)
+        </li>
+        <li>Access the filesystem in a portable, guaranteed way</li>
+        <li>Communicate with external tools or processes</li>
+    </ul>
+    <p>
+        For example, given this input:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">use</span> std::rc::Rc;
+<span class="rust-keyword">type</span> <span class="rust-type">SharedData</span> = Rc&lt;Vec&lt;i32&gt;&gt;;
+
+<span class="rust-comment">// The macro sees only tokens, not types</span>
+#[trace_borrow]
+<span class="rust-keyword">fn</span> <span class="rust-function">example</span>() {
+    <span class="rust-keyword">let</span> data = SharedData::new(vec![1, 2, 3]);  <span class="rust-comment">// Macro sees "SharedData::new"</span>
+    <span class="rust-keyword">let</span> cloned = data.clone();                  <span class="rust-comment">// Macro sees ".clone()" but on what type?</span>
+    <span class="rust-keyword">let</span> guard = data.borrow();                  <span class="rust-comment">// Is this RefCell::borrow or Borrow::borrow?</span>
+}</pre>
+    </div>
+    <p>
+        The macro cannot determine that <code>SharedData</code> resolves to <code>Rc&lt;Vec&lt;i32&gt;&gt;</code>, that
+        <code>.clone()</code> here is <code>Rc::clone</code> (reference count increment, not deep copy), or whether
+        <code>.borrow()</code> is the <code>RefCell</code> method or the <code>Borrow</code> trait method. Each of these distinctions carries different ownership semantics: an <code>Rc::clone</code> increments a reference count, while a deep clone allocates new memory; a <code>RefCell::borrow</code> performs runtime borrow checking, while <code>Borrow::borrow</code> is a simple conversion. Making the wrong choice leads to incorrect tracking events that misrepresent the program's actual ownership behavior.
+    </p>
+
+    <h2>2.3 rust-analyzer as a Semantic Oracle</h2>
+    <p>
+        <a href="https://rust-analyzer.github.io/" target="_blank">rust-analyzer</a> is the official language server for
+        Rust, providing IDE features like go-to-definition, type hints, and refactoring. Its internal analysis engine
+        performs full type resolution, trait solving, and semantic analysis on Rust code. Crucially, this engine is
+        published as a set of reusable crates on crates.io under the <code>ra_ap_*</code> prefix.
+    </p>
+    <p>
+        The key crate is <code>ra_ap_hir</code>, which provides the <code>Semantics</code> struct. Given a syntax node,
+        <code>Semantics</code> can answer questions that procedural macros cannot:
+    </p>
+    <div class="code-block">
+        <pre
+            class="rust-code"><span class="rust-keyword">use</span> ra_ap_hir::{Semantics, HirDisplay};
+
+<span class="rust-comment">// Resolve the type of a variable binding</span>
+<span class="rust-keyword">let</span> ty = sema.type_of_pat(&amp;pattern)?.original;
+
+<span class="rust-comment">// Check trait implementations</span>
+<span class="rust-keyword">let</span> is_copy = ty.is_copy(db);
+<span class="rust-keyword">let</span> is_clone = ty.impls_trait(db, clone_trait, &amp;[]);
+
+<span class="rust-comment">// Resolve a method call to its definition</span>
+<span class="rust-keyword">let</span> func = sema.resolve_method_call(&amp;method_call_expr)?;
+<span class="rust-keyword">let</span> canonical_path = get_function_path(&amp;func, db);  <span class="rust-comment">// "alloc::rc::clone"</span>
+
+<span class="rust-comment">// Determine self-borrow type (&self, &mut self, self)</span>
+<span class="rust-keyword">let</span> access = func.self_param(db)?.access(db);  <span class="rust-comment">// Shared, Exclusive, or Owned</span></pre>
+    </div>
+    <p>
+        BorrowScope uses version 0.0.318 of the <code>ra_ap_*</code> crates, leveraging 17 distinct APIs across six
+        crates: <code>ra_ap_hir</code> for high-level semantic queries, <code>ra_ap_ide_db</code> for the root database
+        infrastructure, <code>ra_ap_load-cargo</code> for workspace loading and sysroot discovery,
+        <code>ra_ap_project_model</code> for Cargo project structure, <code>ra_ap_syntax</code> for AST traversal, and
+        <code>ra_ap_vfs</code> for virtual file system management. Together, these provide type resolution, trait
+        detection, method resolution, FFI detection, and ADT classification capabilities identical to what powers
+        rust-analyzer's IDE features.
+    </p>
+    <p>
+        The analyzer runs as a standalone binary before compilation, loading the full project workspace (including
+        standard library metadata via sysroot discovery), performing semantic analysis on every source file, and
+        producing a structured JSON file. The procedural macro then reads this file at expansion time via a
+        <code>OnceLock</code>-based lazy loader, gaining access to the complete type information that the compilation
+        pipeline would otherwise withhold.
+    </p>
+
 </div>

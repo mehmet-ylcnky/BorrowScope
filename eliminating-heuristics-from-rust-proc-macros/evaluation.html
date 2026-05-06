@@ -1,4 +1,339 @@
 <div class="section">
-    <h1>Evaluation — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>7. Evaluation</h1>
+
+    <h2>7.1 Semantic Coverage: 109/109 Patterns</h2>
+    <p>
+        The system achieves semantic coverage across all 109 ownership-related patterns identified in the <a
+            href="../borrowscope-analyzer-whitepaper/#roadmap" target="_blank">initial whitepaper</a>. These patterns
+        represent every way that Rust's ownership system manifests in source code: from basic variable creation and
+        borrowing, through smart pointer operations, to unsafe code and concurrency primitives. The following table
+        shows the before and after state, demonstrating the progression from a majority-heuristic system to a fully
+        semantic one.
+    </p>
+    <p>
+        The "Before" column reflects the state documented in March 2026, where 66 patterns relied on syntactic
+        heuristics (string matching on method names, path fragments, or naming conventions). The "After" column shows
+        the current state where every pattern is resolved through the type system, with zero fallback to string
+        matching.
+    </p>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Patterns</th>
+            <th>Before (March 2026)</th>
+            <th>After (May 2026)</th>
+        </tr>
+        <tr>
+            <td>Smart pointer creation</td>
+            <td>5</td>
+            <td class="status-complete">Semantic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Smart pointer clone</td>
+            <td>2</td>
+            <td class="status-complete">Semantic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>RefCell/Cell methods</td>
+            <td>4</td>
+            <td>3 semantic, 1 syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Box operations</td>
+            <td>3</td>
+            <td class="status-complete">Semantic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Pin operations</td>
+            <td>2</td>
+            <td>1 partial</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Cow operations</td>
+            <td>3</td>
+            <td>2 semantic, 1 syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Weak reference operations</td>
+            <td>3</td>
+            <td class="status-complete">Semantic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>OnceCell/OnceLock</td>
+            <td>5</td>
+            <td>2 semantic, 2 partial, 1 syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>MaybeUninit</td>
+            <td>6</td>
+            <td>2 semantic, 2 partial, 2 syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Concurrency</td>
+            <td>12</td>
+            <td>5 semantic, 7 syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Guard methods</td>
+            <td>9</td>
+            <td>8 semantic, 1 partial</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Self-borrow (immutable)</td>
+            <td>19</td>
+            <td class="status-zero">All syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Self-borrow (mutable)</td>
+            <td>25</td>
+            <td class="status-zero">All syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Self-borrow (consuming)</td>
+            <td>3</td>
+            <td class="status-zero">All syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Unwrap methods</td>
+            <td>5</td>
+            <td class="status-zero">All syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Clone method</td>
+            <td>1</td>
+            <td class="status-zero">Syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td>Transmute detection</td>
+            <td>2</td>
+            <td class="status-zero">All syntactic</td>
+            <td class="status-complete">Semantic</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td><strong>109</strong></td>
+            <td><strong>36 semantic, 7 partial, 66 syntactic</strong></td>
+            <td><strong>109 semantic, 0 partial, 0 syntactic</strong></td>
+        </tr>
+    </table>
+
+    <h2>7.2 Heuristic Elimination</h2>
+    <p>
+        35 distinct string-matching heuristics were identified and eliminated across 7 categories. Each heuristic
+        represented a point of potential failure: a place where the macro could produce incorrect tracking events if the
+        naming convention did not hold. The elimination of these heuristics is not merely a code quality improvement; it
+        is a correctness guarantee. The system now produces correct tracking events for any valid Rust code, regardless
+        of naming conventions, type aliases, or import paths.
+    </p>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Count</th>
+            <th>Example Heuristic</th>
+            <th>Semantic Replacement</th>
+        </tr>
+        <tr>
+            <td>Operation path matching</td>
+            <td>14</td>
+            <td><code>op.contains("Rc") && op.contains("clone")</code></td>
+            <td>Canonical path: <code>"alloc::rc::clone"</code></td>
+        </tr>
+        <tr>
+            <td>Method name matching</td>
+            <td>9</td>
+            <td><code>method_name == "clone"</code></td>
+            <td><code>is_trait_method</code> + <code>trait_name</code></td>
+        </tr>
+        <tr>
+            <td>Function path matching</td>
+            <td>2</td>
+            <td><code>path_str.contains("transmute")</code></td>
+            <td>FunctionId comparison</td>
+        </tr>
+        <tr>
+            <td>Name pattern heuristics</td>
+            <td>4</td>
+            <td><code>looks_like_ffi()</code>, <code>looks_like_static()</code></td>
+            <td><code>extern_block()</code>, <code>PathResolution::Static</code></td>
+        </tr>
+        <tr>
+            <td>Trait method detection</td>
+            <td>1</td>
+            <td><code>is_clone_trait.unwrap_or(true)</code></td>
+            <td><code>func.container(db)</code> trait check</td>
+        </tr>
+        <tr>
+            <td>Tracking set fallbacks</td>
+            <td>2</td>
+            <td><code>maybe_uninit_vars.contains()</code></td>
+            <td>Canonical path prefix matching</td>
+        </tr>
+        <tr>
+            <td>Guard method list</td>
+            <td>3</td>
+            <td><code>guard_methods.contains(&method_name)</code></td>
+            <td>Canonical path matching</td>
+        </tr>
+    </table>
+    <p>
+        The deleted code includes the entire <code>smart_pointer.rs</code> file (17 <code>detect_*</code> functions),
+        the <code>infer_self_borrow_type()</code> heuristic function, and approximately 220 lines of dead fallback code.
+        This represents a net reduction in macro complexity despite the addition of new tracking capabilities, because
+        semantic dispatch via a single field read is simpler than multi-branch string matching with edge-case handling.
+    </p>
+
+    <h2>7.3 Battle Test: ripgrep</h2>
+    <p>
+        To validate that BorrowScope works on real-world code, we applied it directly to the source code of <a
+            href="https://github.com/BurntSushi/ripgrep" target="_blank">ripgrep</a>, one of the most widely-used Rust
+        projects (45,000+ GitHub stars). We chose ripgrep because it represents idiomatic, performance-critical Rust
+        code written by an experienced developer. The <code>globset</code> crate within ripgrep handles glob pattern
+        matching with complex string manipulation, iterator chains, and Option/Result handling. We instrumented 10
+        functions across 3 files:
+    </p>
+    <ul>
+        <li><code>pathutil.rs</code>: <code>file_name()</code>, <code>file_name_ext()</code>,
+            <code>normalize_path()</code></li>
+        <li><code>glob.rs</code>: <code>literal()</code>, <code>ext()</code>, <code>prefix()</code>,
+            <code>suffix()</code>, <code>required_ext()</code>, <code>basename_literal()</code></li>
+        <li><code>lib.rs</code>: <code>matches_candidate_into()</code>, <code>new()</code>,
+            <code>is_match_candidate()</code>, <code>matches_candidate()</code></li>
+    </ul>
+    <div class="solution-statement">
+        <strong>Result:</strong> All 287 existing ripgrep tests pass with the instrumented source code. The analyzer
+        achieves full type resolution for all instrumented functions. Zero modifications were needed to the macro or
+        analyzer. This confirms that the system handles idiomatic Rust patterns (iterator chains, <code>Option</code>
+        combinators, slice operations, <code>OsStr</code> conversions) without any special-casing.
+    </div>
+
+    <h2>7.4 Battle Test: <code>lru</code> Crate</h2>
+    <p>
+        The <a href="https://github.com/jeromefroe/lru-rs" target="_blank">lru</a> crate implements an LRU cache with
+        complex ownership patterns (HashMap, linked list nodes, raw pointers). This crate was chosen because it
+        exercises ownership patterns that are particularly challenging for instrumentation: mutable borrows through
+        <code>&amp;mut self</code> methods, interior data structure manipulation, and closure-based APIs like
+        <code>get_or_insert</code>. We instrumented 6 test functions exercising cache operations:
+    </p>
+    <ul>
+        <li>Basic operations: <code>put</code>, <code>get</code>, <code>peek</code>, <code>contains</code></li>
+        <li>String ownership: owned keys/values, <code>pop</code></li>
+        <li>Iteration: <code>iter()</code>, <code>filter()</code>, <code>collect()</code></li>
+        <li>LRU promotion/demotion and eviction</li>
+        <li><code>get_or_insert</code> with closure</li>
+        <li>Cache resize</li>
+    </ul>
+    <div class="solution-statement">
+        <strong>Result:</strong> 107 ownership events tracked across all tests. One macro fix was required (method
+        borrow wrapping for <code>&amp;mut self</code> methods on owned values). This fix was a general improvement to
+        the <code>pending_inserts</code> pattern that benefits all projects, not a crate-specific workaround. After the
+        fix, all tests pass cleanly.
+    </div>
+
+    <h2>7.5 Battle Test: <code>uuid</code> Crate</h2>
+    <p>
+        The <a href="https://github.com/uuid-rs/uuid" target="_blank">uuid</a> crate provides UUID generation with
+        String conversions, byte arrays, and collection operations. This crate was selected because it exercises a
+        different ownership profile than the previous tests: <code>Copy</code> types (UUIDs are 128-bit values),
+        collection operations on owned data, and heavy use of <code>Option</code>/<code>Result</code> combinators. We
+        instrumented 6 test functions:
+    </p>
+    <ul>
+        <li>UUID creation (v4 random, v5 namespace-based)</li>
+        <li>HashMap with UUID keys, iterator patterns</li>
+        <li>Vec sorting, dedup, min/max</li>
+        <li>Option/Result unwrap patterns</li>
+        <li>Clone and move semantics</li>
+    </ul>
+    <div class="solution-statement">
+        <strong>Result:</strong> 88 ownership events tracked. Zero fixes needed. Passed on first attempt with no
+        modifications to the macro or analyzer. This zero-fix result on a previously unseen codebase demonstrates that
+        the system generalizes beyond the patterns it was developed against.
+    </div>
+
+    <h2>7.6 Test Suite</h2>
+    <p>
+        The project maintains a comprehensive test suite organized into phases that mirror the development roadmap. Each
+        phase targets a specific category of ownership patterns, ensuring that new capabilities do not regress existing
+        ones. The phased structure also serves as documentation: reading the phase tests reveals exactly which patterns
+        each development iteration addressed.
+    </p>
+    <p>
+        Beyond unit and integration tests, the 24 compiled examples serve as end-to-end validation. Each example is a
+        standalone Rust program that exercises specific macro features and must compile and run successfully. These
+        examples catch issues that unit tests miss, such as interactions between multiple tracking features within a
+        single function or conflicts between the macro's transformations and Rust's type inference.
+    </p>
+    <table>
+        <tr>
+            <th>Suite</th>
+            <th>Tests</th>
+            <th>Coverage</th>
+        </tr>
+        <tr>
+            <td>Macro unit tests</td>
+            <td>187</td>
+            <td>AST transformation, type_info deserialization, config parsing</td>
+        </tr>
+        <tr>
+            <td>Runtime unit tests</td>
+            <td>74</td>
+            <td>Event recording, tracker state, serialization</td>
+        </tr>
+        <tr>
+            <td>Phase 1 (method calls)</td>
+            <td>18</td>
+            <td>Cell, RefCell, Mutex, RwLock, Channel, JoinHandle, Unwrap</td>
+        </tr>
+        <tr>
+            <td>Phase 2 (expressions)</td>
+            <td>30</td>
+            <td>Rc/Arc/Box, Weak, Pin, Cow, Transmute, enriched events</td>
+        </tr>
+        <tr>
+            <td>Phase 3 (self-borrow)</td>
+            <td>12</td>
+            <td>Immutable, mutable, consuming borrows, clone distinction</td>
+        </tr>
+        <tr>
+            <td>Phase 4 (unwrap)</td>
+            <td>10</td>
+            <td>All 5 unwrap variants on Option and Result</td>
+        </tr>
+        <tr>
+            <td>Phase 5 (clone)</td>
+            <td>9</td>
+            <td>Generic Clone vs Rc/Arc/Weak clone distinction</td>
+        </tr>
+        <tr>
+            <td>Integration tests</td>
+            <td>15</td>
+            <td>Lifetime tracking, advanced API</td>
+        </tr>
+        <tr>
+            <td>Compiled examples</td>
+            <td>24</td>
+            <td>All macro features exercised end-to-end</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td><strong>379</strong></td>
+            <td></td>
+        </tr>
+    </table>
 </div>

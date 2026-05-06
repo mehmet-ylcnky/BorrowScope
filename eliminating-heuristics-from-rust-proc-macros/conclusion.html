@@ -1,4 +1,24 @@
 <div class="section">
-    <h1>Conclusion — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>9. Conclusion</h1>
+    <p>
+        This paper presented BorrowScope, a complete system that eliminates all string-matching heuristics from a Rust procedural macro through pre-build semantic analysis. The work demonstrates that the proc-macro type blindness problem, while fundamental to Rust's compilation model, can be fully solved by decoupling type analysis from macro expansion via a file-based protocol.
+    </p>
+    <p>
+        Starting from a state where 66 of 109 ownership patterns relied on syntactic heuristics (as documented in the <a href="../borrowscope-analyzer-whitepaper/" target="_blank">March 2026 whitepaper</a>), the system now achieves full semantic coverage with zero heuristics remaining. The five-phase roadmap proposed in that earlier work has been completed in its entirety.
+    </p>
+    <p>
+        The key technical contributions are:
+    </p>
+    <ul>
+        <li>A three-component pipeline (analyzer, macro, runtime) that crosses compilation boundaries using JSON as inter-process communication and generated code as the macro-to-runtime bridge.</li>
+        <li>17 rust-analyzer APIs combined to provide type resolution, trait detection, method call analysis, and ADT classification, producing a schema with 81 per-variable fields and 22 project-wide analysis maps.</li>
+        <li>Engineering patterns (<code>safe_parse_quote!</code>, <code>pending_inserts</code>, <code>contains_block_closure</code>) that address the syn/rustc parsing divergence for complex expressions.</li>
+        <li>An upstream contribution to rust-analyzer (PR #21835) that closes an API gap for raw pointer mutability, benefiting the broader ecosystem.</li>
+    </ul>
+    <p>
+        Validation on real-world code (ripgrep, lru, uuid) confirms that the system works on production Rust projects without requiring modifications. The 88 event types capture the full ownership model, from basic borrows and moves to smart pointers, interior mutability, concurrency primitives, and unsafe operations.
+    </p>
+    <p>
+        The approach is generalizable: any procedural macro that needs type-aware behavior can adopt the same two-phase strategy. The semantic analysis infrastructure (rust-analyzer's <code>ra_ap_*</code> crates) is available to any Rust project, and the file-based communication pattern imposes no constraints on the macro's execution environment.
+    </p>
 </div>

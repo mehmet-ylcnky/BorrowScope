@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>borrowscope: Eliminating Heuristics from Rust Procedural Macros</title>
+    <title>borrowscope-analyzer: Eliminating Heuristics from Rust Procedural Macros</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
@@ -44,23 +44,21 @@
                 <li><a href="#macro">5. The Macro</a></li>
                 <li><a href="#runtime">6. The Runtime</a></li>
                 <li><a href="#evaluation">7. Evaluation</a></li>
-                <li><a href="#performance">8. Performance</a></li>
-                <li><a href="#limitations">9. Limitations</a></li>
-                <li><a href="#conclusion">10. Conclusion</a></li>
-                <li><a href="#references">References</a></li>
+                <li><a href="#limitations">8. Limitations</a></li>
+                <li><a href="#conclusion">9. Conclusion</a></li>
             </ul>
         </nav>
     </div>
 
     <div class="header">
-        <h1 class="title"><strong><code>borrowscope</code></strong>: Eliminating Heuristics from Rust Procedural Macros Through Pre-Build Semantic Analysis</h1>
+        <h1 class="title"><strong><code>borrowscope-analyzer</code></strong>: Eliminating Heuristics from Rust Procedural Macros Through Pre-Build Semantic Analysis</h1>
         <p class="subtitle">A Complete System for Runtime Ownership Visualization with 100% Semantic Coverage</p>
         <div class="logo-container">
             <img src="logo.png" alt="BorrowScope Logo" class="logo">
         </div>
         <div class="authors">
             <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank" class="author-link">Mehmet Yalcinkaya, PhD</a><br>
-            Senior Software Engineer<br><br>
+            Principal Platform Engineer<br><br>
             <strong>Date:</strong> May 2026<br>
             <strong>Version:</strong> 2.0 (supersedes March 2026 whitepaper)<br>
             <div class="badges">
@@ -99,8 +97,6 @@
         <div id="evaluation" class="section-container">
             <div class="loading">Loading evaluation...</div>
         </div>
-        <div id="performance" class="section-container">
-            <div class="loading">Loading performance...</div>
         </div>
         <div id="limitations" class="section-container">
             <div class="loading">Loading limitations...</div>
@@ -108,13 +104,11 @@
         <div id="conclusion" class="section-container">
             <div class="loading">Loading conclusion...</div>
         </div>
-        <div id="references" class="section-container">
-            <div class="loading">Loading references...</div>
         </div>
     </main>
 
     <footer>
-        <p><strong><code>borrowscope</code></strong>: Eliminating Heuristics from Rust Procedural Macros</p>
+        <p><strong><code>borrowscope-analyzer</code></strong>: Eliminating Heuristics from Rust Procedural Macros</p>
         <p>Part of the <a href="../">BorrowScope Project</a></p>
         <p class="dedication">Dedicated to the Rust community and the rust-analyzer team.</p>
     </footer>
@@ -129,10 +123,8 @@
             { id: 'macro', file: 'macro.html' },
             { id: 'runtime', file: 'runtime.html' },
             { id: 'evaluation', file: 'evaluation.html' },
-            { id: 'performance', file: 'performance.html' },
             { id: 'limitations', file: 'limitations.html' },
             { id: 'conclusion', file: 'conclusion.html' },
-            { id: 'references', file: 'references.html' }
         ];
 
         sections.forEach(section => {
@@ -140,6 +132,29 @@
                 .then(response => response.text())
                 .then(html => {
                     document.getElementById(section.id).innerHTML = html;
+                    // Re-apply code block buttons after loading
+                    document.getElementById(section.id).querySelectorAll('.code-block').forEach(block => {
+                        if (block.querySelector('.copy-btn')) return;
+                        const copyButton = document.createElement('button');
+                        copyButton.textContent = 'Copy';
+                        copyButton.className = 'copy-btn';
+                        const themeButton = document.createElement('button');
+                        themeButton.textContent = '🌙';
+                        themeButton.className = 'theme-btn';
+                        block.appendChild(copyButton);
+                        block.appendChild(themeButton);
+                        copyButton.addEventListener('click', () => {
+                            const text = block.querySelector('pre').textContent;
+                            navigator.clipboard.writeText(text).then(() => {
+                                copyButton.textContent = 'Copied!';
+                                setTimeout(() => { copyButton.textContent = 'Copy'; }, 2000);
+                            });
+                        });
+                        themeButton.addEventListener('click', () => {
+                            block.classList.toggle('dark-theme');
+                            themeButton.textContent = block.classList.contains('dark-theme') ? '☀️' : '🌙';
+                        });
+                    });
                 })
                 .catch(err => {
                     document.getElementById(section.id).innerHTML =

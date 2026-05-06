@@ -1,4 +1,136 @@
 <div class="section">
-    <h1>Runtime — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>6. The Runtime (<code>borrowscope-runtime</code>)</h1>
+
+    <h2>6.1 Event Architecture</h2>
+    <p>
+        The runtime defines 88 distinct event types organized into 14 categories. Each event captures a specific ownership operation with all relevant metadata (timestamps, variable IDs, type names, locations). The event taxonomy mirrors Rust's ownership model: every way that ownership can be created, transferred, shared, or destroyed has a corresponding event type.
+    </p>
+    <p>
+        This granularity is intentional. A coarser event model (e.g., just "borrow" and "move") would lose the distinction between an <code>Rc::clone</code> (cheap reference count increment) and a <code>Clone::clone</code> (potentially expensive deep copy). Similarly, distinguishing <code>RefCellBorrow</code> from a regular immutable borrow captures the runtime borrow-checking semantics that <code>RefCell</code> introduces. Each event type carries exactly the metadata needed for its category, avoiding both information loss and unnecessary overhead.
+    </p>
+    <table>
+        <tr><th>Category</th><th>Events</th><th>Examples</th></tr>
+        <tr><td>Core ownership</td><td>4</td><td><code>New</code>, <code>Borrow</code>, <code>Move</code>, <code>Drop</code></td></tr>
+        <tr><td>Smart pointers</td><td>7</td><td><code>RcNew</code>, <code>RcClone</code>, <code>ArcNew</code>, <code>BoxNew</code>, <code>BoxIntoRaw</code></td></tr>
+        <tr><td>Interior mutability</td><td>6</td><td><code>RefCellBorrow</code>, <code>CellGet</code>, <code>CellSet</code></td></tr>
+        <tr><td>Weak references</td><td>3</td><td><code>WeakNew</code>, <code>WeakClone</code>, <code>WeakUpgrade</code></td></tr>
+        <tr><td>Unsafe code</td><td>7</td><td><code>RawPtrCreated</code>, <code>UnsafeBlockEnter</code>, <code>Transmute</code>, <code>FfiCall</code></td></tr>
+        <tr><td>Async</td><td>4</td><td><code>AsyncBlockEnter</code>, <code>AwaitStart</code>, <code>AwaitEnd</code></td></tr>
+        <tr><td>Concurrency</td><td>10</td><td><code>Lock</code>, <code>ThreadSpawn</code>, <code>ChannelSend</code>, <code>ChannelRecv</code></td></tr>
+        <tr><td>Control flow</td><td>11</td><td><code>LoopEnter</code>, <code>MatchArm</code>, <code>Branch</code>, <code>Return</code>, <code>Try</code></td></tr>
+        <tr><td>Expressions</td><td>8</td><td><code>Call</code>, <code>Unwrap</code>, <code>Clone</code>, <code>Deref</code>, <code>FieldAccess</code></td></tr>
+        <tr><td>Data structures</td><td>6</td><td><code>ClosureCreate</code>, <code>StructCreate</code>, <code>TupleCreate</code>, <code>ArrayCreate</code></td></tr>
+        <tr><td>Pin/Cow</td><td>5</td><td><code>PinNew</code>, <code>CowBorrowed</code>, <code>CowOwned</code>, <code>CowToMut</code></td></tr>
+        <tr><td>OnceCell/MaybeUninit</td><td>9</td><td><code>OnceCellSet</code>, <code>MaybeUninitWrite</code>, <code>MaybeUninitAssumeInit</code></td></tr>
+        <tr><td>Scope tracking</td><td>4</td><td><code>RegionEnter</code>, <code>RegionExit</code>, <code>FnEnter</code>, <code>FnExit</code></td></tr>
+        <tr><td>Static/Const</td><td>3</td><td><code>StaticInit</code>, <code>StaticAccess</code>, <code>ConstEval</code></td></tr>
+    </table>
+
+    <h2>6.2 Pass-Through Design</h2>
+    <p>
+        Every tracking function follows the same principle: accept a value, record an event, return the value unchanged. This makes instrumentation transparent to program behavior. The function signature is designed so that the macro can wrap any expression <code>E</code> as <code>track_*(metadata, E)</code> without changing the expression's type or value. The Rust compiler sees the same types before and after instrumentation, so type inference, borrow checking, and lifetime analysis are unaffected.
+    </p>
+    <p>
+        This design also means that tracking functions can be composed: if a variable is created via <code>Rc::new(value)</code>, the macro wraps it as <code>track_rc_new_with_id(id, name, type_name, loc, Rc::new(value))</code>. The inner <code>Rc::new</code> executes first, producing an <code>Rc&lt;T&gt;</code>, which is then passed through the tracking function and returned unchanged. The program's observable behavior is identical with or without instrumentation.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub fn</span> <span class="rust-function">track_rc_new_with_id</span>&lt;T&gt;(
+    var_id: <span class="rust-type">usize</span>,
+    name: &amp;<span class="rust-keyword">str</span>,
+    type_name: &amp;<span class="rust-keyword">str</span>,
+    location: &amp;<span class="rust-keyword">str</span>,
+    value: Rc&lt;T&gt;,
+) -> Rc&lt;T&gt; {
+    #[cfg(feature = <span class="rust-string">"track"</span>)]
+    {
+        <span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> tracker = TRACKER.lock();
+        tracker.record_rc_new(var_id, name, type_name, location,
+            Rc::strong_count(&amp;value), Rc::weak_count(&amp;value));
+    }
+    value  <span class="rust-comment">// Pass-through: tracking is invisible to the program</span>
+}</pre>
+    </div>
+    <p>
+        The <code>#[cfg(feature = "track")]</code> gate means that when the <code>track</code> feature is disabled, all tracking functions compile to no-ops that simply return their input. This enables zero-cost builds for production. The compiler's optimizer completely eliminates the function call, leaving only the original expression. This two-mode design allows developers to keep <code>#[trace_borrow]</code> annotations in their source code permanently, enabling tracking on demand without code changes.
+    </p>
+
+    <h2>6.3 Global Tracker</h2>
+    <p>
+        Events are accumulated in a thread-safe global tracker using <code>parking_lot::Mutex</code> for efficient locking and <code>AtomicU64</code> for lock-free monotonic timestamp generation. The choice of <code>parking_lot</code> over <code>std::sync::Mutex</code> is deliberate: it provides faster lock acquisition (no poisoning overhead), smaller memory footprint, and does not require <code>unwrap()</code> on every lock call.
+    </p>
+    <p>
+        The timestamp counter is separate from the mutex to minimize contention. Even when multiple threads record events simultaneously, the atomic increment ensures a globally consistent ordering without requiring the mutex to be held during timestamp generation. This means the event stream always reflects the true temporal order of ownership operations, even in highly concurrent programs.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">static</span> TRACKER: Lazy&lt;Mutex&lt;Tracker&gt;&gt; = Lazy::new(|| Mutex::new(Tracker::new()));
+<span class="rust-keyword">static</span> TIMESTAMP: AtomicU64 = AtomicU64::new(0);
+
+<span class="rust-keyword">impl</span> Tracker {
+    <span class="rust-keyword">fn</span> <span class="rust-function">next_timestamp</span>() -> <span class="rust-type">u64</span> {
+        TIMESTAMP.fetch_add(1, Ordering::SeqCst)
+    }
+
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">record_rc_new</span>(&amp;<span class="rust-keyword">mut self</span>, ...) {
+        <span class="rust-keyword">self</span>.events.push(Event::RcNew {
+            timestamp: Self::next_timestamp(),
+            var_id, var_name, type_name, location,
+            strong_count, weak_count,
+        });
+    }
+}
+
+<span class="rust-comment">// Public API</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">reset</span>() { TRACKER.lock().clear(); }
+<span class="rust-keyword">pub fn</span> <span class="rust-function">get_events</span>() -> Vec&lt;Event&gt; { TRACKER.lock().events.clone() }
+<span class="rust-keyword">pub fn</span> <span class="rust-function">print_summary</span>() { TRACKER.lock().print_summary(); }</pre>
+    </div>
+
+    <h2>6.4 Enriched Events</h2>
+    <p>
+        Several event types carry metadata from the static analysis phase, providing richer information than would be available from runtime observation alone. These fields are populated by the macro using analyzer data and are backward-compatible via <code>#[serde(default, skip_serializing_if)]</code>. This design means that older event consumers can ignore the new fields, while newer tools can leverage the additional context for deeper analysis.
+    </p>
+    <p>
+        The enrichment pattern bridges the gap between static and dynamic analysis. The analyzer knows <em>what</em> is possible (which variables could be live at an await point), while the runtime knows <em>what actually happened</em> (the await was reached during execution). By combining both, the event stream provides a complete picture that neither analysis could produce alone.
+    </p>
+    <table>
+        <tr><th>Event</th><th>Enrichment Field</th><th>Source</th></tr>
+        <tr><td><code>AwaitStart</code></td><td><code>live_variables: Vec&lt;String&gt;</code></td><td>Analyzer's <code>await_points</code> map</td></tr>
+        <tr><td><code>UnsafeBlockEnter</code></td><td><code>operation_kind</code>, <code>operation_context</code></td><td>Analyzer's <code>unsafe_operations</code> map</td></tr>
+        <tr><td><code>ClosureCreate</code></td><td><code>fn_trait: Option&lt;String&gt;</code></td><td>Analyzer's <code>closure_traits</code> map</td></tr>
+        <tr><td><code>MatchArm</code></td><td><code>bindings: Vec&lt;String&gt;</code></td><td>Analyzer's <code>match_bindings</code> map</td></tr>
+        <tr><td><code>Call</code></td><td><code>receiver_type</code>, <code>result_type</code></td><td><code>MethodCallInfo</code> fields</td></tr>
+        <tr><td><code>Drop</code></td><td><code>location: Option&lt;String&gt;</code></td><td>Analyzer's <code>drop_line</code>/<code>drop_column</code></td></tr>
+    </table>
+    <p>
+        For example, an <code>AwaitStart</code> event not only records that an await point was reached, but also which variables are live across that suspension point, information that is only available through static analysis. This is particularly valuable for diagnosing async lifetime issues: if a future holds a reference across an await, the event stream shows exactly which variables are involved, enabling precise diagnosis of "future is not Send" errors.
+    </p>
+
+    <h2>6.5 Event Serialization</h2>
+    <p>
+        All events implement <code>Serialize</code> and <code>Deserialize</code> via serde, enabling JSON export for external visualization tools. The serialization format uses tagged enums, where each event variant includes its type name as a discriminator field. This makes the JSON output self-describing: a consumer can process events without knowing the full schema in advance.
+    </p>
+    <p>
+        The public API is intentionally minimal: <code>reset()</code> clears the event buffer for a fresh trace, <code>get_events()</code> returns a snapshot of all captured events, and <code>print_summary()</code> outputs a human-readable overview. This simplicity makes integration straightforward, whether the consumer is a test assertion, a CLI tool, or a web-based visualization frontend.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_runtime::*;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    reset();
+    my_instrumented_function();
+
+    <span class="rust-comment">// Get all captured events</span>
+    <span class="rust-keyword">let</span> events = get_events();
+    println!(<span class="rust-string">"Captured {} events"</span>, events.len());
+
+    <span class="rust-comment">// Export to JSON</span>
+    <span class="rust-keyword">let</span> json = serde_json::to_string_pretty(&amp;events).unwrap();
+    std::fs::write(<span class="rust-string">"ownership_trace.json"</span>, json).unwrap();
+
+    <span class="rust-comment">// Print human-readable summary</span>
+    print_summary();
+    <span class="rust-comment">// Output: Variables: 12 created, 8 dropped</span>
+    <span class="rust-comment">//         Borrows: 3 immutable, 1 mutable</span>
+}</pre>
+    </div>
 </div>

@@ -1,4 +1,120 @@
 <div class="section">
-    <h1>Limitations — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>8. Limitations and Future Work</h1>
+
+    <h2>8.1 Current Limitations</h2>
+    <p>
+        Six edge-case patterns remain where the macro cannot correctly instrument code. These functions have
+        <code>#[trace_borrow]</code> removed in the examples. Each limitation stems from a fundamental tension between
+        AST transformation and Rust's type system: the macro modifies syntax, but certain syntactic modifications change
+        the semantics in ways that the type checker rejects.
+    </p>
+    <p>
+        It is important to note that these are <em>instrumentation</em> limitations, not <em>analysis</em> limitations.
+        The analyzer correctly identifies types and method calls in all these patterns. The issue is that the macro's
+        code transformation strategy (wrapping expressions in tracking calls) interacts poorly with specific Rust
+        language features.
+    </p>
+    <table>
+        <tr>
+            <th>Pattern</th>
+            <th>Root Cause</th>
+        </tr>
+        <tr>
+            <td>Nested async functions</td>
+            <td>The <code>fn_enter</code>/<code>fn_exit</code> wrapping changes the return type of nested
+                <code>async fn</code> from the declared type to <code>()</code></td>
+        </tr>
+        <tr>
+            <td>Nested functions with <code>format!</code></td>
+            <td>Macro expansion inside nested function bodies produces blocks that conflict with outer wrapping</td>
+        </tr>
+        <tr>
+            <td>Complex unsafe blocks</td>
+            <td>Multiple unsafe operations in a single block interact with region tracking</td>
+        </tr>
+        <tr>
+            <td>MaybeUninit <code>assume_init_drop</code></td>
+            <td>Complex unsafe + drop interaction</td>
+        </tr>
+        <tr>
+            <td>Closure-returning functions</td>
+            <td>Nested <code>fn</code> with <code>impl Fn</code> return type conflicts with visitor traversal</td>
+        </tr>
+        <tr>
+            <td>Mutable borrow patterns</td>
+            <td><code>track_new</code> wrapping can change borrow semantics for <code>&amp;mut</code> bindings in
+                specific contexts</td>
+        </tr>
+    </table>
+    <p>
+        These represent less than 3% of the patterns encountered in the battle tests and do not affect the semantic
+        coverage of the 109 ownership patterns. In practice, developers can simply remove the
+        <code>#[trace_borrow]</code> attribute from the affected functions while keeping instrumentation on the rest of
+        the codebase.
+    </p>
+
+    <h2>8.2 The <code>parse_quote!</code> vs rustc Parsing Divergence</h2>
+    <p>
+        A fundamental challenge: <code>syn::parse_quote!</code> and <code>syn::parse2</code> accept token streams that
+        rustc subsequently rejects. Specifically, block expressions (<code>{ ... }</code>) inside function call
+        arguments are parsed differently by syn and rustc. This is not a bug in either parser; it reflects a genuine
+        ambiguity in Rust's grammar that the two parsers resolve differently.
+    </p>
+    <p>
+        This manifests when:
+    </p>
+    <ul>
+        <li>A closure with a block body (<code>|| { ... }</code>) appears as a function argument</li>
+        <li>A macro like <code>vec![]</code> expands to a block inside a function argument</li>
+        <li>A previous transform wraps an expression in a block, and a later transform embeds that block as an argument
+        </li>
+    </ul>
+    <p>
+        The <code>safe_parse_quote!</code> and <code>pending_inserts</code> patterns (Sections 5.6 and 5.7) mitigate
+        this, but the underlying divergence between syn and rustc remains a source of complexity. A complete solution
+        would require either syn to match rustc's parsing behavior exactly (which the syn maintainers have explicitly
+        declined to guarantee), or a fundamentally different code generation strategy that avoids embedding blocks
+        inside arguments entirely.
+    </p>
+
+    <h2>8.3 Stale Data Risk</h2>
+    <p>
+        If source code changes between running the analyzer and compiling, the JSON file becomes inconsistent. The macro
+        handles this gracefully: variables not found in the lookup are tracked with generic <code>track_new</code>
+        calls, and method calls without analyzer data use a safe default (<code>Immutable</code> borrow). However,
+        tracking precision degrades silently without an explicit error.
+    </p>
+    <p>
+        This is a deliberate trade-off. The alternative (failing compilation when any variable is missing from the JSON)
+        would force developers to re-run the analyzer after every edit, which contradicts the design goal of infrequent
+        analysis runs. The current approach ensures that the program always compiles and runs correctly; only the
+        tracking metadata may be incomplete. A future improvement could emit compile-time warnings (rather than errors)
+        for unresolved variables, alerting developers that re-analysis would improve tracking precision.
+    </p>
+
+    <h2>8.4 Future Work</h2>
+    <p>
+        Several directions extend the current system toward a complete ownership visualization and debugging platform:
+    </p>
+    <ul>
+        <li><strong>borrowscope-graph:</strong> Graph algorithms for ownership analysis. Build ownership graphs from
+            event streams, detect reference cycles, compute borrow lifetimes, and identify ownership hotspots. This
+            would transform the flat event stream into a queryable data structure that answers questions like "which
+            variables hold references to this allocation?" or "what is the longest borrow chain in this function?"</li>
+        <li><strong>borrowscope-ui:</strong> Interactive web visualization. Timeline view of ownership events, ownership
+            graph rendering, borrow scope highlighting, and drill-down into specific variables. The event stream's JSON
+            format is already designed for consumption by web frontends.</li>
+        <li><strong>IDE integration:</strong> Direct integration with rust-analyzer's LSP could eliminate the separate
+            analysis step entirely, providing real-time type information to the macro without a JSON intermediary. This
+            would solve the stale data problem completely, as the type information would always reflect the current
+            source code.</li>
+        <li><strong>Incremental analysis:</strong> Caching the rust-analyzer database between runs would reduce the
+            30-40 second workspace loading cost to near-zero for subsequent analyses. The salsa framework that
+            rust-analyzer uses already supports incremental computation; exposing this through the <code>ra_ap_*</code>
+            API would make re-analysis nearly instantaneous.</li>
+        <li><strong>Fix remaining edge cases:</strong> The 6 patterns in Section 8.1 require refactoring the macro's
+            visitor to avoid modifying expressions inside nested function bodies and to handle <code>&amp;mut</code>
+            bindings without changing borrow semantics. A potential approach is to use the <code>pending_inserts</code>
+            pattern more broadly, emitting tracking as separate statements rather than expression wrappers.</li>
+    </ul>
 </div>

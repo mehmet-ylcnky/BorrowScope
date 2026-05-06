@@ -1,4 +1,198 @@
 <div class="section">
-    <h1>Architecture — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>3. Architecture</h1>
+
+    <h2>3.1 Two-Phase Build Strategy</h2>
+    <p>
+        The core insight behind BorrowScope is that type information can be extracted <em>before</em> compilation and
+        communicated to the procedural macro via a file. This decouples semantic analysis from macro expansion while
+        working within Rust's compilation model rather than against it. Rather than attempting to modify the compiler
+        or inject information through unstable channels, the system uses a simple contract: the analyzer writes a JSON
+        file, and the macro reads it. Both tools operate on the same source code but at different times, creating a
+        temporal bridge across the compilation boundary.
+    </p>
+    <p>
+        This strategy has a key advantage over alternatives like compiler plugins or custom toolchains: it requires
+        no modifications to the Rust compiler, works with stable Rust, and integrates with existing build systems.
+        The JSON file acts as a stable interface between two independent programs, each of which can evolve
+        independently as long as the schema contract is maintained.
+    </p>
+    <div class="code-block">
+        <pre>
+  PHASE 1: Static Analysis (pre-build)
+  ═════════════════════════════════════
+  ┌──────────────┐      ┌──────────────────┐     ┌───────────────────┐
+  │  Cargo.toml  │────▶│  rust-analyzer   │────▶│  type-info.json   │
+  │  src/*.rs    │      │  engine (ra_ap_*)│     │  (.borrowscope/)  │
+  └──────────────┘      └──────────────────┘     └───────────────────┘
+
+        User's project         Full semantic              81 fields per variable
+        source code            analysis with              10 fields per method call
+                               type resolution            22 project-wide maps
+
+  PHASE 2: Instrumented Build (cargo build)
+  ══════════════════════════════════════════
+  ┌──────────────┐      ┌──────────────────┐     ┌───────────────────┐
+  │  src/*.rs    │────▶│  #[trace_borrow] │────▶│   Instrumented    │
+  │              │      │  macro           │     │   binary          │
+  └──────────────┘      └──────────────────┘     └───────────────────┘
+                              │ reads
+                              ▼
+                       ┌───────────────────┐
+                       │  type-info.json   │
+                       └───────────────────┘
+
+  PHASE 3: Runtime (program execution)
+  ═════════════════════════════════════
+  ┌──────────────────┐      ┌──────────────────┐     ┌───────────────────┐
+  │  Instrumented    │────▶│  track_* calls   │────▶│  Event stream     │
+  │  binary          │      │  (88 event types)│     │  (JSON export)    │
+  └──────────────────┘      └──────────────────┘     └───────────────────┘
+        </pre>
+    </div>
+    <p>
+        The user workflow is straightforward: run the analyzer once, then build and run normally. The analyzer needs to
+        re-run only when variable types or method signatures change, not on every edit. In practice, this means the
+        analysis step is infrequent during active development, since most code changes (logic, formatting, comments)
+        do not alter the type-level properties that the macro depends on.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment"># Step 1: Analyze (generates .borrowscope/type-info.json)</span>
+$ cargo run -p borrowscope-analyzer -- .
+
+<span class="rust-comment"># Step 2: Build (macro reads type-info.json automatically)</span>
+$ cargo build
+
+<span class="rust-comment"># Step 3: Run (events captured at runtime)</span>
+$ cargo run</pre>
+    </div>
+
+    <h2>3.2 Data Flow: JSON as Inter-Process Communication</h2>
+    <p>
+        The analyzer and macro run in different processes at different times. They communicate through a JSON file at
+        <code>.borrowscope/type-info.json</code>. The <a
+            href="https://github.com/mehmet-ylcnky/BorrowScope/blob/main/borrowscope-analyzer/docs/04-OUTPUT-FORMAT.md"
+            target="_blank">schema (v3.0)</a> is designed for backward compatibility: all fields use
+        <code>#[serde(default)]</code>, so older macro versions gracefully ignore new fields.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Simplified schema structure</span>
+{
+  <span class="rust-string">"version"</span>: <span class="rust-string">"3.0"</span>,
+  <span class="rust-string">"files"</span>: {
+    <span class="rust-string">"src/main.rs"</span>: [
+      {
+        <span class="rust-string">"name"</span>: <span class="rust-string">"data"</span>,
+        <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;"</span>,
+        <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_new"</span>,
+        <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"is_clone"</span>: <span class="rust-keyword">true</span>,
+        <span class="rust-string">"copy_semantics"</span>: <span class="rust-keyword">false</span>,
+        <span class="rust-string">"function_name"</span>: <span class="rust-string">"example"</span>,
+        <span class="rust-string">"method_calls"</span>: [
+          {
+            <span class="rust-string">"method"</span>: <span class="rust-string">"borrow"</span>,
+            <span class="rust-string">"operation"</span>: <span class="rust-string">"core::cell::borrow"</span>,
+            <span class="rust-string">"self_borrow"</span>: <span class="rust-string">"immutable"</span>
+          }
+        ]
+      }
+    ]
+  },
+  <span class="rust-string">"by_function"</span>: { ... },  <span class="rust-comment">// Primary lookup index</span>
+  <span class="rust-string">"by_name"</span>: { ... },      <span class="rust-comment">// Fallback lookup index</span>
+  <span class="rust-string">"await_points"</span>: { ... }, <span class="rust-comment">// 17 additional analysis maps</span>
+  ...
+}</pre>
+    </div>
+    <p>
+        The macro loads this file once via a <code>OnceLock</code> and builds two lookup indices:
+        <code>by_function</code> (primary, keyed by function name + variable name + declaration index) and
+        <code>by_name</code> (fallback, keyed by variable name only). This enables O(1) lookups during transformation.
+        The two-tier design handles variable shadowing correctly: when the same name appears multiple times within
+        a function, the declaration index disambiguates them. The <code>by_name</code> fallback covers cases where
+        the macro cannot determine the enclosing function context, ensuring that type information is always available
+        even in edge cases like top-level bindings or complex nested scopes.
+    </p>
+
+    <h2>3.3 Why Three Separate Crates</h2>
+    <p>
+        The separation into three crates is not arbitrary. Each operates at a different execution boundary with
+        different constraints. Rust's compilation model enforces strict isolation between these boundaries: a procedural
+        macro crate cannot link against arbitrary libraries, a pre-build tool cannot inject code into the compiler, and
+        a runtime library cannot access compile-time information. The three-crate design respects these boundaries while
+        establishing communication channels between them.
+    </p>
+    <p>
+        The communication pattern is unidirectional: the analyzer produces data that the macro consumes, and the macro
+        produces code that the runtime executes. There are no circular dependencies or bidirectional channels. This
+        makes each component independently testable and replaceable. A different analyzer (perhaps one using
+        <code>rustc</code> internals directly) could produce the same JSON schema, and the macro would work identically.
+    </p>
+    <div class="code-block">
+        <pre>
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  CONSTRAINT                        SOLUTION                             │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │                                                                         │
+  │  Proc macros cannot access         borrowscope-analyzer                 │
+  │  type information                  Runs pre-build with rust-analyzer    │
+  │                                                                         │
+  │  Type info must reach the          .borrowscope/type-info.json          │
+  │  macro somehow                     File-based communication             │
+  │                                                                         │
+  │  Code transformation must          borrowscope-macro                    │
+  │  happen at compile time            Procedural macro with JSON loading   │
+  │                                                                         │
+  │  Ownership events occur            borrowscope-runtime                  │
+  │  during execution                  Library linked into final binary     │
+  │                                                                         │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │                                                                         │
+  │  Communication across boundaries:                                       │
+  │                                                                         │
+  │    analyzer ───JSON file──▶ macro ───generated code──▶ runtime         │
+  │    (pre-build)              (compile-time)             (execution)      │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+        </pre>
+    </div>
+
+    <h2>3.4 Design Decision: Static Pre-Build vs Runtime Type Analysis</h2>
+    <p>
+        An alternative design would embed type analysis into the runtime, inspecting values via
+        <code>std::any::TypeId</code> or trait object introspection. We chose the static pre-build approach for several
+        reasons:
+    </p>
+    <div class="solution-statement">
+        <strong>Advantages of static analysis:</strong>
+        <ul>
+            <li><strong>Zero runtime overhead</strong> for type resolution. All classification happens once, before
+                compilation. The generated tracking calls contain string literals, not hash lookups.</li>
+            <li><strong>Access to creation semantics.</strong> The distinction between <code>Rc::new()</code> and
+                <code>Rc::clone()</code> depends on analyzing the expression that creates a value, not the value's type
+                at rest. At runtime, both produce an <code>Rc&lt;T&gt;</code>.
+            </li>
+            <li><strong>Full trait resolution.</strong> rust-analyzer resolves trait implementations, generic bounds,
+                and type aliases across the entire workspace. A runtime analyzer would only see concrete monomorphized
+                types.</li>
+            <li><strong>No unstable features required.</strong> Runtime type introspection in Rust is deliberately
+                limited. <code>TypeId</code> requires <code>'static</code> bounds, and there is no stable reflection
+                API.</li>
+        </ul>
+    </div>
+    <div class="highlight-box">
+        <strong>Trade-offs acknowledged:</strong>
+        <ul>
+            <li>Two-step build workflow (analyzer must run before <code>cargo build</code>)</li>
+            <li>Stale data risk if source changes between analysis and compilation</li>
+            <li>Cannot observe dynamically-dispatched types behind <code>dyn Trait</code></li>
+            <li>Toolchain coupling to <code>ra_ap_*</code> crate versions</li>
+        </ul>
+    </div>
+    <p>
+        The static approach was chosen because BorrowScope's primary goal is classifying ownership <em>patterns</em>,
+        not just types. Distinguishing <code>Rc::new</code> from <code>Rc::clone</code>, identifying guard types, and
+        recognizing interior mutability wrappers are distinctions that exist in source code and are erased by
+        compilation. A runtime analyzer would see types but not creation semantics.
+    </p>
 </div>

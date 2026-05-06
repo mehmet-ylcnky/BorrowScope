@@ -1,4 +1,192 @@
 <div class="section">
-    <h1>Analyzer — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>4. The Analyzer (<code>borrowscope-analyzer</code>)</h1>
+
+    <h2>4.1 Workspace Loading and Sysroot Discovery</h2>
+    <p>
+        Before any semantic analysis can occur, rust-analyzer must load the project's workspace: parsing <code>Cargo.toml</code>, resolving dependencies, and locating the Rust standard library (sysroot). The sysroot contains pre-compiled metadata for <code>std</code>, <code>core</code>, <code>alloc</code>, and other standard crates. This loading phase is the most time-consuming part of the analysis (30-40 seconds), as it mirrors the same dependency resolution that <code>cargo build</code> performs, plus the additional step of indexing all type definitions for semantic queries.
+    </p>
+    <p>
+        The workspace loading produces a <code>RootDatabase</code>, which is rust-analyzer's central data structure for semantic queries. This database holds the entire project's type information in a salsa-based incremental computation framework, allowing efficient queries against any symbol in the project or its dependencies.
+    </p>
+    <div class="highlight-box">
+        <strong>Critical discovery during development:</strong> Without sysroot discovery, types from the standard library resolve to <code>{unknown}</code>. Initial tests showed only 10% type resolution. Enabling <code>RustLibSource::Discover</code> improved resolution to near-100% for standard library types. This single configuration line is the difference between a usable analyzer and one that cannot distinguish <code>Rc&lt;T&gt;</code> from <code>Arc&lt;T&gt;</code>.
+    </div>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let</span> <span class="rust-keyword">mut</span> cargo_config = CargoConfig::default();
+cargo_config.sysroot = Some(RustLibSource::Discover);  <span class="rust-comment">// Critical!</span>
+
+<span class="rust-keyword">let</span> load_config = LoadCargoConfig {
+    load_out_dirs_from_check: <span class="rust-keyword">true</span>,
+    with_proc_macro_server: ProcMacroServerChoice::None,  <span class="rust-comment">// Analyze before expansion</span>
+    prefill_caches: <span class="rust-keyword">true</span>,
+};
+
+<span class="rust-keyword">let</span> (db, vfs, _) = load_workspace_at(project_path, &amp;cargo_config, &amp;load_config, &amp;|_| {})?;</pre>
+    </div>
+    <p>
+        Proc-macro expansion is intentionally disabled (<code>ProcMacroServerChoice::None</code>) because we analyze the source <em>before</em> macro expansion. We want the types as they appear in the user's source code, not after transformation by other macros. This also avoids a circular dependency: if BorrowScope's own macro were expanded during analysis, the analyzer would see the instrumented code rather than the original, leading to incorrect type mappings.
+    </p>
+
+    <h2>4.2 Type Extraction via <code>type_of_pat</code></h2>
+    <p>
+        The analyzer walks each source file's syntax tree, finding <code>let</code> statements and extracting the pattern (variable name), its resolved type, and source location. The key API is <code>sema.type_of_pat()</code>, which returns the type <em>after</em> all coercions are applied. This distinction is critical: Rust performs implicit coercions at binding sites (reference-to-raw-pointer, deref coercions, unsizing), and the macro needs the final type, not the expression type.
+    </p>
+    <p>
+        For each variable, the analyzer extracts 81 fields covering type identity, trait implementations, mutability, reference depth, generic parameters, and source location. This comprehensive extraction means the macro never needs to infer or guess any type property.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Why type_of_pat, not type_of_expr:</span>
+<span class="rust-comment">// let ptr: *const i32 = &amp;value;</span>
+<span class="rust-comment">//   type_of_expr(&amp;value) = &amp;i32        (before coercion)</span>
+<span class="rust-comment">//   type_of_pat(ptr)      = *const i32  (after coercion) ✓</span>
+
+<span class="rust-keyword">if</span> <span class="rust-keyword">let</span> Some(type_info) = sema.type_of_pat(&amp;pat) {
+    <span class="rust-keyword">let</span> ty = type_info.original;
+    var_info.ty = ty.display(db, Edition::Edition2021).to_string();
+    var_info.is_copy = ty.is_copy(db);
+    var_info.is_reference = ty.is_reference();
+    var_info.is_mutable_reference = ty.is_mutable_reference();
+    <span class="rust-comment">// ... 81 fields total</span>
+}</pre>
+    </div>
+
+    <h2>4.3 Trait Detection</h2>
+    <p>
+        The analyzer detects 8 trait implementations for each variable using rust-analyzer's <code>impls_trait()</code> API. Traits are looked up via lang items (for compiler-known traits like <code>Copy</code>, <code>Clone</code>, <code>Drop</code>) or via import map search (for <code>Send</code>, which is not a lang item). The distinction matters because lang items have a stable identity in the compiler's internal representation, while non-lang traits must be discovered through the crate's import map.
+    </p>
+    <p>
+        Knowing whether a type implements <code>Copy</code> determines whether an assignment is a move or a copy. Knowing whether it implements <code>Drop</code> determines whether the macro should emit drop tracking. These are not properties that can be guessed from a type's name.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Lang item traits (compiler-known)</span>
+<span class="rust-keyword">let</span> clone_trait = db.lang_item(krate_id, LangItem::Clone)
+    .and_then(|li| li.as_trait());
+var_info.is_clone = ty.impls_trait(db, clone_trait, &amp;[]);
+
+<span class="rust-comment">// Send trait (not a lang item, found via import_map)</span>
+<span class="rust-keyword">let</span> send_trait = find_trait_by_name(db, krate, <span class="rust-string">"Send"</span>);
+var_info.is_send = ty.impls_trait(db, send_trait, &amp;[]);</pre>
+    </div>
+
+    <h2>4.4 ADT Classification via Canonical Path</h2>
+    <p>
+        Types are classified by resolving their ADT (Abstract Data Type) identity through canonical module paths. This is the mechanism that replaces all string-matching heuristics. A type alias <code>type MyRc&lt;T&gt; = Rc&lt;T&gt;</code> resolves to the same ADT as <code>Rc&lt;T&gt;</code>, so both are correctly classified. Similarly, re-exports (<code>use std::rc::Rc</code> vs <code>use alloc::rc::Rc</code>) resolve to the same canonical path because they refer to the same underlying type definition.
+    </p>
+    <p>
+        The canonical path is the type's definition location in the crate hierarchy, not its import path. This means that regardless of how a user imports or aliases a type, the analyzer always identifies it by its true origin. This is fundamentally more robust than any string-matching approach.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">if</span> <span class="rust-keyword">let</span> Some(adt) = ty.as_adt() {
+    <span class="rust-comment">// Get canonical path: "alloc::rc::Rc", "std::sync::Mutex", etc.</span>
+    <span class="rust-keyword">let</span> path = get_adt_canonical_path(&amp;adt, db);
+
+    <span class="rust-comment">// Exact path matching (not string heuristics)</span>
+    var_info.is_rc = path == <span class="rust-string">"alloc::rc::Rc"</span>;
+    var_info.is_arc = path == <span class="rust-string">"alloc::sync::Arc"</span>;
+    var_info.is_mutex = path == <span class="rust-string">"std::sync::poison::mutex::Mutex"</span>;
+    var_info.is_refcell = path == <span class="rust-string">"core::cell::RefCell"</span>;
+    <span class="rust-comment">// ... 21 ADT classifications total</span>
+}</pre>
+    </div>
+    <p>
+        The analyzer classifies types into 78 distinct initializer categories (from <code>rc_new</code> to <code>atomic_new</code> to <code>user_struct</code>) by combining the ADT identity with the expression kind (constructor call, clone, method result, etc.).
+    </p>
+
+    <h2>4.5 Method Call Analysis</h2>
+    <p>
+        For each tracked variable, the analyzer records all method calls made on it. This is the key capability that eliminates the 47 self-borrow heuristics and 18 semantic dispatch patterns from the macro. The analyzer resolves each method call to its actual function definition, extracting the self parameter's access mode directly from the function signature rather than guessing from the method name.
+    </p>
+    <p>
+        This resolution handles complex cases that no heuristic can: a method named <code>write</code> could take <code>&amp;self</code> (on <code>io::Write</code>), <code>&amp;mut self</code> (on <code>RwLock</code>), or <code>self</code> (on <code>MaybeUninit</code>). Only by resolving to the actual definition can the correct borrow type be determined.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">analyze_method_calls</span>(sema: &amp;Semantics, method_call: &amp;MethodCallExpr, db: &amp;RootDatabase) {
+    <span class="rust-comment">// Resolve to the actual function definition</span>
+    <span class="rust-keyword">let</span> func = sema.resolve_method_call(method_call)?;
+
+    <span class="rust-comment">// Build canonical path: "core::cell::set", "std::sync::mpsc::send"</span>
+    <span class="rust-keyword">let</span> operation = get_function_path(&amp;func, db);
+
+    <span class="rust-comment">// Determine self-borrow type from the method signature</span>
+    <span class="rust-keyword">let</span> self_borrow = <span class="rust-keyword">match</span> func.self_param(db)?.access(db) {
+        Access::Shared =&gt; <span class="rust-string">"immutable"</span>,
+        Access::Exclusive =&gt; <span class="rust-string">"mutable"</span>,
+        Access::Owned =&gt; <span class="rust-string">"consuming"</span>,
+    };
+
+    <span class="rust-comment">// Detect trait methods (e.g., Clone::clone vs inherent .clone())</span>
+    <span class="rust-keyword">let</span> is_trait_method = func.as_assoc_item(db)
+        .and_then(|item| item.containing_trait(db))
+        .is_some();
+}</pre>
+    </div>
+    <p>
+        The resulting <code>MethodCallInfo</code> contains 10 fields: <code>method</code>, <code>line</code>, <code>column</code>, <code>operation</code> (canonical path), <code>self_borrow</code>, <code>receiver_type</code>, <code>result_type</code>, <code>is_trait_method</code>, <code>trait_name</code>, and <code>is_unsafe</code>.
+    </p>
+
+    <h2>4.6 Standalone Expression Tracking</h2>
+    <p>
+        Some ownership-relevant operations do not create variables or call methods on tracked variables. Functions like <code>thread::spawn</code>, <code>mem::transmute</code>, and <code>mem::drop</code> are tracked via <code>FunctionId</code> comparison, not string matching. The analyzer resolves these functions once at startup and stores their unique identifiers. During the analysis pass, each call expression is compared against these known IDs.
+    </p>
+    <p>
+        This approach is immune to shadowing and aliasing. A user could write <code>let transmute = some_other_fn;</code> and call it as <code>transmute(x)</code>, and the analyzer would correctly identify it as <em>not</em> being <code>mem::transmute</code> because the <code>FunctionId</code> differs. String matching would incorrectly flag this as a transmute operation.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// TrackedFunctions: resolved once at startup via FunctionId</span>
+<span class="rust-keyword">let</span> tracked = TrackedFunctions::resolve(db, krate);
+
+<span class="rust-comment">// For each call expression, compare FunctionId (not strings)</span>
+<span class="rust-keyword">if</span> <span class="rust-keyword">let</span> Some(func) = sema.resolve_path(&amp;call_path) {
+    <span class="rust-keyword">if</span> func == tracked.thread_spawn {
+        expressions.push(ExpressionInfo { operation: <span class="rust-string">"thread_spawn"</span>, .. });
+    } <span class="rust-keyword">else if</span> func == tracked.transmute {
+        expressions.push(ExpressionInfo { operation: <span class="rust-string">"transmute"</span>, .. });
+    }
+}</pre>
+    </div>
+
+    <h2>4.7 Top-Level Analysis Maps</h2>
+    <p>
+        Beyond per-variable data, the analyzer produces 22 project-wide maps that enrich the macro's tracking capabilities. These maps capture structural information about the program that cannot be derived from individual variable analysis alone: which variables are live at each await point, what bindings a match arm introduces, and which closure implements which <code>Fn</code> trait.
+    </p>
+    <table>
+        <tr><th>Map</th><th>Content</th><th>Macro Usage</th></tr>
+        <tr><td><code>await_points</code></td><td>Every <code>.await</code> with live variables</td><td>Passes live vars to <code>track_await_start</code></td></tr>
+        <tr><td><code>borrow_spans</code></td><td>Borrow start/end/use sites</td><td>Emits <code>track_borrow_span</code> metadata</td></tr>
+        <tr><td><code>unsafe_operations</code></td><td>Unsafe blocks with kind/context</td><td>Enriches <code>track_unsafe_block_enter</code></td></tr>
+        <tr><td><code>closure_traits</code></td><td>Fn/FnMut/FnOnce per closure</td><td>Passes fn_trait to <code>track_closure_create</code></td></tr>
+        <tr><td><code>field_accesses</code></td><td>Field reads/writes with types</td><td>Gates <code>transform_field</code> for read-only</td></tr>
+        <tr><td><code>match_bindings</code></td><td>Match arm binding names</td><td>Passes bindings to <code>track_match_arm</code></td></tr>
+        <tr><td><code>method_borrows</code></td><td>Method borrow kinds</td><td>Fallback for <code>infer_self_borrow_type</code></td></tr>
+        <tr><td><code>trait_impls</code></td><td>Trait implementations per type</td><td>Metadata (available via lookup)</td></tr>
+    </table>
+    <p>
+        The remaining maps (<code>destructuring</code>, <code>variants</code>, <code>lifetimes</code>, <code>labels</code>, <code>const_patterns</code>, <code>callables</code>, <code>record_field_exprs</code>, <code>record_field_pats</code>, <code>function_calls</code>) provide additional enrichment for specific tracking scenarios.
+    </p>
+
+    <h2>4.8 Upstream Contribution: Raw Pointer Mutability API</h2>
+    <p>
+        During development, we discovered that <code>hir::Type</code> provided <code>is_raw_ptr()</code> to check if a type is a raw pointer, but no way to distinguish <code>*mut T</code> from <code>*const T</code>. This was asymmetric with references, where both <code>is_mutable_reference()</code> and <code>as_reference()</code> exist. The only workaround was parsing the display string, which is exactly the kind of heuristic this project aims to eliminate:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Before PR #21835: string parsing heuristic (exactly what we're eliminating)</span>
+<span class="rust-keyword">let</span> is_mut = ty.is_raw_ptr() &amp;&amp; ty.display(db).to_string().starts_with(<span class="rust-string">"*mut "</span>);</pre>
+    </div>
+    <p>
+        We contributed the fix upstream as <a href="https://github.com/rust-lang/rust-analyzer/pull/21835" target="_blank">rust-analyzer PR #21835</a> (merged April 2026), adding two methods:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// After PR #21835: semantic API (no string parsing)</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">is_mutable_raw_ptr</span>(&amp;<span class="rust-keyword">self</span>) -> <span class="rust-type">bool</span> {
+    <span class="rust-keyword">matches!</span>(<span class="rust-keyword">self</span>.ty.kind(), TyKind::RawPtr(.., Mutability::Mut))
+}
+
+<span class="rust-keyword">pub fn</span> <span class="rust-function">as_raw_ptr</span>(&amp;<span class="rust-keyword">self</span>) -> <span class="rust-type">Option</span>&lt;(<span class="rust-type">Type</span>, <span class="rust-type">Mutability</span>)&gt; {
+    <span class="rust-keyword">let</span> TyKind::RawPtr(ty, m) = <span class="rust-keyword">self</span>.ty.kind() <span class="rust-keyword">else</span> { <span class="rust-keyword">return</span> None };
+    Some((<span class="rust-keyword">self</span>.derived(ty), Mutability::from_mutable(<span class="rust-keyword">matches!</span>(m, Mutability::Mut))))
+}</pre>
+    </div>
+    <p>
+        This contribution demonstrates that building tools on rust-analyzer's <code>ra_ap_*</code> crates can identify API gaps and drive improvements to the platform, benefiting all downstream consumers. The PR was reviewed and merged by ChayimFriedman2, one of rust-analyzer's core maintainers, within a week of submission. It closes a long-standing asymmetry in the <code>hir::Type</code> API that affected any tool needing to reason about raw pointer mutability.
+    </p>
 </div>

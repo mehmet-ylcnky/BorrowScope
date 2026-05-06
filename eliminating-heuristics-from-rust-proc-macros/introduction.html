@@ -1,4 +1,98 @@
 <div class="section">
-    <h1>Introduction — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>1. Introduction</h1>
+
+    <h2>1.1 The Proc-Macro Type Blindness Problem</h2>
+    <p>
+        Rust's procedural macros execute during the early stages of compilation, specifically after parsing but
+        <em>before</em> type checking. At this point, the compiler has tokenized the source code into an abstract syntax
+        tree, but has not yet resolved types, inferred generics, or checked trait implementations. A procedural macro
+        receives only raw tokens: it can see that a variable is initialized with
+        <code>Rc::new(RefCell::new(vec![1, 2, 3]))</code>, but it cannot determine that the resulting type is
+        <code>Rc&lt;RefCell&lt;Vec&lt;i32&gt;&gt;&gt;</code>, that <code>Rc&lt;T&gt;</code> implements reference
+        counting, or that the inner <code>RefCell&lt;T&gt;</code> provides interior mutability.
+    </p>
+    <p>
+        This constraint is not a bug. It is an intentional property of Rust's compilation model, designed to maintain
+        determinism and enable parallel macro expansion. But it creates a fundamental problem for any procedural macro
+        that needs to make type-aware decisions. Consider a macro that must distinguish between:
+    </p>
+    <ul>
+        <li><code>let x = Rc::new(value);</code> (reference-counted allocation)</li>
+        <li><code>let x = create_shared(value);</code> (factory function returning <code>Rc&lt;T&gt;</code>)</li>
+        <li><code>let x = MyRc::new(value);</code> (type alias for <code>Rc&lt;T&gt;</code>)</li>
+        <li><code>let x = if cond { Rc::new(a) } else { Arc::new(b) };</code> (conditional)</li>
+    </ul>
+    <p>
+        The first case can be detected by matching the literal tokens <code>Rc::new</code>. The remaining three are
+        invisible to syntactic analysis. They require type resolution to identify. This gap widens as codebases grow:
+        real-world Rust projects routinely use type aliases, builder patterns, and factory functions that obscure the
+        underlying types from token-level inspection. Without semantic information, a procedural macro is forced to
+        either miss these cases entirely or resort to fragile naming conventions that break silently when code is
+        refactored.
+    </p>
+
+    <h2>1.2 The Cost of Heuristics</h2>
+    <p>
+        Without type information, procedural macros resort to <strong>string-matching heuristics</strong>:
+        pattern-matching on method names, path segments, and naming conventions. As documented in the <a
+            href="../borrowscope-analyzer-whitepaper/" target="_blank">initial BorrowScope whitepaper</a> (March 2026),
+        the <code>#[trace_borrow]</code> macro originally relied on 109 such patterns to classify ownership-related
+        operations, of which <strong>66 (61%) were pure string-based heuristics</strong> with no semantic grounding.
+        These heuristics occupied approximately 500 lines of detection code across multiple files.
+    </p>
+    <p>
+        The fragility of this approach manifests in concrete failure modes:
+    </p>
+    <div class="problem-statement">
+        <strong>Ambiguity:</strong> The method name <code>write</code> could mean <code>RwLock::write</code> (lock
+        acquisition), <code>io::Write::write</code> (I/O operation), or <code>MaybeUninit::write</code> (unsafe
+        initialization). String matching cannot disambiguate without knowing the receiver type.
+    </div>
+    <div class="problem-statement">
+        <strong>False negatives:</strong> A factory function <code>fn create_shared(v: T) -> Rc&lt;T&gt;</code> returns
+        an <code>Rc</code>, but the macro sees only the function name and cannot detect the smart pointer allocation.
+    </div>
+    <div class="problem-statement">
+        <strong>False positives:</strong> A user-defined struct with a method named <code>clone</code> (not implementing
+        the <code>Clone</code> trait) would be incorrectly classified as a clone operation.
+    </div>
+    <div class="problem-statement">
+        <strong>Maintenance burden:</strong> Every new tracked type requires adding heuristic patterns, testing edge
+        cases, and documenting limitations. The detection code grows linearly with the number of supported types.
+    </div>
+
+    <h2>1.3 Contributions</h2>
+    <p>
+        This paper presents the design, implementation, and evaluation of the complete BorrowScope system, a
+        three-component pipeline spanning static analysis, compile-time code transformation, and runtime event capture,
+        after successfully eliminating all heuristic pattern matching from the procedural macro. What began as a
+        research question ("can pre-build semantic analysis replace syntactic heuristics in Rust procedural macros?")
+        has been answered definitively: yes, and the resulting system is more accurate, more maintainable, and validated
+        on real-world open-source code. The specific contributions are:
+    </p>
+    <div class="contributions">
+        <ol>
+            <li><strong>A complete two-phase build system</strong> achieving semantic coverage across all 109
+                ownership-related patterns, with zero string-matching heuristics remaining in the macro. This fulfills
+                the five-phase roadmap outlined in the <a href="../borrowscope-analyzer-whitepaper/#roadmap"
+                    target="_blank">previous whitepaper</a>, which estimated 19 hours of development effort for full
+                coverage.</li>
+            <li><strong>An upstream contribution to rust-analyzer</strong> (<a
+                    href="https://github.com/rust-lang/rust-analyzer/pull/21835" target="_blank">PR #21835</a>) adding
+                <code>is_mutable_raw_ptr()</code> and <code>as_raw_ptr()</code> to <code>hir::Type</code>, closing an
+                API gap discovered during development.</li>
+            <li><strong>Validation on real-world projects</strong>: ripgrep (287 tests pass with instrumented source
+                code), the <code>lru</code> crate (107 ownership events tracked), and the <code>uuid</code> crate (88
+                events tracked), all requiring zero modifications to the macro or analyzer.</li>
+            <li><strong>88 runtime event types</strong> covering the Rust ownership model: smart pointers, interior
+                mutability, concurrency primitives, unsafe operations, async/await, control flow, closures, and more.
+            </li>
+        </ol>
+    </div>
+    <p>
+        The remainder of this paper is organized as follows: Section 2 provides background on Rust's compilation
+        pipeline and rust-analyzer. Section 3 describes the system architecture. Sections 4–6 detail the three
+        components (analyzer, macro, runtime). Section 7 presents evaluation results. Section 8 discusses performance
+        characteristics. Section 9 addresses limitations and future work. Section 10 concludes.
+    </p>
 </div>

@@ -1,4 +1,273 @@
 <div class="section">
-    <h1>Macro — In Progress</h1>
-    <p>This section is being written. Check back soon.</p>
+    <h1>5. The Macro (<code>borrowscope-macro</code>)</h1>
+
+    <h2>5.1 Type Info Loading and Lookup</h2>
+    <p>
+        The macro loads <code>.borrowscope/type-info.json</code> once per compilation via a <code>OnceLock</code>. The
+        project root is discovered through the <code>CARGO_MANIFEST_DIR</code> environment variable, which Cargo sets
+        for every crate during compilation. If the file is missing, the macro panics with a clear error message
+        directing the user to run the analyzer. This fail-fast behavior is intentional: silent degradation to
+        heuristic-based tracking would undermine the entire purpose of the system.
+    </p>
+    <p>
+        The loading happens exactly once regardless of how many functions carry the <code>#[trace_borrow]</code>
+        attribute. The <code>OnceLock</code> guarantees thread-safe initialization even when the compiler processes
+        multiple crates in parallel. The deserialized data is stored as a <code>&amp;'static</code> reference,
+        eliminating any per-function allocation overhead.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">static</span> TYPE_INFO_CACHE: OnceLock&lt;Option&lt;TypeInfoCache&gt;&gt; = OnceLock::new();
+
+<span class="rust-keyword">pub fn</span> <span class="rust-function">get_type_info</span>() -> Option&lt;&amp;'<span class="rust-keyword">static</span> TypeInfoCache&gt; {
+    TYPE_INFO_CACHE
+        .get_or_init(|| find_project_root().and_then(|root| TypeInfoCache::load(&amp;root)))
+        .as_ref()
+}
+
+<span class="rust-comment">// Two-tier lookup: function-scoped (primary) → name-only (fallback)</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">lookup_in_function</span>(fn_name: &amp;<span class="rust-keyword">str</span>, var_name: &amp;<span class="rust-keyword">str</span>, decl_index: Option&lt;u32&gt;)
+    -> Option&lt;&amp;'<span class="rust-keyword">static</span> VariableTypeInfo&gt;;
+
+<span class="rust-keyword">pub fn</span> <span class="rust-function">lookup_by_name</span>(var_name: &amp;<span class="rust-keyword">str</span>)
+    -> Option&lt;&amp;'<span class="rust-keyword">static</span> VariableTypeInfo&gt;;</pre>
+    </div>
+    <p>
+        The function-scoped lookup handles variable shadowing correctly. Each variable is identified by the triple
+        <code>(function_name, var_name, decl_index)</code>, where <code>decl_index</code> distinguishes multiple
+        declarations of the same name within a function. This is essential for Rust code, where shadowing is idiomatic:
+        patterns like <code>let x = x.unwrap()</code> or <code>let config = config.build()</code> are common and must
+        resolve to the correct type at each point.
+    </p>
+
+    <h2>5.2 Initializer Kind Dispatch</h2>
+    <p>
+        When the macro encounters a <code>let</code> binding, it looks up the variable's <code>initializer_kind</code>
+        from the analyzer data and dispatches to the appropriate tracking function. This single <code>match</code>
+        statement replaces all 17 <code>detect_*</code> functions that previously existed in the deleted
+        <code>smart_pointer.rs</code>. The old approach required pattern matching on AST structure (looking for paths
+        like <code>Rc::new</code>, <code>Arc::clone</code>, etc.), which failed for any non-standard construction
+        pattern.
+    </p>
+    <p>
+        The <code>initializer_kind</code> is a string tag computed by the analyzer based on the resolved type and
+        expression form. For example, <code>"rc_clone"</code> is assigned when the expression is a call to
+        <code>Clone::clone</code> on an <code>Rc&lt;T&gt;</code> type, regardless of whether the user wrote
+        <code>Rc::clone(&amp;x)</code>, <code>x.clone()</code>, or <code>Clone::clone(&amp;x)</code>. All three produce
+        the same tag because the analyzer resolves through the trait system.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">transform_by_initializer_kind</span>(&amp;<span class="rust-keyword">mut self</span>, init_kind: &amp;<span class="rust-keyword">str</span>, ...) -> Option&lt;Expr&gt; {
+    <span class="rust-keyword">match</span> init_kind {
+        <span class="rust-string">"rc_new"</span>       => Some(track_rc_new_with_id(...)),
+        <span class="rust-string">"arc_new"</span>      => Some(track_arc_new_with_id(...)),
+        <span class="rust-string">"rc_clone"</span>     => Some(track_rc_clone_with_id(...)),
+        <span class="rust-string">"box_new"</span>      => Some(track_box_new(...)),
+        <span class="rust-string">"refcell_new"</span>  => Some(track_refcell_new(...)),
+        <span class="rust-string">"cell_new"</span>     => Some(track_cell_new(...)),
+        <span class="rust-string">"weak_new"</span>     => Some(track_weak_new(...)),
+        <span class="rust-string">"pin_new"</span>      => Some(track_pin_new(...)),
+        <span class="rust-string">"cow_new"</span>      => Some(track_cow_owned(...)),
+        <span class="rust-string">"channel_new"</span>  => None, <span class="rust-comment">// Handled by tuple destructuring</span>
+        <span class="rust-string">"atomic_new"</span>   => Some(track_atomic_new(...)),
+        <span class="rust-string">"duration_new"</span> => Some(track_duration_new(...)),
+        <span class="rust-string">"instant_new"</span>  => Some(track_instant_new(...)),
+        <span class="rust-comment">// ... 78 categories total</span>
+        _ => None, <span class="rust-comment">// Falls through to generic track_new</span>
+    }
+}</pre>
+    </div>
+
+    <h2>5.3 Semantic Method Call Dispatch</h2>
+    <p>
+        For method calls on tracked variables, the macro reads the <code>operation</code> field (canonical path) from
+        <code>MethodCallInfo</code> and dispatches based on exact path matching. This replaces all
+        <code>method_name == "..."</code> heuristics that plagued the previous implementation. The old approach could
+        not distinguish between methods with the same name on different types, leading to incorrect tracking for common
+        names like <code>lock</code>, <code>write</code>, <code>get</code>, and <code>set</code>.
+    </p>
+    <p>
+        The canonical path includes the full module hierarchy from the crate root to the method definition. This means
+        <code>"std::sync::poison::rwlock::write"</code> (which acquires a write lock) is never confused with
+        <code>"std::io::Write::write"</code> (which writes bytes to a stream) or <code>"core::ptr::write"</code> (which
+        performs an unsafe memory write). Each has completely different ownership semantics, and only the canonical path
+        can distinguish them reliably.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// mc_info.operation contains the canonical path from the analyzer</span>
+<span class="rust-keyword">let</span> semantic_op = mc_info.and_then(|mc| mc.operation.clone());
+
+<span class="rust-keyword">match</span> semantic_op.as_deref() {
+    Some(<span class="rust-string">"core::cell::set"</span>)                    => transform_cell_set(...),
+    Some(<span class="rust-string">"core::cell::borrow"</span>)                 => transform_refcell_borrow(...),
+    Some(<span class="rust-string">"alloc::borrow::to_mut"</span>)              => transform_cow_to_mut(...),
+    Some(<span class="rust-string">"std::sync::poison::mutex::lock"</span>)     => transform_lock(..., <span class="rust-string">"mutex"</span>),
+    Some(<span class="rust-string">"std::sync::poison::rwlock::read"</span>)    => transform_lock(..., <span class="rust-string">"rwlock_read"</span>),
+    Some(<span class="rust-string">"std::sync::mpsc::send"</span>)              => transform_channel_send(...),
+    Some(<span class="rust-string">"std::thread::join_handle::join"</span>)     => transform_thread_join(...),
+    <span class="rust-comment">// ... 18 canonical path patterns total</span>
+    _ => {}
+}</pre>
+    </div>
+    <p>
+        The critical difference from the previous approach: <code>"std::sync::poison::rwlock::write"</code> is
+        unambiguous. It cannot be confused with <code>io::Write::write</code> or <code>MaybeUninit::write</code> because
+        the canonical path includes the full module hierarchy. When no canonical path is available (the method call was
+        not found in the analyzer data), the macro falls back to generic method call tracking without attempting to
+        guess the operation type.
+    </p>
+
+    <h2>5.4 Self-Borrow Inference</h2>
+    <p>
+        The macro previously used a 47-pattern heuristic function that guessed whether a method takes
+        <code>&amp;self</code>, <code>&amp;mut self</code>, or <code>self</code> based on method name prefixes
+        (<code>push*</code> = mutable, <code>as_*</code> = immutable, <code>into_*</code> = consuming). This entire
+        function is replaced by reading the <code>self_borrow</code> field from the analyzer. The heuristic approach was
+        fundamentally flawed: <code>Vec::push</code> takes <code>&amp;mut self</code>, but <code>Button::push</code> in
+        a UI framework might take <code>&amp;self</code>. The method name alone carries no reliable information about
+        the receiver's borrow type.
+    </p>
+    <p>
+        The analyzer extracts the self parameter's access mode directly from the function signature in the type system.
+        This is always correct because it reads the actual declaration rather than inferring from naming conventions.
+        The only case where the macro uses a default is when the method call was not found in the analyzer data (stale
+        JSON), in which case it conservatively assumes <code>Immutable</code>, which is safe because it never generates
+        incorrect mutable borrow tracking.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Before: 47 heuristic patterns</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">infer_self_borrow_type</span>(method_name: &amp;<span class="rust-keyword">str</span>) -> SelfBorrowType {
+    <span class="rust-keyword">if</span> method_name.starts_with(<span class="rust-string">"push"</span>) || method_name.starts_with(<span class="rust-string">"insert"</span>) { Mutable }
+    <span class="rust-keyword">else if</span> method_name.starts_with(<span class="rust-string">"as_"</span>) || method_name == <span class="rust-string">"len"</span> { Immutable }
+    <span class="rust-keyword">else if</span> method_name.starts_with(<span class="rust-string">"into_"</span>) { Consuming }
+    <span class="rust-comment">// ... 47 patterns</span>
+}
+
+<span class="rust-comment">// After: single field read from analyzer data</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">infer_self_borrow_type</span>(...) -> SelfBorrowType {
+    <span class="rust-keyword">match</span> method_call_info.self_borrow.as_deref() {
+        Some(<span class="rust-string">"immutable"</span>) => SelfBorrowType::Immutable,
+        Some(<span class="rust-string">"mutable"</span>)   => SelfBorrowType::Mutable,
+        Some(<span class="rust-string">"consuming"</span>) => SelfBorrowType::Consuming,
+        _ => SelfBorrowType::Immutable, <span class="rust-comment">// Safe default</span>
+    }
+}</pre>
+    </div>
+
+    <h2>5.5 Clone Trait Verification</h2>
+    <p>
+        A method named <code>clone</code> is not necessarily <code>Clone::clone</code>. User types can have inherent
+        methods named <code>clone</code> that do something entirely different: a <code>GitRepo</code> might have a
+        <code>.clone()</code> method that performs a git clone operation, or a <code>Process</code> might have
+        <code>.clone()</code> that forks the process. The macro uses the analyzer's <code>is_trait_method</code> and
+        <code>trait_name</code> fields to verify whether a <code>.clone()</code> call is actually the <code>Clone</code>
+        trait implementation.
+    </p>
+    <p>
+        This distinction matters for tracking accuracy: <code>Clone::clone</code> creates a new owned value (which
+        should emit a <code>track_clone</code> event), while an inherent <code>.clone()</code> method is just a regular
+        method call with whatever semantics the author defined. Without this verification, the macro would incorrectly
+        report ownership duplication for methods that happen to share the name.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let</span> is_clone_trait = mc_info
+    .and_then(|mc| mc.is_trait_method)  <span class="rust-comment">// true if from a trait impl</span>
+    .unwrap_or(<span class="rust-keyword">true</span>);                    <span class="rust-comment">// default: assume Clone</span>
+
+<span class="rust-keyword">if</span> is_clone_trait {
+    transform_clone(expr, &amp;mc);  <span class="rust-comment">// Emit track_clone</span>
+} <span class="rust-keyword">else</span> {
+    transform_method_call(method_call);  <span class="rust-comment">// Treat as regular method</span>
+}</pre>
+    </div>
+
+    <h2>5.6 The <code>safe_parse_quote!</code> Pattern</h2>
+    <p>
+        A significant challenge emerged during implementation: <code>syn::parse_quote!</code> panics when the generated
+        token stream contains closures with block bodies (e.g., <code>|| { println!("..."); 42 }</code>). This is a
+        divergence between syn's parser and rustc's parser for blocks inside function arguments. The issue is subtle:
+        syn parses the token stream eagerly and fails on certain block positions, while rustc's parser handles them
+        correctly during actual compilation.
+    </p>
+    <p>
+        This divergence was discovered during the ripgrep battle test, where real-world code frequently passes closures
+        with multi-statement bodies as arguments to iterator methods like <code>.filter()</code>, <code>.map()</code>,
+        and <code>.for_each()</code>. The macro must wrap these expressions in tracking calls, but
+        <code>parse_quote!</code> panics when attempting to construct the wrapped form.
+    </p>
+    <p>
+        The solution is a custom macro that uses <code>quote!</code> + <code>syn::parse2</code> (which returns
+        <code>Result</code> instead of panicking) with a fallback to the original expression:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">macro_rules!</span> safe_parse_quote {
+    ($fallback:expr, $($tt:tt)*) => {
+        syn::parse2(quote::quote! { $($tt)* }).unwrap_or_else(|_| $fallback)
+    };
+}</pre>
+    </div>
+    <p>
+        This pattern is applied to all 36 call sites where user expressions are embedded in generated code. The fallback
+        preserves the original expression unchanged, meaning the program compiles correctly even when the tracking
+        wrapper cannot be constructed. In these cases, the specific tracking event is lost, but the program's behavior
+        remains correct. A <code>contains_block_closure()</code> helper function pre-detects these cases to avoid
+        unnecessary parse attempts.
+    </p>
+
+    <h2>5.7 The <code>pending_inserts</code> Pattern</h2>
+    <p>
+        When an expression cannot be safely wrapped in a block (because rustc rejects blocks as function arguments in
+        certain positions), the macro emits tracking calls as <em>separate statements</em> before or after the
+        expression, using a <code>pending_inserts</code> queue that is flushed during block processing. This is the
+        complementary strategy to <code>safe_parse_quote!</code>: instead of wrapping the expression (which may fail),
+        the tracking call is emitted as an independent statement that executes before or after the original code.
+    </p>
+    <p>
+        The queue is processed when the visitor exits a block: all pending statements are inserted at their recorded
+        positions, with indices adjusted to account for prior insertions. This ensures that tracking calls appear in the
+        correct execution order relative to the code they instrument.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Instead of wrapping (breaks for closures with block bodies):</span>
+*expr = parse_quote! { { track_unwrap(...); receiver.method(|| { ... }) } };
+
+<span class="rust-comment">// Emit as separate statement (always safe):</span>
+<span class="rust-keyword">let</span> track_stmt = parse_quote! { borrowscope_runtime::track_unwrap(...); };
+<span class="rust-keyword">self</span>.pending_inserts.push((current_stmt_index, track_stmt));
+<span class="rust-comment">// Expression remains unmodified</span></pre>
+    </div>
+    <p>
+        This pattern is used for <code>transform_unwrap</code>, <code>transform_try</code>, method call enrichment, and
+        the <code>track_new</code> fallback path when the expression contains macros, closures, or other block-producing
+        constructs. Together with <code>safe_parse_quote!</code>, it ensures that the macro can instrument any valid
+        Rust code without introducing compilation errors, even in the presence of complex expression nesting.
+    </p>
+
+    <h2>5.8 Mandatory Analyzer</h2>
+    <p>
+        The macro panics at compile time if the analyzer has not been run. There is no heuristic fallback path. This is
+        a deliberate architectural decision: the system guarantees semantic correctness by refusing to operate without
+        semantic data. A "best effort" mode would reintroduce exactly the heuristics we eliminated, creating a false
+        sense of coverage while silently producing incorrect results.
+    </p>
+    <p>
+        This is enforced with a check in the visitor constructor:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code">#[cfg(not(test))]
+<span class="rust-keyword">if</span> type_info::get_type_info().is_none() {
+    <span class="rust-keyword">panic!</span>(<span class="rust-string">"
+    ╔════════════════════════════════════════════════════════════╗
+    ║  ERROR: BorrowScope analyzer output not found              ║
+    ║  Please run: cargo run -p borrowscope-analyzer -- .        ║
+    ╚════════════════════════════════════════════════════════════╝
+    "</span>);
+}</pre>
+    </div>
+    <p>
+        The <code>#[cfg(not(test))]</code> gate allows unit tests to run without analyzer data, while ensuring that any
+        real compilation requires the semantic analysis to be present. This separation is necessary because the macro's
+        unit tests verify AST transformation logic in isolation, using mock type information injected directly rather
+        than loaded from a file. The gate ensures that the test infrastructure does not interfere with the production
+        guarantee.
+    </p>
 </div>
