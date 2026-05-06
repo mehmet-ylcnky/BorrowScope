@@ -18,7 +18,10 @@ pub fn active_borrows_at(graph: &OwnershipGraph) -> HashMap<NodeId, Vec<&Edge>> 
 }
 
 /// Active borrows at a specific timestamp, grouped by the borrowed variable.
-pub fn active_borrows_at_time(graph: &OwnershipGraph, timestamp: Option<u64>) -> HashMap<NodeId, Vec<&Edge>> {
+pub fn active_borrows_at_time(
+    graph: &OwnershipGraph,
+    timestamp: Option<u64>,
+) -> HashMap<NodeId, Vec<&Edge>> {
     let mut result: HashMap<NodeId, Vec<&Edge>> = HashMap::new();
     for edge in graph.edges() {
         if !edge.is_borrow() {
@@ -36,8 +39,13 @@ pub fn active_borrows_at_time(graph: &OwnershipGraph, timestamp: Option<u64>) ->
 }
 
 /// Active borrows on a specific variable at a timestamp.
-pub fn borrows_on_at<'a>(graph: &'a OwnershipGraph, owner: NodeId, timestamp: u64) -> Vec<&'a Edge> {
-    graph.edges()
+pub fn borrows_on_at<'a>(
+    graph: &'a OwnershipGraph,
+    owner: NodeId,
+    timestamp: u64,
+) -> Vec<&'a Edge> {
+    graph
+        .edges()
         .iter()
         .filter(|e| e.is_borrow() && e.target == owner && e.is_active_at(timestamp))
         .collect()
@@ -159,15 +167,16 @@ pub struct ConflictWindow {
 /// Generate a timeline of all conflict windows.
 pub fn conflict_timeline(graph: &OwnershipGraph) -> Vec<ConflictWindow> {
     let conflicts = find_conflicts(graph);
-    conflicts.into_iter().map(|c| {
-        ConflictWindow {
+    conflicts
+        .into_iter()
+        .map(|c| ConflictWindow {
             owner: c.owner,
             start: c.conflict_start,
             end: c.conflict_end,
             kind: c.kind,
             active_borrows: vec![c.borrow_a, c.borrow_b],
-        }
-    }).collect()
+        })
+        .collect()
 }
 
 /// Check if any conflicts exist at a specific timestamp.
@@ -199,10 +208,16 @@ pub fn detect_reference_cycles(graph: &OwnershipGraph) -> Vec<ReferenceCycle> {
     for edge in graph.edges() {
         match &edge.kind {
             EdgeKind::RcClone { .. } => {
-                rc_adj.entry(edge.source).or_default().push((edge.target, edge.id, false));
+                rc_adj
+                    .entry(edge.source)
+                    .or_default()
+                    .push((edge.target, edge.id, false));
             }
             EdgeKind::ArcClone { .. } => {
-                rc_adj.entry(edge.source).or_default().push((edge.target, edge.id, true));
+                rc_adj
+                    .entry(edge.source)
+                    .or_default()
+                    .push((edge.target, edge.id, true));
             }
             _ => {}
         }
@@ -220,8 +235,13 @@ pub fn detect_reference_cycles(graph: &OwnershipGraph) -> Vec<ReferenceCycle> {
             continue;
         }
         dfs_cycle_detect(
-            &rc_adj, start, &mut white, &mut gray, &mut black,
-            &mut path, &mut cycles,
+            &rc_adj,
+            start,
+            &mut white,
+            &mut gray,
+            &mut black,
+            &mut path,
+            &mut cycles,
         );
     }
 
@@ -246,8 +266,10 @@ fn dfs_cycle_detect(
             if gray.contains(&neighbor) {
                 // Back edge found - extract cycle
                 let cycle_start = path.iter().position(|(n, _)| *n == neighbor).unwrap();
-                let cycle_nodes: Vec<NodeId> = path[cycle_start..].iter().map(|(n, _)| *n).collect();
-                let mut cycle_edges: Vec<EdgeId> = path[cycle_start + 1..].iter()
+                let cycle_nodes: Vec<NodeId> =
+                    path[cycle_start..].iter().map(|(n, _)| *n).collect();
+                let mut cycle_edges: Vec<EdgeId> = path[cycle_start + 1..]
+                    .iter()
                     .filter_map(|(_, e)| *e)
                     .collect();
                 cycle_edges.push(edge_id);
@@ -309,7 +331,10 @@ pub fn validate(graph: &OwnershipGraph) -> Vec<ValidationError> {
         if !node_ids.contains(&edge.source) {
             errors.push(ValidationError {
                 kind: ValidationErrorKind::DanglingEdgeReference,
-                message: format!("Edge {:?} references non-existent source node {:?}", edge.id, edge.source),
+                message: format!(
+                    "Edge {:?} references non-existent source node {:?}",
+                    edge.id, edge.source
+                ),
                 nodes: vec![edge.source],
                 edges: vec![edge.id],
             });
@@ -317,7 +342,10 @@ pub fn validate(graph: &OwnershipGraph) -> Vec<ValidationError> {
         if !node_ids.contains(&edge.target) {
             errors.push(ValidationError {
                 kind: ValidationErrorKind::DanglingEdgeReference,
-                message: format!("Edge {:?} references non-existent target node {:?}", edge.id, edge.target),
+                message: format!(
+                    "Edge {:?} references non-existent target node {:?}",
+                    edge.id, edge.target
+                ),
                 nodes: vec![edge.target],
                 edges: vec![edge.id],
             });
@@ -354,7 +382,8 @@ pub fn validate(graph: &OwnershipGraph) -> Vec<ValidationError> {
         }
         let move_time = edge.created_at;
         // Check if source has active borrows at move time
-        let active = graph.incoming_edges(edge.source)
+        let active = graph
+            .incoming_edges(edge.source)
             .iter()
             .filter_map(|eid| graph.get_edge(*eid))
             .filter(|e| e.is_borrow() && e.is_active_at(move_time))
@@ -429,7 +458,8 @@ pub fn detect_use_after_move(graph: &OwnershipGraph) -> Vec<UseAfterMove> {
     let mut violations = Vec::new();
 
     // Find all move edges and their source nodes
-    let moves: Vec<(&Edge, NodeId)> = graph.edges()
+    let moves: Vec<(&Edge, NodeId)> = graph
+        .edges()
         .iter()
         .filter(|e| e.kind == EdgeKind::Move)
         .map(|e| (e, e.source))
@@ -528,15 +558,15 @@ pub fn detect_double_free(graph: &OwnershipGraph) -> Vec<(NodeId, Vec<u64>)> {
     }
 
     for (_, nodes) in &by_name {
-        let drop_times: Vec<u64> = nodes.iter()
-            .filter_map(|n| n.end_time())
-            .collect();
+        let drop_times: Vec<u64> = nodes.iter().filter_map(|n| n.end_time()).collect();
         if drop_times.len() > 1 {
             // Multiple drops of same-named variable (could be shadowing, not necessarily double-free)
             // Only flag if they share edges (same logical variable)
             let node_ids: HashSet<NodeId> = nodes.iter().map(|n| n.id()).collect();
             let connected = nodes.iter().any(|n| {
-                graph.outgoing_edges(n.id()).iter()
+                graph
+                    .outgoing_edges(n.id())
+                    .iter()
                     .filter_map(|eid| graph.get_edge(*eid))
                     .any(|e| node_ids.contains(&e.target))
             });

@@ -1,7 +1,7 @@
 //! Comprehensive tests for Milestone 4: Temporal Queries and Lifetime Analysis.
 
-use borrowscope_graph::*;
 use borrowscope_graph::temporal::*;
+use borrowscope_graph::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 4.1 Lifetime spans
@@ -34,10 +34,10 @@ fn test_lifetime_is_alive_at_boundaries() {
     g.mark_dropped(x, 50);
 
     let span = lifetime_of(&g, x).unwrap();
-    assert!(!span.is_alive_at(9));   // before start
-    assert!(span.is_alive_at(10));   // at start
-    assert!(span.is_alive_at(49));   // just before end
-    assert!(!span.is_alive_at(50));  // at end (half-open)
+    assert!(!span.is_alive_at(9)); // before start
+    assert!(span.is_alive_at(10)); // at start
+    assert!(span.is_alive_at(49)); // just before end
+    assert!(!span.is_alive_at(50)); // at end (half-open)
 }
 
 #[test]
@@ -377,12 +377,12 @@ fn test_ref_count_at_timestamp() {
     g.mark_dropped(rc3, 60);
     g.mark_dropped(rc1, 70);
 
-    assert_eq!(ref_count_at(&g, rc1, 5), 1);   // just rc1
-    assert_eq!(ref_count_at(&g, rc1, 15), 2);  // rc1 + rc2
-    assert_eq!(ref_count_at(&g, rc1, 25), 3);  // rc1 + rc2 + rc3
-    assert_eq!(ref_count_at(&g, rc1, 55), 2);  // rc2 dropped
-    assert_eq!(ref_count_at(&g, rc1, 65), 1);  // rc3 dropped
-    assert_eq!(ref_count_at(&g, rc1, 75), 0);  // rc1 dropped
+    assert_eq!(ref_count_at(&g, rc1, 5), 1); // just rc1
+    assert_eq!(ref_count_at(&g, rc1, 15), 2); // rc1 + rc2
+    assert_eq!(ref_count_at(&g, rc1, 25), 3); // rc1 + rc2 + rc3
+    assert_eq!(ref_count_at(&g, rc1, 55), 2); // rc2 dropped
+    assert_eq!(ref_count_at(&g, rc1, 65), 1); // rc3 dropped
+    assert_eq!(ref_count_at(&g, rc1, 75), 0); // rc1 dropped
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Comprehensive tests for Milestone 6: Serialization and Export.
 
-use borrowscope_graph::*;
 use borrowscope_graph::export::*;
+use borrowscope_graph::*;
 
 fn sample_graph() -> OwnershipGraph {
     let mut g = OwnershipGraph::new();
@@ -66,7 +66,11 @@ fn test_json_compact_size_reduction() {
     let full = to_json(&g).unwrap();
     let compact = to_json_compact(&g).unwrap();
     let reduction = 1.0 - (compact.len() as f64 / full.len() as f64);
-    assert!(reduction > 0.30, "Compact should be at least 30% smaller, got {:.0}%", reduction * 100.0);
+    assert!(
+        reduction > 0.30,
+        "Compact should be at least 30% smaller, got {:.0}%",
+        reduction * 100.0
+    );
 }
 
 #[test]
@@ -111,7 +115,10 @@ fn test_dot_contains_edge_labels() {
 #[test]
 fn test_dot_show_types_false() {
     let g = sample_graph();
-    let opts = DotOptions { show_types: false, ..Default::default() };
+    let opts = DotOptions {
+        show_types: false,
+        ..Default::default()
+    };
     let dot = to_dot(&g, &opts);
     assert!(!dot.contains("Vec\\<i32\\>"));
     assert!(dot.contains("\"x\"")); // just the name
@@ -120,7 +127,10 @@ fn test_dot_show_types_false() {
 #[test]
 fn test_dot_show_timestamps() {
     let g = sample_graph();
-    let opts = DotOptions { show_timestamps: true, ..Default::default() };
+    let opts = DotOptions {
+        show_timestamps: true,
+        ..Default::default()
+    };
     let dot = to_dot(&g, &opts);
     assert!(dot.contains("@10")); // timestamp on edge
 }
@@ -128,7 +138,10 @@ fn test_dot_show_timestamps() {
 #[test]
 fn test_dot_direction_lr() {
     let g = sample_graph();
-    let opts = DotOptions { direction: DotDirection::LeftRight, ..Default::default() };
+    let opts = DotOptions {
+        direction: DotDirection::LeftRight,
+        ..Default::default()
+    };
     let dot = to_dot(&g, &opts);
     assert!(dot.contains("rankdir=LR"));
 }
@@ -162,9 +175,12 @@ fn test_msgpack_smaller_than_json() {
     let json = to_json_compact(&g).unwrap();
     let msgpack = to_msgpack(&g).unwrap();
 
-    assert!(msgpack.len() < json.len(),
+    assert!(
+        msgpack.len() < json.len(),
         "MessagePack ({} bytes) should be smaller than JSON ({} bytes)",
-        msgpack.len(), json.len());
+        msgpack.len(),
+        json.len()
+    );
 }
 
 #[test]
@@ -300,8 +316,16 @@ fn test_d3_node_ids_valid() {
 
     let node_ids: std::collections::HashSet<usize> = d3.nodes.iter().map(|n| n.id).collect();
     for link in &d3.links {
-        assert!(node_ids.contains(&link.source), "Link source {} not in nodes", link.source);
-        assert!(node_ids.contains(&link.target), "Link target {} not in nodes", link.target);
+        assert!(
+            node_ids.contains(&link.source),
+            "Link source {} not in nodes",
+            link.source
+        );
+        assert!(
+            node_ids.contains(&link.target),
+            "Link target {} not in nodes",
+            link.target
+        );
     }
 }
 
@@ -313,7 +337,9 @@ fn test_d3_groups_consistent() {
     g.add_variable("x", "i32", 20);
 
     let d3 = to_d3(&g);
-    let rc_groups: Vec<u32> = d3.nodes.iter()
+    let rc_groups: Vec<u32> = d3
+        .nodes
+        .iter()
         .filter(|n| n.name.starts_with("rc"))
         .map(|n| n.group)
         .collect();

@@ -4,18 +4,18 @@
 //! from `borrowscope-runtime` into a queryable ownership graph with traversal,
 //! conflict detection, and multi-format export.
 
-pub mod node;
-pub mod edge;
-pub mod graph;
 pub mod builder;
-pub mod error;
-pub mod traversal;
 pub mod conflict;
-pub mod temporal;
-pub mod stats;
+pub mod edge;
+pub mod error;
 pub mod export;
+pub mod graph;
+pub mod node;
+pub mod stats;
+pub mod temporal;
+pub mod traversal;
 
-pub use node::{Node, NodeId, ScopeKind, ScopeNode, VariableNode};
 pub use edge::{CaptureMode, Edge, EdgeId, EdgeKind};
-pub use graph::{Direction, OwnershipGraph};
 pub use error::GraphError;
+pub use graph::{Direction, OwnershipGraph};
+pub use node::{Node, NodeId, ScopeKind, ScopeNode, VariableNode};

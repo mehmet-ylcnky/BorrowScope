@@ -1,7 +1,7 @@
 //! Comprehensive tests for Milestone 3: Conflict Detection and Validation.
 
-use borrowscope_graph::*;
 use borrowscope_graph::conflict::*;
+use borrowscope_graph::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 3.1 Active borrows at timestamp
@@ -149,7 +149,7 @@ fn test_conflict_overlap_window() {
     let conflicts = find_conflicts(&g);
     assert_eq!(conflicts.len(), 1);
     assert_eq!(conflicts[0].conflict_start, 30); // overlap starts when m begins
-    assert_eq!(conflicts[0].conflict_end, 50);   // overlap ends when r ends
+    assert_eq!(conflicts[0].conflict_end, 50); // overlap ends when r ends
 }
 
 #[test]
@@ -163,9 +163,9 @@ fn test_conflicts_at_timestamp() {
     let e2 = g.add_borrow(m, x, true, 30);
     g.end_edge(e2, 70);
 
-    assert!(conflicts_at(&g, 20).is_empty());  // before overlap
+    assert!(conflicts_at(&g, 20).is_empty()); // before overlap
     assert_eq!(conflicts_at(&g, 35).len(), 1); // during overlap
-    assert!(conflicts_at(&g, 55).is_empty());  // after overlap
+    assert!(conflicts_at(&g, 55).is_empty()); // after overlap
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -307,7 +307,9 @@ fn test_invalid_borrow_outlives_owner() {
 
     let errors = validate(&g);
     assert!(!errors.is_empty());
-    assert!(errors.iter().any(|e| e.kind == ValidationErrorKind::BorrowOutlivesOwner));
+    assert!(errors
+        .iter()
+        .any(|e| e.kind == ValidationErrorKind::BorrowOutlivesOwner));
 }
 
 #[test]
@@ -317,10 +319,12 @@ fn test_invalid_move_while_borrowed() {
     let r = g.add_variable("r", "&i32", 10);
     let y = g.add_variable("y", "i32", 30);
     g.add_borrow(r, x, false, 10); // borrow active from t=10
-    g.add_move(x, y, 30);          // move at t=30 while borrow active
+    g.add_move(x, y, 30); // move at t=30 while borrow active
 
     let errors = validate(&g);
-    assert!(errors.iter().any(|e| e.kind == ValidationErrorKind::MoveWhileBorrowed));
+    assert!(errors
+        .iter()
+        .any(|e| e.kind == ValidationErrorKind::MoveWhileBorrowed));
 }
 
 #[test]
@@ -332,7 +336,9 @@ fn test_invalid_timestamps() {
     g.end_edge(eid, 10); // ended before created!
 
     let errors = validate(&g);
-    assert!(errors.iter().any(|e| e.kind == ValidationErrorKind::InvalidTimestamps));
+    assert!(errors
+        .iter()
+        .any(|e| e.kind == ValidationErrorKind::InvalidTimestamps));
 }
 
 #[test]
@@ -342,7 +348,7 @@ fn test_valid_no_move_while_borrowed_if_borrow_ended() {
     let r = g.add_variable("r", "&i32", 10);
     let y = g.add_variable("y", "i32", 50);
     let eid = g.add_borrow(r, x, false, 10);
-    g.end_edge(eid, 30);  // borrow ends at 30
+    g.end_edge(eid, 30); // borrow ends at 30
     g.add_move(x, y, 50); // move at 50, after borrow ended
 
     assert!(is_valid(&g));
@@ -358,7 +364,7 @@ fn test_use_after_move_detected() {
     let x = g.add_variable("x", "String", 0);
     let y = g.add_variable("y", "String", 20);
     let r = g.add_variable("r", "&String", 30);
-    g.add_move(x, y, 20);       // x moved at t=20
+    g.add_move(x, y, 20); // x moved at t=20
     g.add_borrow(r, x, false, 30); // borrow of x at t=30 (after move!)
 
     let violations = detect_use_after_move(&g);
@@ -375,7 +381,7 @@ fn test_no_use_after_move_if_before() {
     let r = g.add_variable("r", "&String", 10);
     let y = g.add_variable("y", "String", 50);
     g.add_borrow(r, x, false, 10); // borrow at t=10
-    g.add_move(x, y, 50);          // move at t=50 (after borrow)
+    g.add_move(x, y, 50); // move at t=50 (after borrow)
 
     let violations = detect_use_after_move(&g);
     assert!(violations.is_empty());
@@ -546,5 +552,9 @@ fn test_performance_conflict_detection() {
     let elapsed = start.elapsed();
 
     assert!(conflicts.is_empty());
-    assert!(elapsed.as_millis() < 50, "Conflict detection took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 50,
+        "Conflict detection took too long: {:?}",
+        elapsed
+    );
 }

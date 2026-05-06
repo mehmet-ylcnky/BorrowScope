@@ -149,11 +149,13 @@ pub fn shortest_path_with_edges(
             // Find edge between path[i] and path[i+1]
             let a = path[i];
             let b = path[i + 1];
-            graph.outgoing_edges(a)
+            graph
+                .outgoing_edges(a)
                 .iter()
                 .find(|eid| graph.get_edge(**eid).map_or(false, |e| e.target == b))
                 .or_else(|| {
-                    graph.incoming_edges(a)
+                    graph
+                        .incoming_edges(a)
                         .iter()
                         .find(|eid| graph.get_edge(**eid).map_or(false, |e| e.source == b))
                 })
@@ -259,7 +261,11 @@ pub fn can_reach(graph: &OwnershipGraph, from: NodeId, to: NodeId) -> bool {
 }
 
 /// Get all nodes reachable from `start`.
-pub fn all_reachable(graph: &OwnershipGraph, start: NodeId, direction: Direction) -> HashSet<NodeId> {
+pub fn all_reachable(
+    graph: &OwnershipGraph,
+    start: NodeId,
+    direction: Direction,
+) -> HashSet<NodeId> {
     dfs(graph, start, direction).into_iter().collect()
 }
 
@@ -313,7 +319,8 @@ pub fn borrow_chain(graph: &OwnershipGraph, node: NodeId) -> Vec<NodeId> {
 
     loop {
         // Find outgoing borrow edge (borrower -> owner)
-        let owner = graph.outgoing_edges(current)
+        let owner = graph
+            .outgoing_edges(current)
             .iter()
             .filter_map(|eid| graph.get_edge(*eid))
             .find(|e| e.is_borrow())

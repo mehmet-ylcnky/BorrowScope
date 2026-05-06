@@ -1,7 +1,7 @@
 //! Comprehensive tests for Milestone 5: Statistics and Metrics.
 
-use borrowscope_graph::*;
 use borrowscope_graph::stats::*;
+use borrowscope_graph::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 5.1 Graph statistics
@@ -133,9 +133,16 @@ fn test_hotspots_top_n() {
     let c = g.add_variable("c", "i32", 0);
 
     // a: 3 borrows, b: 2 borrows, c: 1 borrow
-    for i in 0..3 { let r = g.add_variable(&format!("ra{}", i), "&i32", 10); g.add_borrow(r, a, false, 10); }
-    for i in 0..2 { let r = g.add_variable(&format!("rb{}", i), "&i32", 10); g.add_borrow(r, b, false, 10); }
-    let r = g.add_variable("rc0", "&i32", 10); g.add_borrow(r, c, false, 10);
+    for i in 0..3 {
+        let r = g.add_variable(&format!("ra{}", i), "&i32", 10);
+        g.add_borrow(r, a, false, 10);
+    }
+    for i in 0..2 {
+        let r = g.add_variable(&format!("rb{}", i), "&i32", 10);
+        g.add_borrow(r, b, false, 10);
+    }
+    let r = g.add_variable("rc0", "&i32", 10);
+    g.add_borrow(r, c, false, 10);
 
     let spots = hotspots(&g, 2);
     assert_eq!(spots.len(), 2);
@@ -148,8 +155,12 @@ fn test_hotspots_score_normalized() {
     let mut g = OwnershipGraph::new();
     let a = g.add_variable("a", "i32", 0);
     let b = g.add_variable("b", "i32", 0);
-    for i in 0..10 { let r = g.add_variable(&format!("r{}", i), "&i32", 10); g.add_borrow(r, a, false, 10); }
-    let r = g.add_variable("rb", "&i32", 10); g.add_borrow(r, b, false, 10);
+    for i in 0..10 {
+        let r = g.add_variable(&format!("r{}", i), "&i32", 10);
+        g.add_borrow(r, a, false, 10);
+    }
+    let r = g.add_variable("rb", "&i32", 10);
+    g.add_borrow(r, b, false, 10);
 
     let spots = hotspots(&g, 10);
     assert!((spots[0].score - 1.0).abs() < 0.01); // top has score 1.0
@@ -162,8 +173,12 @@ fn test_heavily_borrowed() {
     let mut g = OwnershipGraph::new();
     let a = g.add_variable("a", "i32", 0);
     let b = g.add_variable("b", "i32", 0);
-    for i in 0..5 { let r = g.add_variable(&format!("ra{}", i), "&i32", 10); g.add_borrow(r, a, false, 10); }
-    let r = g.add_variable("rb", "&i32", 10); g.add_borrow(r, b, false, 10);
+    for i in 0..5 {
+        let r = g.add_variable(&format!("ra{}", i), "&i32", 10);
+        g.add_borrow(r, a, false, 10);
+    }
+    let r = g.add_variable("rb", "&i32", 10);
+    g.add_borrow(r, b, false, 10);
 
     let heavy = heavily_borrowed(&g, 3);
     assert_eq!(heavy.len(), 1);
@@ -266,8 +281,12 @@ fn test_borrow_frequency_of_specific_var() {
     let x = g.add_variable("x", "i32", 0);
     let y = g.add_variable("y", "i32", 0);
     // x gets 3 borrows, y gets 1
-    for i in 0..3 { let r = g.add_variable(&format!("rx{}", i), "&i32", 10); g.add_borrow(r, x, false, 10); }
-    let r = g.add_variable("ry", "&i32", 10); g.add_borrow(r, y, false, 10);
+    for i in 0..3 {
+        let r = g.add_variable(&format!("rx{}", i), "&i32", 10);
+        g.add_borrow(r, x, false, 10);
+    }
+    let r = g.add_variable("ry", "&i32", 10);
+    g.add_borrow(r, y, false, 10);
 
     let freq_x = borrow_frequency_of(&g, x);
     assert_eq!(freq_x.total_borrows, 3);
@@ -423,5 +442,9 @@ fn test_performance_statistics() {
     let elapsed = start.elapsed();
 
     assert_eq!(stats.shared_borrows, 10_000);
-    assert!(elapsed.as_millis() < 50, "Statistics took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 50,
+        "Statistics took too long: {:?}",
+        elapsed
+    );
 }

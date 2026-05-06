@@ -20,15 +20,21 @@ pub enum ExportError {
 }
 
 impl From<std::io::Error> for ExportError {
-    fn from(e: std::io::Error) -> Self { Self::IoError(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError(e)
+    }
 }
 
 impl From<serde_json::Error> for ExportError {
-    fn from(e: serde_json::Error) -> Self { Self::SerializationError(e.to_string()) }
+    fn from(e: serde_json::Error) -> Self {
+        Self::SerializationError(e.to_string())
+    }
 }
 
 impl From<rmp_serde::encode::Error> for ExportError {
-    fn from(e: rmp_serde::encode::Error) -> Self { Self::SerializationError(e.to_string()) }
+    fn from(e: rmp_serde::encode::Error) -> Self {
+        Self::SerializationError(e.to_string())
+    }
 }
 
 /// Errors during import operations.
@@ -40,15 +46,21 @@ pub enum ImportError {
 }
 
 impl From<std::io::Error> for ImportError {
-    fn from(e: std::io::Error) -> Self { Self::IoError(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::IoError(e)
+    }
 }
 
 impl From<serde_json::Error> for ImportError {
-    fn from(e: serde_json::Error) -> Self { Self::ParseError(e.to_string()) }
+    fn from(e: serde_json::Error) -> Self {
+        Self::ParseError(e.to_string())
+    }
 }
 
 impl From<rmp_serde::decode::Error> for ImportError {
-    fn from(e: rmp_serde::decode::Error) -> Self { Self::ParseError(e.to_string()) }
+    fn from(e: rmp_serde::decode::Error) -> Self {
+        Self::ParseError(e.to_string())
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -172,8 +184,16 @@ pub fn to_dot(graph: &OwnershipGraph, options: &DotOptions) -> String {
                 ("ellipse", s.name.clone())
             }
         };
-        let escaped_label = label.replace('"', "\\\"").replace('<', "\\<").replace('>', "\\>");
-        out.push_str(&format!("    n{} [label=\"{}\", shape={}];\n", node.id().0, escaped_label, shape));
+        let escaped_label = label
+            .replace('"', "\\\"")
+            .replace('<', "\\<")
+            .replace('>', "\\>");
+        out.push_str(&format!(
+            "    n{} [label=\"{}\", shape={}];\n",
+            node.id().0,
+            escaped_label,
+            shape
+        ));
     }
 
     out.push('\n');
@@ -192,13 +212,21 @@ pub fn to_dot(graph: &OwnershipGraph, options: &DotOptions) -> String {
 }
 
 /// Export to DOT file.
-pub fn to_dot_file(graph: &OwnershipGraph, path: &Path, options: &DotOptions) -> Result<(), ExportError> {
+pub fn to_dot_file(
+    graph: &OwnershipGraph,
+    path: &Path,
+    options: &DotOptions,
+) -> Result<(), ExportError> {
     let dot = to_dot(graph, options);
     std::fs::write(path, dot)?;
     Ok(())
 }
 
-fn edge_dot_attrs(edge: &Edge, colors: &EdgeColorScheme, show_ts: bool) -> (String, String, String) {
+fn edge_dot_attrs(
+    edge: &Edge,
+    colors: &EdgeColorScheme,
+    show_ts: bool,
+) -> (String, String, String) {
     let (color, style, kind_label) = match &edge.kind {
         EdgeKind::BorrowShared => (colors.borrow_shared.clone(), "dashed", "&"),
         EdgeKind::BorrowMut => (colors.borrow_mut.clone(), "bold", "&mut"),
@@ -207,8 +235,11 @@ fn edge_dot_attrs(edge: &Edge, colors: &EdgeColorScheme, show_ts: bool) -> (Stri
         EdgeKind::ArcClone { .. } => (colors.arc_clone.clone(), "dotted", "Arc::clone"),
         EdgeKind::WeakDowngrade => (colors.other.clone(), "dashed", "downgrade"),
         EdgeKind::RefCellBorrow { mutable } => {
-            if *mutable { (colors.borrow_mut.clone(), "bold", "borrow_mut") }
-            else { (colors.borrow_shared.clone(), "dashed", "borrow") }
+            if *mutable {
+                (colors.borrow_mut.clone(), "bold", "borrow_mut")
+            } else {
+                (colors.borrow_shared.clone(), "dashed", "borrow")
+            }
         }
         EdgeKind::LockAcquire { .. } => (colors.other.clone(), "bold", "lock"),
         EdgeKind::ClosureCapture { .. } => (colors.capture.clone(), "dotted", "capture"),
@@ -303,18 +334,24 @@ pub fn compute_delta(before: &OwnershipGraph, after: &OwnershipGraph, sequence: 
     let _after_edge_ids: std::collections::HashSet<crate::edge::EdgeId> =
         after.edges().iter().map(|e| e.id).collect();
 
-    let added_nodes: Vec<Node> = after.nodes().iter()
+    let added_nodes: Vec<Node> = after
+        .nodes()
+        .iter()
         .filter(|n| !before_node_ids.contains(&n.id()))
         .cloned()
         .collect();
 
-    let added_edges: Vec<Edge> = after.edges().iter()
+    let added_edges: Vec<Edge> = after
+        .edges()
+        .iter()
         .filter(|e| !before_edge_ids.contains(&e.id))
         .cloned()
         .collect();
 
     // Nodes that gained an end_time
-    let dropped_nodes: Vec<(NodeId, u64)> = after.nodes().iter()
+    let dropped_nodes: Vec<(NodeId, u64)> = after
+        .nodes()
+        .iter()
         .filter_map(|n| {
             let had_end = before.get_node(n.id()).and_then(|bn| bn.end_time());
             let has_end = n.end_time();
@@ -327,7 +364,9 @@ pub fn compute_delta(before: &OwnershipGraph, after: &OwnershipGraph, sequence: 
         .collect();
 
     // Edges that gained an ended_at
-    let ended_edges: Vec<(crate::edge::EdgeId, u64)> = after.edges().iter()
+    let ended_edges: Vec<(crate::edge::EdgeId, u64)> = after
+        .edges()
+        .iter()
         .filter_map(|e| {
             let had_end = before.get_edge(e.id).and_then(|be| be.ended_at);
             if had_end.is_none() && e.ended_at.is_some() {
@@ -338,7 +377,13 @@ pub fn compute_delta(before: &OwnershipGraph, after: &OwnershipGraph, sequence: 
         })
         .collect();
 
-    GraphDelta { sequence, added_nodes, added_edges, dropped_nodes, ended_edges }
+    GraphDelta {
+        sequence,
+        added_nodes,
+        added_edges,
+        dropped_nodes,
+        ended_edges,
+    }
 }
 
 /// Apply a delta to an existing graph.
@@ -420,43 +465,52 @@ pub struct D3Link {
 pub fn to_d3(graph: &OwnershipGraph) -> D3Graph {
     let colors = EdgeColorScheme::default();
 
-    let nodes: Vec<D3Node> = graph.nodes().iter().map(|n| {
-        let (group, type_name) = match n {
-            Node::Variable(v) => (node_group(&v.type_name), v.type_name.clone()),
-            Node::Scope(s) => (10, format!("scope:{:?}", s.kind)),
-        };
-        let edge_count = graph.outgoing_edges(n.id()).len() + graph.incoming_edges(n.id()).len();
-        D3Node {
-            id: n.id().0,
-            name: n.name().to_string(),
-            group,
-            size: (edge_count as f64 + 1.0).sqrt() * 5.0,
-            type_name,
-        }
-    }).collect();
+    let nodes: Vec<D3Node> = graph
+        .nodes()
+        .iter()
+        .map(|n| {
+            let (group, type_name) = match n {
+                Node::Variable(v) => (node_group(&v.type_name), v.type_name.clone()),
+                Node::Scope(s) => (10, format!("scope:{:?}", s.kind)),
+            };
+            let edge_count =
+                graph.outgoing_edges(n.id()).len() + graph.incoming_edges(n.id()).len();
+            D3Node {
+                id: n.id().0,
+                name: n.name().to_string(),
+                group,
+                size: (edge_count as f64 + 1.0).sqrt() * 5.0,
+                type_name,
+            }
+        })
+        .collect();
 
-    let links: Vec<D3Link> = graph.edges().iter().map(|e| {
-        let (kind, color, value) = match &e.kind {
-            EdgeKind::BorrowShared => ("borrow", &colors.borrow_shared, 1.0),
-            EdgeKind::BorrowMut => ("borrow_mut", &colors.borrow_mut, 1.5),
-            EdgeKind::Move => ("move", &colors.move_edge, 2.0),
-            EdgeKind::RcClone { .. } => ("rc_clone", &colors.rc_clone, 1.0),
-            EdgeKind::ArcClone { .. } => ("arc_clone", &colors.arc_clone, 1.0),
-            EdgeKind::WeakDowngrade => ("weak", &colors.other, 0.5),
-            EdgeKind::RefCellBorrow { .. } => ("refcell", &colors.borrow_shared, 1.0),
-            EdgeKind::LockAcquire { .. } => ("lock", &colors.other, 1.5),
-            EdgeKind::ClosureCapture { .. } => ("capture", &colors.capture, 1.0),
-            EdgeKind::ScopeContains => ("contains", &colors.other, 0.5),
-            EdgeKind::ChannelSend => ("send", &colors.other, 2.0),
-        };
-        D3Link {
-            source: e.source.0,
-            target: e.target.0,
-            value,
-            kind: kind.to_string(),
-            color: color.clone(),
-        }
-    }).collect();
+    let links: Vec<D3Link> = graph
+        .edges()
+        .iter()
+        .map(|e| {
+            let (kind, color, value) = match &e.kind {
+                EdgeKind::BorrowShared => ("borrow", &colors.borrow_shared, 1.0),
+                EdgeKind::BorrowMut => ("borrow_mut", &colors.borrow_mut, 1.5),
+                EdgeKind::Move => ("move", &colors.move_edge, 2.0),
+                EdgeKind::RcClone { .. } => ("rc_clone", &colors.rc_clone, 1.0),
+                EdgeKind::ArcClone { .. } => ("arc_clone", &colors.arc_clone, 1.0),
+                EdgeKind::WeakDowngrade => ("weak", &colors.other, 0.5),
+                EdgeKind::RefCellBorrow { .. } => ("refcell", &colors.borrow_shared, 1.0),
+                EdgeKind::LockAcquire { .. } => ("lock", &colors.other, 1.5),
+                EdgeKind::ClosureCapture { .. } => ("capture", &colors.capture, 1.0),
+                EdgeKind::ScopeContains => ("contains", &colors.other, 0.5),
+                EdgeKind::ChannelSend => ("send", &colors.other, 2.0),
+            };
+            D3Link {
+                source: e.source.0,
+                target: e.target.0,
+                value,
+                kind: kind.to_string(),
+                color: color.clone(),
+            }
+        })
+        .collect();
 
     D3Graph { nodes, links }
 }
@@ -468,10 +522,17 @@ pub fn to_d3_json(graph: &OwnershipGraph) -> Result<String, ExportError> {
 }
 
 fn node_group(type_name: &str) -> u32 {
-    if type_name.contains("Rc") { 2 }
-    else if type_name.contains("Arc") { 3 }
-    else if type_name.contains("RefCell") || type_name.contains("Cell") { 4 }
-    else if type_name.contains("Mutex") || type_name.contains("RwLock") { 5 }
-    else if type_name.starts_with('&') { 1 }
-    else { 0 }
+    if type_name.contains("Rc") {
+        2
+    } else if type_name.contains("Arc") {
+        3
+    } else if type_name.contains("RefCell") || type_name.contains("Cell") {
+        4
+    } else if type_name.contains("Mutex") || type_name.contains("RwLock") {
+        5
+    } else if type_name.starts_with('&') {
+        1
+    } else {
+        0
+    }
 }

@@ -40,23 +40,44 @@ impl GraphStream {
     /// Process a single event, updating the graph incrementally.
     pub fn push(&mut self, event: &Event) -> GraphUpdate {
         match event {
-            Event::New { var_id, var_name, type_name, timestamp, .. } => {
+            Event::New {
+                var_id,
+                var_name,
+                type_name,
+                timestamp,
+                ..
+            } => {
                 let id = self.graph.add_variable(var_name, type_name, *timestamp);
                 self.var_ids.insert(var_id.clone(), id);
                 GraphUpdate::NodeAdded(id)
             }
-            Event::Borrow { borrower_id, owner_id, mutable, timestamp, .. } => {
+            Event::Borrow {
+                borrower_id,
+                owner_id,
+                mutable,
+                timestamp,
+                ..
+            } => {
                 if let (Some(&borrower), Some(&owner)) =
                     (self.var_ids.get(borrower_id), self.var_ids.get(owner_id))
                 {
                     let eid = self.graph.add_borrow(borrower, owner, *mutable, *timestamp);
-                    self.active_borrows.entry(borrower_id.clone()).or_default().push(eid);
+                    self.active_borrows
+                        .entry(borrower_id.clone())
+                        .or_default()
+                        .push(eid);
                     GraphUpdate::EdgeAdded(eid)
                 } else {
                     GraphUpdate::NoOp
                 }
             }
-            Event::Move { from_id, to_name, to_id, timestamp, .. } => {
+            Event::Move {
+                from_id,
+                to_name,
+                to_id,
+                timestamp,
+                ..
+            } => {
                 if let Some(&from) = self.var_ids.get(from_id) {
                     let to = self.graph.add_variable(to_name, "", *timestamp);
                     self.var_ids.insert(to_id.clone(), to);
@@ -66,7 +87,9 @@ impl GraphStream {
                     GraphUpdate::NoOp
                 }
             }
-            Event::Drop { var_id, timestamp, .. } => {
+            Event::Drop {
+                var_id, timestamp, ..
+            } => {
                 if let Some(&id) = self.var_ids.get(var_id) {
                     self.graph.mark_dropped(id, *timestamp);
                     // End all borrows held by this variable
@@ -80,7 +103,14 @@ impl GraphStream {
                     GraphUpdate::NoOp
                 }
             }
-            Event::RcClone { var_id, var_name, source_id, strong_count, timestamp, .. } => {
+            Event::RcClone {
+                var_id,
+                var_name,
+                source_id,
+                strong_count,
+                timestamp,
+                ..
+            } => {
                 let clone_id = if let Some(&id) = self.var_ids.get(var_id) {
                     id
                 } else {
@@ -89,13 +119,22 @@ impl GraphStream {
                     id
                 };
                 if let Some(&src) = self.var_ids.get(source_id) {
-                    let eid = self.graph.add_rc_clone(clone_id, src, *strong_count as u32, *timestamp);
+                    let eid =
+                        self.graph
+                            .add_rc_clone(clone_id, src, *strong_count as u32, *timestamp);
                     GraphUpdate::EdgeAdded(eid)
                 } else {
                     GraphUpdate::NoOp
                 }
             }
-            Event::ArcClone { var_id, var_name, source_id, strong_count, timestamp, .. } => {
+            Event::ArcClone {
+                var_id,
+                var_name,
+                source_id,
+                strong_count,
+                timestamp,
+                ..
+            } => {
                 let clone_id = if let Some(&id) = self.var_ids.get(var_id) {
                     id
                 } else {
@@ -104,13 +143,21 @@ impl GraphStream {
                     id
                 };
                 if let Some(&src) = self.var_ids.get(source_id) {
-                    let eid = self.graph.add_arc_clone(clone_id, src, *strong_count as u32, *timestamp);
+                    let eid =
+                        self.graph
+                            .add_arc_clone(clone_id, src, *strong_count as u32, *timestamp);
                     GraphUpdate::EdgeAdded(eid)
                 } else {
                     GraphUpdate::NoOp
                 }
             }
-            Event::ClosureCapture { closure_id, var_name, capture_mode, timestamp, .. } => {
+            Event::ClosureCapture {
+                closure_id,
+                var_name,
+                capture_mode,
+                timestamp,
+                ..
+            } => {
                 if let (Some(&closure), Some(&var)) =
                     (self.var_ids.get(closure_id), self.var_ids.get(var_name))
                 {
@@ -125,12 +172,21 @@ impl GraphStream {
                     GraphUpdate::NoOp
                 }
             }
-            Event::FnEnter { fn_id, fn_name, timestamp, .. } => {
-                let id = self.graph.add_scope(fn_name, crate::node::ScopeKind::Function, *timestamp);
+            Event::FnEnter {
+                fn_id,
+                fn_name,
+                timestamp,
+                ..
+            } => {
+                let id =
+                    self.graph
+                        .add_scope(fn_name, crate::node::ScopeKind::Function, *timestamp);
                 self.var_ids.insert(fn_id.clone(), id);
                 GraphUpdate::NodeAdded(id)
             }
-            Event::FnExit { fn_id, timestamp, .. } => {
+            Event::FnExit {
+                fn_id, timestamp, ..
+            } => {
                 if let Some(&id) = self.var_ids.get(fn_id) {
                     self.graph.mark_dropped(id, *timestamp);
                     GraphUpdate::NodeDropped(id)
@@ -138,12 +194,23 @@ impl GraphStream {
                     GraphUpdate::NoOp
                 }
             }
-            Event::RegionEnter { region_id, name, timestamp, .. } => {
-                let id = self.graph.add_scope(name, crate::node::ScopeKind::Block, *timestamp);
+            Event::RegionEnter {
+                region_id,
+                name,
+                timestamp,
+                ..
+            } => {
+                let id = self
+                    .graph
+                    .add_scope(name, crate::node::ScopeKind::Block, *timestamp);
                 self.var_ids.insert(region_id.clone(), id);
                 GraphUpdate::NodeAdded(id)
             }
-            Event::RegionExit { region_id, timestamp, .. } => {
+            Event::RegionExit {
+                region_id,
+                timestamp,
+                ..
+            } => {
                 if let Some(&id) = self.var_ids.get(region_id) {
                     self.graph.mark_dropped(id, *timestamp);
                     GraphUpdate::NodeDropped(id)

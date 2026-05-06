@@ -1,7 +1,5 @@
 //! Temporal queries and lifetime analysis.
 
-
-
 use serde::{Deserialize, Serialize};
 
 use crate::edge::{EdgeId, EdgeKind};
@@ -42,12 +40,16 @@ impl LifetimeSpan {
 
 /// Get lifetime spans for all variable nodes in the graph.
 pub fn all_lifetimes(graph: &OwnershipGraph) -> Vec<LifetimeSpan> {
-    graph.nodes().iter().map(|n| LifetimeSpan {
-        node: n.id(),
-        name: n.name().to_string(),
-        start: n.start_time(),
-        end: n.end_time(),
-    }).collect()
+    graph
+        .nodes()
+        .iter()
+        .map(|n| LifetimeSpan {
+            node: n.id(),
+            name: n.name().to_string(),
+            start: n.start_time(),
+            end: n.end_time(),
+        })
+        .collect()
 }
 
 /// Get lifetime span for a specific node.
@@ -119,30 +121,39 @@ pub struct OwnershipSnapshot {
 
 /// Get ownership snapshot at a specific timestamp.
 pub fn snapshot_at(graph: &OwnershipGraph, timestamp: u64) -> OwnershipSnapshot {
-    let alive_variables: Vec<NodeId> = graph.nodes()
+    let alive_variables: Vec<NodeId> = graph
+        .nodes()
         .iter()
         .filter(|n| n.is_alive_at(timestamp))
         .map(|n| n.id())
         .collect();
 
-    let active_borrows: Vec<EdgeId> = graph.edges()
+    let active_borrows: Vec<EdgeId> = graph
+        .edges()
         .iter()
         .filter(|e| e.is_borrow() && e.is_active_at(timestamp))
         .map(|e| e.id)
         .collect();
 
-    let active_locks: Vec<EdgeId> = graph.edges()
+    let active_locks: Vec<EdgeId> = graph
+        .edges()
         .iter()
         .filter(|e| matches!(e.kind, EdgeKind::LockAcquire { .. }) && e.is_active_at(timestamp))
         .map(|e| e.id)
         .collect();
 
-    OwnershipSnapshot { timestamp, alive_variables, active_borrows, active_locks }
+    OwnershipSnapshot {
+        timestamp,
+        alive_variables,
+        active_borrows,
+        active_locks,
+    }
 }
 
 /// Get all nodes alive at a timestamp.
 pub fn alive_at(graph: &OwnershipGraph, timestamp: u64) -> Vec<NodeId> {
-    graph.nodes()
+    graph
+        .nodes()
         .iter()
         .filter(|n| n.is_alive_at(timestamp))
         .map(|n| n.id())
@@ -151,7 +162,8 @@ pub fn alive_at(graph: &OwnershipGraph, timestamp: u64) -> Vec<NodeId> {
 
 /// Get nodes alive throughout an entire interval [start, end).
 pub fn alive_during(graph: &OwnershipGraph, start: u64, end: u64) -> Vec<NodeId> {
-    graph.nodes()
+    graph
+        .nodes()
         .iter()
         .filter(|n| {
             let node_start = n.start_time();
@@ -182,7 +194,8 @@ pub struct BorrowScope {
 
 /// Compute borrow scopes for all borrow edges.
 pub fn borrow_scopes(graph: &OwnershipGraph) -> Vec<BorrowScope> {
-    graph.edges()
+    graph
+        .edges()
         .iter()
         .filter(|e| e.is_borrow())
         .filter_map(|e| borrow_scope_of(graph, e.id))
@@ -198,9 +211,7 @@ pub fn borrow_scope_of(graph: &OwnershipGraph, edge_id: EdgeId) -> Option<Borrow
 
     let borrower_node = graph.get_node(edge.source)?;
     let drop_time = borrower_node.end_time();
-    let effective_end = edge.ended_at
-        .or(drop_time)
-        .unwrap_or(u64::MAX);
+    let effective_end = edge.ended_at.or(drop_time).unwrap_or(u64::MAX);
 
     Some(BorrowScope {
         edge: edge_id,
@@ -244,7 +255,8 @@ pub fn ownership_timeline(graph: &OwnershipGraph, origin: NodeId) -> OwnershipTi
 
     loop {
         // Find outgoing Move edge from current
-        let move_edge = graph.outgoing_edges(current)
+        let move_edge = graph
+            .outgoing_edges(current)
             .iter()
             .filter_map(|eid| graph.get_edge(*eid))
             .find(|e| e.kind == EdgeKind::Move);
@@ -263,14 +275,19 @@ pub fn ownership_timeline(graph: &OwnershipGraph, origin: NodeId) -> OwnershipTi
         }
     }
 
-    OwnershipTimeline { origin, transfers, current_owner: current }
+    OwnershipTimeline {
+        origin,
+        transfers,
+        current_owner: current,
+    }
 }
 
 /// Find the original creator of a value (trace moves backward).
 pub fn find_origin(graph: &OwnershipGraph, node: NodeId) -> NodeId {
     let mut current = node;
     loop {
-        let incoming_move = graph.incoming_edges(current)
+        let incoming_move = graph
+            .incoming_edges(current)
             .iter()
             .filter_map(|eid| graph.get_edge(*eid))
             .find(|e| e.kind == EdgeKind::Move);
@@ -324,9 +341,7 @@ pub fn ref_count_history(graph: &OwnershipGraph, rc_node: NodeId) -> RefCountHis
     let mut peak: u32 = 1;
 
     // Find creation time
-    let created_at = graph.get_node(rc_node)
-        .map(|n| n.start_time())
-        .unwrap_or(0);
+    let created_at = graph.get_node(rc_node).map(|n| n.start_time()).unwrap_or(0);
 
     entries.push(RefCountEntry {
         timestamp: created_at,
@@ -342,7 +357,13 @@ pub fn ref_count_history(graph: &OwnershipGraph, rc_node: NodeId) -> RefCountHis
             EdgeKind::RcClone { .. } | EdgeKind::ArcClone { .. } => {
                 if edge.target == rc_node {
                     // Someone cloned from this node
-                    events.push((edge.created_at, RefCountEvent::Cloned { clone_id: edge.source }, 1));
+                    events.push((
+                        edge.created_at,
+                        RefCountEvent::Cloned {
+                            clone_id: edge.source,
+                        },
+                        1,
+                    ));
                 }
             }
             _ => {}
@@ -357,7 +378,13 @@ pub fn ref_count_history(graph: &OwnershipGraph, rc_node: NodeId) -> RefCountHis
                     // The clone (source) may have been dropped
                     if let Some(clone_node) = graph.get_node(edge.source) {
                         if let Some(drop_time) = clone_node.end_time() {
-                            events.push((drop_time, RefCountEvent::Dropped { dropped_id: edge.source }, -1));
+                            events.push((
+                                drop_time,
+                                RefCountEvent::Dropped {
+                                    dropped_id: edge.source,
+                                },
+                                -1,
+                            ));
                         }
                     }
                 }
@@ -369,7 +396,13 @@ pub fn ref_count_history(graph: &OwnershipGraph, rc_node: NodeId) -> RefCountHis
     // Check if the origin itself was dropped
     if let Some(origin_node) = graph.get_node(rc_node) {
         if let Some(drop_time) = origin_node.end_time() {
-            events.push((drop_time, RefCountEvent::Dropped { dropped_id: rc_node }, -1));
+            events.push((
+                drop_time,
+                RefCountEvent::Dropped {
+                    dropped_id: rc_node,
+                },
+                -1,
+            ));
         }
     }
 
@@ -379,13 +412,23 @@ pub fn ref_count_history(graph: &OwnershipGraph, rc_node: NodeId) -> RefCountHis
     for (ts, event, delta) in events {
         count = (count as i32 + delta).max(0) as u32;
         peak = peak.max(count);
-        entries.push(RefCountEntry { timestamp: ts, count, event });
+        entries.push(RefCountEntry {
+            timestamp: ts,
+            count,
+            event,
+        });
     }
 
     let final_count = count;
     let is_leaked = final_count > 0;
 
-    RefCountHistory { origin: rc_node, entries, peak_count: peak, final_count, is_leaked }
+    RefCountHistory {
+        origin: rc_node,
+        entries,
+        peak_count: peak,
+        final_count,
+        is_leaked,
+    }
 }
 
 /// Get the reference count at a specific timestamp.
@@ -417,7 +460,8 @@ pub fn find_leaked_refs(graph: &OwnershipGraph) -> Vec<NodeId> {
 
     // Also include nodes that are sources of RcClone but not targets (they are origins too)
     // Actually, any node involved in Rc/Arc relationships that hasn't been fully dropped
-    rc_origins.iter()
+    rc_origins
+        .iter()
         .filter(|&&node| ref_count_history(graph, node).is_leaked)
         .copied()
         .collect()

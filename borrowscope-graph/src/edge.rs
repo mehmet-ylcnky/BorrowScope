@@ -56,8 +56,7 @@ pub struct Edge {
 impl Edge {
     /// Check if this edge is active at the given timestamp.
     pub fn is_active_at(&self, timestamp: u64) -> bool {
-        timestamp >= self.created_at
-            && self.ended_at.map_or(true, |e| timestamp < e)
+        timestamp >= self.created_at && self.ended_at.map_or(true, |e| timestamp < e)
     }
 
     /// Check if this edge represents a borrow (shared or mutable).
@@ -71,7 +70,9 @@ impl Edge {
             self.kind,
             EdgeKind::BorrowMut
                 | EdgeKind::RefCellBorrow { mutable: true }
-                | EdgeKind::ClosureCapture { capture_mode: CaptureMode::ByMutRef }
+                | EdgeKind::ClosureCapture {
+                    capture_mode: CaptureMode::ByMutRef
+                }
         )
     }
 

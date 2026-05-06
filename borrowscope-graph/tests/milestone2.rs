@@ -1,7 +1,7 @@
 //! Comprehensive tests for Milestone 2: Graph Traversal Algorithms.
 
-use borrowscope_graph::*;
 use borrowscope_graph::traversal::*;
+use borrowscope_graph::*;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Test fixtures
@@ -209,7 +209,8 @@ fn test_topo_order_simple_borrow() {
     let r1 = g.find_by_name("r1")[0];
     let r2 = g.find_by_name("r2")[0];
 
-    let pos: std::collections::HashMap<_, _> = order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let pos: std::collections::HashMap<_, _> =
+        order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     // Owner (data) comes first in topo order (no dependencies)
     // Borrowers depend on owner, so they come after
     assert!(pos[&r1] > pos[&data]);
@@ -225,7 +226,8 @@ fn test_drop_order_borrower_before_owner() {
     let r1 = g.find_by_name("r1")[0];
     let r2 = g.find_by_name("r2")[0];
 
-    let pos: std::collections::HashMap<_, _> = order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let pos: std::collections::HashMap<_, _> =
+        order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     // In drop order: borrowers dropped before owner
     assert!(pos[&r1] < pos[&data]);
     assert!(pos[&r2] < pos[&data]);
@@ -246,7 +248,8 @@ fn test_topo_order_chain() {
     let b = g.find_by_name("b")[0];
     let c = g.find_by_name("c")[0];
 
-    let pos: std::collections::HashMap<_, _> = order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let pos: std::collections::HashMap<_, _> =
+        order.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     // a has no borrow deps, b depends on a, c depends on b
     assert!(pos[&b] > pos[&a]);
     assert!(pos[&c] > pos[&b]);
@@ -579,5 +582,9 @@ fn test_performance_large_graph() {
     assert_eq!(components.len(), 1);
 
     let elapsed = start.elapsed();
-    assert!(elapsed.as_millis() < 1000, "Traversals took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 1000,
+        "Traversals took too long: {:?}",
+        elapsed
+    );
 }

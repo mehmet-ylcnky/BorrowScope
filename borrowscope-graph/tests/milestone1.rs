@@ -1,7 +1,7 @@
 //! Comprehensive tests for Milestone 1: Core Data Structures and Graph Construction.
 
-use borrowscope_graph::*;
 use borrowscope_graph::builder::{from_events, GraphStream, GraphUpdate};
+use borrowscope_graph::*;
 use borrowscope_runtime::Event;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -29,11 +29,11 @@ fn test_variable_node_is_alive_at() {
         is_mutable: false,
     });
 
-    assert!(!node.is_alive_at(9));   // before creation
-    assert!(node.is_alive_at(10));   // at creation
-    assert!(node.is_alive_at(30));   // during lifetime
-    assert!(node.is_alive_at(49));   // just before drop
-    assert!(!node.is_alive_at(50));  // at drop
+    assert!(!node.is_alive_at(9)); // before creation
+    assert!(node.is_alive_at(10)); // at creation
+    assert!(node.is_alive_at(30)); // during lifetime
+    assert!(node.is_alive_at(49)); // just before drop
+    assert!(!node.is_alive_at(50)); // at drop
     assert!(!node.is_alive_at(100)); // after drop
 }
 
@@ -135,22 +135,85 @@ fn test_edge_open_ended() {
 
 #[test]
 fn test_edge_is_borrow() {
-    assert!(Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::BorrowShared, created_at: 0, ended_at: None }.is_borrow());
-    assert!(Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::BorrowMut, created_at: 0, ended_at: None }.is_borrow());
-    assert!(!Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::Move, created_at: 0, ended_at: None }.is_borrow());
+    assert!(Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::BorrowShared,
+        created_at: 0,
+        ended_at: None
+    }
+    .is_borrow());
+    assert!(Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::BorrowMut,
+        created_at: 0,
+        ended_at: None
+    }
+    .is_borrow());
+    assert!(!Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::Move,
+        created_at: 0,
+        ended_at: None
+    }
+    .is_borrow());
 }
 
 #[test]
 fn test_edge_is_mutable() {
-    assert!(!Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::BorrowShared, created_at: 0, ended_at: None }.is_mutable());
-    assert!(Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::BorrowMut, created_at: 0, ended_at: None }.is_mutable());
-    assert!(Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::RefCellBorrow { mutable: true }, created_at: 0, ended_at: None }.is_mutable());
-    assert!(!Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::RefCellBorrow { mutable: false }, created_at: 0, ended_at: None }.is_mutable());
+    assert!(!Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::BorrowShared,
+        created_at: 0,
+        ended_at: None
+    }
+    .is_mutable());
+    assert!(Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::BorrowMut,
+        created_at: 0,
+        ended_at: None
+    }
+    .is_mutable());
+    assert!(Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::RefCellBorrow { mutable: true },
+        created_at: 0,
+        ended_at: None
+    }
+    .is_mutable());
+    assert!(!Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::RefCellBorrow { mutable: false },
+        created_at: 0,
+        ended_at: None
+    }
+    .is_mutable());
 }
 
 #[test]
 fn test_edge_duration() {
-    let edge = Edge { id: EdgeId(0), source: NodeId(0), target: NodeId(1), kind: EdgeKind::BorrowShared, created_at: 10, ended_at: Some(45) };
+    let edge = Edge {
+        id: EdgeId(0),
+        source: NodeId(0),
+        target: NodeId(1),
+        kind: EdgeKind::BorrowShared,
+        created_at: 10,
+        ended_at: Some(45),
+    };
     assert_eq!(edge.duration(), Some(35));
 }
 
@@ -380,7 +443,13 @@ fn make_new_event(var_id: &str, var_name: &str, type_name: &str, ts: u64) -> Eve
     }
 }
 
-fn make_borrow_event(borrower_id: &str, borrower_name: &str, owner_id: &str, mutable: bool, ts: u64) -> Event {
+fn make_borrow_event(
+    borrower_id: &str,
+    borrower_name: &str,
+    owner_id: &str,
+    mutable: bool,
+    ts: u64,
+) -> Event {
     Event::Borrow {
         timestamp: ts,
         borrower_name: borrower_name.to_string(),
@@ -493,7 +562,6 @@ fn test_from_events_multiple_borrows() {
     let x = graph.find_by_name("x")[0];
     assert_eq!(graph.borrowers_of(x).len(), 2);
 }
-
 
 #[test]
 fn test_from_events_rc_clone() {

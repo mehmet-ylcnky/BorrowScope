@@ -162,7 +162,9 @@ pub struct Hotspot {
 
 /// Find the top-N ownership hotspots (most connected variables).
 pub fn hotspots(graph: &OwnershipGraph, top_n: usize) -> Vec<Hotspot> {
-    let mut spots: Vec<Hotspot> = graph.nodes().iter()
+    let mut spots: Vec<Hotspot> = graph
+        .nodes()
+        .iter()
         .filter_map(|n| {
             if let Node::Variable(v) = n {
                 Some(compute_hotspot(graph, v.id, &v.name, &v.type_name))
@@ -187,7 +189,9 @@ pub fn hotspots(graph: &OwnershipGraph, top_n: usize) -> Vec<Hotspot> {
 
 /// Find variables with borrow counts above the threshold.
 pub fn heavily_borrowed(graph: &OwnershipGraph, min_borrows: usize) -> Vec<Hotspot> {
-    graph.nodes().iter()
+    graph
+        .nodes()
+        .iter()
         .filter_map(|n| {
             if let Node::Variable(v) = n {
                 let spot = compute_hotspot(graph, v.id, &v.name, &v.type_name);
@@ -205,7 +209,9 @@ pub fn heavily_borrowed(graph: &OwnershipGraph, min_borrows: usize) -> Vec<Hotsp
 
 /// Find variables involved in the most ownership transfers.
 pub fn most_transferred(graph: &OwnershipGraph, top_n: usize) -> Vec<Hotspot> {
-    let mut spots: Vec<Hotspot> = graph.nodes().iter()
+    let mut spots: Vec<Hotspot> = graph
+        .nodes()
+        .iter()
         .filter_map(|n| {
             if let Node::Variable(v) = n {
                 let spot = compute_hotspot(graph, v.id, &v.name, &v.type_name);
@@ -301,15 +307,20 @@ pub struct BorrowFrequencyAnalysis {
 
 /// Analyze borrow frequency and patterns.
 pub fn borrow_frequency(graph: &OwnershipGraph) -> BorrowFrequencyAnalysis {
-    let borrow_edges: Vec<_> = graph.edges().iter()
-        .filter(|e| e.is_borrow())
-        .collect();
+    let borrow_edges: Vec<_> = graph.edges().iter().filter(|e| e.is_borrow()).collect();
 
     if borrow_edges.is_empty() {
         return BorrowFrequencyAnalysis {
-            total_borrows: 0, shared_borrows: 0, mutable_borrows: 0,
-            avg_duration: 0.0, max_duration: 0, min_duration: 0, median_duration: 0,
-            frequency: 0.0, max_concurrent: 0, bursts: vec![],
+            total_borrows: 0,
+            shared_borrows: 0,
+            mutable_borrows: 0,
+            avg_duration: 0.0,
+            max_duration: 0,
+            min_duration: 0,
+            median_duration: 0,
+            frequency: 0.0,
+            max_concurrent: 0,
+            bursts: vec![],
         };
     }
 
@@ -317,23 +328,29 @@ pub fn borrow_frequency(graph: &OwnershipGraph) -> BorrowFrequencyAnalysis {
     let mutable_borrows = borrow_edges.iter().filter(|e| e.is_mutable()).count();
 
     // Compute durations
-    let mut durations: Vec<u64> = borrow_edges.iter()
-        .filter_map(|e| e.duration())
-        .collect();
+    let mut durations: Vec<u64> = borrow_edges.iter().filter_map(|e| e.duration()).collect();
     durations.sort();
 
-    let avg_duration = if durations.is_empty() { 0.0 }
-        else { durations.iter().sum::<u64>() as f64 / durations.len() as f64 };
+    let avg_duration = if durations.is_empty() {
+        0.0
+    } else {
+        durations.iter().sum::<u64>() as f64 / durations.len() as f64
+    };
     let max_duration = durations.last().copied().unwrap_or(0);
     let min_duration = durations.first().copied().unwrap_or(0);
-    let median_duration = if durations.is_empty() { 0 }
-        else { durations[durations.len() / 2] };
+    let median_duration = if durations.is_empty() {
+        0
+    } else {
+        durations[durations.len() / 2]
+    };
 
     // Compute frequency (borrows per 100 timestamp units)
     let min_ts = borrow_edges.iter().map(|e| e.created_at).min().unwrap_or(0);
-    let max_ts = borrow_edges.iter()
+    let max_ts = borrow_edges
+        .iter()
         .map(|e| e.ended_at.unwrap_or(e.created_at))
-        .max().unwrap_or(0);
+        .max()
+        .unwrap_or(0);
     let time_span = (max_ts - min_ts).max(1);
     let frequency = borrow_edges.len() as f64 * 100.0 / time_span as f64;
 
@@ -367,7 +384,8 @@ pub fn borrow_frequency(graph: &OwnershipGraph) -> BorrowFrequencyAnalysis {
     while i < sorted_starts.len() {
         let window_start = sorted_starts[i];
         let window_end = window_start + window_size.max(1);
-        let count = sorted_starts.iter()
+        let count = sorted_starts
+            .iter()
             .filter(|&&ts| ts >= window_start && ts < window_end)
             .count();
         if count >= burst_threshold {
@@ -402,37 +420,52 @@ pub fn borrow_frequency(graph: &OwnershipGraph) -> BorrowFrequencyAnalysis {
 /// Borrow frequency for a specific variable.
 pub fn borrow_frequency_of(graph: &OwnershipGraph, node: NodeId) -> BorrowFrequencyAnalysis {
     // Build a subgraph with only borrows on this variable
-    let borrow_edges: Vec<_> = graph.edges().iter()
+    let borrow_edges: Vec<_> = graph
+        .edges()
+        .iter()
         .filter(|e| e.is_borrow() && e.target == node)
         .collect();
 
     if borrow_edges.is_empty() {
         return BorrowFrequencyAnalysis {
-            total_borrows: 0, shared_borrows: 0, mutable_borrows: 0,
-            avg_duration: 0.0, max_duration: 0, min_duration: 0, median_duration: 0,
-            frequency: 0.0, max_concurrent: 0, bursts: vec![],
+            total_borrows: 0,
+            shared_borrows: 0,
+            mutable_borrows: 0,
+            avg_duration: 0.0,
+            max_duration: 0,
+            min_duration: 0,
+            median_duration: 0,
+            frequency: 0.0,
+            max_concurrent: 0,
+            bursts: vec![],
         };
     }
 
     let shared_borrows = borrow_edges.iter().filter(|e| !e.is_mutable()).count();
     let mutable_borrows = borrow_edges.iter().filter(|e| e.is_mutable()).count();
 
-    let mut durations: Vec<u64> = borrow_edges.iter()
-        .filter_map(|e| e.duration())
-        .collect();
+    let mut durations: Vec<u64> = borrow_edges.iter().filter_map(|e| e.duration()).collect();
     durations.sort();
 
-    let avg_duration = if durations.is_empty() { 0.0 }
-        else { durations.iter().sum::<u64>() as f64 / durations.len() as f64 };
+    let avg_duration = if durations.is_empty() {
+        0.0
+    } else {
+        durations.iter().sum::<u64>() as f64 / durations.len() as f64
+    };
     let max_duration = durations.last().copied().unwrap_or(0);
     let min_duration = durations.first().copied().unwrap_or(0);
-    let median_duration = if durations.is_empty() { 0 }
-        else { durations[durations.len() / 2] };
+    let median_duration = if durations.is_empty() {
+        0
+    } else {
+        durations[durations.len() / 2]
+    };
 
     let min_ts = borrow_edges.iter().map(|e| e.created_at).min().unwrap_or(0);
-    let max_ts = borrow_edges.iter()
+    let max_ts = borrow_edges
+        .iter()
         .map(|e| e.ended_at.unwrap_or(e.created_at))
-        .max().unwrap_or(0);
+        .max()
+        .unwrap_or(0);
     let time_span = (max_ts - min_ts).max(1);
     let frequency = borrow_edges.len() as f64 * 100.0 / time_span as f64;
 
@@ -505,12 +538,21 @@ pub fn depth_distribution(graph: &OwnershipGraph) -> DepthDistribution {
         }
     }
 
-    let avg_depth = if var_count > 0 { total_depth as f64 / var_count as f64 } else { 0.0 };
+    let avg_depth = if var_count > 0 {
+        total_depth as f64 / var_count as f64
+    } else {
+        0.0
+    };
 
     let mut histogram: Vec<(u32, usize)> = depth_counts.into_iter().collect();
     histogram.sort_by_key(|(d, _)| *d);
 
-    DepthDistribution { histogram, max_depth, avg_depth, deepest_variables }
+    DepthDistribution {
+        histogram,
+        max_depth,
+        avg_depth,
+        deepest_variables,
+    }
 }
 
 /// Get the scope depth of a specific variable.
@@ -589,7 +631,11 @@ pub fn smart_pointer_report(graph: &OwnershipGraph) -> SmartPointerReport {
             }
             EdgeKind::RefCellBorrow { mutable } => {
                 let entry = refcell_nodes.entry(edge.target).or_default();
-                if *mutable { entry.1 += 1; } else { entry.0 += 1; }
+                if *mutable {
+                    entry.1 += 1;
+                } else {
+                    entry.0 += 1;
+                }
             }
             EdgeKind::LockAcquire { .. } => {
                 let hold_time = edge.duration().unwrap_or(0);
@@ -599,65 +645,98 @@ pub fn smart_pointer_report(graph: &OwnershipGraph) -> SmartPointerReport {
         }
     }
 
-    let rc_families: Vec<RcFamily> = rc_origins.iter().map(|(&origin, &clone_count)| {
-        let history = crate::temporal::ref_count_history(graph, origin);
-        let total_lifetime = graph.get_node(origin)
-            .and_then(|n| n.end_time().map(|e| e - n.start_time()))
-            .unwrap_or(0);
-        RcFamily {
-            origin,
-            clone_count,
-            peak_ref_count: history.peak_count,
-            total_lifetime,
-            is_leaked: history.is_leaked,
-        }
-    }).collect();
-
-    let arc_families: Vec<ArcFamily> = arc_origins.iter().map(|(&origin, &clone_count)| {
-        let history = crate::temporal::ref_count_history(graph, origin);
-        let total_lifetime = graph.get_node(origin)
-            .and_then(|n| n.end_time().map(|e| e - n.start_time()))
-            .unwrap_or(0);
-        ArcFamily {
-            origin,
-            clone_count,
-            peak_ref_count: history.peak_count,
-            total_lifetime,
-            is_leaked: history.is_leaked,
-        }
-    }).collect();
-
-    let refcell_usage: Vec<RefCellUsage> = refcell_nodes.iter().map(|(&node, &(immut, mutable))| {
-        // Compute max concurrent borrows via sweep line
-        let borrow_edges: Vec<_> = graph.edges().iter()
-            .filter(|e| matches!(e.kind, EdgeKind::RefCellBorrow { .. }) && e.target == node)
-            .collect();
-        let mut events: Vec<(u64, i32)> = Vec::new();
-        for e in &borrow_edges {
-            events.push((e.created_at, 1));
-            if let Some(end) = e.ended_at {
-                events.push((end, -1));
+    let rc_families: Vec<RcFamily> = rc_origins
+        .iter()
+        .map(|(&origin, &clone_count)| {
+            let history = crate::temporal::ref_count_history(graph, origin);
+            let total_lifetime = graph
+                .get_node(origin)
+                .and_then(|n| n.end_time().map(|e| e - n.start_time()))
+                .unwrap_or(0);
+            RcFamily {
+                origin,
+                clone_count,
+                peak_ref_count: history.peak_count,
+                total_lifetime,
+                is_leaked: history.is_leaked,
             }
-        }
-        events.sort_by_key(|(ts, _)| *ts);
-        let mut concurrent = 0i32;
-        let mut max_concurrent = 0usize;
-        for (_, delta) in &events {
-            concurrent += delta;
-            max_concurrent = max_concurrent.max(concurrent as usize);
-        }
+        })
+        .collect();
 
-        RefCellUsage { node, immutable_borrows: immut, mutable_borrows: mutable, max_concurrent_borrows: max_concurrent }
-    }).collect();
+    let arc_families: Vec<ArcFamily> = arc_origins
+        .iter()
+        .map(|(&origin, &clone_count)| {
+            let history = crate::temporal::ref_count_history(graph, origin);
+            let total_lifetime = graph
+                .get_node(origin)
+                .and_then(|n| n.end_time().map(|e| e - n.start_time()))
+                .unwrap_or(0);
+            ArcFamily {
+                origin,
+                clone_count,
+                peak_ref_count: history.peak_count,
+                total_lifetime,
+                is_leaked: history.is_leaked,
+            }
+        })
+        .collect();
 
-    let mutex_usage: Vec<MutexUsage> = mutex_nodes.iter().map(|(&node, hold_times)| {
-        let lock_count = hold_times.len();
-        let avg_hold_time = if lock_count > 0 {
-            hold_times.iter().sum::<u64>() as f64 / lock_count as f64
-        } else { 0.0 };
-        let max_hold_time = hold_times.iter().copied().max().unwrap_or(0);
-        MutexUsage { node, lock_count, avg_hold_time, max_hold_time }
-    }).collect();
+    let refcell_usage: Vec<RefCellUsage> = refcell_nodes
+        .iter()
+        .map(|(&node, &(immut, mutable))| {
+            // Compute max concurrent borrows via sweep line
+            let borrow_edges: Vec<_> = graph
+                .edges()
+                .iter()
+                .filter(|e| matches!(e.kind, EdgeKind::RefCellBorrow { .. }) && e.target == node)
+                .collect();
+            let mut events: Vec<(u64, i32)> = Vec::new();
+            for e in &borrow_edges {
+                events.push((e.created_at, 1));
+                if let Some(end) = e.ended_at {
+                    events.push((end, -1));
+                }
+            }
+            events.sort_by_key(|(ts, _)| *ts);
+            let mut concurrent = 0i32;
+            let mut max_concurrent = 0usize;
+            for (_, delta) in &events {
+                concurrent += delta;
+                max_concurrent = max_concurrent.max(concurrent as usize);
+            }
 
-    SmartPointerReport { rc_families, arc_families, refcell_usage, mutex_usage }
+            RefCellUsage {
+                node,
+                immutable_borrows: immut,
+                mutable_borrows: mutable,
+                max_concurrent_borrows: max_concurrent,
+            }
+        })
+        .collect();
+
+    let mutex_usage: Vec<MutexUsage> = mutex_nodes
+        .iter()
+        .map(|(&node, hold_times)| {
+            let lock_count = hold_times.len();
+            let avg_hold_time = if lock_count > 0 {
+                hold_times.iter().sum::<u64>() as f64 / lock_count as f64
+            } else {
+                0.0
+            };
+            let max_hold_time = hold_times.iter().copied().max().unwrap_or(0);
+            MutexUsage {
+                node,
+                lock_count,
+                avg_hold_time,
+                max_hold_time,
+            }
+        })
+        .collect();
+
+    SmartPointerReport {
+        rc_families,
+        arc_families,
+        refcell_usage,
+        mutex_usage,
+    }
 }

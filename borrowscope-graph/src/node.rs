@@ -67,12 +67,10 @@ impl Node {
     pub fn is_alive_at(&self, timestamp: u64) -> bool {
         match self {
             Node::Variable(v) => {
-                timestamp >= v.created_at
-                    && v.dropped_at.map_or(true, |d| timestamp < d)
+                timestamp >= v.created_at && v.dropped_at.map_or(true, |d| timestamp < d)
             }
             Node::Scope(s) => {
-                timestamp >= s.entered_at
-                    && s.exited_at.map_or(true, |e| timestamp < e)
+                timestamp >= s.entered_at && s.exited_at.map_or(true, |e| timestamp < e)
             }
         }
     }

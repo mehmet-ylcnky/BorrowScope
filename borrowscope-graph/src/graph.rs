@@ -89,12 +89,7 @@ impl OwnershipGraph {
     // ── Node operations ──
 
     /// Add a variable node. Returns its NodeId.
-    pub fn add_variable(
-        &mut self,
-        name: &str,
-        type_name: &str,
-        created_at: u64,
-    ) -> NodeId {
+    pub fn add_variable(&mut self, name: &str, type_name: &str, created_at: u64) -> NodeId {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let node = VariableNode {
@@ -116,12 +111,7 @@ impl OwnershipGraph {
     }
 
     /// Add a scope node. Returns its NodeId.
-    pub fn add_scope(
-        &mut self,
-        name: &str,
-        kind: ScopeKind,
-        entered_at: u64,
-    ) -> NodeId {
+    pub fn add_scope(&mut self, name: &str, kind: ScopeKind, entered_at: u64) -> NodeId {
         let id = NodeId(self.next_node_id);
         self.next_node_id += 1;
         let node = ScopeNode {
@@ -164,7 +154,13 @@ impl OwnershipGraph {
 
     // ── Edge operations ──
 
-    fn add_edge(&mut self, source: NodeId, target: NodeId, kind: EdgeKind, created_at: u64) -> EdgeId {
+    fn add_edge(
+        &mut self,
+        source: NodeId,
+        target: NodeId,
+        kind: EdgeKind,
+        created_at: u64,
+    ) -> EdgeId {
         let id = EdgeId(self.next_edge_id);
         self.next_edge_id += 1;
         let edge = Edge {
@@ -182,8 +178,18 @@ impl OwnershipGraph {
     }
 
     /// Add a borrow edge (shared or mutable).
-    pub fn add_borrow(&mut self, borrower: NodeId, owner: NodeId, mutable: bool, at: u64) -> EdgeId {
-        let kind = if mutable { EdgeKind::BorrowMut } else { EdgeKind::BorrowShared };
+    pub fn add_borrow(
+        &mut self,
+        borrower: NodeId,
+        owner: NodeId,
+        mutable: bool,
+        at: u64,
+    ) -> EdgeId {
+        let kind = if mutable {
+            EdgeKind::BorrowMut
+        } else {
+            EdgeKind::BorrowShared
+        };
         self.add_edge(borrower, owner, kind, at)
     }
 
@@ -194,17 +200,42 @@ impl OwnershipGraph {
 
     /// Add an Rc clone edge.
     pub fn add_rc_clone(&mut self, clone: NodeId, source: NodeId, count: u32, at: u64) -> EdgeId {
-        self.add_edge(clone, source, EdgeKind::RcClone { strong_count: count }, at)
+        self.add_edge(
+            clone,
+            source,
+            EdgeKind::RcClone {
+                strong_count: count,
+            },
+            at,
+        )
     }
 
     /// Add an Arc clone edge.
     pub fn add_arc_clone(&mut self, clone: NodeId, source: NodeId, count: u32, at: u64) -> EdgeId {
-        self.add_edge(clone, source, EdgeKind::ArcClone { strong_count: count }, at)
+        self.add_edge(
+            clone,
+            source,
+            EdgeKind::ArcClone {
+                strong_count: count,
+            },
+            at,
+        )
     }
 
     /// Add a closure capture edge.
-    pub fn add_capture(&mut self, closure: NodeId, var: NodeId, mode: CaptureMode, at: u64) -> EdgeId {
-        self.add_edge(closure, var, EdgeKind::ClosureCapture { capture_mode: mode }, at)
+    pub fn add_capture(
+        &mut self,
+        closure: NodeId,
+        var: NodeId,
+        mode: CaptureMode,
+        at: u64,
+    ) -> EdgeId {
+        self.add_edge(
+            closure,
+            var,
+            EdgeKind::ClosureCapture { capture_mode: mode },
+            at,
+        )
     }
 
     /// Add a channel send edge.
@@ -213,13 +244,32 @@ impl OwnershipGraph {
     }
 
     /// Add a RefCell borrow edge.
-    pub fn add_refcell_borrow(&mut self, guard: NodeId, cell: NodeId, mutable: bool, at: u64) -> EdgeId {
+    pub fn add_refcell_borrow(
+        &mut self,
+        guard: NodeId,
+        cell: NodeId,
+        mutable: bool,
+        at: u64,
+    ) -> EdgeId {
         self.add_edge(guard, cell, EdgeKind::RefCellBorrow { mutable }, at)
     }
 
     /// Add a lock acquire edge.
-    pub fn add_lock_acquire(&mut self, guard: NodeId, lock: NodeId, lock_type: &str, at: u64) -> EdgeId {
-        self.add_edge(guard, lock, EdgeKind::LockAcquire { lock_type: lock_type.to_string() }, at)
+    pub fn add_lock_acquire(
+        &mut self,
+        guard: NodeId,
+        lock: NodeId,
+        lock_type: &str,
+        at: u64,
+    ) -> EdgeId {
+        self.add_edge(
+            guard,
+            lock,
+            EdgeKind::LockAcquire {
+                lock_type: lock_type.to_string(),
+            },
+            at,
+        )
     }
 
     /// Add a weak downgrade edge.
@@ -263,22 +313,21 @@ impl OwnershipGraph {
     /// Get neighbors in a specific direction.
     pub fn neighbors_directed(&self, id: NodeId, direction: Direction) -> Vec<NodeId> {
         match direction {
-            Direction::Outgoing => {
-                self.outgoing_edges(id)
-                    .iter()
-                    .filter_map(|eid| self.get_edge(*eid))
-                    .map(|e| e.target)
-                    .collect()
-            }
-            Direction::Incoming => {
-                self.incoming_edges(id)
-                    .iter()
-                    .filter_map(|eid| self.get_edge(*eid))
-                    .map(|e| e.source)
-                    .collect()
-            }
+            Direction::Outgoing => self
+                .outgoing_edges(id)
+                .iter()
+                .filter_map(|eid| self.get_edge(*eid))
+                .map(|e| e.target)
+                .collect(),
+            Direction::Incoming => self
+                .incoming_edges(id)
+                .iter()
+                .filter_map(|eid| self.get_edge(*eid))
+                .map(|e| e.source)
+                .collect(),
             Direction::Both => {
-                let mut result: Vec<NodeId> = self.outgoing_edges(id)
+                let mut result: Vec<NodeId> = self
+                    .outgoing_edges(id)
                     .iter()
                     .filter_map(|eid| self.get_edge(*eid))
                     .map(|e| e.target)
@@ -319,7 +368,8 @@ impl OwnershipGraph {
     /// Remove a node and all its connected edges.
     pub fn remove_node(&mut self, id: NodeId) {
         // Collect edges to remove
-        let edge_ids: Vec<EdgeId> = self.edges
+        let edge_ids: Vec<EdgeId> = self
+            .edges
             .iter()
             .filter(|e| e.source == id || e.target == id)
             .map(|e| e.id)
