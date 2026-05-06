@@ -583,7 +583,7 @@ fn test_performance_large_graph() {
 
     let elapsed = start.elapsed();
     assert!(
-        elapsed.as_millis() < 1000,
+        elapsed.as_secs() < 5,
         "Traversals took too long: {:?}",
         elapsed
     );

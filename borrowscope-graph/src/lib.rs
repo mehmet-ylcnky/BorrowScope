@@ -4,6 +4,7 @@
 //! from `borrowscope-runtime` into a queryable ownership graph with traversal,
 //! conflict detection, and multi-format export.
 
+pub mod analyzer;
 pub mod builder;
 pub mod conflict;
 pub mod edge;
