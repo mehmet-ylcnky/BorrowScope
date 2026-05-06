@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Introduction - BorrowScope Runtime White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="introduction">
+            <h1>1. Introduction and Motivation</h1>
+
+            <div id="ownership-problem">
+                <h2>1.1 The Ownership Visibility Problem</h2>
+                
+                <div class="problem-statement">
+                    <h3>Core Problem</h3>
+                    <p>
+                        Rust's ownership system operates entirely at compile-time, making runtime ownership behavior invisible to developers, educators, and researchers. This creates a fundamental gap between theoretical understanding and practical observation of ownership semantics.
+                    </p>
+                </div>
+
+                <p>
+                    Rust's ownership and borrowing system represents a revolutionary approach to memory management, eliminating entire classes of bugs through compile-time analysis. The borrow checker ensures memory safety by tracking ownership transfers, validating borrow lifetimes, and preventing data races—all without runtime overhead. However, this compile-time nature, while providing excellent performance characteristics, creates a significant observability gap.
+                </p>
+
+                <p>
+                    Consider the following seemingly simple Rust code:
+                </p>
+
+                <div class="code-block">
+                    <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>() {
+    <span class="rust-keyword">let</span> data = <span class="rust-macro">vec!</span>[<span class="rust-string">1</span>, <span class="rust-string">2</span>, <span class="rust-string">3</span>]; <span class="rust-comment">// Ownership created</span>
+    <span class="rust-keyword">let</span> slice = &data[..];        <span class="rust-comment">// Immutable borrow</span>
+    <span class="rust-keyword">let</span> len = slice.len();        <span class="rust-comment">// Borrow used</span>
+    <span class="rust-function">println!</span>(<span class="rust-string">"{}"</span>, len);
+    <span class="rust-comment">// Implicit drops occur here</span>
+}</pre>
+                </div>
+
+                <p>
+                    While the borrow checker validates this code at compile-time, the runtime execution involves several ownership operations that remain invisible:
+                </p>
+
+                <ul>
+                    <li><strong>Variable Creation:</strong> <code>data</code> takes ownership of the vector</li>
+                    <li><strong>Borrowing:</strong> <code>slice</code> creates an immutable reference to <code>data</code></li>
+                    <li><strong>Borrow Usage:</strong> The <code>len()</code> method operates on the borrowed data</li>
+                    <li><strong>Scope Exit:</strong> Both <code>slice</code> and <code>data</code> are dropped in reverse order</li>
+                </ul>
+
+                <p>
+                    This invisibility creates several challenges:
+                </p>
+
+                <p>
+                    <strong>Educational Challenges:</strong> (1) <strong>Abstract Concepts:</strong> Students struggle to understand ownership without seeing it in action. (2) <strong>Borrow Checker Errors:</strong> Cryptic error messages become harder to debug without runtime context. (3) <strong>Mental Model Building:</strong> Developers cannot verify their understanding against actual runtime behavior.
+                </p>
+
+                <p>
+                    <strong>Development Challenges:</strong> (1) <strong>Performance Analysis:</strong> Unexpected moves or clones remain hidden. (2) <strong>API Design:</strong> Ownership implications of interfaces are not observable. (3) <strong>Debugging:</strong> Complex ownership bugs lack runtime diagnostic information.
+                </p>
+
+                <p>
+                    <strong>Research Limitations:</strong> (1) <strong>Pattern Analysis:</strong> Cannot study real-world ownership patterns in deployed code. (2) <strong>Language Evolution:</strong> Lack of empirical data for ownership system improvements. (3) <strong>Tool Validation:</strong> Static analysis tools cannot be validated against runtime behavior.
+                </p>
+
+                <p>
+                    BorrowScope joins a growing ecosystem of tools and resources aimed at making Rust's ownership system more understandable. Here are some notable projects and articles in this space:
+                </p>
+
+                <div class="ecosystem-table">
+                    <table>
+                        <thead>
+                            <tr><th>Project</th><th>Description</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong><a href="https://github.com/cognitive-engineering-lab/aquascope" target="_blank">Aquascope</a></strong></td>
+                                <td>Interactive visualizations of Rust at compile-time and runtime. Developed by Brown University's Cognitive Engineering Lab, it shows permission changes (read/write/own) on variables and visualizes how the borrow checker reasons about code. Powers the visualizations in "The Rust Book Experiment."</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://github.com/ChristianSchott/boris" target="_blank">Boris</a></strong></td>
+                                <td>A standalone ownership and borrowing visualizer that renders interactive diagrams showing memory layout, ownership transfers, and borrow scopes. Designed to help beginners understand Rust's memory model through visual exploration.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://github.com/willcrichton/flowistry" target="_blank">Flowistry</a></strong></td>
+                                <td>A VSCode extension using information flow analysis to help developers understand Rust programs. Highlights which code can affect other code, providing a "focus mode" to filter out irrelevant parts when debugging or comprehending complex codebases.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://github.com/weirane/vscode-revis" target="_blank">REVIS</a></strong></td>
+                                <td>A VSCode extension that visualizes lifetime-related Rust compiler errors. Draws lifetime spans directly in the editor to help developers understand and fix borrow checker errors, particularly useful for learning lifetime concepts.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://rufflewind.com/2017-02-15/rust-move-copy-borrow" target="_blank">Graphical Depiction of Ownership</a></strong></td>
+                                <td>A visual guide by Phil Ruffwind depicting move, copy, and borrow semantics through annotated diagrams. Shows how values flow between variables and how borrows create temporary access without transferring ownership.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://www.justanotherdot.com/posts/think-spatially-to-grok-lifetimes.html" target="_blank">Think Spatially to Grok Lifetimes</a></strong></td>
+                                <td>An article presenting a mental model for understanding lifetimes by thinking of programs as nested spaces. Values exist within scopes, and borrows create "bridges" between spaces that must not outlive their source.</td>
+                            </tr>
+                            <tr>
+                                <td><strong><a href="https://blog.adamant-lang.org/2019/rust-lifetime-visualization-ideas/" target="_blank">Rust Lifetime Visualization Ideas</a></strong></td>
+                                <td>A design exploration of how IDEs could visualize lifetimes inline with code. Proposes compact notations and color-coding schemes that could be integrated into editors without disrupting the coding experience.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p>
+                    The gap between Rust's sophisticated compile-time ownership model and the complete lack of runtime observability represents a significant limitation for education, development, and research in the Rust ecosystem.
+                </p>
+            </div>
+
+            <div id="research-questions">
+                <h2>1.2 Research Questions</h2>
+                
+                <div class="research-questions">
+                    <p>This work addresses four fundamental research questions in runtime ownership analysis:</p>
+                </div>
+
+                <h3>RQ1: Minimal Overhead Capture</h3>
+                <p>
+                    <strong>How can ownership operations be captured with minimal runtime overhead while maintaining complete fidelity to Rust's ownership semantics?</strong>
+                </p>
+                <p>
+                    The challenge lies in instrumenting ownership operations without significantly impacting program performance. Traditional profiling tools impose 10-100x overhead, making them unsuitable for production use or performance-sensitive analysis. We investigate event-sourced architectures, lock-free data structures, and conditional compilation strategies to achieve sub-100 nanosecond overhead per operation.
+                </p>
+
+                <h3>RQ2: Comprehensive Event Taxonomy</h3>
+                <p>
+                    <strong>What event taxonomy can comprehensively represent all aspects of Rust's ownership model, including advanced patterns like smart pointers, interior mutability, and unsafe code?</strong>
+                </p>
+                <p>
+                    Rust's ownership system extends far beyond basic variable creation and borrowing. A complete taxonomy must capture reference counting (Rc/Arc), interior mutability (RefCell/Cell), unsafe operations, static variables, and const evaluation. We develop a hierarchical classification system that balances completeness with implementation complexity.
+                </p>
+
+                <h3>RQ3: Graph Reconstruction</h3>
+                <p>
+                    <strong>How can ownership relationships be accurately reconstructed from event streams to build meaningful ownership graphs for analysis?</strong>
+                </p>
+                <p>
+                    Raw event streams provide temporal information but lack structural relationships. We investigate algorithms for reconstructing ownership graphs that preserve temporal ordering, handle concurrent operations, and support incremental updates for real-time analysis.
+                </p>
+
+                <h3>RQ4: True Zero-Cost Abstraction</h3>
+                <p>
+                    <strong>Can tracking be made truly zero-cost when disabled, achieving complete compile-time elimination without sacrificing API ergonomics?</strong>
+                </p>
+                <p>
+                    Zero-cost abstractions are fundamental to Rust's philosophy. We explore conditional compilation strategies, generic programming techniques, and compiler optimization patterns to ensure that disabled tracking imposes absolutely no runtime cost while maintaining a clean, ergonomic API.
+                </p>
+            </div>
+
+            <div id="contributions">
+                <h2>1.3 Contributions</h2>
+                
+                <div class="contributions">
+                    <p>This paper makes several novel contributions to runtime analysis of ownership systems:</p>
+                </div>
+
+                <h3>Technical Contributions</h3>
+                <p>
+                    (1) <strong>Event-Sourced Architecture:</strong> Novel application of event sourcing to ownership tracking, enabling temporal analysis, replay capabilities, and incremental graph construction. (2) <strong>Comprehensive Event Taxonomy:</strong> Complete classification of Rust ownership operations, covering <strong>88 event types across 15 categories</strong> from basic ownership to advanced patterns including smart pointers, concurrency primitives, and unsafe operations. (3) <strong>Thread-Safe Global Tracker:</strong> High-performance concurrent tracking system using atomic operations and optimized mutex implementations. (4) <strong>Zero-Cost Abstraction Implementation:</strong> Conditional compilation strategy achieving complete elimination when disabled while maintaining API ergonomics.
+                </p>
+
+                <h3>Algorithmic Contributions</h3>
+                <p>
+                    (1) <strong>Ownership Graph Construction:</strong> Linear-time algorithm for building ownership graphs from event streams with support for incremental updates. (2) <strong>RAII-Based Instrumentation:</strong> Automatic tracking system using Rust's RAII patterns to eliminate manual instrumentation overhead. (3) <strong>Temporal Relationship Analysis:</strong> Algorithms for analyzing lifetime relationships and detecting ownership patterns in event streams.
+                </p>
+
+                <h3>Empirical Contributions</h3>
+                <p>
+                    (1) <strong>Performance Characterization:</strong> Comprehensive analysis of tracking overhead across different workloads and usage patterns. (2) <strong>Educational Impact Assessment:</strong> Quantitative analysis of learning outcomes when using ownership visualization tools.
+                </p>
+
+                <h3>Practical Contributions</h3>
+                <p>
+                    (1) <strong>Open-Source Implementation:</strong> Complete, production-ready implementation available as a Rust crate with comprehensive documentation. (2) <strong>Integration Ecosystem:</strong> Compatible with existing Rust tooling including cargo, rustc, and popular IDEs. (3) <strong>Visualization Framework:</strong> Extensible system for building ownership visualization and analysis tools.
+                </p>
+
+                <div class="solution-statement">
+                    <h3>Impact Statement</h3>
+                    <p>
+                        <code>borrowscope-runtime</code> represents a comprehensive solution to the ownership visibility problem in Rust, enabling new approaches to education, debugging, and research while maintaining the performance characteristics essential to Rust's value proposition.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="scripts.js"></script>
+</body>
+</html>

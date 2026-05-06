@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BorrowScope Runtime: A Technical White Paper</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .section-container {
+            margin-bottom: 3rem;
+        }
+
+        .loading {
+            text-align: center;
+            color: var(--secondary-color);
+            font-style: italic;
+            padding: 2rem;
+        }
+
+        .navigation {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1rem;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 250px;
+            z-index: 1000;
+        }
+
+        .navigation h3 {
+            margin-top: 0;
+            font-size: 1rem;
+            color: var(--primary-color);
+        }
+
+        .navigation ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .navigation li {
+            margin: 0.3rem 0;
+        }
+
+        .navigation a {
+            color: var(--secondary-color);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .navigation a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 1024px) {
+            .navigation {
+                display: none;
+            }
+        }
+    </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+
+<body>
+    <a href="../" class="back-link">Back to BorrowScope</a>
+
+    <div class="navigation">
+        <h3>Quick Navigation</h3>
+        <ul>
+            <li><a href="#introduction">1. Introduction</a></li>
+            <li><a href="#related-work">2. Related Work</a></li>
+            <li><a href="#architecture">3. Architecture</a></li>
+            <li><a href="#implementation">4. Implementation</a></li>
+            <li><a href="#graph-construction">5. Graph Construction</a></li>
+            <li><a href="#performance">6. Performance</a></li>
+            <li><a href="#applications">7. Applications</a></li>
+            <li><a href="#evaluation">8. Evaluation</a></li>
+            <li><a href="#future-work">9. Future Work</a></li>
+            <li><a href="#conclusion">10. Conclusion</a></li>
+        </ul>
+    </div>
+
+    <div class="header">
+        <h1 class="title"><strong><code>borrowscope-runtime</code></strong>: Technical White Paper</h1>
+        <p class="subtitle">Runtime Instrumentation and Analysis of Rust's Ownership System</p>
+        <div class="logo-container">
+            <img src="logo.png" alt="BorrowScope Logo" class="logo">
+        </div>
+        <div class="authors">
+            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank"
+                class="author-link">Mehmet Yalcinkaya, PhD</a><br>
+            Senior Software Engineer<br><br>
+            <strong>Date:</strong> December 2025<br>
+            <div class="badges">
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
+                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github"
+                        alt="GitHub Repository">
+                </a>
+                <a href="https://crates.io/crates/borrowscope-runtime/0.1.1" target="_blank">
+                    <img src="https://img.shields.io/badge/crates.io-v0.1.1-orange?style=for-the-badge&logo=rust"
+                        alt="Crates.io">
+                </a>
+                <a href="https://docs.rs/borrowscope-runtime/0.1.1/borrowscope_runtime/index.html" target="_blank">
+                    <img src="https://img.shields.io/badge/docs.rs-Documentation-blue?style=for-the-badge&logo=rust"
+                        alt="Documentation">
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Abstract Section -->
+    <div class="section-container" id="abstract-container">
+        <div class="loading">Loading Abstract...</div>
+    </div>
+
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ul>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#introduction">1. Introduction and Motivation</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#ownership-problem">1.1 The Ownership Visibility Problem</a></li>
+                    <li><a href="#research-questions">1.2 Research Questions</a></li>
+                    <li><a href="#contributions">1.3 Contributions</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#related-work">2. Related Work and Comparative Analysis</a>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#architecture">3. System Architecture</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#event-sourced">3.1 Event-Sourced Design</a></li>
+                    <li><a href="#core-components">3.2 Core Components</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#implementation">4. Implementation Details</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#zero-cost">4.1 Zero-Cost Abstraction</a></li>
+                    <li><a href="#thread-safety">4.2 Thread Safety</a></li>
+                    <li><a href="#raii-guards">4.3 RAII Guards</a></li>
+                    <li><a href="#extended-tracking">4.4 Extended Tracking Categories</a></li>
+                    <li><a href="#tracking-api">4.5 Tracking API Reference</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#graph-construction">5. Ownership Graph Construction</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#graph-model">5.1 Graph Model and Data Structures</a></li>
+                    <li><a href="#construction-algorithm">5.2 Graph Construction Algorithm</a></li>
+                    <li><a href="#complex-patterns">5.3 Complex Ownership Patterns</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#performance">6. Performance Analysis</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#test-environment">6.1 Test Environment and Methodology</a></li>
+                    <li><a href="#tracking-overhead">6.2 Basic Tracking Overhead</a></li>
+                    <li><a href="#memory-scaling">6.3 Memory Usage Scaling</a></li>
+                    <li><a href="#complex-patterns">6.4 Complex Ownership Pattern Performance</a></li>
+                    <li><a href="#zero-cost-abstraction">6.5 Zero-Cost Abstraction Verification</a></li>
+                    <li><a href="#performance-summary">6.6 Performance Summary and Recommendations</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#applications">7. Applications and Use Cases</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#educational-applications">7.1 Educational Applications</a></li>
+                    <li><a href="#development-debugging">7.2 Development and Debugging Applications</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#evaluation">8. Evaluation and Validation</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#development-status">8.1 Development Status and Scope</a></li>
+                    <li><a href="#test-suite">8.2 Test Suite Architecture</a></li>
+                    <li><a href="#coverage-analysis">8.3 Pattern Coverage Analysis</a></li>
+                    <li><a href="#validation-results">8.4 Validation Results and Findings</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#future-work">9. Future Work and Extensions</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#ecosystem-overview">9.1 BorrowScope Ecosystem Overview</a></li>
+                    <li><a href="#macro-system">9.2 Automatic Instrumentation</a></li>
+                    <li><a href="#graph-analysis">9.3 Advanced Graph Analysis</a></li>
+                    <li><a href="#cli-tools">9.4 Command-Line Analysis</a></li>
+                    <li><a href="#interactive-ui">9.5 Interactive Visualization</a></li>
+                </ul>
+            </li>
+            <li>
+                <span class="toc-toggle" onclick="toggleToc(this)">▶</span>
+                <a href="#conclusion">10. Conclusion</a>
+                <ul class="toc-subsections collapsed">
+                    <li><a href="#key-contributions">10.1 Key Contributions</a></li>
+                    <li><a href="#technical-achievements">10.2 Technical Achievements</a></li>
+                    <li><a href="#practical-impact">10.3 Practical Impact and Applications</a></li>
+                    <li><a href="#ecosystem-foundation">10.4 Foundation for Future Development</a></li>
+                    <li><a href="#broader-implications">10.5 Broader Implications</a></li>
+                    <li><a href="#final-remarks">10.6 Final Remarks</a></li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Introduction Section -->
+    <div class="section-container" id="introduction-container">
+        <div class="loading">Loading Introduction...</div>
+    </div>
+
+    <!-- Related Work Section -->
+    <div class="section-container" id="related-work-container">
+        <div class="loading">Loading Related Work...</div>
+    </div>
+
+    <!-- Architecture Section -->
+    <div class="section-container" id="architecture-container">
+        <div class="loading">Loading Architecture...</div>
+    </div>
+
+    <!-- Implementation Section -->
+    <div class="section-container" id="implementation-container">
+        <div class="loading">Loading Implementation...</div>
+    </div>
+
+    <!-- Graph Construction Section -->
+    <div class="section-container" id="graph-construction-container">
+        <div class="loading">Loading Graph Construction...</div>
+    </div>
+
+    <!-- Performance Section -->
+    <div class="section-container" id="performance-container">
+        <div class="loading">Loading Performance Analysis...</div>
+    </div>
+
+    <!-- Applications Section -->
+    <div class="section-container" id="applications-container">
+        <div class="loading">Loading Applications and Use Cases...</div>
+    </div>
+
+    <!-- Evaluation Section -->
+    <div class="section-container" id="evaluation-container">
+        <div class="loading">Loading Evaluation and Validation...</div>
+    </div>
+
+    <!-- Future Work Section -->
+    <div class="section-container" id="future-work-container">
+        <div class="loading">Loading Future Work and Extensions...</div>
+    </div>
+
+    <!-- Conclusion Section -->
+    <div class="section-container" id="conclusion-container">
+        <div class="loading">Loading Conclusion...</div>
+    </div>
+
+    <script src="scripts.js"></script>
+    <script>
+        // Load individual sections
+        document.addEventListener('DOMContentLoaded', function () {
+            // Load Abstract
+            fetch('abstract.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('abstract-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading abstract:', error);
+                    document.getElementById('abstract-container').innerHTML = '<p>Error loading abstract content.</p>';
+                });
+
+            // Load Introduction
+            fetch('introduction.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('introduction-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading introduction:', error);
+                    document.getElementById('introduction-container').innerHTML = '<p>Error loading introduction content.</p>';
+                });
+
+            // Load Related Work
+            fetch('related-work.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('related-work-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading related work:', error);
+                    document.getElementById('related-work-container').innerHTML = '<p>Error loading related work content.</p>';
+                });
+
+            // Load Architecture
+            fetch('architecture.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('architecture-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading architecture:', error);
+                    document.getElementById('architecture-container').innerHTML = '<p>Error loading architecture content.</p>';
+                });
+
+            // Load Implementation
+            fetch('implementation.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('implementation-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading implementation:', error);
+                    document.getElementById('implementation-container').innerHTML = '<p>Error loading implementation content.</p>';
+                });
+
+            // Load Graph Construction
+            fetch('graph-construction.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('graph-construction-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading graph construction:', error);
+                    document.getElementById('graph-construction-container').innerHTML = '<p>Error loading graph construction content.</p>';
+                });
+
+            // Load Performance Analysis
+            fetch('performance.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('performance-container').innerHTML = content.innerHTML;
+                        initPerformanceCharts();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading performance:', error);
+                    document.getElementById('performance-container').innerHTML = '<p>Error loading performance content.</p>';
+                });
+
+            // Load Applications and Use Cases
+            fetch('applications.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('applications-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading applications:', error);
+                    document.getElementById('applications-container').innerHTML = '<p>Error loading applications content.</p>';
+                });
+
+            // Load Evaluation and Validation
+            fetch('evaluation.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('evaluation-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading evaluation:', error);
+                    document.getElementById('evaluation-container').innerHTML = '<p>Error loading evaluation content.</p>';
+                });
+
+            // Load Future Work
+            fetch('future-work.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('future-work-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading future work:', error);
+                    document.getElementById('future-work-container').innerHTML = '<p>Error loading future work content.</p>';
+                });
+
+            // Load Conclusion
+            fetch('conclusion.html')
+                .then(response => response.text())
+                .then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    const content = doc.querySelector('.section-content');
+                    if (content) {
+                        document.getElementById('conclusion-container').innerHTML = content.innerHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading conclusion:', error);
+                    document.getElementById('conclusion-container').innerHTML = '<p>Error loading conclusion content.</p>';
+                });
+
+            // Initialize shared functionality after content loads
+            setTimeout(() => {
+                // Re-initialize copy buttons and theme buttons for all code blocks
+                document.querySelectorAll('.code-block').forEach(block => {
+                    // Skip if buttons already exist
+                    if (block.querySelector('.copy-btn')) return;
+
+                    const copyButton = document.createElement('button');
+                    copyButton.textContent = 'Copy';
+                    copyButton.className = 'copy-btn';
+
+                    const themeButton = document.createElement('button');
+                    themeButton.textContent = '🌙';
+                    themeButton.className = 'theme-btn';
+                    themeButton.title = 'Toggle dark/light theme';
+
+                    block.appendChild(copyButton);
+                    block.appendChild(themeButton);
+
+                    copyButton.addEventListener('click', () => {
+                        const text = block.querySelector('pre').textContent;
+                        navigator.clipboard.writeText(text).then(() => {
+                            copyButton.textContent = 'Copied!';
+                            setTimeout(() => {
+                                copyButton.textContent = 'Copy';
+                            }, 2000);
+                        });
+                    });
+
+                    themeButton.addEventListener('click', () => {
+                        block.classList.toggle('dark-theme');
+                        themeButton.textContent = block.classList.contains('dark-theme') ? '☀️' : '🌙';
+                    });
+                });
+            }, 1000);
+        });
+
+        function initPerformanceCharts() {
+            const memoryData = [
+                { variables: 100, memory_mb: 0.045 },
+                { variables: 1000, memory_mb: 0.45 },
+                { variables: 10000, memory_mb: 4.5 },
+                { variables: 100000, memory_mb: 45 },
+                { variables: 1000000, memory_mb: 450 }
+            ];
+            createChart('memory-chart', memoryData, 'Variables', 'Memory (MB)', 
+                d => d.variables, d => d.memory_mb, '#3498db');
+
+            const complexData = [
+                { pattern: 'Rc Clone', time_ns: 89 },
+                { pattern: 'Arc Clone', time_ns: 95 },
+                { pattern: 'RefCell Borrow', time_ns: 156 },
+                { pattern: 'Mutex Lock', time_ns: 178 }
+            ];
+            createBarChart('complex-pattern-chart', complexData, 'Pattern Type', 'Time (ns)', 
+                d => d.pattern, d => d.time_ns, '#e74c3c');
+
+            const zeroCostData = [
+                { mode: 'Tracking Enabled', overhead_percent: 2.3 },
+                { mode: 'Tracking Disabled', overhead_percent: 0.0 }
+            ];
+            createBarChart('zero-cost-chart', zeroCostData, 'Mode', 'Overhead (%)', 
+                d => d.mode, d => d.overhead_percent, '#27ae60');
+        }
+
+        function createChart(containerId, data, xLabel, yLabel, xAccessor, yAccessor, color) {
+            const container = d3.select(`#${containerId}`);
+            if (container.empty()) return;
+            container.selectAll("*").remove();
+            const width = 700, height = 400;
+            const margin = { top: 20, right: 30, bottom: 50, left: 70 };
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const xScale = d3.scaleLinear().domain(d3.extent(data, xAccessor)).range([margin.left, width - margin.right]);
+            const yScale = d3.scaleLinear().domain([0, d3.max(data, yAccessor)]).range([height - margin.bottom, margin.top]);
+            const line = d3.line().x(d => xScale(xAccessor(d))).y(d => yScale(yAccessor(d))).curve(d3.curveLinear);
+            svg.append("path").datum(data).attr("fill", "none").attr("stroke", color).attr("stroke-width", 2).attr("d", line);
+            svg.selectAll("circle").data(data).enter().append("circle").attr("cx", d => xScale(xAccessor(d))).attr("cy", d => yScale(yAccessor(d))).attr("r", 5).attr("fill", color);
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(xScale));
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(yScale));
+            svg.append("text").attr("x", width / 2).attr("y", height - 10).attr("text-anchor", "middle").text(xLabel);
+            svg.append("text").attr("transform", "rotate(-90)").attr("x", -height / 2).attr("y", 20).attr("text-anchor", "middle").text(yLabel);
+        }
+
+        function createBarChart(containerId, data, xLabel, yLabel, xAccessor, yAccessor, color) {
+            const container = d3.select(`#${containerId}`);
+            if (container.empty()) return;
+            container.selectAll("*").remove();
+            const width = 500, height = 300;
+            const margin = { top: 20, right: 30, bottom: 60, left: 70 };
+            const svg = container.append("svg").attr("width", width).attr("height", height);
+            const xScale = d3.scaleBand().domain(data.map(xAccessor)).range([margin.left, width - margin.right]).padding(0.3);
+            const yScale = d3.scaleLinear().domain([0, d3.max(data, yAccessor)]).range([height - margin.bottom, margin.top]);
+            svg.selectAll("rect").data(data).enter().append("rect").attr("x", d => xScale(xAccessor(d))).attr("y", d => yScale(yAccessor(d))).attr("width", xScale.bandwidth()).attr("height", d => height - margin.bottom - yScale(yAccessor(d))).attr("fill", color);
+            svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(xScale)).selectAll("text").attr("transform", "rotate(-20)").style("text-anchor", "end");
+            svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(yScale));
+        }
+    </script>
+</body>
+
+</html>

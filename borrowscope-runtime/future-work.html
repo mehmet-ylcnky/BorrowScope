@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Future Work - BorrowScope Runtime White Paper</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="section-content">
+        <div class="section" id="future-work">
+            <h1>9. Future Work and Extensions</h1>
+            
+            <p>
+                While <code>borrowscope-runtime</code> provides comprehensive runtime tracking capabilities, the broader BorrowScope project encompasses several planned extensions that will significantly expand the ecosystem's capabilities. This section outlines the roadmap for future development, including complementary tools and advanced analysis capabilities that will build upon the foundation established by the runtime library.
+            </p>
+
+            <div id="ecosystem-overview">
+                <h2>9.1 BorrowScope Ecosystem Overview</h2>
+                
+                <p>
+                    The BorrowScope project is designed as a modular ecosystem where <code>borrowscope-runtime</code> serves as the foundational data collection layer. Future components will provide increasingly sophisticated analysis, visualization, and automation capabilities, creating a comprehensive toolkit for understanding and working with Rust's ownership system.
+                </p>
+
+                <div class="ecosystem-table">
+                    <h4>BorrowScope Project Ecosystem</h4>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Component</th>
+                                <th>Status</th>
+                                <th>Description</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>borrowscope-runtime</code></td>
+                                <td><span class="status-current">✅ Current</span></td>
+                                <td>Runtime event tracking</td>
+                            </tr>
+                            <tr>
+                                <td><code>borrowscope-macro</code></td>
+                                <td><span class="status-planned">🚧 Under Development</span></td>
+                                <td>Automatic instrumentation</td>
+                            </tr>
+                            <tr>
+                                <td><code>borrowscope-graph</code></td>
+                                <td><span class="status-planned">🚧 Planned</span></td>
+                                <td>Graph analysis algorithms</td>
+                            </tr>
+                            <tr>
+                                <td><code>borrowscope-cli</code></td>
+                                <td><span class="status-planned">🚧 Planned</span></td>
+                                <td>Command-line analysis tools</td>
+                            </tr>
+                            <tr>
+                                <td><code>borrowscope-ui</code></td>
+                                <td><span class="status-planned">🚧 Planned</span></td>
+                                <td>Interactive visualization</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="macro-system">
+                <h2>9.2 Automatic Instrumentation: <code>borrowscope-macro</code></h2>
+                
+                <p>
+                    The <code>borrowscope-macro</code> crate will provide procedural macros for automatic code instrumentation, eliminating the need for manual tracking calls. This system will analyze Rust code at compile time and inject appropriate tracking calls, making ownership analysis accessible without code modification.
+                </p>
+
+                <h3>Planned Capabilities</h3>
+                <ul>
+                    <li><strong>Function-level instrumentation:</strong> Automatic tracking of all ownership operations within annotated functions</li>
+                    <li><strong>Module-level analysis:</strong> Comprehensive instrumentation of entire modules or crates</li>
+                    <li><strong>Selective tracking:</strong> Fine-grained control over which operations to track</li>
+                    <li><strong>Pattern recognition:</strong> Intelligent detection of complex ownership patterns</li>
+                </ul>
+            </div>
+
+            <div id="graph-analysis">
+                <h2>9.3 Advanced Graph Analysis: <code>borrowscope-graph</code></h2>
+                
+                <p>
+                    The <code>borrowscope-graph</code> crate will implement sophisticated graph algorithms for ownership analysis, providing insights beyond basic event tracking. This component will enable pattern detection, optimization suggestions, and advanced debugging capabilities.
+                </p>
+            </div>
+
+            <div id="cli-tools">
+                <h2>9.4 Command-Line Analysis: <code>borrowscope-cli</code></h2>
+                
+                <p>
+                    The <code>borrowscope-cli</code> tool will provide comprehensive command-line analysis capabilities for Rust projects, enabling integration into development workflows, CI/CD pipelines, and automated analysis systems.
+                </p>
+            </div>
+
+            <div id="interactive-ui">
+                <h2>9.5 Interactive Visualization: <code>borrowscope-ui</code></h2>
+                
+                <p>
+                    The <code>borrowscope-ui</code> application will provide an interactive graphical interface for ownership analysis, making complex ownership patterns accessible through intuitive visualizations and real-time analysis capabilities.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

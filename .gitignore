@@ -1,7 +1,12 @@
 # Source code (belongs on main branch, not gh-pages)
-borrowscope-analyzer/
-borrowscope-macro/
-borrowscope-runtime/
+borrowscope-analyzer/src/
+borrowscope-analyzer/Cargo.toml
+borrowscope-analyzer/docs/
+borrowscope-macro/src/
+borrowscope-macro/Cargo.toml
+borrowscope-runtime/src/
+borrowscope-runtime/Cargo.toml
+borrowscope-runtime/tests/
 examples/
 target/
 .borrowscope/
