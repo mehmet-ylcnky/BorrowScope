@@ -266,8 +266,16 @@ fn build_static_graph(type_info: &TypeInfoFile, filter_fn: Option<&str>) -> Owne
             // Infer edges from initializer_kind
             if let Some(ref init) = v.initializer_kind {
                 match init.as_str() {
-                    "rc_clone" | "arc_clone" => {
-                        // Clone edge (we don't know the source, but mark the relationship)
+                    "rc_clone" => {
+                        // Find another Rc variable in the same function as potential source
+                        if let Some(source_id) = find_rc_source(&node_map, &type_info, v, false) {
+                            graph.add_rc_clone(id, source_id, 0, v.line as u64);
+                        }
+                    }
+                    "arc_clone" => {
+                        if let Some(source_id) = find_rc_source(&node_map, &type_info, v, true) {
+                            graph.add_arc_clone(id, source_id, 0, v.line as u64);
+                        }
                     }
                     _ => {}
                 }
@@ -313,6 +321,45 @@ fn build_static_graph(type_info: &TypeInfoFile, filter_fn: Option<&str>) -> Owne
     }
 
     graph
+}
+
+/// Find a potential Rc/Arc source variable (same type, earlier declaration, same function).
+fn find_rc_source(
+    node_map: &HashMap<String, NodeId>,
+    type_info: &TypeInfoFile,
+    clone_var: &VariableInfo,
+    is_arc: bool,
+) -> Option<NodeId> {
+    for vars in type_info.files.values() {
+        for v in vars {
+            if v.name == clone_var.name {
+                continue;
+            }
+            if v.function_name != clone_var.function_name {
+                continue;
+            }
+            if v.line >= clone_var.line {
+                continue;
+            }
+            // Check if it's the same Rc/Arc type
+            let is_source = if is_arc { v.is_arc } else { v.is_rc };
+            if !is_source {
+                continue;
+            }
+            // Check if initializer is rc_new/arc_new (original, not another clone)
+            let is_origin = match v.initializer_kind.as_deref() {
+                Some("rc_new") | Some("arc_new") => true,
+                _ => false,
+            };
+            if is_origin {
+                let key = format!("{}:{}", v.function_name.as_deref().unwrap_or(""), v.name);
+                if let Some(&id) = node_map.get(&key).or_else(|| node_map.get(&v.name)) {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

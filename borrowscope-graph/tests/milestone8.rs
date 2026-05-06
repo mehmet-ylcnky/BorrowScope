@@ -297,6 +297,24 @@ fn test_static_graph_for_single_function() {
     assert!(graph.find_by_name("data").is_empty());
 }
 
+#[test]
+fn test_static_graph_rc_clone_creates_edge() {
+    let dir = test_fixture_dir();
+    let path = create_test_fixture(dir.path());
+
+    let graph = static_graph_from_analyzer(&path).unwrap();
+    // "rc_clone" has initializer_kind "rc_clone" and "rc" has "rc_new"
+    // Should create an RcClone edge from rc_clone to rc
+    let has_rc_clone_edge = graph
+        .edges()
+        .iter()
+        .any(|e| matches!(e.kind, EdgeKind::RcClone { .. }));
+    assert!(
+        has_rc_clone_edge,
+        "Expected RcClone edge from rc_clone initializer"
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 8.3 Scope hierarchy
 // ═══════════════════════════════════════════════════════════════════════════
