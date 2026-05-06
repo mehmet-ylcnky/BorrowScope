@@ -7,6 +7,17 @@ use serde::{Deserialize, Serialize};
 use crate::edge::{CaptureMode, Edge, EdgeId, EdgeKind};
 use crate::node::{Node, NodeId, ScopeKind, ScopeNode, VariableNode};
 
+/// Direction for graph traversal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// Follow edges from source to target.
+    Outgoing,
+    /// Follow edges from target to source.
+    Incoming,
+    /// Follow edges in both directions.
+    Both,
+}
+
 /// The complete ownership graph with adjacency indices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnershipGraph {
@@ -233,6 +244,41 @@ impl OwnershipGraph {
             .collect()
     }
 
+    /// Get neighbors in a specific direction.
+    pub fn neighbors_directed(&self, id: NodeId, direction: Direction) -> Vec<NodeId> {
+        match direction {
+            Direction::Outgoing => {
+                self.outgoing_edges(id)
+                    .iter()
+                    .filter_map(|eid| self.get_edge(*eid))
+                    .map(|e| e.target)
+                    .collect()
+            }
+            Direction::Incoming => {
+                self.incoming_edges(id)
+                    .iter()
+                    .filter_map(|eid| self.get_edge(*eid))
+                    .map(|e| e.source)
+                    .collect()
+            }
+            Direction::Both => {
+                let mut result: Vec<NodeId> = self.outgoing_edges(id)
+                    .iter()
+                    .filter_map(|eid| self.get_edge(*eid))
+                    .map(|e| e.target)
+                    .collect();
+                for eid in self.incoming_edges(id) {
+                    if let Some(e) = self.get_edge(*eid) {
+                        if !result.contains(&e.source) {
+                            result.push(e.source);
+                        }
+                    }
+                }
+                result
+            }
+        }
+    }
+
     /// Get all nodes that borrow from the given node.
     pub fn borrowers_of(&self, id: NodeId) -> Vec<NodeId> {
         self.incoming_edges(id)
@@ -289,6 +335,48 @@ impl OwnershipGraph {
             }
         }
         self.edges.retain(|e| e.id != id);
+    }
+
+    /// Merge another graph into this one. Node and edge IDs are remapped.
+    /// Returns a mapping from old NodeIds to new NodeIds.
+    pub fn merge(&mut self, other: &OwnershipGraph) -> HashMap<NodeId, NodeId> {
+        let mut id_map: HashMap<NodeId, NodeId> = HashMap::new();
+
+        // Remap and add nodes
+        for node in other.nodes() {
+            let old_id = node.id();
+            let new_id = match node {
+                Node::Variable(v) => {
+                    let nid = self.add_variable(&v.name, &v.type_name, v.created_at);
+                    if let Some(dropped) = v.dropped_at {
+                        self.mark_dropped(nid, dropped);
+                    }
+                    nid
+                }
+                Node::Scope(s) => {
+                    let nid = self.add_scope(&s.name, s.kind.clone(), s.entered_at);
+                    if let Some(exited) = s.exited_at {
+                        self.mark_dropped(nid, exited);
+                    }
+                    nid
+                }
+            };
+            id_map.insert(old_id, new_id);
+        }
+
+        // Remap and add edges
+        for edge in other.edges() {
+            if let (Some(&new_src), Some(&new_tgt)) =
+                (id_map.get(&edge.source), id_map.get(&edge.target))
+            {
+                let eid = self.add_edge(new_src, new_tgt, edge.kind.clone(), edge.created_at);
+                if let Some(ended) = edge.ended_at {
+                    self.end_edge(eid, ended);
+                }
+            }
+        }
+
+        id_map
     }
 
     /// Rebuild internal indices after deserialization.

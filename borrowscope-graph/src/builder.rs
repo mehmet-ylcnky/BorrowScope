@@ -125,6 +125,32 @@ impl GraphStream {
                     GraphUpdate::NoOp
                 }
             }
+            Event::FnEnter { fn_id, fn_name, timestamp, .. } => {
+                let id = self.graph.add_scope(fn_name, crate::node::ScopeKind::Function, *timestamp);
+                self.var_ids.insert(fn_id.clone(), id);
+                GraphUpdate::NodeAdded(id)
+            }
+            Event::FnExit { fn_id, timestamp, .. } => {
+                if let Some(&id) = self.var_ids.get(fn_id) {
+                    self.graph.mark_dropped(id, *timestamp);
+                    GraphUpdate::NodeDropped(id)
+                } else {
+                    GraphUpdate::NoOp
+                }
+            }
+            Event::RegionEnter { region_id, name, timestamp, .. } => {
+                let id = self.graph.add_scope(name, crate::node::ScopeKind::Block, *timestamp);
+                self.var_ids.insert(region_id.clone(), id);
+                GraphUpdate::NodeAdded(id)
+            }
+            Event::RegionExit { region_id, timestamp, .. } => {
+                if let Some(&id) = self.var_ids.get(region_id) {
+                    self.graph.mark_dropped(id, *timestamp);
+                    GraphUpdate::NodeDropped(id)
+                } else {
+                    GraphUpdate::NoOp
+                }
+            }
             _ => GraphUpdate::NoOp,
         }
     }

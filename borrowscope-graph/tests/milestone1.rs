@@ -494,6 +494,85 @@ fn test_from_events_multiple_borrows() {
     assert_eq!(graph.borrowers_of(x).len(), 2);
 }
 
+
+#[test]
+fn test_from_events_rc_clone() {
+    let events = vec![
+        make_new_event("rc1_0", "rc1", "Rc<i32>", 0),
+        Event::RcClone {
+            timestamp: 10,
+            var_name: "rc2".to_string(),
+            var_id: "rc2_0".to_string(),
+            source_id: "rc1_0".to_string(),
+            strong_count: 2,
+            weak_count: 0,
+        },
+        make_drop_event("rc2_0", 50),
+        make_drop_event("rc1_0", 60),
+    ];
+    let graph = OwnershipGraph::from_events(&events);
+
+    assert_eq!(graph.node_count(), 2);
+    assert_eq!(graph.edge_count(), 1);
+
+    let rc2 = graph.find_by_name("rc2")[0];
+    let edge = graph.get_edge(graph.outgoing_edges(rc2)[0]).unwrap();
+    assert_eq!(edge.kind, EdgeKind::RcClone { strong_count: 2 });
+}
+
+#[test]
+fn test_from_events_scope_events() {
+    let events = vec![
+        Event::FnEnter {
+            timestamp: 0,
+            fn_id: "fn_main".to_string(),
+            fn_name: "main".to_string(),
+            location: "src/main.rs:1".to_string(),
+        },
+        make_new_event("x_0", "x", "i32", 5),
+        Event::FnExit {
+            timestamp: 100,
+            fn_id: "fn_main".to_string(),
+            fn_name: "main".to_string(),
+            location: "src/main.rs:10".to_string(),
+        },
+    ];
+    let graph = OwnershipGraph::from_events(&events);
+
+    // Should have scope node + variable node
+    assert_eq!(graph.node_count(), 2);
+    let main_nodes = graph.find_by_name("main");
+    assert_eq!(main_nodes.len(), 1);
+    let main_node = graph.get_node(main_nodes[0]).unwrap();
+    assert_eq!(main_node.end_time(), Some(100));
+}
+
+#[test]
+fn test_from_events_region_events() {
+    let events = vec![
+        Event::RegionEnter {
+            timestamp: 10,
+            region_id: "region_0".to_string(),
+            name: "loop_body".to_string(),
+            location: "src/main.rs:5".to_string(),
+        },
+        make_new_event("x_0", "x", "i32", 15),
+        Event::RegionExit {
+            timestamp: 50,
+            region_id: "region_0".to_string(),
+            location: "src/main.rs:8".to_string(),
+        },
+    ];
+    let graph = OwnershipGraph::from_events(&events);
+
+    assert_eq!(graph.node_count(), 2);
+    let scope_nodes = graph.find_by_name("loop_body");
+    assert_eq!(scope_nodes.len(), 1);
+    let scope = graph.get_node(scope_nodes[0]).unwrap();
+    assert_eq!(scope.start_time(), 10);
+    assert_eq!(scope.end_time(), Some(50));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // GraphStream tests
 // ═══════════════════════════════════════════════════════════════════════════
@@ -540,10 +619,11 @@ fn test_stream_returns_updates() {
 #[test]
 fn test_stream_unknown_event_returns_noop() {
     let mut stream = GraphStream::new();
-    let event = Event::FnEnter {
+    // LoopEnter is not handled, should return NoOp
+    let event = Event::LoopEnter {
         timestamp: 0,
-        fn_id: "f".into(),
-        fn_name: "main".into(),
+        loop_id: "l".into(),
+        loop_type: "loop".into(),
         location: "src/main.rs:1".into(),
     };
     assert_eq!(stream.push(&event), GraphUpdate::NoOp);
@@ -569,4 +649,54 @@ fn test_json_roundtrip() {
     assert_eq!(restored.edge_count(), 1);
     assert_eq!(restored.find_by_name("x").len(), 1);
     assert_eq!(restored.find_by_name("r").len(), 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Merge tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_merge_disjoint_graphs() {
+    let mut g1 = OwnershipGraph::new();
+    g1.add_variable("a", "i32", 0);
+    g1.add_variable("b", "i32", 10);
+
+    let mut g2 = OwnershipGraph::new();
+    g2.add_variable("c", "String", 0);
+    g2.add_variable("d", "String", 10);
+
+    let id_map = g1.merge(&g2);
+    assert_eq!(g1.node_count(), 4);
+    assert_eq!(id_map.len(), 2);
+    assert_eq!(g1.find_by_name("c").len(), 1);
+    assert_eq!(g1.find_by_name("d").len(), 1);
+}
+
+#[test]
+fn test_merge_preserves_edges() {
+    let mut g1 = OwnershipGraph::new();
+    g1.add_variable("a", "i32", 0);
+
+    let mut g2 = OwnershipGraph::new();
+    let x = g2.add_variable("x", "i32", 0);
+    let r = g2.add_variable("r", "&i32", 10);
+    g2.add_borrow(r, x, false, 10);
+
+    g1.merge(&g2);
+    assert_eq!(g1.node_count(), 3);
+    assert_eq!(g1.edge_count(), 1);
+}
+
+#[test]
+fn test_merge_no_id_collisions() {
+    let mut g1 = OwnershipGraph::new();
+    let a = g1.add_variable("a", "i32", 0);
+
+    let mut g2 = OwnershipGraph::new();
+    g2.add_variable("b", "i32", 0);
+
+    let id_map = g1.merge(&g2);
+    // The merged node should have a different ID than 'a'
+    let new_b_id = id_map[&NodeId(0)];
+    assert_ne!(new_b_id, a);
 }

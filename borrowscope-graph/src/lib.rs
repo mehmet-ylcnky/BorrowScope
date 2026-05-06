@@ -9,8 +9,9 @@ pub mod edge;
 pub mod graph;
 pub mod builder;
 pub mod error;
+pub mod traversal;
 
 pub use node::{Node, NodeId, ScopeKind, ScopeNode, VariableNode};
 pub use edge::{CaptureMode, Edge, EdgeId, EdgeKind};
-pub use graph::OwnershipGraph;
+pub use graph::{Direction, OwnershipGraph};
 pub use error::GraphError;
