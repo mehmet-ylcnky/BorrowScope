@@ -25,6 +25,8 @@ pub struct GraphStream {
     var_ids: HashMap<String, NodeId>,
     /// Maps runtime var_id to active borrow EdgeIds
     active_borrows: HashMap<String, Vec<EdgeId>>,
+    /// Callbacks fired on each graph update
+    callbacks: Vec<Box<dyn Fn(&GraphUpdate)>>,
 }
 
 impl GraphStream {
@@ -34,7 +36,20 @@ impl GraphStream {
             graph: OwnershipGraph::new(),
             var_ids: HashMap::new(),
             active_borrows: HashMap::new(),
+            callbacks: Vec::new(),
         }
+    }
+
+    /// Register a callback that fires on each graph update.
+    pub fn on_update(&mut self, callback: impl Fn(&GraphUpdate) + 'static) {
+        self.callbacks.push(Box::new(callback));
+    }
+
+    /// Process all events currently in the runtime buffer.
+    pub fn drain_runtime(&mut self) -> Vec<GraphUpdate> {
+        let events = borrowscope_runtime::get_events();
+        let updates: Vec<GraphUpdate> = events.iter().map(|e| self.push(e)).collect();
+        updates
     }
 
     /// Process a single event, updating the graph incrementally.
@@ -224,7 +239,16 @@ impl GraphStream {
 
     /// Process all events from a slice.
     pub fn push_all(&mut self, events: &[Event]) -> Vec<GraphUpdate> {
-        events.iter().map(|e| self.push(e)).collect()
+        events
+            .iter()
+            .map(|e| {
+                let update = self.push(e);
+                for cb in &self.callbacks {
+                    cb(&update);
+                }
+                update
+            })
+            .collect()
     }
 
     /// Get a reference to the current graph state.
@@ -255,5 +279,33 @@ impl OwnershipGraph {
     /// Build a graph from a runtime event stream.
     pub fn from_events(events: &[Event]) -> Self {
         from_events(events)
+    }
+
+    /// Build graph from the global runtime event buffer.
+    pub fn from_runtime() -> Self {
+        let events = borrowscope_runtime::get_events();
+        Self::from_events(&events)
+    }
+
+    /// Build graph from runtime events matching a predicate.
+    pub fn from_runtime_filtered(predicate: impl Fn(&Event) -> bool) -> Self {
+        let events: Vec<_> = borrowscope_runtime::get_events()
+            .into_iter()
+            .filter(predicate)
+            .collect();
+        Self::from_events(&events)
+    }
+
+    /// Build graph from events for a specific variable.
+    pub fn from_runtime_for_var(name: &str) -> Self {
+        let name = name.to_string();
+        Self::from_runtime_filtered(|e| {
+            e.var_name().map_or(false, |n| n == name)
+                || match e {
+                    Event::Borrow { owner_id, .. } => owner_id == &name,
+                    Event::Move { from_id, .. } => from_id == &name,
+                    _ => false,
+                }
+        })
     }
 }
