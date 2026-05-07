@@ -118,6 +118,12 @@
                 .then(response => response.text())
                 .then(html => {
                     document.getElementById(section.id).innerHTML = html;
+                    // Execute any scripts in the loaded content
+                    document.getElementById(section.id).querySelectorAll('script').forEach(oldScript => {
+                        const newScript = document.createElement('script');
+                        newScript.textContent = oldScript.textContent;
+                        oldScript.parentNode.replaceChild(newScript, oldScript);
+                    });
                     document.getElementById(section.id).querySelectorAll('.code-block').forEach(block => {
                         if (block.querySelector('.copy-btn')) return;
                         const copyButton = document.createElement('button');
