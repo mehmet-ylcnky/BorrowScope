@@ -3,7 +3,7 @@
 
     <h2>2.1 Node Types</h2>
     <p>
-        The graph contains two kinds of nodes, unified under a <code>Node</code> enum. Each node carries a unique <code>NodeId</code> (a newtype around <code>usize</code>, cheap to copy and compare) and temporal metadata indicating when it was created and when it ceased to exist.
+        The graph contains two kinds of nodes, unified under a <code>Node</code> enum. Each node carries a unique <code>NodeId</code> (a newtype around <code>usize</code>, cheap to copy and compare) and temporal metadata indicating when it was created and when it ceased to exist. The decision to use only two node types, rather than a richer hierarchy, reflects a deliberate trade-off: variables are the primary entities in Rust's ownership model, and scopes provide the containment context needed for drop-order analysis. Adding more node types (e.g., separate types for parameters, temporaries, statics) would complicate the API without enabling new queries.
     </p>
     <table>
         <tr><th>Node Type</th><th>Represents</th><th>Key Fields</th></tr>
@@ -11,7 +11,10 @@
         <tr><td><code>ScopeNode</code></td><td>A scope boundary (function, block, loop, match)</td><td>name, kind, entered_at, exited_at</td></tr>
     </table>
     <p>
-        The <code>VariableNode</code> is the primary entity. Every <code>let</code> binding, function parameter, and temporary value that the runtime tracks becomes a variable node. The <code>ScopeNode</code> provides containment context: it represents the function or block that encloses a set of variables.
+        The <code>VariableNode</code> is the primary entity. Every <code>let</code> binding, function parameter, and temporary value that the runtime tracks becomes a variable node. It carries the variable's name and fully-qualified type string (e.g., <code>"Rc&lt;Vec&lt;i32&gt;&gt;"</code>), enabling type-aware queries without needing access to the original source code. The <code>is_copy</code> flag distinguishes types where assignment is a copy (no ownership transfer) from types where assignment is a move, which fundamentally changes how edges are interpreted.
+    </p>
+    <p>
+        The <code>ScopeNode</code> provides containment context. It represents the function or block that encloses a set of variables, with a <code>ScopeKind</code> enum distinguishing functions from blocks, loops, and match arms. Scope nodes enable hierarchical queries: "which variables are declared inside this loop?" or "what is the nesting depth of this borrow?" The <code>entered_at</code> and <code>exited_at</code> timestamps define the scope's lifetime, which bounds the lifetimes of all variables it contains.
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-comment">/// Opaque node identifier. Cheap to copy and compare.</span>
@@ -35,24 +38,42 @@
     <span class="rust-keyword">pub fn</span> <span class="rust-function">end_time</span>(&amp;<span class="rust-keyword">self</span>) -> Option&lt;<span class="rust-type">u64</span>&gt;;
 }</pre>
     </div>
+    <p>
+        The <code>is_alive_at()</code> method is the foundation for temporal queries. It uses a half-open interval: a node is alive at timestamp <code>t</code> if <code>t >= created_at</code> and either <code>dropped_at</code> is <code>None</code> (still alive) or <code>t < dropped_at</code>. This convention means that at the exact moment of drop, the variable is no longer alive, which matches Rust's semantics where the destructor has already run.
+    </p>
 
     <h2>2.2 Edge Types</h2>
     <p>
-        Edges represent ownership relationships between nodes. Each edge is directed (from source to target), typed (one of 11 kinds), and temporal (has a creation time and optional end time). The 11 edge kinds cover every ownership relationship that Rust's type system expresses:
+        Edges represent ownership relationships between nodes. Each edge is directed (from source to target), typed (one of 11 kinds), and temporal (has a creation time and optional end time). The direction convention is consistent: the source is the entity that "acts on" the target. A borrower points to its owner. A clone points to its source. A move points from the old location to the new one.
+    </p>
+    <p>
+        The 11 edge kinds cover every ownership relationship that Rust's type system expresses. They are grouped into four categories based on their ownership semantics:
+    </p>
+    <p>
+        <strong>Borrowing relationships</strong> create temporary access without transferring ownership. The original owner retains the value, and the borrow must end before the owner can be moved or dropped. <code>BorrowShared</code> allows multiple simultaneous readers, while <code>BorrowMut</code> grants exclusive access. <code>RefCellBorrow</code> is semantically similar but enforced at runtime rather than compile time, making it relevant for panic analysis.
+    </p>
+    <p>
+        <strong>Ownership transfer</strong> moves the value from one variable to another. After a <code>Move</code>, the source variable is invalidated and cannot be used. <code>ChannelSend</code> is a special case of ownership transfer that crosses thread boundaries, making it relevant for concurrency analysis.
+    </p>
+    <p>
+        <strong>Shared ownership</strong> via <code>RcClone</code> and <code>ArcClone</code> creates multiple owners of the same value. The value is dropped only when the last owner is dropped (reference count reaches zero). <code>WeakDowngrade</code> creates a non-owning reference that does not prevent deallocation.
+    </p>
+    <p>
+        <strong>Structural relationships</strong> include <code>LockAcquire</code> (synchronization), <code>ClosureCapture</code> (variable captured by a closure with a specific mode), and <code>ScopeContains</code> (hierarchical containment).
     </p>
     <table>
-        <tr><th>EdgeKind</th><th>Rust Concept</th><th>Semantics</th></tr>
-        <tr><td><code>BorrowShared</code></td><td><code>&amp;T</code></td><td>Immutable borrow: source borrows from target</td></tr>
-        <tr><td><code>BorrowMut</code></td><td><code>&amp;mut T</code></td><td>Mutable borrow: exclusive access</td></tr>
-        <tr><td><code>Move</code></td><td>Ownership transfer</td><td>Value moves from source to target</td></tr>
-        <tr><td><code>RcClone</code></td><td><code>Rc::clone</code></td><td>Shared ownership (single-threaded), carries strong_count</td></tr>
-        <tr><td><code>ArcClone</code></td><td><code>Arc::clone</code></td><td>Shared ownership (thread-safe), carries strong_count</td></tr>
-        <tr><td><code>WeakDowngrade</code></td><td><code>Rc::downgrade</code></td><td>Non-owning reference</td></tr>
-        <tr><td><code>RefCellBorrow</code></td><td><code>RefCell::borrow[_mut]</code></td><td>Runtime borrow checking, carries mutable flag</td></tr>
-        <tr><td><code>LockAcquire</code></td><td><code>Mutex::lock</code></td><td>Synchronization primitive, carries lock_type</td></tr>
-        <tr><td><code>ClosureCapture</code></td><td>Closure captures</td><td>Variable captured by closure, carries CaptureMode</td></tr>
-        <tr><td><code>ScopeContains</code></td><td>Scope nesting</td><td>Variable is contained within a scope</td></tr>
-        <tr><td><code>ChannelSend</code></td><td><code>Sender::send</code></td><td>Ownership transfer across thread boundary</td></tr>
+        <tr><th>EdgeKind</th><th>Rust Concept</th><th>Semantics</th><th>Extra Data</th></tr>
+        <tr><td><code>BorrowShared</code></td><td><code>&amp;T</code></td><td>Immutable borrow: source borrows from target</td><td>-</td></tr>
+        <tr><td><code>BorrowMut</code></td><td><code>&amp;mut T</code></td><td>Mutable borrow: exclusive access</td><td>-</td></tr>
+        <tr><td><code>Move</code></td><td>Ownership transfer</td><td>Value moves from source to target</td><td>-</td></tr>
+        <tr><td><code>RcClone</code></td><td><code>Rc::clone</code></td><td>Shared ownership (single-threaded)</td><td>strong_count</td></tr>
+        <tr><td><code>ArcClone</code></td><td><code>Arc::clone</code></td><td>Shared ownership (thread-safe)</td><td>strong_count</td></tr>
+        <tr><td><code>WeakDowngrade</code></td><td><code>Rc::downgrade</code></td><td>Non-owning reference</td><td>-</td></tr>
+        <tr><td><code>RefCellBorrow</code></td><td><code>RefCell::borrow[_mut]</code></td><td>Runtime borrow checking</td><td>mutable: bool</td></tr>
+        <tr><td><code>LockAcquire</code></td><td><code>Mutex::lock</code></td><td>Synchronization primitive</td><td>lock_type: String</td></tr>
+        <tr><td><code>ClosureCapture</code></td><td>Closure captures</td><td>Variable captured by closure</td><td>CaptureMode</td></tr>
+        <tr><td><code>ScopeContains</code></td><td>Scope nesting</td><td>Variable contained within scope</td><td>-</td></tr>
+        <tr><td><code>ChannelSend</code></td><td><code>Sender::send</code></td><td>Ownership transfer across threads</td><td>-</td></tr>
     </table>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">Edge</span> {
@@ -71,18 +92,30 @@
     <span class="rust-keyword">pub fn</span> <span class="rust-function">duration</span>(&amp;<span class="rust-keyword">self</span>) -> Option&lt;<span class="rust-type">u64</span>&gt;;
 }</pre>
     </div>
+    <p>
+        The <code>ended_at</code> field is what makes edges temporal rather than permanent. A borrow edge is created when the borrow begins and ended when the borrower is dropped. This allows the graph to answer temporal queries like "what borrows are active at timestamp 42?" by filtering edges where <code>created_at <= 42 < ended_at</code>. Edges that never end (e.g., a move, which is a permanent transfer) have <code>ended_at: None</code>.
+    </p>
 
     <h2>2.3 Why 11 Edge Kinds</h2>
     <p>
-        A simpler graph might use just 3 edge types: borrow, move, and clone. However, this loses critical semantic information. Consider the difference between <code>RefCell::borrow()</code> and a regular <code>&amp;T</code> borrow: both create shared references, but the RefCell variant performs runtime borrow checking and can panic. Similarly, <code>Mutex::lock()</code> creates a guard that holds exclusive access, but it also blocks the thread and can deadlock. These distinctions matter for conflict detection, performance analysis, and visualization.
+        A simpler graph might use just 3 edge types: borrow, move, and clone. However, this loses critical semantic information that downstream analyses depend on. Consider three scenarios where the distinction matters:
     </p>
     <p>
-        The 11 edge kinds were derived by analyzing the 88 event types in <code>borrowscope-runtime</code> and grouping them by the ownership relationship they represent. Each event type maps to exactly one edge kind, ensuring that no information is lost during graph construction.
+        <strong>Conflict detection</strong> needs to distinguish <code>BorrowShared</code> from <code>BorrowMut</code>. Two simultaneous <code>BorrowShared</code> edges on the same target are perfectly legal (multiple readers). But a <code>BorrowMut</code> edge conflicts with any other borrow edge on the same target. If both were collapsed into a generic "borrow" type, the conflict detector would either miss real conflicts or produce false positives.
+    </p>
+    <p>
+        <strong>Cycle detection</strong> needs to distinguish <code>RcClone</code> from <code>ArcClone</code>. An Rc cycle causes a memory leak (reference count never reaches zero). An Arc cycle causes the same leak but also indicates a potential deadlock if the cycle involves mutexes. Collapsing both into "clone" would lose the thread-safety distinction.
+    </p>
+    <p>
+        <strong>Visualization</strong> benefits from distinguishing <code>RefCellBorrow</code> from regular borrows. A <code>RefCell::borrow_mut()</code> can panic at runtime if another borrow is active, which is a fundamentally different failure mode than a compile-time borrow error. Visualization tools can highlight RefCell borrows with a warning indicator that regular borrows do not need.
+    </p>
+    <p>
+        The 11 edge kinds were derived by analyzing the 88 event types in <code>borrowscope-runtime</code> and grouping them by the ownership relationship they represent. Events that create the same kind of relationship (e.g., <code>Event::Borrow</code> with <code>mutable: false</code> and <code>Event::RefCellBorrow</code> with <code>mutable: false</code>) map to different edge kinds because their runtime semantics differ, even though their compile-time semantics are similar.
     </p>
 
     <h2>2.4 The OwnershipGraph Structure</h2>
     <p>
-        The central data structure stores nodes and edges with dual adjacency indices for efficient traversal in both directions:
+        The central data structure stores nodes and edges with dual adjacency indices for efficient traversal in both directions. The design prioritizes query performance over memory compactness: three HashMaps provide O(1) access patterns for the most common operations.
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">OwnershipGraph</span> {
@@ -96,6 +129,12 @@
 }</pre>
     </div>
     <p>
-        The dual adjacency lists enable O(1) lookup of both outgoing edges (who does this variable borrow from?) and incoming edges (who borrows from this variable?). The name index provides O(1) lookup by variable name, handling shadowed variables (multiple nodes with the same name) by returning a slice of all matching NodeIds.
+        The <code>outgoing</code> map answers "who does this variable borrow from?" or "where was this value moved to?" in O(1). The <code>incoming</code> map answers the reverse: "who borrows from this variable?" or "where did this value come from?" Both directions are needed because ownership queries are inherently bidirectional. A conflict detector needs incoming edges (to find all borrows on a target). A move-chain tracker needs outgoing edges (to follow the value forward).
+    </p>
+    <p>
+        The <code>name_index</code> provides O(1) lookup by variable name, which is the primary way users identify variables. It handles shadowed variables naturally: if a function declares <code>let x = 1;</code> followed by <code>let x = x + 1;</code>, both nodes are stored under the name <code>"x"</code>, and the index returns a slice of both NodeIds. Callers can disambiguate using timestamps or scope depth.
+    </p>
+    <p>
+        The indices are marked <code>#[serde(skip)]</code> in the serialization derive, meaning they are not included in JSON or MessagePack exports. This avoids redundant data in serialized form (the indices can be reconstructed from the node and edge vectors). After deserialization, <code>rebuild_indices()</code> reconstructs all three maps in O(n + m) time.
     </p>
 </div>
