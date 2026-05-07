@@ -1,0 +1,101 @@
+<div class="section">
+    <h1>2. The Node/Edge Type System</h1>
+
+    <h2>2.1 Node Types</h2>
+    <p>
+        The graph contains two kinds of nodes, unified under a <code>Node</code> enum. Each node carries a unique <code>NodeId</code> (a newtype around <code>usize</code>, cheap to copy and compare) and temporal metadata indicating when it was created and when it ceased to exist.
+    </p>
+    <table>
+        <tr><th>Node Type</th><th>Represents</th><th>Key Fields</th></tr>
+        <tr><td><code>VariableNode</code></td><td>A variable binding in source code</td><td>name, type_name, created_at, dropped_at, scope_depth, is_copy, is_mutable</td></tr>
+        <tr><td><code>ScopeNode</code></td><td>A scope boundary (function, block, loop, match)</td><td>name, kind, entered_at, exited_at</td></tr>
+    </table>
+    <p>
+        The <code>VariableNode</code> is the primary entity. Every <code>let</code> binding, function parameter, and temporary value that the runtime tracks becomes a variable node. The <code>ScopeNode</code> provides containment context: it represents the function or block that encloses a set of variables.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">/// Opaque node identifier. Cheap to copy and compare.</span>
+<span class="rust-keyword">pub struct</span> <span class="rust-type">NodeId</span>(<span class="rust-keyword">pub</span> <span class="rust-type">usize</span>);
+
+<span class="rust-comment">/// A variable in the ownership graph.</span>
+<span class="rust-keyword">pub struct</span> <span class="rust-type">VariableNode</span> {
+    <span class="rust-keyword">pub</span> id: NodeId,
+    <span class="rust-keyword">pub</span> name: String,
+    <span class="rust-keyword">pub</span> type_name: String,
+    <span class="rust-keyword">pub</span> created_at: <span class="rust-type">u64</span>,
+    <span class="rust-keyword">pub</span> dropped_at: Option&lt;<span class="rust-type">u64</span>&gt;,
+    <span class="rust-keyword">pub</span> scope_depth: <span class="rust-type">u32</span>,
+    <span class="rust-keyword">pub</span> is_copy: <span class="rust-type">bool</span>,
+    <span class="rust-keyword">pub</span> is_mutable: <span class="rust-type">bool</span>,
+}
+
+<span class="rust-keyword">impl</span> Node {
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">is_alive_at</span>(&amp;<span class="rust-keyword">self</span>, timestamp: <span class="rust-type">u64</span>) -> <span class="rust-type">bool</span>;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">start_time</span>(&amp;<span class="rust-keyword">self</span>) -> <span class="rust-type">u64</span>;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">end_time</span>(&amp;<span class="rust-keyword">self</span>) -> Option&lt;<span class="rust-type">u64</span>&gt;;
+}</pre>
+    </div>
+
+    <h2>2.2 Edge Types</h2>
+    <p>
+        Edges represent ownership relationships between nodes. Each edge is directed (from source to target), typed (one of 11 kinds), and temporal (has a creation time and optional end time). The 11 edge kinds cover every ownership relationship that Rust's type system expresses:
+    </p>
+    <table>
+        <tr><th>EdgeKind</th><th>Rust Concept</th><th>Semantics</th></tr>
+        <tr><td><code>BorrowShared</code></td><td><code>&amp;T</code></td><td>Immutable borrow: source borrows from target</td></tr>
+        <tr><td><code>BorrowMut</code></td><td><code>&amp;mut T</code></td><td>Mutable borrow: exclusive access</td></tr>
+        <tr><td><code>Move</code></td><td>Ownership transfer</td><td>Value moves from source to target</td></tr>
+        <tr><td><code>RcClone</code></td><td><code>Rc::clone</code></td><td>Shared ownership (single-threaded), carries strong_count</td></tr>
+        <tr><td><code>ArcClone</code></td><td><code>Arc::clone</code></td><td>Shared ownership (thread-safe), carries strong_count</td></tr>
+        <tr><td><code>WeakDowngrade</code></td><td><code>Rc::downgrade</code></td><td>Non-owning reference</td></tr>
+        <tr><td><code>RefCellBorrow</code></td><td><code>RefCell::borrow[_mut]</code></td><td>Runtime borrow checking, carries mutable flag</td></tr>
+        <tr><td><code>LockAcquire</code></td><td><code>Mutex::lock</code></td><td>Synchronization primitive, carries lock_type</td></tr>
+        <tr><td><code>ClosureCapture</code></td><td>Closure captures</td><td>Variable captured by closure, carries CaptureMode</td></tr>
+        <tr><td><code>ScopeContains</code></td><td>Scope nesting</td><td>Variable is contained within a scope</td></tr>
+        <tr><td><code>ChannelSend</code></td><td><code>Sender::send</code></td><td>Ownership transfer across thread boundary</td></tr>
+    </table>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">Edge</span> {
+    <span class="rust-keyword">pub</span> id: EdgeId,
+    <span class="rust-keyword">pub</span> source: NodeId,
+    <span class="rust-keyword">pub</span> target: NodeId,
+    <span class="rust-keyword">pub</span> kind: EdgeKind,
+    <span class="rust-keyword">pub</span> created_at: <span class="rust-type">u64</span>,
+    <span class="rust-keyword">pub</span> ended_at: Option&lt;<span class="rust-type">u64</span>&gt;,
+}
+
+<span class="rust-keyword">impl</span> Edge {
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">is_active_at</span>(&amp;<span class="rust-keyword">self</span>, timestamp: <span class="rust-type">u64</span>) -> <span class="rust-type">bool</span>;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">is_borrow</span>(&amp;<span class="rust-keyword">self</span>) -> <span class="rust-type">bool</span>;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">is_mutable</span>(&amp;<span class="rust-keyword">self</span>) -> <span class="rust-type">bool</span>;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">duration</span>(&amp;<span class="rust-keyword">self</span>) -> Option&lt;<span class="rust-type">u64</span>&gt;;
+}</pre>
+    </div>
+
+    <h2>2.3 Why 11 Edge Kinds</h2>
+    <p>
+        A simpler graph might use just 3 edge types: borrow, move, and clone. However, this loses critical semantic information. Consider the difference between <code>RefCell::borrow()</code> and a regular <code>&amp;T</code> borrow: both create shared references, but the RefCell variant performs runtime borrow checking and can panic. Similarly, <code>Mutex::lock()</code> creates a guard that holds exclusive access, but it also blocks the thread and can deadlock. These distinctions matter for conflict detection, performance analysis, and visualization.
+    </p>
+    <p>
+        The 11 edge kinds were derived by analyzing the 88 event types in <code>borrowscope-runtime</code> and grouping them by the ownership relationship they represent. Each event type maps to exactly one edge kind, ensuring that no information is lost during graph construction.
+    </p>
+
+    <h2>2.4 The OwnershipGraph Structure</h2>
+    <p>
+        The central data structure stores nodes and edges with dual adjacency indices for efficient traversal in both directions:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">OwnershipGraph</span> {
+    nodes: Vec&lt;Node&gt;,
+    edges: Vec&lt;Edge&gt;,
+    outgoing: HashMap&lt;NodeId, Vec&lt;EdgeId&gt;&gt;,  <span class="rust-comment">// node -> outgoing edges</span>
+    incoming: HashMap&lt;NodeId, Vec&lt;EdgeId&gt;&gt;,  <span class="rust-comment">// node -> incoming edges</span>
+    name_index: HashMap&lt;String, Vec&lt;NodeId&gt;&gt;, <span class="rust-comment">// name -> nodes</span>
+    next_node_id: <span class="rust-type">usize</span>,
+    next_edge_id: <span class="rust-type">usize</span>,
+}</pre>
+    </div>
+    <p>
+        The dual adjacency lists enable O(1) lookup of both outgoing edges (who does this variable borrow from?) and incoming edges (who borrows from this variable?). The name index provides O(1) lookup by variable name, handling shadowed variables (multiple nodes with the same name) by returning a slice of all matching NodeIds.
+    </p>
+</div>

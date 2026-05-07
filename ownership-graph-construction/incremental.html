@@ -1,0 +1,68 @@
+<div class="section">
+    <h1>5. Incremental Updates</h1>
+
+    <h2>5.1 Mutation Operations</h2>
+    <p>
+        After construction, the graph supports targeted modifications. These operations maintain all internal indices (adjacency lists, name index) consistently, ensuring that queries remain correct after mutations.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">impl</span> OwnershipGraph {
+    <span class="rust-comment">/// Remove a node and all its connected edges.</span>
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">remove_node</span>(&amp;<span class="rust-keyword">mut self</span>, id: NodeId);
+
+    <span class="rust-comment">/// Remove a single edge, updating adjacency lists.</span>
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">remove_edge</span>(&amp;<span class="rust-keyword">mut self</span>, id: EdgeId);
+
+    <span class="rust-comment">/// Mark a node as dropped at the given timestamp.</span>
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">mark_dropped</span>(&amp;<span class="rust-keyword">mut self</span>, id: NodeId, timestamp: <span class="rust-type">u64</span>);
+
+    <span class="rust-comment">/// End an edge at the given timestamp.</span>
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">end_edge</span>(&amp;<span class="rust-keyword">mut self</span>, id: EdgeId, timestamp: <span class="rust-type">u64</span>);
+}</pre>
+    </div>
+    <p>
+        <code>remove_node</code> is a cascading operation: it removes the node itself and all edges where the node appears as either source or target. This prevents dangling edge references, which would cause the graph to fail validation.
+    </p>
+
+    <h2>5.2 Graph Merging</h2>
+    <p>
+        The <code>merge()</code> operation combines two graphs into one, remapping all NodeIds and EdgeIds to avoid collisions. This is useful for combining graphs from multiple instrumented functions into a single program-wide ownership graph.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">/// Merge another graph into this one. Returns ID mapping.</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">merge</span>(&amp;<span class="rust-keyword">mut self</span>, other: &amp;OwnershipGraph) -> HashMap&lt;NodeId, NodeId&gt;;
+
+<span class="rust-comment">// Usage: combine graphs from two functions</span>
+<span class="rust-keyword">let mut</span> program_graph = OwnershipGraph::from_events(&amp;fn_a_events);
+<span class="rust-keyword">let</span> fn_b_graph = OwnershipGraph::from_events(&amp;fn_b_events);
+<span class="rust-keyword">let</span> id_map = program_graph.merge(&amp;fn_b_graph);
+<span class="rust-comment">// id_map maps old NodeIds from fn_b_graph to new NodeIds in program_graph</span></pre>
+    </div>
+    <p>
+        The merge operation preserves all edges from the source graph, remapping their source and target NodeIds to the new IDs assigned in the destination graph. Edge timestamps and metadata are preserved unchanged.
+    </p>
+
+    <h2>5.3 Index Rebuilding</h2>
+    <p>
+        After deserialization (loading a graph from JSON or MessagePack), the internal indices (adjacency lists, name index) must be rebuilt since they are not serialized. The <code>rebuild_indices()</code> method reconstructs all indices from the node and edge vectors:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub fn</span> <span class="rust-function">rebuild_indices</span>(&amp;<span class="rust-keyword">mut self</span>) {
+    <span class="rust-keyword">self</span>.outgoing.clear();
+    <span class="rust-keyword">self</span>.incoming.clear();
+    <span class="rust-keyword">self</span>.name_index.clear();
+
+    <span class="rust-keyword">for</span> node <span class="rust-keyword">in</span> &amp;<span class="rust-keyword">self</span>.nodes {
+        <span class="rust-keyword">self</span>.name_index.entry(node.name().to_string())
+            .or_default().push(node.id());
+    }
+    <span class="rust-keyword">for</span> edge <span class="rust-keyword">in</span> &amp;<span class="rust-keyword">self</span>.edges {
+        <span class="rust-keyword">self</span>.outgoing.entry(edge.source).or_default().push(edge.id);
+        <span class="rust-keyword">self</span>.incoming.entry(edge.target).or_default().push(edge.id);
+    }
+}</pre>
+    </div>
+    <p>
+        This is an O(n + m) operation that runs once after import. The indices are marked <code>#[serde(skip)]</code> to avoid serializing redundant data.
+    </p>
+</div>

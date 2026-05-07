@@ -1,0 +1,40 @@
+<div class="section">
+    <h1>1. Introduction</h1>
+
+    <h2>1.1 The Flat Event Stream Problem</h2>
+    <p>
+        The BorrowScope system instruments Rust programs to emit ownership events at runtime. Each event records a single operation: a variable is created, a borrow begins, a value moves, a reference count increments, a lock is acquired. The result is a chronological log that faithfully captures every ownership operation in the program's execution.
+    </p>
+    <p>
+        However, a flat event stream is difficult to reason about. Consider a program that creates 50 variables, borrows 30 of them, moves 10, and clones 5 Rc pointers. The event stream contains 95+ entries in temporal order. To answer "which variables borrow from <code>data</code>?", you must scan the entire stream, correlate borrow events with their targets, and track which borrows are still active. To answer "what is the ownership chain from <code>a</code> to <code>d</code>?", you must reconstruct move relationships across potentially hundreds of events.
+    </p>
+    <p>
+        These are graph queries. The natural representation of ownership relationships is a directed graph where nodes are variables and edges are ownership operations. Once constructed, the graph enables O(1) adjacency queries, standard graph algorithms (DFS, BFS, shortest path), and structural analysis (connected components, cycles, topological ordering).
+    </p>
+
+    <h2>1.2 Requirements for an Ownership Graph</h2>
+    <p>
+        An ownership graph for Rust must model several distinct relationship types. Unlike a simple call graph or dependency graph, ownership relationships are:
+    </p>
+    <ul>
+        <li><strong>Typed:</strong> A shared borrow (<code>&amp;T</code>) has different semantics than a mutable borrow (<code>&amp;mut T</code>), which differs from a move, which differs from an Rc clone. The graph must distinguish all of these.</li>
+        <li><strong>Temporal:</strong> Borrows have lifetimes. An edge that represents a borrow is only active during a specific time window. The graph must support temporal queries ("what borrows are active at timestamp 42?").</li>
+        <li><strong>Hierarchical:</strong> Variables exist within scopes (functions, blocks, loops). The graph should represent containment relationships for scope-aware analysis.</li>
+        <li><strong>Incremental:</strong> In a streaming scenario, events arrive one at a time. The graph must support efficient incremental construction without rebuilding from scratch.</li>
+    </ul>
+
+    <h2>1.3 Contributions</h2>
+    <p>
+        This paper presents the design and implementation of <code>borrowscope-graph</code>, a Rust crate that addresses these requirements:
+    </p>
+    <ul>
+        <li>A type system of 2 node kinds and 11 edge kinds that covers all ownership relationships in Rust, from basic borrows to concurrency primitives.</li>
+        <li>A single-pass O(n) construction algorithm that maps 88 runtime event types to graph operations, with active borrow tracking for correct edge termination.</li>
+        <li>Two construction modes: batch (<code>from_events</code>) for post-hoc analysis and streaming (<code>GraphStream</code>) with callbacks for real-time visualization.</li>
+        <li>Incremental update operations (add, remove, merge) that maintain index consistency.</li>
+        <li>Integration with <code>borrowscope-runtime</code> via <code>from_runtime()</code> for one-line graph construction.</li>
+    </ul>
+    <p>
+        The implementation is validated with 259 tests (including property-based tests) and benchmarked with Criterion on graphs up to 100,000 events.
+    </p>
+</div>

@@ -1,0 +1,79 @@
+<div class="section">
+    <h1>4. Streaming Construction</h1>
+
+    <h2>4.1 The GraphStream Builder</h2>
+    <p>
+        Batch construction via <code>from_events()</code> requires all events to be available upfront. For real-time visualization scenarios where events arrive one at a time during program execution, the <code>GraphStream</code> builder processes events incrementally and notifies listeners of each graph change.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">GraphStream</span> {
+    graph: OwnershipGraph,
+    var_ids: HashMap&lt;String, NodeId&gt;,
+    active_borrows: HashMap&lt;String, Vec&lt;EdgeId&gt;&gt;,
+    callbacks: Vec&lt;Box&lt;<span class="rust-keyword">dyn</span> Fn(&amp;GraphUpdate)&gt;&gt;,
+}
+
+<span class="rust-keyword">impl</span> GraphStream {
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">new</span>() -> Self;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">push</span>(&amp;<span class="rust-keyword">mut self</span>, event: &amp;Event) -> GraphUpdate;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">push_all</span>(&amp;<span class="rust-keyword">mut self</span>, events: &amp;[Event]) -> Vec&lt;GraphUpdate&gt;;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">drain_runtime</span>(&amp;<span class="rust-keyword">mut self</span>) -> Vec&lt;GraphUpdate&gt;;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">on_update</span>(&amp;<span class="rust-keyword">mut self</span>, callback: <span class="rust-keyword">impl</span> Fn(&amp;GraphUpdate) + 'static);
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">graph</span>(&amp;<span class="rust-keyword">self</span>) -> &amp;OwnershipGraph;
+    <span class="rust-keyword">pub fn</span> <span class="rust-function">into_graph</span>(<span class="rust-keyword">self</span>) -> OwnershipGraph;
+}</pre>
+    </div>
+
+    <h2>4.2 Update Notifications</h2>
+    <p>
+        Each call to <code>push()</code> returns a <code>GraphUpdate</code> describing what changed. Registered callbacks receive the same update, enabling reactive UI patterns where the visualization updates as events arrive.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub enum</span> <span class="rust-type">GraphUpdate</span> {
+    NodeAdded(NodeId),
+    EdgeAdded(EdgeId),
+    NodeDropped(NodeId),
+    EdgeEnded(EdgeId),
+    NoOp,
+}</pre>
+    </div>
+    <p>
+        The <code>NoOp</code> variant is returned for events that do not produce graph changes (e.g., loop iterations, binary operations). This allows consumers to distinguish meaningful updates from no-ops without inspecting the graph state.
+    </p>
+
+    <h2>4.3 Equivalence Guarantee</h2>
+    <p>
+        A critical property of the streaming builder: processing events one at a time via <code>push()</code> produces the exact same graph as processing them all at once via <code>from_events()</code>. This is verified by a dedicated test that constructs the same graph both ways and asserts structural equality:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let</span> batch_graph = OwnershipGraph::from_events(&amp;events);
+
+<span class="rust-keyword">let mut</span> stream = GraphStream::new();
+stream.push_all(&amp;events);
+<span class="rust-keyword">let</span> stream_graph = stream.into_graph();
+
+assert_eq!(batch_graph.node_count(), stream_graph.node_count());
+assert_eq!(batch_graph.edge_count(), stream_graph.edge_count());</pre>
+    </div>
+    <p>
+        This guarantee means that analysis results (conflict detection, traversal, statistics) are identical regardless of which construction mode was used. Users can choose based on their latency requirements without affecting correctness.
+    </p>
+
+    <h2>4.4 Drain from Runtime</h2>
+    <p>
+        The <code>drain_runtime()</code> method bridges the streaming builder with the global event buffer. It calls <code>borrowscope_runtime::get_events()</code>, processes all buffered events, and returns the list of updates. This is useful for periodic polling scenarios where a visualization tool checks for new events at regular intervals:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Periodic polling pattern</span>
+<span class="rust-keyword">let mut</span> stream = GraphStream::new();
+stream.on_update(|update| {
+    <span class="rust-comment">// Send update to visualization frontend</span>
+    send_to_ui(update);
+});
+
+<span class="rust-keyword">loop</span> {
+    stream.drain_runtime();
+    std::thread::sleep(Duration::from_millis(100));
+}</pre>
+    </div>
+</div>

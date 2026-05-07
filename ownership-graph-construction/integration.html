@@ -1,0 +1,89 @@
+<div class="section">
+    <h1>6. Runtime Integration</h1>
+
+    <h2>6.1 One-Line Graph Construction</h2>
+    <p>
+        The primary integration point is <code>OwnershipGraph::from_runtime()</code>, which reads the global event buffer from <code>borrowscope-runtime</code> and constructs the graph in a single call:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_runtime::*;
+<span class="rust-keyword">use</span> borrowscope_graph::OwnershipGraph;
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    reset();
+    my_instrumented_function();
+
+    <span class="rust-comment">// One line to get the complete ownership graph</span>
+    <span class="rust-keyword">let</span> graph = OwnershipGraph::from_runtime();
+
+    println!(<span class="rust-string">"Nodes: {}, Edges: {}"</span>, graph.node_count(), graph.edge_count());
+}</pre>
+    </div>
+    <p>
+        This is the recommended entry point for most users. It calls <code>get_events()</code> internally and delegates to <code>from_events()</code>. The graph is constructed after the instrumented code has finished executing, so there is zero overhead during the program's actual execution.
+    </p>
+
+    <h2>6.2 Filtered Construction</h2>
+    <p>
+        For large programs where only a subset of variables is of interest, filtered construction avoids building graph nodes for irrelevant events:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Only events for a specific variable</span>
+<span class="rust-keyword">let</span> graph = OwnershipGraph::from_runtime_for_var(<span class="rust-string">"data"</span>);
+
+<span class="rust-comment">// Custom filter: only New and Borrow events</span>
+<span class="rust-keyword">let</span> graph = OwnershipGraph::from_runtime_filtered(|e| {
+    <span class="rust-keyword">matches!</span>(e, Event::New { .. } | Event::Borrow { .. })
+});</pre>
+    </div>
+    <p>
+        <code>from_runtime_for_var()</code> filters events by variable name, including borrows where the variable is the owner. This produces a focused subgraph centered on a single variable and its relationships.
+    </p>
+
+    <h2>6.3 Dependency Architecture</h2>
+    <p>
+        The crate dependency flows in one direction: <code>borrowscope-graph</code> depends on <code>borrowscope-runtime</code> (for the <code>Event</code> type and <code>get_events()</code> function). There is no reverse dependency. Users add both crates to their <code>Cargo.toml</code>:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment"># Cargo.toml</span>
+[dependencies]
+borrowscope-macro = <span class="rust-string">"0.2"</span>
+borrowscope-runtime = { version = <span class="rust-string">"0.1"</span>, features = [<span class="rust-string">"track"</span>] }
+borrowscope-graph = <span class="rust-string">"0.1"</span></pre>
+    </div>
+    <p>
+        This architecture avoids circular dependencies while keeping the integration seamless. The graph crate is entirely optional: projects that only need event tracking can omit it with no compile-time or runtime cost.
+    </p>
+
+    <h2>6.4 End-to-End Workflow</h2>
+    <p>
+        The complete workflow from instrumentation to graph visualization:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">use</span> borrowscope_macro::trace_borrow;
+<span class="rust-keyword">use</span> borrowscope_runtime::*;
+<span class="rust-keyword">use</span> borrowscope_graph::{OwnershipGraph, export};
+
+#[trace_borrow]
+<span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>() {
+    <span class="rust-keyword">let</span> data = <span class="rust-keyword">vec!</span>[1, 2, 3];
+    <span class="rust-keyword">let</span> r = &amp;data;
+    println!(<span class="rust-string">"{:?}"</span>, r);
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    reset();
+    process_data();
+
+    <span class="rust-keyword">let</span> graph = OwnershipGraph::from_runtime();
+
+    <span class="rust-comment">// Export to Graphviz DOT for visualization</span>
+    <span class="rust-keyword">let</span> dot = export::to_dot(&amp;graph, &amp;export::DotOptions::default());
+    std::fs::write(<span class="rust-string">"ownership.dot"</span>, dot).unwrap();
+
+    <span class="rust-comment">// Export to D3.js for web visualization</span>
+    <span class="rust-keyword">let</span> d3 = export::to_d3_json(&amp;graph).unwrap();
+    std::fs::write(<span class="rust-string">"ownership.json"</span>, d3).unwrap();
+}</pre>
+    </div>
+</div>

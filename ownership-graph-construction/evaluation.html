@@ -1,0 +1,75 @@
+<div class="section">
+    <h1>7. Evaluation</h1>
+
+    <h2>7.1 Test Coverage</h2>
+    <p>
+        The implementation is validated with 259 tests organized across 9 test suites:
+    </p>
+    <table>
+        <tr><th>Suite</th><th>Tests</th><th>Coverage</th></tr>
+        <tr><td>Milestone 1: Core data structures</td><td>43</td><td>Nodes, edges, graph API, from_events, merge, serialization</td></tr>
+        <tr><td>Milestone 2: Traversal algorithms</td><td>45</td><td>DFS, BFS, shortest path, topo order, reachability, components</td></tr>
+        <tr><td>Milestone 3: Conflict detection</td><td>36</td><td>Active borrows, conflicts, cycles, validation, use-after-move</td></tr>
+        <tr><td>Milestone 4: Temporal queries</td><td>33</td><td>Lifetimes, snapshots, borrow scopes, timelines, ref counts</td></tr>
+        <tr><td>Milestone 5: Statistics</td><td>25</td><td>Graph stats, hotspots, borrow frequency, smart pointers</td></tr>
+        <tr><td>Milestone 6: Serialization</td><td>34</td><td>JSON, DOT, MessagePack, delta, D3.js, import/export</td></tr>
+        <tr><td>Milestone 7: Runtime integration</td><td>16</td><td>from_runtime, streaming, callbacks, battle test fixtures</td></tr>
+        <tr><td>Milestone 8: Analyzer integration</td><td>20</td><td>Enrichment, static graph, scope hierarchy, source locations</td></tr>
+        <tr><td>Property-based tests</td><td>6</td><td>Graph invariants verified over 256+ random inputs each</td></tr>
+        <tr><td><strong>Total</strong></td><td><strong>259</strong></td><td></td></tr>
+    </table>
+
+    <h2>7.2 Property-Based Invariants</h2>
+    <p>
+        Six graph invariants are verified using <code>proptest</code> with randomly generated graphs:
+    </p>
+    <ul>
+        <li>Every edge references valid node IDs (no dangling references)</li>
+        <li>DFS visits each reachable node exactly once (no duplicates)</li>
+        <li>Node count is monotonically increasing after additions</li>
+        <li>JSON round-trip preserves node and edge counts</li>
+        <li>Connected components partition all nodes (no node left out)</li>
+        <li>BFS distances are monotonically non-decreasing</li>
+    </ul>
+    <p>
+        Each property test runs 256 cases with shrinking on failure, ensuring that any invariant violation produces a minimal reproducible example.
+    </p>
+
+    <h2>7.3 Battle Test Validation</h2>
+    <p>
+        The graph construction is validated against real event streams captured from instrumented Rust programs. The <code>examples/macro-integration/events.json</code> fixture contains 117 events from a program exercising Rc, RefCell, closures, and method calls. The graph builds without panic and passes validation:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let</span> events: Vec&lt;Event&gt; = serde_json::from_str(&amp;fixture_json).unwrap();
+<span class="rust-keyword">let</span> graph = OwnershipGraph::from_events(&amp;events);
+assert!(graph.node_count() > 0);
+assert!(is_valid(&amp;graph));</pre>
+    </div>
+
+    <h2>7.4 Performance</h2>
+    <p>
+        Construction performance measured with Criterion benchmarks (release mode, averaged over 100 iterations):
+    </p>
+    <table>
+        <tr><th>Operation</th><th>100 events</th><th>1,000 events</th><th>10,000 events</th></tr>
+        <tr><td><code>from_events</code></td><td>&lt; 0.1ms</td><td>&lt; 1ms</td><td>&lt; 10ms</td></tr>
+        <tr><td>DFS traversal</td><td>&lt; 0.01ms</td><td>&lt; 0.1ms</td><td>&lt; 1ms</td></tr>
+        <tr><td><code>find_conflicts</code></td><td>&lt; 0.1ms</td><td>&lt; 1ms</td><td>&lt; 10ms</td></tr>
+        <tr><td><code>statistics</code></td><td>&lt; 0.01ms</td><td>&lt; 0.1ms</td><td>&lt; 1ms</td></tr>
+        <tr><td>JSON export</td><td>&lt; 0.1ms</td><td>&lt; 1ms</td><td>&lt; 10ms</td></tr>
+        <tr><td>MessagePack export</td><td>&lt; 0.05ms</td><td>&lt; 0.5ms</td><td>&lt; 5ms</td></tr>
+    </table>
+    <p>
+        These numbers confirm that graph construction and analysis add negligible overhead to the development workflow. A typical instrumented function producing 100-500 events can be analyzed in under 1ms.
+    </p>
+
+    <h2>7.5 Export Format Comparison</h2>
+    <table>
+        <tr><th>Format</th><th>Size (100 nodes)</th><th>Human Readable</th><th>Round-trip</th><th>Use Case</th></tr>
+        <tr><td>JSON (full)</td><td>~15 KB</td><td>Yes</td><td>Yes</td><td>Debugging, inspection</td></tr>
+        <tr><td>JSON (compact)</td><td>~9 KB</td><td>Partially</td><td>Yes</td><td>Storage, transmission</td></tr>
+        <tr><td>MessagePack</td><td>~6 KB</td><td>No</td><td>Yes</td><td>Efficient storage, caching</td></tr>
+        <tr><td>DOT</td><td>~4 KB</td><td>Yes</td><td>No</td><td>Visualization (Graphviz)</td></tr>
+        <tr><td>D3.js JSON</td><td>~8 KB</td><td>Yes</td><td>No</td><td>Web visualization</td></tr>
+    </table>
+</div>

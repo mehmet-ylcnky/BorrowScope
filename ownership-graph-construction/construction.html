@@ -1,0 +1,116 @@
+<div class="section">
+    <h1>3. Construction Algorithm</h1>
+
+    <h2>3.1 Event-to-Graph Mapping</h2>
+    <p>
+        The construction algorithm processes events in a single pass, maintaining a mapping from runtime variable IDs to graph NodeIds. Each event type maps to a specific graph operation:
+    </p>
+    <table>
+        <tr><th>Event Type</th><th>Graph Operation</th><th>Result</th></tr>
+        <tr><td><code>Event::New</code></td><td><code>add_variable()</code></td><td>New node created</td></tr>
+        <tr><td><code>Event::Borrow</code></td><td><code>add_borrow()</code></td><td>Borrow edge from borrower to owner</td></tr>
+        <tr><td><code>Event::Move</code></td><td><code>add_variable()</code> + <code>add_move()</code></td><td>New node + move edge</td></tr>
+        <tr><td><code>Event::Drop</code></td><td><code>mark_dropped()</code> + <code>end_edge()</code></td><td>Node terminated, active borrows ended</td></tr>
+        <tr><td><code>Event::RcClone</code></td><td><code>add_rc_clone()</code></td><td>Clone edge with strong_count</td></tr>
+        <tr><td><code>Event::ArcClone</code></td><td><code>add_arc_clone()</code></td><td>Clone edge with strong_count</td></tr>
+        <tr><td><code>Event::ClosureCapture</code></td><td><code>add_capture()</code></td><td>Capture edge with mode</td></tr>
+        <tr><td><code>Event::FnEnter</code></td><td><code>add_scope()</code></td><td>Scope node created</td></tr>
+        <tr><td><code>Event::FnExit</code></td><td><code>mark_dropped()</code></td><td>Scope node terminated</td></tr>
+        <tr><td><code>Event::RegionEnter</code></td><td><code>add_scope()</code></td><td>Block scope node</td></tr>
+        <tr><td><code>Event::RegionExit</code></td><td><code>mark_dropped()</code></td><td>Block scope terminated</td></tr>
+    </table>
+    <p>
+        Events that do not create ownership relationships (e.g., <code>LoopIteration</code>, <code>BinaryOp</code>) are ignored during graph construction. They remain in the event stream for other analysis purposes but do not produce graph elements.
+    </p>
+
+    <h2>3.2 Active Borrow Tracking</h2>
+    <p>
+        The critical challenge in graph construction is determining when borrow edges end. A borrow begins when a <code>Borrow</code> event is recorded, but it ends implicitly when the borrower is dropped. The algorithm maintains a <code>HashMap&lt;String, Vec&lt;EdgeId&gt;&gt;</code> that maps each variable's runtime ID to its active borrow edges:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let mut</span> active_borrows: HashMap&lt;String, Vec&lt;EdgeId&gt;&gt; = HashMap::new();
+
+<span class="rust-comment">// On Borrow event: record the edge as active</span>
+<span class="rust-keyword">let</span> eid = graph.add_borrow(borrower, owner, mutable, timestamp);
+active_borrows.entry(borrower_id.clone()).or_default().push(eid);
+
+<span class="rust-comment">// On Drop event: end all borrows held by this variable</span>
+<span class="rust-keyword">if let</span> Some(edges) = active_borrows.remove(&amp;var_id) {
+    <span class="rust-keyword">for</span> eid <span class="rust-keyword">in</span> edges {
+        graph.end_edge(eid, timestamp);
+    }
+}</pre>
+    </div>
+    <p>
+        This approach correctly handles multiple simultaneous borrows from the same variable (e.g., a variable that borrows from two different owners) and ensures that all borrow edges receive an <code>ended_at</code> timestamp when the borrower is dropped.
+    </p>
+
+    <h2>3.3 Variable ID Resolution</h2>
+    <p>
+        The runtime assigns each variable a unique string ID in the format <code>"name_counter"</code> (e.g., <code>"x_0"</code>, <code>"r_1"</code>). The construction algorithm maintains a <code>HashMap&lt;String, NodeId&gt;</code> that maps these runtime IDs to graph NodeIds. This mapping is essential for correlating events: when a <code>Borrow</code> event references <code>owner_id: "x_0"</code>, the algorithm looks up the corresponding NodeId to create the edge.
+    </p>
+    <p>
+        Variable shadowing is handled naturally: each declaration creates a new runtime ID (e.g., <code>"x_0"</code> and <code>"x_1"</code> for two declarations of <code>x</code>), so they map to distinct graph nodes. The name index in the graph stores both under the name <code>"x"</code>, allowing queries like "find all variables named x" to return both.
+    </p>
+
+    <h2>3.4 Complexity Analysis</h2>
+    <p>
+        The construction algorithm is O(n) in the number of events, with constant-factor overhead per event:
+    </p>
+    <ul>
+        <li><strong>Node creation:</strong> O(1) amortized (Vec push + HashMap insert)</li>
+        <li><strong>Edge creation:</strong> O(1) amortized (Vec push + two HashMap inserts for adjacency)</li>
+        <li><strong>Drop processing:</strong> O(k) where k is the number of active borrows on the dropped variable (typically 0-3)</li>
+        <li><strong>ID lookup:</strong> O(1) (HashMap get)</li>
+    </ul>
+    <p>
+        Total construction time for n events is O(n) with a small constant factor dominated by HashMap operations. Memory usage is O(n + m) where n is the number of nodes and m is the number of edges.
+    </p>
+
+    <h2>3.5 The Complete Algorithm</h2>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub fn</span> <span class="rust-function">from_events</span>(events: &amp;[Event]) -> OwnershipGraph {
+    <span class="rust-keyword">let mut</span> graph = OwnershipGraph::new();
+    <span class="rust-keyword">let mut</span> var_ids: HashMap&lt;String, NodeId&gt; = HashMap::new();
+    <span class="rust-keyword">let mut</span> active_borrows: HashMap&lt;String, Vec&lt;EdgeId&gt;&gt; = HashMap::new();
+
+    <span class="rust-keyword">for</span> event <span class="rust-keyword">in</span> events {
+        <span class="rust-keyword">match</span> event {
+            Event::New { var_id, var_name, type_name, timestamp, .. } => {
+                <span class="rust-keyword">let</span> id = graph.add_variable(var_name, type_name, *timestamp);
+                var_ids.insert(var_id.clone(), id);
+            }
+            Event::Borrow { borrower_id, owner_id, mutable, timestamp, .. } => {
+                <span class="rust-keyword">if let</span> (Some(&amp;borrower), Some(&amp;owner)) =
+                    (var_ids.get(borrower_id), var_ids.get(owner_id))
+                {
+                    <span class="rust-keyword">let</span> eid = graph.add_borrow(borrower, owner, *mutable, *timestamp);
+                    active_borrows.entry(borrower_id.clone()).or_default().push(eid);
+                }
+            }
+            Event::Drop { var_id, timestamp, .. } => {
+                <span class="rust-keyword">if let</span> Some(&amp;id) = var_ids.get(var_id) {
+                    graph.mark_dropped(id, *timestamp);
+                    <span class="rust-keyword">if let</span> Some(edges) = active_borrows.remove(var_id) {
+                        <span class="rust-keyword">for</span> eid <span class="rust-keyword">in</span> edges {
+                            graph.end_edge(eid, *timestamp);
+                        }
+                    }
+                }
+            }
+            Event::RcClone { var_id, var_name, source_id, strong_count, timestamp, .. } => {
+                <span class="rust-comment">// Create node if not exists, then add clone edge</span>
+                <span class="rust-keyword">let</span> clone_id = *var_ids.get(var_id).unwrap_or(
+                    &amp;graph.add_variable(var_name, <span class="rust-string">"Rc"</span>, *timestamp));
+                <span class="rust-keyword">if let</span> Some(&amp;src) = var_ids.get(source_id) {
+                    graph.add_rc_clone(clone_id, src, *strong_count <span class="rust-keyword">as</span> u32, *timestamp);
+                }
+            }
+            <span class="rust-comment">// ... remaining event types follow the same pattern</span>
+            _ => {} <span class="rust-comment">// Events without ownership relationships are skipped</span>
+        }
+    }
+    graph
+}</pre>
+    </div>
+</div>

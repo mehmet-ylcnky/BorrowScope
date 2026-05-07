@@ -1,0 +1,22 @@
+<div class="section">
+    <h1>8. Conclusion</h1>
+    <p>
+        This paper presented <code>borrowscope-graph</code>, a library that transforms flat runtime event streams into structured ownership graphs. The system addresses the fundamental limitation of event-based tracking: while events capture what happened, graphs capture how things relate.
+    </p>
+    <p>
+        The key contributions are:
+    </p>
+    <ul>
+        <li>A type system of 2 node kinds and 11 edge kinds that models the full spectrum of Rust's ownership relationships without information loss.</li>
+        <li>A single-pass O(n) construction algorithm with active borrow tracking that correctly terminates temporal edges on variable drop.</li>
+        <li>Two construction modes (batch and streaming) with a proven equivalence guarantee, enabling both post-hoc analysis and real-time visualization.</li>
+        <li>Incremental update operations (remove, merge) that maintain index consistency for interactive graph editing.</li>
+        <li>Seamless integration with <code>borrowscope-runtime</code> via <code>from_runtime()</code> for one-line graph construction from any instrumented program.</li>
+    </ul>
+    <p>
+        The graph structure serves as the foundation for higher-level analyses documented in companion papers: traversal algorithms and conflict detection (<a href="../">Paper 2</a>), temporal queries and lifetime visualization (<a href="../">Paper 3</a>), static-dynamic graph fusion (<a href="../">Paper 4</a>), and multi-format export (<a href="../">Paper 5</a>).
+    </p>
+    <p>
+        The implementation is available as part of the <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">BorrowScope project</a>, validated with 259 tests including property-based invariant verification, and benchmarked to confirm sub-millisecond construction times for typical program sizes.
+    </p>
+</div>
