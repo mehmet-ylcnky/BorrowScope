@@ -3,7 +3,10 @@
 
     <h2>4.1 The GraphStream Builder</h2>
     <p>
-        Batch construction via <code>from_events()</code> requires all events to be available upfront. For real-time visualization scenarios where events arrive one at a time during program execution, the <code>GraphStream</code> builder processes events incrementally and notifies listeners of each graph change.
+        Batch construction via <code>from_events()</code> requires all events to be available upfront. This works well for post-hoc analysis where the instrumented program has already finished executing and the complete event stream is available as a JSON file or in-memory buffer. However, for real-time visualization scenarios where events arrive one at a time during program execution, waiting for the full stream is not an option. The user wants to see the graph evolve as the program runs.
+    </p>
+    <p>
+        The <code>GraphStream</code> builder addresses this by processing events incrementally. It maintains the same internal state as the batch algorithm (the <code>var_ids</code> map and <code>active_borrows</code> tracker) but exposes a <code>push()</code> method that accepts a single event and returns what changed. This allows a visualization frontend to update its display after each event without rebuilding the entire graph.
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">GraphStream</span> {
@@ -23,27 +26,33 @@
     <span class="rust-keyword">pub fn</span> <span class="rust-function">into_graph</span>(<span class="rust-keyword">self</span>) -> OwnershipGraph;
 }</pre>
     </div>
+    <p>
+        The <code>callbacks</code> field stores registered listeners that are notified on every graph change. This enables a reactive programming model: the visualization layer registers a callback once, and the graph builder pushes updates to it automatically. The callback receives a reference to the <code>GraphUpdate</code> enum, which describes exactly what changed, allowing the frontend to perform targeted DOM updates rather than full re-renders.
+    </p>
 
     <h2>4.2 Update Notifications</h2>
     <p>
-        Each call to <code>push()</code> returns a <code>GraphUpdate</code> describing what changed. Registered callbacks receive the same update, enabling reactive UI patterns where the visualization updates as events arrive.
+        Each call to <code>push()</code> returns a <code>GraphUpdate</code> describing what changed in the graph. This is a discriminated union with five variants, each carrying the ID of the affected element:
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">pub enum</span> <span class="rust-type">GraphUpdate</span> {
-    NodeAdded(NodeId),
-    EdgeAdded(EdgeId),
-    NodeDropped(NodeId),
-    EdgeEnded(EdgeId),
-    NoOp,
+    NodeAdded(NodeId),      <span class="rust-comment">// A new variable or scope was created</span>
+    EdgeAdded(EdgeId),      <span class="rust-comment">// A new relationship was established</span>
+    NodeDropped(NodeId),    <span class="rust-comment">// A variable was dropped (end_time set)</span>
+    EdgeEnded(EdgeId),      <span class="rust-comment">// A borrow edge was terminated</span>
+    NoOp,                   <span class="rust-comment">// Event did not produce a graph change</span>
 }</pre>
     </div>
     <p>
-        The <code>NoOp</code> variant is returned for events that do not produce graph changes (e.g., loop iterations, binary operations). This allows consumers to distinguish meaningful updates from no-ops without inspecting the graph state.
+        The <code>NoOp</code> variant is returned for events that do not produce graph changes (e.g., loop iterations, binary operations, field accesses). This allows consumers to distinguish meaningful updates from no-ops without inspecting the graph state. A visualization tool might skip re-rendering on <code>NoOp</code>, saving CPU cycles during event-heavy sections of the program.
+    </p>
+    <p>
+        The update carries only an ID, not the full node or edge data. This is intentional: the consumer can look up the full data from the graph reference (<code>stream.graph().get_node(id)</code>) if needed, but many consumers only need to know that something changed. For example, a node-count display only needs to increment on <code>NodeAdded</code> without fetching the node's details.
     </p>
 
     <h2>4.3 Equivalence Guarantee</h2>
     <p>
-        A critical property of the streaming builder: processing events one at a time via <code>push()</code> produces the exact same graph as processing them all at once via <code>from_events()</code>. This is verified by a dedicated test that constructs the same graph both ways and asserts structural equality:
+        A critical property of the streaming builder: processing events one at a time via <code>push()</code> produces the exact same graph as processing them all at once via <code>from_events()</code>. This is not merely a design goal but a tested invariant. The equivalence test constructs the same graph both ways and asserts structural equality:
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">let</span> batch_graph = OwnershipGraph::from_events(&amp;events);
@@ -56,24 +65,57 @@ assert_eq!(batch_graph.node_count(), stream_graph.node_count());
 assert_eq!(batch_graph.edge_count(), stream_graph.edge_count());</pre>
     </div>
     <p>
-        This guarantee means that analysis results (conflict detection, traversal, statistics) are identical regardless of which construction mode was used. Users can choose based on their latency requirements without affecting correctness.
+        This guarantee means that analysis results (conflict detection, traversal, statistics) are identical regardless of which construction mode was used. A user can develop their analysis pipeline using batch mode (simpler to debug), then switch to streaming mode for production visualization without worrying about behavioral differences. The graph algorithms do not know or care how the graph was constructed.
+    </p>
+    <p>
+        The equivalence holds because both modes use the same internal logic. The batch <code>from_events()</code> function is literally implemented as creating a <code>GraphStream</code> and calling <code>push_all()</code>. There is no separate code path for batch construction, which eliminates the possibility of divergence.
     </p>
 
     <h2>4.4 Drain from Runtime</h2>
     <p>
-        The <code>drain_runtime()</code> method bridges the streaming builder with the global event buffer. It calls <code>borrowscope_runtime::get_events()</code>, processes all buffered events, and returns the list of updates. This is useful for periodic polling scenarios where a visualization tool checks for new events at regular intervals:
+        The <code>drain_runtime()</code> method bridges the streaming builder with the global event buffer maintained by <code>borrowscope-runtime</code>. It calls <code>get_events()</code> to retrieve all buffered events, processes each one through <code>push()</code>, and returns the list of updates. This is useful for periodic polling scenarios where a visualization tool checks for new events at regular intervals rather than receiving them via callback.
     </p>
     <div class="code-block">
-        <pre class="rust-code"><span class="rust-comment">// Periodic polling pattern</span>
+        <pre class="rust-code"><span class="rust-comment">// Periodic polling pattern for a visualization server</span>
 <span class="rust-keyword">let mut</span> stream = GraphStream::new();
-stream.on_update(|update| {
-    <span class="rust-comment">// Send update to visualization frontend</span>
-    send_to_ui(update);
-});
 
 <span class="rust-keyword">loop</span> {
-    stream.drain_runtime();
+    <span class="rust-keyword">let</span> updates = stream.drain_runtime();
+    <span class="rust-keyword">if</span> !updates.is_empty() {
+        send_to_websocket_clients(&amp;updates);
+    }
     std::thread::sleep(Duration::from_millis(100));
 }</pre>
     </div>
+    <p>
+        The polling interval determines the trade-off between latency and CPU usage. At 100ms intervals, the visualization updates 10 times per second, which is smooth enough for human perception while consuming minimal CPU. For high-frequency event streams (thousands of events per second), the polling approach naturally batches updates, sending them to the frontend in chunks rather than one at a time.
+    </p>
+
+    <h2>4.5 Callback-Based Real-Time Updates</h2>
+    <p>
+        For scenarios requiring immediate notification (zero-latency visualization, live debugging), the <code>on_update()</code> method registers a callback that fires synchronously after each graph change:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">use</span> std::sync::atomic::{AtomicUsize, Ordering};
+<span class="rust-keyword">use</span> std::sync::Arc;
+
+<span class="rust-keyword">let</span> node_count = Arc::new(AtomicUsize::new(0));
+<span class="rust-keyword">let</span> counter = node_count.clone();
+
+<span class="rust-keyword">let mut</span> stream = GraphStream::new();
+stream.on_update(<span class="rust-keyword">move</span> |update| {
+    <span class="rust-keyword">if let</span> GraphUpdate::NodeAdded(_) = update {
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+});
+
+stream.push_all(&amp;events);
+println!(<span class="rust-string">"Total nodes created: {}"</span>, node_count.load(Ordering::Relaxed));</pre>
+    </div>
+    <p>
+        Callbacks are invoked during <code>push_all()</code> for each event that produces a non-<code>NoOp</code> update. They execute synchronously on the same thread, so they should be lightweight (updating counters, pushing to a channel) rather than performing expensive operations (rendering, network I/O). For heavy processing, the callback should push the update into a channel that a separate thread consumes.
+    </p>
+    <p>
+        Multiple callbacks can be registered, and they fire in registration order. This enables composable observers: one callback updates a counter, another logs to a file, a third pushes to a WebSocket. Each operates independently without knowledge of the others.
+    </p>
 </div>
