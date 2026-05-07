@@ -1,12 +1,33 @@
 <div class="section">
     <h1>Abstract</h1>
     <p>
-        Runtime ownership tracking in Rust produces flat event streams: chronological sequences of creation, borrow, move, and drop operations. While these streams capture every ownership operation faithfully, they lack the structural relationships needed to answer questions like "who borrows from this variable?" or "what is the move chain for this value?" This paper presents <code>borrowscope-graph</code>, a library that transforms flat event streams into structured, queryable ownership graphs.
+        Runtime ownership tracking in Rust produces flat event streams: chronological sequences of creation, borrow,
+        move, and drop operations. While these streams capture every ownership operation faithfully, they lack the
+        structural relationships needed to answer questions like "who borrows from this variable?", "what is the move
+        chain for this value?", or "are there overlapping mutable borrows at this point in time?" This paper presents
+        <code>borrowscope-graph</code>, a library that transforms flat event streams into structured, queryable
+        ownership graphs that make these questions answerable in constant time.
     </p>
     <p>
-        The system defines a type system of 2 node kinds and 11 edge kinds that model the full spectrum of Rust's ownership relationships, from basic borrows and moves to Rc/Arc clones, RefCell borrows, mutex locks, and closure captures. A single-pass O(n) construction algorithm maps events to graph elements while tracking active borrows for correct edge termination. Two construction modes are provided: batch processing for post-hoc analysis and streaming construction with callbacks for real-time visualization.
+        The system defines a type system of 2 node kinds and 11 edge kinds that model the spectrum of Rust's ownership
+        relationships, from basic borrows and moves to <code>Rc</code>/<code>Arc</code> clones, <code>RefCell</code>
+        borrows, mutex locks, closure captures, and channel sends. Each edge kind carries semantic metadata specific to
+        its relationship type: reference counts for clone edges, mutability flags for borrow edges, and capture modes
+        for closure edges. This granularity ensures that no ownership information is lost during the transformation from
+        events to graph.
     </p>
     <p>
-        The implementation is validated with 259 tests including property-based invariant verification, and benchmarked on graphs with up to 100,000 events. Integration with the <a href="../eliminating-heuristics-from-rust-proc-macros/">BorrowScope runtime</a> enables one-line graph construction from any instrumented Rust program.
+        A single-pass O(n) construction algorithm maps events to graph elements while tracking active borrows in a
+        HashMap for correct edge termination when variables are dropped. Two construction modes are provided: batch
+        processing via <code>from_events()</code> for post-hoc analysis, and streaming construction via
+        <code>GraphStream</code> with update callbacks for real-time visualization. Both modes produce identical graphs,
+        a property verified through dedicated equivalence tests.
+    </p>
+    <p>
+        The implementation is validated with 259 tests including property-based invariant verification using proptest,
+        and benchmarked with Criterion on graphs with up to 100,000 events. Integration with <a
+            href="../eliminating-heuristics-from-rust-proc-macros/"><code>borrowscope-runtime</code></a> enables
+        one-line graph construction from any instrumented Rust program, bridging the gap between runtime event capture
+        and structural ownership analysis.
     </p>
 </div>

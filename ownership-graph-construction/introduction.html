@@ -3,38 +3,175 @@
 
     <h2>1.1 The Flat Event Stream Problem</h2>
     <p>
-        The BorrowScope system instruments Rust programs to emit ownership events at runtime. Each event records a single operation: a variable is created, a borrow begins, a value moves, a reference count increments, a lock is acquired. The result is a chronological log that faithfully captures every ownership operation in the program's execution.
+        The BorrowScope system instruments Rust programs to emit ownership events at runtime. Each event records a single operation: a variable is created, a borrow begins, a value moves, a reference count increments, a lock is acquired. The result is a chronological log that faithfully captures every ownership operation in the program's execution. For a simple function with 10 variables, this might produce 30-50 events. For a complex function with iterators, closures, and smart pointers, the count can easily reach hundreds.
     </p>
     <p>
-        However, a flat event stream is difficult to reason about. Consider a program that creates 50 variables, borrows 30 of them, moves 10, and clones 5 Rc pointers. The event stream contains 95+ entries in temporal order. To answer "which variables borrow from <code>data</code>?", you must scan the entire stream, correlate borrow events with their targets, and track which borrows are still active. To answer "what is the ownership chain from <code>a</code> to <code>d</code>?", you must reconstruct move relationships across potentially hundreds of events.
+        The fundamental limitation of a flat event stream is that it encodes relationships implicitly through temporal ordering and shared identifiers, rather than explicitly through structure. To determine that variable <code>r</code> borrows from variable <code>data</code>, you must find the <code>Borrow</code> event where <code>borrower_id</code> matches <code>r</code>'s ID and <code>owner_id</code> matches <code>data</code>'s ID. To determine whether that borrow is still active at a given point, you must scan forward for either a <code>Drop</code> event on <code>r</code> or the end of the stream. These are linear scans over the entire event history.
     </p>
     <p>
-        These are graph queries. The natural representation of ownership relationships is a directed graph where nodes are variables and edges are ownership operations. Once constructed, the graph enables O(1) adjacency queries, standard graph algorithms (DFS, BFS, shortest path), and structural analysis (connected components, cycles, topological ordering).
+        Consider a concrete example. A program creates a <code>Vec</code>, borrows it twice (once mutably), clones an <code>Rc</code>, and moves a value into a closure. The event stream looks like this:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Flat event stream (chronological order)</span>
+t=0   New      { var_id: "data_0", name: "data", type: "Vec&lt;i32&gt;" }
+t=10  New      { var_id: "r_0",    name: "r",    type: "&amp;Vec&lt;i32&gt;" }
+t=10  Borrow   { borrower_id: "r_0", owner_id: "data_0", mutable: false }
+t=20  New      { var_id: "rc_0",   name: "rc",   type: "Rc&lt;String&gt;" }
+t=30  RcClone  { var_id: "rc2_0",  source_id: "rc_0", strong_count: 2 }
+t=40  Drop     { var_id: "r_0" }
+t=50  New      { var_id: "m_0",    name: "m",    type: "&amp;mut Vec&lt;i32&gt;" }
+t=50  Borrow   { borrower_id: "m_0", owner_id: "data_0", mutable: true }
+t=70  Move     { from_id: "data_0", to_id: "moved_0", to_name: "moved" }
+t=80  Drop     { var_id: "m_0" }
+t=90  Drop     { var_id: "rc2_0" }
+t=100 Drop     { var_id: "rc_0" }</pre>
+    </div>
+    <p>
+        From this stream, answering "who borrows from <code>data</code>?" requires scanning all <code>Borrow</code> events and filtering by <code>owner_id == "data_0"</code>. Answering "is the borrow still active at t=45?" requires finding the borrow's start (t=10) and checking whether a corresponding <code>Drop</code> occurred before t=45 (it did, at t=40). Answering "what happened to <code>data</code> after the borrow ended?" requires scanning forward from t=40 to find the <code>Move</code> at t=70. Each of these queries is O(n) in the number of events.
+    </p>
+    <p>
+        These are fundamentally graph queries masquerading as list scans. The natural representation of ownership relationships is a directed graph where nodes are variables and edges are ownership operations. Once constructed, the graph enables O(1) adjacency queries, standard graph algorithms, and structural analysis that would be prohibitively expensive on the raw event stream.
+    </p>
+    <p>
+        The following interactive diagram shows the transformation from flat events to structured graph. Click to step through the construction process and observe how each event creates or modifies graph elements:
+    </p>
+
+    <!-- Interactive SVG: Event Stream to Graph Construction -->
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="event-to-graph" viewBox="0 0 800 420" style="max-width: 800px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceEventGraph()">
+            <!-- Timeline axis -->
+            <line x1="50" y1="360" x2="750" y2="360" stroke="#999" stroke-width="1"/>
+            <text x="50" y="380" font-size="10" fill="#999">t=0</text>
+            <text x="750" y="380" font-size="10" fill="#999" text-anchor="end">t=100</text>
+
+            <!-- Event markers -->
+            <g id="evt-0" opacity="0.2"><circle cx="90" cy="360" r="6" fill="#2ecc71"/><text x="90" y="398" text-anchor="middle" font-size="8" fill="#555">New</text></g>
+            <g id="evt-1" opacity="0.2"><circle cx="170" cy="360" r="6" fill="#3498db"/><text x="170" y="398" text-anchor="middle" font-size="8" fill="#555">Borrow</text></g>
+            <g id="evt-2" opacity="0.2"><circle cx="250" cy="360" r="6" fill="#2ecc71"/><text x="250" y="398" text-anchor="middle" font-size="8" fill="#555">New</text></g>
+            <g id="evt-3" opacity="0.2"><circle cx="330" cy="360" r="6" fill="#9b59b6"/><text x="330" y="398" text-anchor="middle" font-size="8" fill="#555">Clone</text></g>
+            <g id="evt-4" opacity="0.2"><circle cx="410" cy="360" r="6" fill="#e74c3c"/><text x="410" y="398" text-anchor="middle" font-size="8" fill="#555">Drop</text></g>
+            <g id="evt-5" opacity="0.2"><circle cx="490" cy="360" r="6" fill="#e67e22"/><text x="490" y="398" text-anchor="middle" font-size="8" fill="#555">Borrow</text></g>
+            <g id="evt-6" opacity="0.2"><circle cx="580" cy="360" r="6" fill="#27ae60"/><text x="580" y="398" text-anchor="middle" font-size="8" fill="#555">Move</text></g>
+            <g id="evt-7" opacity="0.2"><circle cx="660" cy="360" r="6" fill="#e74c3c"/><text x="660" y="398" text-anchor="middle" font-size="8" fill="#555">Drop</text></g>
+
+            <!-- Graph nodes -->
+            <g id="node-data" opacity="0">
+                <rect x="320" y="140" width="110" height="40" rx="6" fill="#2ecc71" stroke="#27ae60" stroke-width="2"/>
+                <text x="375" y="155" text-anchor="middle" font-size="10" fill="white">data</text>
+                <text x="375" y="170" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.8)">Vec&lt;i32&gt;</text>
+            </g>
+            <g id="node-r" opacity="0">
+                <rect x="120" y="50" width="90" height="40" rx="6" fill="#3498db" stroke="#2980b9" stroke-width="2"/>
+                <text x="165" y="65" text-anchor="middle" font-size="10" fill="white">r</text>
+                <text x="165" y="80" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.8)">&amp;Vec&lt;i32&gt;</text>
+            </g>
+            <g id="node-rc" opacity="0">
+                <rect x="540" y="50" width="90" height="40" rx="6" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
+                <text x="585" y="65" text-anchor="middle" font-size="10" fill="white">rc</text>
+                <text x="585" y="80" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.8)">Rc&lt;String&gt;</text>
+            </g>
+            <g id="node-rc2" opacity="0">
+                <rect x="660" y="50" width="90" height="40" rx="6" fill="#9b59b6" stroke="#8e44ad" stroke-width="2"/>
+                <text x="705" y="65" text-anchor="middle" font-size="10" fill="white">rc2</text>
+                <text x="705" y="80" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.8)">Rc&lt;String&gt;</text>
+            </g>
+            <g id="node-m" opacity="0">
+                <rect x="120" y="220" width="110" height="40" rx="6" fill="#e67e22" stroke="#d35400" stroke-width="2"/>
+                <text x="175" y="235" text-anchor="middle" font-size="10" fill="white">m</text>
+                <text x="175" y="250" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.8)">&amp;mut Vec&lt;i32&gt;</text>
+            </g>
+            <g id="node-moved" opacity="0">
+                <rect x="480" y="220" width="110" height="40" rx="6" fill="#27ae60" stroke="#1e8449" stroke-width="2"/>
+                <text x="535" y="235" text-anchor="middle" font-size="10" fill="white">moved</text>
+                <text x="535" y="250" text-anchor="middle" font-size="9" fill="rgba(255,255,255,0.8)">Vec&lt;i32&gt;</text>
+            </g>
+
+            <!-- Edges -->
+            <g id="edge-r-data" opacity="0">
+                <path d="M 190 90 Q 280 110 330 150" fill="none" stroke="#3498db" stroke-width="2" stroke-dasharray="6,3"/>
+                <text x="250" y="108" font-size="10" fill="#3498db" font-weight="bold">&amp;</text>
+            </g>
+            <g id="edge-rc2-rc" opacity="0">
+                <path d="M 670 70 L 630 70" fill="none" stroke="#9b59b6" stroke-width="2" stroke-dasharray="3,3"/>
+                <text x="650" y="62" font-size="9" fill="#9b59b6">Rc::clone</text>
+            </g>
+            <g id="edge-m-data" opacity="0">
+                <path d="M 210 220 Q 290 190 330 170" fill="none" stroke="#e74c3c" stroke-width="3"/>
+                <text x="255" y="188" font-size="10" fill="#e74c3c" font-weight="bold">&amp;mut</text>
+            </g>
+            <g id="edge-data-moved" opacity="0">
+                <path d="M 430 165 Q 460 200 490 230" fill="none" stroke="#27ae60" stroke-width="2"/>
+                <text x="455" y="195" font-size="10" fill="#27ae60" font-weight="bold">move</text>
+            </g>
+
+            <!-- Step indicator -->
+            <rect x="250" y="5" width="300" height="28" rx="14" fill="rgba(0,0,0,0.05)" stroke="rgba(0,0,0,0.1)"/>
+            <text id="step-label" x="400" y="24" text-anchor="middle" font-size="12" fill="#333" font-weight="bold">Click to step through construction</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var step = 0;
+        var steps = [
+            { show: ['evt-0', 'node-data'], highlight: ['evt-0'], label: 'Step 1/8: New event creates data node' },
+            { show: ['evt-1', 'node-r', 'edge-r-data'], highlight: ['evt-1'], label: 'Step 2/8: Borrow creates r node + edge to data' },
+            { show: ['evt-2', 'node-rc'], highlight: ['evt-2'], label: 'Step 3/8: New event creates rc node' },
+            { show: ['evt-3', 'node-rc2', 'edge-rc2-rc'], highlight: ['evt-3'], label: 'Step 4/8: RcClone creates rc2 + clone edge' },
+            { show: ['evt-4'], highlight: ['evt-4'], fade: ['node-r', 'edge-r-data'], label: 'Step 5/8: Drop ends borrow edge (r dropped)' },
+            { show: ['evt-5', 'node-m', 'edge-m-data'], highlight: ['evt-5'], label: 'Step 6/8: Mutable borrow creates m + edge' },
+            { show: ['evt-6', 'node-moved', 'edge-data-moved'], highlight: ['evt-6'], label: 'Step 7/8: Move creates moved + move edge' },
+            { show: ['evt-7'], highlight: ['evt-7'], fade: ['node-m', 'edge-m-data'], label: 'Step 8/8: Drop ends mutable borrow (complete!)' },
+        ];
+        window.advanceEventGraph = function() {
+            if (step >= steps.length) { step = 0; resetAll(); return; }
+            var s = steps[step];
+            if (s.show) s.show.forEach(function(id) { var el = document.getElementById(id); if(el) el.setAttribute('opacity', '1'); });
+            if (s.highlight) s.highlight.forEach(function(id) { var el = document.getElementById(id); if(el) { el.setAttribute('opacity', '1'); var c = el.querySelector('circle'); if(c) c.setAttribute('r', '8'); }});
+            if (s.fade) s.fade.forEach(function(id) { var el = document.getElementById(id); if(el) el.setAttribute('opacity', '0.25'); });
+            document.getElementById('step-label').textContent = s.label;
+            step++;
+        };
+        function resetAll() {
+            ['evt-0','evt-1','evt-2','evt-3','evt-4','evt-5','evt-6','evt-7'].forEach(function(id) {
+                var el = document.getElementById(id); if(el) { el.setAttribute('opacity', '0.2'); var c = el.querySelector('circle'); if(c) c.setAttribute('r', '6'); }
+            });
+            ['node-data','node-r','node-rc','node-rc2','node-m','node-moved','edge-r-data','edge-rc2-rc','edge-m-data','edge-data-moved'].forEach(function(id) {
+                var el = document.getElementById(id); if(el) el.setAttribute('opacity', '0');
+            });
+            document.getElementById('step-label').textContent = 'Click to step through construction';
+        }
+    })();
+    </script>
+
+    <p>
+        In the graph representation, "who borrows from <code>data</code>?" is answered by reading the incoming edges of the <code>data</code> node, an O(1) operation. "Is the borrow active at t=45?" is answered by checking the edge's <code>ended_at</code> field. "What happened after?" is answered by following the outgoing <code>Move</code> edge. The graph makes implicit relationships explicit and queryable.
     </p>
 
     <h2>1.2 Requirements for an Ownership Graph</h2>
     <p>
-        An ownership graph for Rust must model several distinct relationship types. Unlike a simple call graph or dependency graph, ownership relationships are:
+        An ownership graph for Rust is not a simple directed graph. It must capture the rich semantics of Rust's type system, where different kinds of "pointing to another value" have fundamentally different implications for memory safety, concurrency, and performance. A shared borrow (<code>&amp;T</code>) allows read access but not mutation. A mutable borrow (<code>&amp;mut T</code>) grants exclusive access. An <code>Rc::clone</code> creates shared ownership where the value lives until the last clone is dropped. A <code>Mutex::lock</code> blocks the thread until exclusive access is available. Each of these relationships has different rules about what can coexist, and the graph must distinguish them all.
     </p>
-    <ul>
-        <li><strong>Typed:</strong> A shared borrow (<code>&amp;T</code>) has different semantics than a mutable borrow (<code>&amp;mut T</code>), which differs from a move, which differs from an Rc clone. The graph must distinguish all of these.</li>
-        <li><strong>Temporal:</strong> Borrows have lifetimes. An edge that represents a borrow is only active during a specific time window. The graph must support temporal queries ("what borrows are active at timestamp 42?").</li>
-        <li><strong>Hierarchical:</strong> Variables exist within scopes (functions, blocks, loops). The graph should represent containment relationships for scope-aware analysis.</li>
-        <li><strong>Incremental:</strong> In a streaming scenario, events arrive one at a time. The graph must support efficient incremental construction without rebuilding from scratch.</li>
-    </ul>
+    <p>
+        Beyond type distinction, ownership relationships are inherently temporal. A borrow does not exist for the entire program's lifetime; it begins when the reference is created and ends when it is dropped. Two mutable borrows of the same variable are perfectly legal if they do not overlap in time. This means the graph must support temporal queries: "what borrows are active at timestamp 42?" is a question that a static graph cannot answer without additional metadata on each edge.
+    </p>
+    <p>
+        The graph must also support hierarchical containment. Variables exist within scopes (functions, blocks, loops), and understanding which variables belong to which scope is essential for drop-order analysis and lifetime visualization. A variable declared inside a loop body has a different lifetime pattern than one declared outside it, and the graph should represent this nesting.
+    </p>
+    <p>
+        Finally, the graph must support incremental construction. In a real-time visualization scenario, events arrive one at a time as the program executes. Rebuilding the entire graph from scratch on each new event would be prohibitively expensive for large programs. The graph must support efficient single-event updates that maintain all internal indices consistently.
+    </p>
 
     <h2>1.3 Contributions</h2>
     <p>
-        This paper presents the design and implementation of <code>borrowscope-graph</code>, a Rust crate that addresses these requirements:
+        This paper presents the design and implementation of <code>borrowscope-graph</code>, a Rust crate that addresses all of these requirements. The crate transforms the flat event stream produced by <code>borrowscope-runtime</code> into a structured ownership graph that supports constant-time adjacency queries, temporal filtering, and standard graph algorithms.
     </p>
-    <ul>
-        <li>A type system of 2 node kinds and 11 edge kinds that covers all ownership relationships in Rust, from basic borrows to concurrency primitives.</li>
-        <li>A single-pass O(n) construction algorithm that maps 88 runtime event types to graph operations, with active borrow tracking for correct edge termination.</li>
-        <li>Two construction modes: batch (<code>from_events</code>) for post-hoc analysis and streaming (<code>GraphStream</code>) with callbacks for real-time visualization.</li>
-        <li>Incremental update operations (add, remove, merge) that maintain index consistency.</li>
-        <li>Integration with <code>borrowscope-runtime</code> via <code>from_runtime()</code> for one-line graph construction.</li>
-    </ul>
     <p>
-        The implementation is validated with 259 tests (including property-based tests) and benchmarked with Criterion on graphs up to 100,000 events.
+        The type system defines 2 node kinds (variables and scopes) and 11 edge kinds that cover every ownership relationship expressible in Rust's type system. The edge kinds were derived by analyzing the 88 event types in the runtime and grouping them by the ownership relationship they represent, ensuring that no semantic information is lost during the transformation.
+    </p>
+    <p>
+        The construction algorithm processes events in a single O(n) pass, maintaining a HashMap of active borrows for correct edge termination. Two construction modes are provided: <code>from_events()</code> for batch processing after execution completes, and <code>GraphStream</code> for streaming construction with update callbacks. Both modes produce identical graphs, a property verified through dedicated equivalence tests.
+    </p>
+    <p>
+        The graph supports incremental modifications after construction (node removal, edge removal, graph merging) with consistent index maintenance. Integration with <code>borrowscope-runtime</code> is provided through <code>from_runtime()</code>, which reads the global event buffer and constructs the graph in a single call. The implementation is validated with 259 tests including property-based invariant verification and benchmarked with Criterion to confirm sub-millisecond construction times for typical program sizes.
     </p>
 </div>
