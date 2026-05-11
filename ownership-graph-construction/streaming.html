@@ -143,6 +143,112 @@
     <p>
         The update carries only an ID, not the full node or edge data. This is intentional: the consumer can look up the full data from the graph reference (<code>stream.graph().get_node(id)</code>) if needed, but many consumers only need to know that something changed. For example, a node-count display only needs to increment on <code>NodeAdded</code> without fetching the node's details.
     </p>
+    <p>
+        The following visualization shows how different <code>GraphUpdate</code> variants flow to different consumers. Click events to see which update is emitted and which listeners react:
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="notif-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceNotif()">
+            <!-- Events (clickable) -->
+            <text x="80" y="20" text-anchor="middle" font-size="10" fill="#7f8c8d" font-weight="bold">Events</text>
+            <g id="nf-e0" style="cursor:pointer"><rect x="20" y="30" width="120" height="24" rx="4" fill="#d5f5e3" stroke="#82e0aa" stroke-width="1.5"/><text x="80" y="46" text-anchor="middle" font-size="9" fill="#1e8449">New: data</text></g>
+            <g id="nf-e1" style="cursor:pointer"><rect x="20" y="58" width="120" height="24" rx="4" fill="#d6eaf8" stroke="#85c1e9" stroke-width="1.5"/><text x="80" y="74" text-anchor="middle" font-size="9" fill="#21618c">Borrow: r->data</text></g>
+            <g id="nf-e2" style="cursor:pointer"><rect x="20" y="86" width="120" height="24" rx="4" fill="#f9ebea" stroke="#f1948a" stroke-width="1.5"/><text x="80" y="102" text-anchor="middle" font-size="9" fill="#922b21">Drop: r</text></g>
+            <g id="nf-e3" style="cursor:pointer"><rect x="20" y="114" width="120" height="24" rx="4" fill="#fef9e7" stroke="#f9e79f" stroke-width="1.5"/><text x="80" y="130" text-anchor="middle" font-size="9" fill="#7e5109">LoopIteration</text></g>
+            <g id="nf-e4" style="cursor:pointer"><rect x="20" y="142" width="120" height="24" rx="4" fill="#e8daef" stroke="#c39bd3" stroke-width="1.5"/><text x="80" y="158" text-anchor="middle" font-size="9" fill="#6c3483">Move: data->out</text></g>
+
+            <!-- Arrow to GraphStream -->
+            <path d="M 140 95 L 185 95" fill="none" stroke="#95a5a6" stroke-width="1.5" marker-end="url(#nf-arr)"/>
+            <defs><marker id="nf-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#95a5a6"/></marker></defs>
+
+            <!-- GraphStream box -->
+            <rect x="190" y="55" width="90" height="80" rx="6" fill="#f8f9fa" stroke="#34495e" stroke-width="2"/>
+            <text x="235" y="80" text-anchor="middle" font-size="9" fill="#34495e" font-weight="bold">push()</text>
+            <text id="nf-variant" x="235" y="115" text-anchor="middle" font-size="9" fill="#27ae60" font-family="monospace">...</text>
+
+            <!-- Arrow to consumers -->
+            <path d="M 280 95 L 330 95" fill="none" stroke="#95a5a6" stroke-width="1.5" marker-end="url(#nf-arr)"/>
+
+            <!-- Update variant display -->
+            <rect id="nf-update-box" x="335" y="60" width="170" height="70" rx="6" fill="white" stroke="#34495e" stroke-width="2"/>
+            <text x="420" y="78" text-anchor="middle" font-size="9" fill="#7f8c8d">GraphUpdate::</text>
+            <text id="nf-update-text" x="420" y="100" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold" font-family="monospace">?</text>
+            <text id="nf-update-id" x="420" y="118" text-anchor="middle" font-size="9" fill="#7f8c8d" font-family="monospace"></text>
+
+            <!-- Consumer panels -->
+            <text x="620" y="20" text-anchor="middle" font-size="10" fill="#7f8c8d" font-weight="bold">Consumers</text>
+
+            <rect id="nf-c1-bg" x="540" y="30" width="190" height="36" rx="5" fill="#ecf0f1" stroke="#bdc3c7"/>
+            <text x="555" y="45" font-size="8" fill="#7f8c8d">Counter</text>
+            <text id="nf-c1" x="555" y="60" font-size="10" fill="#2c3e50" font-family="monospace">nodes: 0  edges: 0</text>
+
+            <rect id="nf-c2-bg" x="540" y="74" width="190" height="36" rx="5" fill="#ecf0f1" stroke="#bdc3c7"/>
+            <text x="555" y="89" font-size="8" fill="#7f8c8d">Logger</text>
+            <text id="nf-c2" x="555" y="104" font-size="10" fill="#2c3e50" font-family="monospace">// idle</text>
+
+            <rect id="nf-c3-bg" x="540" y="118" width="190" height="36" rx="5" fill="#ecf0f1" stroke="#bdc3c7"/>
+            <text x="555" y="133" font-size="8" fill="#7f8c8d">Conflict Checker</text>
+            <text id="nf-c3" x="555" y="148" font-size="10" fill="#2c3e50" font-family="monospace">// idle</text>
+
+            <!-- Step info -->
+            <rect x="20" y="200" width="710" height="55" rx="5" fill="#f4f6f7" stroke="#d5d8dc"/>
+            <text id="nf-desc" x="375" y="225" text-anchor="middle" font-size="11" fill="#2c3e50">Click an event on the left to see its update flow</text>
+            <text id="nf-step" x="375" y="245" text-anchor="middle" font-size="10" fill="#999">Step 0/5</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var nfStep = 0;
+        var nfNodes = 0, nfEdges = 0;
+        var nfData = [
+            { variant: 'NodeAdded', id: 'NodeId(0)', counter: function(){nfNodes++;}, log: '[+] node: data', conflict: '// --', desc: 'New event -> NodeAdded. Counter increments, logger records.', color: '#27ae60' },
+            { variant: 'EdgeAdded', id: 'EdgeId(0)', counter: function(){nfEdges++;}, log: '[+] edge: &data', conflict: 'check: &data OK', desc: 'Borrow event -> EdgeAdded. Conflict checker verifies no &mut overlap.', color: '#2980b9' },
+            { variant: 'NodeDropped', id: 'NodeId(1)', counter: function(){}, log: '[-] drop: r', conflict: '// --', desc: 'Drop event -> NodeDropped + EdgeEnded. Borrow edge terminated.', color: '#e74c3c' },
+            { variant: 'NoOp', id: '', counter: function(){}, log: '// skip', conflict: '// --', desc: 'LoopIteration -> NoOp. No graph change. Consumers can skip re-render.', color: '#95a5a6' },
+            { variant: 'EdgeAdded', id: 'EdgeId(1)', counter: function(){nfEdges++;}, log: '[+] edge: move', conflict: '// --', desc: 'Move event -> EdgeAdded. New node + move edge created.', color: '#8e44ad' }
+        ];
+        window.advanceNotif = function() {
+            if (nfStep >= nfData.length) { nfStep=0; nfNodes=0; nfEdges=0; resetNf(); return; }
+            var d = nfData[nfStep];
+            // Highlight event
+            for(var i=0;i<5;i++){var r=document.getElementById('nf-e'+i).querySelector('rect'); r.setAttribute('stroke-width', i===nfStep?'3':'1.5');}
+            // Show variant
+            document.getElementById('nf-variant').textContent = d.variant;
+            document.getElementById('nf-variant').setAttribute('fill', d.color);
+            document.getElementById('nf-update-text').textContent = d.variant;
+            document.getElementById('nf-update-text').setAttribute('fill', d.color);
+            document.getElementById('nf-update-id').textContent = d.id;
+            document.getElementById('nf-update-box').setAttribute('stroke', d.color);
+            // Update consumers
+            d.counter();
+            document.getElementById('nf-c1').textContent = 'nodes: '+nfNodes+'  edges: '+nfEdges;
+            document.getElementById('nf-c2').textContent = d.log;
+            document.getElementById('nf-c3').textContent = d.conflict;
+            // Flash active consumers
+            var flash = d.variant === 'NoOp' ? '#ecf0f1' : '#d4efdf';
+            document.getElementById('nf-c1-bg').setAttribute('fill', d.variant==='NoOp'?'#ecf0f1':flash);
+            document.getElementById('nf-c2-bg').setAttribute('fill', flash);
+            document.getElementById('nf-c3-bg').setAttribute('fill', d.conflict!=='// --'?'#fdebd0':'#ecf0f1');
+            // Info
+            document.getElementById('nf-desc').textContent = d.desc;
+            nfStep++;
+            document.getElementById('nf-step').textContent = 'Step '+nfStep+'/5';
+        };
+        function resetNf() {
+            for(var i=0;i<5;i++){document.getElementById('nf-e'+i).querySelector('rect').setAttribute('stroke-width','1.5');}
+            document.getElementById('nf-variant').textContent='...';
+            document.getElementById('nf-update-text').textContent='?';
+            document.getElementById('nf-update-id').textContent='';
+            document.getElementById('nf-update-box').setAttribute('stroke','#34495e');
+            document.getElementById('nf-c1').textContent='nodes: 0  edges: 0';
+            document.getElementById('nf-c2').textContent='// idle';
+            document.getElementById('nf-c3').textContent='// idle';
+            ['nf-c1-bg','nf-c2-bg','nf-c3-bg'].forEach(function(id){document.getElementById(id).setAttribute('fill','#ecf0f1');});
+            document.getElementById('nf-desc').textContent='Click an event on the left to see its update flow';
+            document.getElementById('nf-step').textContent='Step 0/5';
+        }
+    })();
+    </script>
 
     <h2>4.3 Equivalence Guarantee</h2>
     <p>
