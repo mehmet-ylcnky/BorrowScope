@@ -389,7 +389,10 @@ assert_eq!(batch_graph.edge_count(), stream_graph.edge_count());</pre>
 
     <h2>4.4 Drain from Runtime</h2>
     <p>
-        The <code>drain_runtime()</code> method bridges the streaming builder with the global event buffer maintained by <code>borrowscope-runtime</code>. It calls <code>get_events()</code> to retrieve all buffered events, processes each one through <code>push()</code>, and returns the list of updates. This is useful for periodic polling scenarios where a visualization tool checks for new events at regular intervals rather than receiving them via callback.
+        The <code>drain_runtime()</code> method bridges the streaming builder with the global event buffer maintained by <code>borrowscope-runtime</code>. It calls <code>get_events()</code> to retrieve all buffered events, processes each one through <code>push()</code>, and returns the list of updates. This is the primary integration point between the runtime's event capture and the graph crate's structural analysis.
+    </p>
+    <p>
+        The method is designed for periodic polling scenarios where a visualization tool checks for new events at regular intervals. Between polls, the instrumented program continues executing and events accumulate in the runtime's global buffer. When <code>drain_runtime()</code> is called, it processes the entire backlog in one batch, producing a burst of <code>GraphUpdate</code> notifications that the frontend can apply as a single frame update.
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-comment">// Periodic polling pattern for a visualization server</span>
@@ -404,8 +407,116 @@ assert_eq!(batch_graph.edge_count(), stream_graph.edge_count());</pre>
 }</pre>
     </div>
     <p>
-        The polling interval determines the trade-off between latency and CPU usage. At 100ms intervals, the visualization updates 10 times per second, which is smooth enough for human perception while consuming minimal CPU. For high-frequency event streams (thousands of events per second), the polling approach naturally batches updates, sending them to the frontend in chunks rather than one at a time.
+        The polling interval determines the trade-off between latency and CPU usage. At 100ms intervals, the visualization updates 10 times per second, which is smooth enough for human perception while consuming minimal CPU. For high-frequency event streams (thousands of events per second), the polling approach naturally batches updates, sending them to the frontend in chunks rather than one at a time. This batching is actually beneficial for rendering performance: applying 50 graph changes in one frame is cheaper than triggering 50 separate re-renders.
     </p>
+    <p>
+        The following visualization simulates the polling loop. The runtime buffer fills with events between polls, then <code>drain_runtime()</code> processes them all at once:
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="drain-svg" viewBox="0 0 750 260" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa;">
+            <!-- Runtime buffer -->
+            <rect x="30" y="40" width="200" height="150" rx="6" fill="#ecf0f1" stroke="#34495e" stroke-width="2"/>
+            <text x="130" y="30" text-anchor="middle" font-size="10" fill="#34495e" font-weight="bold">Runtime Event Buffer</text>
+            <text id="dr-buf-count" x="130" y="58" text-anchor="middle" font-size="9" fill="#7f8c8d">0 events buffered</text>
+            <!-- Buffer items -->
+            <g id="dr-b0" opacity="0"><rect x="40" y="65" width="180" height="16" rx="2" fill="#aed6f1"/><text x="130" y="77" text-anchor="middle" font-size="8" fill="#1b4f72">New: x</text></g>
+            <g id="dr-b1" opacity="0"><rect x="40" y="83" width="180" height="16" rx="2" fill="#aed6f1"/><text x="130" y="95" text-anchor="middle" font-size="8" fill="#1b4f72">Borrow: r->x</text></g>
+            <g id="dr-b2" opacity="0"><rect x="40" y="101" width="180" height="16" rx="2" fill="#aed6f1"/><text x="130" y="113" text-anchor="middle" font-size="8" fill="#1b4f72">New: y</text></g>
+            <g id="dr-b3" opacity="0"><rect x="40" y="119" width="180" height="16" rx="2" fill="#aed6f1"/><text x="130" y="131" text-anchor="middle" font-size="8" fill="#1b4f72">Drop: r</text></g>
+            <g id="dr-b4" opacity="0"><rect x="40" y="137" width="180" height="16" rx="2" fill="#aed6f1"/><text x="130" y="149" text-anchor="middle" font-size="8" fill="#1b4f72">Move: x->z</text></g>
+            <g id="dr-b5" opacity="0"><rect x="40" y="155" width="180" height="16" rx="2" fill="#aed6f1"/><text x="130" y="167" text-anchor="middle" font-size="8" fill="#1b4f72">Drop: y</text></g>
+
+            <!-- drain arrow -->
+            <g id="dr-arrow" opacity="0">
+                <path d="M 230 115 L 310 115" fill="none" stroke="#e67e22" stroke-width="3" marker-end="url(#dr-arr)"/>
+                <text x="270" y="105" text-anchor="middle" font-size="9" fill="#e67e22" font-weight="bold">drain!</text>
+            </g>
+            <defs><marker id="dr-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#e67e22"/></marker></defs>
+
+            <!-- GraphStream -->
+            <rect x="315" y="75" width="100" height="80" rx="6" fill="#f8f9fa" stroke="#34495e" stroke-width="2"/>
+            <text x="365" y="100" text-anchor="middle" font-size="9" fill="#34495e" font-weight="bold">GraphStream</text>
+            <text id="dr-gs-status" x="365" y="120" text-anchor="middle" font-size="9" fill="#27ae60" font-family="monospace">idle</text>
+            <text id="dr-gs-count" x="365" y="140" text-anchor="middle" font-size="8" fill="#7f8c8d">graph: 0n 0e</text>
+
+            <!-- Output -->
+            <path d="M 415 115 L 470 115" fill="none" stroke="#95a5a6" stroke-width="1.5" marker-end="url(#dr-arr2)"/>
+            <defs><marker id="dr-arr2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#95a5a6"/></marker></defs>
+
+            <!-- Updates output -->
+            <rect x="475" y="40" width="250" height="150" rx="6" fill="white" stroke="#27ae60" stroke-width="2"/>
+            <text x="600" y="30" text-anchor="middle" font-size="10" fill="#27ae60" font-weight="bold">Vec&lt;GraphUpdate&gt; returned</text>
+            <text id="dr-u0" x="490" y="62" font-size="9" fill="#7f8c8d" font-family="monospace" opacity="0">NodeAdded(0)    // x</text>
+            <text id="dr-u1" x="490" y="78" font-size="9" fill="#7f8c8d" font-family="monospace" opacity="0">EdgeAdded(0)    // r->x</text>
+            <text id="dr-u2" x="490" y="94" font-size="9" fill="#7f8c8d" font-family="monospace" opacity="0">NodeAdded(1)    // y</text>
+            <text id="dr-u3" x="490" y="110" font-size="9" fill="#7f8c8d" font-family="monospace" opacity="0">NodeDropped(1)  // r</text>
+            <text id="dr-u4" x="490" y="126" font-size="9" fill="#7f8c8d" font-family="monospace" opacity="0">EdgeAdded(1)    // move</text>
+            <text id="dr-u5" x="490" y="142" font-size="9" fill="#7f8c8d" font-family="monospace" opacity="0">NodeDropped(2)  // y</text>
+            <text id="dr-u-count" x="600" y="175" text-anchor="middle" font-size="9" fill="#27ae60" opacity="0">6 updates in one batch</text>
+
+            <!-- Timeline -->
+            <rect x="30" y="210" width="695" height="35" rx="5" fill="#f4f6f7" stroke="#d5d8dc"/>
+            <text id="dr-phase" x="375" y="232" text-anchor="middle" font-size="11" fill="#2c3e50" font-weight="bold">Phase: Program executing, events accumulating...</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var drStep = 0;
+        var drTimer = null;
+        function drPlay() {
+            if (drStep <= 5) {
+                // Events accumulating
+                document.getElementById('dr-b'+drStep).setAttribute('opacity','1');
+                document.getElementById('dr-buf-count').textContent = (drStep+1)+' events buffered';
+                document.getElementById('dr-phase').textContent = 'Phase: Program executing... ('+(drStep+1)+' events buffered)';
+                drStep++;
+                drTimer = setTimeout(drPlay, 600);
+            } else if (drStep === 6) {
+                // drain_runtime() called
+                document.getElementById('dr-arrow').setAttribute('opacity','1');
+                document.getElementById('dr-gs-status').textContent = 'draining...';
+                document.getElementById('dr-phase').textContent = 'Phase: drain_runtime() called - processing 6 events';
+                drStep++;
+                drTimer = setTimeout(drPlay, 800);
+            } else if (drStep === 7) {
+                // Buffer empties, results appear
+                for(var i=0;i<6;i++){document.getElementById('dr-b'+i).setAttribute('opacity','0.2');}
+                document.getElementById('dr-buf-count').textContent = '0 events (drained)';
+                for(var j=0;j<6;j++){document.getElementById('dr-u'+j).setAttribute('opacity','1');}
+                document.getElementById('dr-u-count').setAttribute('opacity','1');
+                document.getElementById('dr-gs-status').textContent = 'done';
+                document.getElementById('dr-gs-count').textContent = 'graph: 3n 2e';
+                document.getElementById('dr-phase').textContent = 'Phase: Complete! 6 updates returned. Next poll in 100ms...';
+                drStep++;
+                drTimer = setTimeout(drPlay, 2500);
+            } else {
+                // Reset
+                drStep = 0;
+                for(var i=0;i<6;i++){document.getElementById('dr-b'+i).setAttribute('opacity','0');document.getElementById('dr-u'+i).setAttribute('opacity','0');}
+                document.getElementById('dr-u-count').setAttribute('opacity','0');
+                document.getElementById('dr-arrow').setAttribute('opacity','0');
+                document.getElementById('dr-buf-count').textContent = '0 events buffered';
+                document.getElementById('dr-gs-status').textContent = 'idle';
+                document.getElementById('dr-gs-count').textContent = 'graph: 0n 0e';
+                document.getElementById('dr-phase').textContent = 'Phase: Program executing, events accumulating...';
+                drTimer = setTimeout(drPlay, 800);
+            }
+        }
+        drTimer = setTimeout(drPlay, 600);
+        document.getElementById('drain-svg').addEventListener('click', function() {
+            clearTimeout(drTimer); drStep=0;
+            for(var i=0;i<6;i++){document.getElementById('dr-b'+i).setAttribute('opacity','0');document.getElementById('dr-u'+i).setAttribute('opacity','0');}
+            document.getElementById('dr-u-count').setAttribute('opacity','0');
+            document.getElementById('dr-arrow').setAttribute('opacity','0');
+            document.getElementById('dr-buf-count').textContent='0 events buffered';
+            document.getElementById('dr-gs-status').textContent='idle';
+            document.getElementById('dr-gs-count').textContent='graph: 0n 0e';
+            document.getElementById('dr-phase').textContent='Phase: Program executing, events accumulating...';
+            drTimer=setTimeout(drPlay,500);
+        });
+    })();
+    </script>
 
     <h2>4.5 Callback-Based Real-Time Updates</h2>
     <p>
