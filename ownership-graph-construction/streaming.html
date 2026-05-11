@@ -164,6 +164,122 @@ assert_eq!(batch_graph.edge_count(), stream_graph.edge_count());</pre>
     <p>
         The equivalence holds because both modes use the same internal logic. The batch <code>from_events()</code> function is literally implemented as creating a <code>GraphStream</code> and calling <code>push_all()</code>. There is no separate code path for batch construction, which eliminates the possibility of divergence.
     </p>
+    <p>
+        The following side-by-side animation demonstrates the equivalence. Both sides process the same events but in different modes. Watch the final graphs match:
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="equiv-svg" viewBox="0 0 750 300" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="restartEquiv()">
+            <!-- Left: Batch mode -->
+            <rect x="15" y="30" width="350" height="230" rx="8" fill="#eaf2f8" stroke="#5dade2" stroke-width="1.5"/>
+            <text x="190" y="22" text-anchor="middle" font-size="11" fill="#2e86c1" font-weight="bold">Batch: from_events(&amp;all_events)</text>
+
+            <!-- Batch events (all at once) -->
+            <g id="eq-batch-events">
+                <rect x="30" y="45" width="130" height="18" rx="3" fill="#aed6f1" stroke="#5dade2"/><text x="95" y="58" text-anchor="middle" font-size="8" fill="#1b4f72">New: a</text>
+                <rect x="30" y="65" width="130" height="18" rx="3" fill="#aed6f1" stroke="#5dade2"/><text x="95" y="78" text-anchor="middle" font-size="8" fill="#1b4f72">Borrow: r->a</text>
+                <rect x="30" y="85" width="130" height="18" rx="3" fill="#aed6f1" stroke="#5dade2"/><text x="95" y="98" text-anchor="middle" font-size="8" fill="#1b4f72">Drop: r</text>
+                <rect x="30" y="105" width="130" height="18" rx="3" fill="#aed6f1" stroke="#5dade2"/><text x="95" y="118" text-anchor="middle" font-size="8" fill="#1b4f72">Move: a->b</text>
+            </g>
+            <text id="eq-batch-status" x="95" y="140" text-anchor="middle" font-size="9" fill="#2e86c1">processing all...</text>
+
+            <!-- Batch result graph -->
+            <g id="eq-batch-graph" opacity="0">
+                <rect x="190" y="50" width="160" height="130" rx="5" fill="white" stroke="#2e86c1" stroke-width="1.5"/>
+                <text x="270" y="68" text-anchor="middle" font-size="9" fill="#2e86c1" font-weight="bold">Result Graph</text>
+                <rect x="205" y="80" width="55" height="22" rx="3" fill="#2ecc71"/><text x="232" y="95" text-anchor="middle" font-size="8" fill="white">a</text>
+                <rect x="205" y="130" width="55" height="22" rx="3" fill="#3498db"/><text x="232" y="145" text-anchor="middle" font-size="8" fill="white">r</text>
+                <rect x="280" y="80" width="55" height="22" rx="3" fill="#9b59b6"/><text x="307" y="95" text-anchor="middle" font-size="8" fill="white">b</text>
+                <line x1="232" y1="130" x2="232" y2="102" stroke="#3498db" stroke-width="1.5" stroke-dasharray="3,2"/>
+                <line x1="260" y1="91" x2="280" y2="91" stroke="#27ae60" stroke-width="1.5"/>
+                <text x="270" y="175" text-anchor="middle" font-size="9" fill="#2e86c1">nodes: 3, edges: 2</text>
+            </g>
+
+            <!-- Right: Streaming mode -->
+            <rect x="385" y="30" width="350" height="230" rx="8" fill="#fef9e7" stroke="#f4d03f" stroke-width="1.5"/>
+            <text x="560" y="22" text-anchor="middle" font-size="11" fill="#b7950b" font-weight="bold">Stream: push() one at a time</text>
+
+            <!-- Stream events (one by one) -->
+            <g id="eq-se-0"><rect x="400" y="45" width="130" height="18" rx="3" fill="#fdebd0" stroke="#f4d03f"/><text x="465" y="58" text-anchor="middle" font-size="8" fill="#7e5109">New: a</text></g>
+            <g id="eq-se-1"><rect x="400" y="65" width="130" height="18" rx="3" fill="#fdebd0" stroke="#f4d03f"/><text x="465" y="78" text-anchor="middle" font-size="8" fill="#7e5109">Borrow: r->a</text></g>
+            <g id="eq-se-2"><rect x="400" y="85" width="130" height="18" rx="3" fill="#fdebd0" stroke="#f4d03f"/><text x="465" y="98" text-anchor="middle" font-size="8" fill="#7e5109">Drop: r</text></g>
+            <g id="eq-se-3"><rect x="400" y="105" width="130" height="18" rx="3" fill="#fdebd0" stroke="#f4d03f"/><text x="465" y="118" text-anchor="middle" font-size="8" fill="#7e5109">Move: a->b</text></g>
+            <text id="eq-stream-status" x="465" y="140" text-anchor="middle" font-size="9" fill="#b7950b">waiting...</text>
+
+            <!-- Stream result graph -->
+            <g id="eq-stream-graph" opacity="0">
+                <rect x="560" y="50" width="160" height="130" rx="5" fill="white" stroke="#b7950b" stroke-width="1.5"/>
+                <text x="640" y="68" text-anchor="middle" font-size="9" fill="#b7950b" font-weight="bold">Result Graph</text>
+                <rect x="575" y="80" width="55" height="22" rx="3" fill="#2ecc71"/><text x="602" y="95" text-anchor="middle" font-size="8" fill="white">a</text>
+                <rect x="575" y="130" width="55" height="22" rx="3" fill="#3498db"/><text x="602" y="145" text-anchor="middle" font-size="8" fill="white">r</text>
+                <rect x="650" y="80" width="55" height="22" rx="3" fill="#9b59b6"/><text x="677" y="95" text-anchor="middle" font-size="8" fill="white">b</text>
+                <line x1="602" y1="130" x2="602" y2="102" stroke="#3498db" stroke-width="1.5" stroke-dasharray="3,2"/>
+                <line x1="630" y1="91" x2="650" y2="91" stroke="#27ae60" stroke-width="1.5"/>
+                <text x="640" y="175" text-anchor="middle" font-size="9" fill="#b7950b">nodes: 3, edges: 2</text>
+            </g>
+
+            <!-- Equivalence indicator -->
+            <g id="eq-match" opacity="0">
+                <rect x="250" y="265" width="250" height="30" rx="15" fill="#27ae60"/>
+                <text x="375" y="285" text-anchor="middle" font-size="12" fill="white" font-weight="bold">&#10003; IDENTICAL GRAPHS</text>
+            </g>
+
+            <text id="eq-info" x="375" y="295" text-anchor="middle" font-size="10" fill="#999">Click to restart</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var eqTimer = null;
+        var eqStep = 0;
+        function runEquiv() {
+            if (eqStep === 0) {
+                // Batch processes all at once
+                document.getElementById('eq-batch-status').textContent = 'processing all at once...';
+                document.getElementById('eq-stream-status').textContent = 'push(New: a)';
+                document.getElementById('eq-se-0').querySelector('rect').setAttribute('stroke-width', '2.5');
+                eqStep++; eqTimer = setTimeout(runEquiv, 1000);
+            } else if (eqStep === 1) {
+                document.getElementById('eq-stream-status').textContent = 'push(Borrow: r->a)';
+                document.getElementById('eq-se-0').querySelector('rect').setAttribute('stroke-width', '1');
+                document.getElementById('eq-se-1').querySelector('rect').setAttribute('stroke-width', '2.5');
+                eqStep++; eqTimer = setTimeout(runEquiv, 800);
+            } else if (eqStep === 2) {
+                document.getElementById('eq-stream-status').textContent = 'push(Drop: r)';
+                document.getElementById('eq-se-1').querySelector('rect').setAttribute('stroke-width', '1');
+                document.getElementById('eq-se-2').querySelector('rect').setAttribute('stroke-width', '2.5');
+                eqStep++; eqTimer = setTimeout(runEquiv, 800);
+            } else if (eqStep === 3) {
+                document.getElementById('eq-stream-status').textContent = 'push(Move: a->b)';
+                document.getElementById('eq-se-2').querySelector('rect').setAttribute('stroke-width', '1');
+                document.getElementById('eq-se-3').querySelector('rect').setAttribute('stroke-width', '2.5');
+                eqStep++; eqTimer = setTimeout(runEquiv, 800);
+            } else if (eqStep === 4) {
+                // Both done - show results
+                document.getElementById('eq-batch-graph').setAttribute('opacity', '1');
+                document.getElementById('eq-batch-status').textContent = 'done!';
+                document.getElementById('eq-stream-graph').setAttribute('opacity', '1');
+                document.getElementById('eq-stream-status').textContent = 'done!';
+                document.getElementById('eq-se-3').querySelector('rect').setAttribute('stroke-width', '1');
+                eqStep++; eqTimer = setTimeout(runEquiv, 1200);
+            } else if (eqStep === 5) {
+                document.getElementById('eq-match').setAttribute('opacity', '1');
+                document.getElementById('eq-info').textContent = 'Both produce nodes:3, edges:2. Click to restart.';
+            }
+        }
+        function resetEquiv() {
+            clearTimeout(eqTimer); eqStep = 0;
+            document.getElementById('eq-batch-graph').setAttribute('opacity', '0');
+            document.getElementById('eq-stream-graph').setAttribute('opacity', '0');
+            document.getElementById('eq-match').setAttribute('opacity', '0');
+            document.getElementById('eq-batch-status').textContent = 'processing all...';
+            document.getElementById('eq-stream-status').textContent = 'waiting...';
+            document.getElementById('eq-info').textContent = 'Click to restart';
+            for(var i=0;i<4;i++){document.getElementById('eq-se-'+i).querySelector('rect').setAttribute('stroke-width','1');}
+        }
+        window.restartEquiv = function() { resetEquiv(); eqTimer = setTimeout(runEquiv, 500); };
+        eqTimer = setTimeout(runEquiv, 1000);
+    })();
+    </script>
 
     <h2>4.4 Drain from Runtime</h2>
     <p>
