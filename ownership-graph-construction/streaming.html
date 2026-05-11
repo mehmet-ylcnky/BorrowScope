@@ -520,7 +520,7 @@ assert_eq!(batch_graph.edge_count(), stream_graph.edge_count());</pre>
 
     <h2>4.5 Callback-Based Real-Time Updates</h2>
     <p>
-        For scenarios requiring immediate notification (zero-latency visualization, live debugging), the <code>on_update()</code> method registers a callback that fires synchronously after each graph change:
+        For scenarios requiring immediate notification (zero-latency visualization, live debugging), the <code>on_update()</code> method registers a callback that fires synchronously after each graph change. Unlike the polling approach in Section 4.4, callbacks provide push-based notification: the consumer does not need to ask for updates; they arrive automatically the moment the graph changes.
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">use</span> std::sync::atomic::{AtomicUsize, Ordering};
@@ -543,6 +543,91 @@ println!(<span class="rust-string">"Total nodes created: {}"</span>, node_count.
         Callbacks are invoked during <code>push_all()</code> for each event that produces a non-<code>NoOp</code> update. They execute synchronously on the same thread, so they should be lightweight (updating counters, pushing to a channel) rather than performing expensive operations (rendering, network I/O). For heavy processing, the callback should push the update into a channel that a separate thread consumes.
     </p>
     <p>
-        Multiple callbacks can be registered, and they fire in registration order. This enables composable observers: one callback updates a counter, another logs to a file, a third pushes to a WebSocket. Each operates independently without knowledge of the others.
+        Multiple callbacks can be registered, and they fire in registration order. This enables composable observers: one callback updates a counter, another logs to a file, a third pushes to a WebSocket. Each operates independently without knowledge of the others. The following visualization demonstrates three independent callbacks reacting to the same event stream:
     </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="cb-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa;">
+            <!-- Event source -->
+            <rect x="20" y="90" width="120" height="100" rx="6" fill="#ecf0f1" stroke="#bdc3c7" stroke-width="1.5"/>
+            <text x="80" y="80" text-anchor="middle" font-size="10" fill="#7f8c8d" font-weight="bold">push_all()</text>
+            <text id="cb-event" x="80" y="130" text-anchor="middle" font-size="9" fill="#34495e" font-family="monospace">...</text>
+            <text id="cb-event2" x="80" y="150" text-anchor="middle" font-size="9" fill="#7f8c8d"></text>
+
+            <!-- Fan-out arrows -->
+            <path d="M 140 115 L 220 60" fill="none" stroke="#95a5a6" stroke-width="1.5" marker-end="url(#cb-arr)"/>
+            <path d="M 140 140 L 220 140" fill="none" stroke="#95a5a6" stroke-width="1.5" marker-end="url(#cb-arr)"/>
+            <path d="M 140 165 L 220 220" fill="none" stroke="#95a5a6" stroke-width="1.5" marker-end="url(#cb-arr)"/>
+            <defs><marker id="cb-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#95a5a6"/></marker></defs>
+
+            <!-- Callback 1: Counter -->
+            <rect id="cb1-bg" x="230" y="30" width="500" height="55" rx="6" fill="white" stroke="#27ae60" stroke-width="1.5"/>
+            <text x="245" y="48" font-size="9" fill="#27ae60" font-weight="bold">Callback #1: Counter</text>
+            <text id="cb1-code" x="245" y="68" font-size="9" fill="#34495e" font-family="monospace">|update| if NodeAdded => nodes += 1; if EdgeAdded => edges += 1</text>
+            <rect id="cb1-val-bg" x="600" y="40" width="120" height="22" rx="4" fill="#d5f5e3"/>
+            <text id="cb1-val" x="660" y="56" text-anchor="middle" font-size="10" fill="#1e8449" font-family="monospace" font-weight="bold">n:0 e:0</text>
+
+            <!-- Callback 2: Logger -->
+            <rect id="cb2-bg" x="230" y="110" width="500" height="55" rx="6" fill="white" stroke="#2980b9" stroke-width="1.5"/>
+            <text x="245" y="128" font-size="9" fill="#2980b9" font-weight="bold">Callback #2: File Logger</text>
+            <text id="cb2-code" x="245" y="148" font-size="9" fill="#34495e" font-family="monospace">|update| writeln!(file, "{:?}", update)</text>
+            <rect id="cb2-val-bg" x="540" y="120" width="180" height="22" rx="4" fill="#d6eaf8"/>
+            <text id="cb2-val" x="630" y="136" text-anchor="middle" font-size="9" fill="#21618c" font-family="monospace">log: (empty)</text>
+
+            <!-- Callback 3: WebSocket -->
+            <rect id="cb3-bg" x="230" y="190" width="500" height="55" rx="6" fill="white" stroke="#8e44ad" stroke-width="1.5"/>
+            <text x="245" y="208" font-size="9" fill="#8e44ad" font-weight="bold">Callback #3: WebSocket Push</text>
+            <text id="cb3-code" x="245" y="228" font-size="9" fill="#34495e" font-family="monospace">|update| ws_tx.send(serde_json::to_string(update))</text>
+            <rect id="cb3-val-bg" x="560" y="200" width="160" height="22" rx="4" fill="#e8daef"/>
+            <text id="cb3-val" x="640" y="216" text-anchor="middle" font-size="9" fill="#6c3483" font-family="monospace">ws: idle</text>
+
+            <!-- Status -->
+            <text id="cb-status" x="375" y="270" text-anchor="middle" font-size="10" fill="#999">Auto-playing... (click to restart)</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var cbStep = 0, cbN = 0, cbE = 0, cbTimer = null;
+        var cbEvents = [
+            { ev: 'New: data', type: 'NodeAdded(0)', dn: 1, de: 0, log: 'NodeAdded(0)', ws: '{"NodeAdded":0}' },
+            { ev: 'Borrow: r->data', type: 'EdgeAdded(0)', dn: 0, de: 1, log: 'EdgeAdded(0)', ws: '{"EdgeAdded":0}' },
+            { ev: 'New: rc', type: 'NodeAdded(1)', dn: 1, de: 0, log: 'NodeAdded(1)', ws: '{"NodeAdded":1}' },
+            { ev: 'RcClone: rc2', type: 'EdgeAdded(1)', dn: 0, de: 1, log: 'EdgeAdded(1)', ws: '{"EdgeAdded":1}' },
+            { ev: 'Drop: r', type: 'NodeDropped(1)', dn: 0, de: 0, log: 'NodeDropped(1)', ws: '{"NodeDropped":1}' },
+        ];
+        function cbPlay() {
+            if (cbStep >= cbEvents.length) { cbStep=0; cbN=0; cbE=0; resetCb(); cbTimer=setTimeout(cbPlay,1000); return; }
+            var e = cbEvents[cbStep];
+            document.getElementById('cb-event').textContent = e.ev;
+            document.getElementById('cb-event2').textContent = '-> ' + e.type;
+            cbN += e.dn; cbE += e.de;
+            document.getElementById('cb1-val').textContent = 'n:'+cbN+' e:'+cbE;
+            document.getElementById('cb2-val').textContent = 'log: '+e.log;
+            document.getElementById('cb3-val').textContent = 'ws: '+e.ws;
+            // Flash
+            document.getElementById('cb1-bg').setAttribute('stroke-width', e.dn||e.de?'3':'1.5');
+            document.getElementById('cb2-bg').setAttribute('stroke-width', '3');
+            document.getElementById('cb3-bg').setAttribute('stroke-width', '3');
+            setTimeout(function(){
+                document.getElementById('cb1-bg').setAttribute('stroke-width','1.5');
+                document.getElementById('cb2-bg').setAttribute('stroke-width','1.5');
+                document.getElementById('cb3-bg').setAttribute('stroke-width','1.5');
+            }, 400);
+            cbStep++;
+            cbTimer = setTimeout(cbPlay, 1200);
+        }
+        function resetCb() {
+            document.getElementById('cb-event').textContent = '...';
+            document.getElementById('cb-event2').textContent = '';
+            document.getElementById('cb1-val').textContent = 'n:0 e:0';
+            document.getElementById('cb2-val').textContent = 'log: (empty)';
+            document.getElementById('cb3-val').textContent = 'ws: idle';
+        }
+        cbTimer = setTimeout(cbPlay, 800);
+        document.getElementById('cb-svg').addEventListener('click', function() {
+            clearTimeout(cbTimer); cbStep=0; cbN=0; cbE=0; resetCb(); cbTimer=setTimeout(cbPlay,500);
+        });
+    })();
+    </script>
 </div>
+
