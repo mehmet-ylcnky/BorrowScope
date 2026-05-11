@@ -3,7 +3,10 @@
 
     <h2>7.1 Test Coverage</h2>
     <p>
-        The implementation is validated with 259 tests organized across 9 test suites:
+        The implementation is validated with 259 tests organized across 9 test suites, each corresponding to a development milestone. This structure ensures that each capability is tested in isolation before being composed with others. The test suites range from basic data structure operations (can we create a node?) to full integration tests (can we load a real event stream from an instrumented program and produce a valid graph?).
+    </p>
+    <p>
+        The test count is not inflated by trivial assertions. Each test verifies a specific behavior or invariant that, if broken, would produce incorrect analysis results. For example, the 45 traversal tests cover not just "does DFS visit nodes?" but also "does DFS visit each node exactly once on a diamond graph?" and "does topological order place borrowers before owners?" These are the properties that downstream consumers (conflict detection, visualization) depend on.
     </p>
     <table>
         <tr><th>Suite</th><th>Tests</th><th>Coverage</th></tr>
@@ -21,34 +24,43 @@
 
     <h2>7.2 Property-Based Invariants</h2>
     <p>
-        Six graph invariants are verified using <code>proptest</code> with randomly generated graphs:
+        Hand-written tests verify specific scenarios, but they cannot cover the combinatorial space of possible graphs. Property-based testing with <code>proptest</code> addresses this gap by generating random graphs and verifying that structural invariants hold regardless of the input. Each property test runs 256 cases with automatic shrinking on failure, meaning that any invariant violation produces a minimal reproducible example rather than a complex failing case.
+    </p>
+    <p>
+        Six invariants are verified, chosen because they represent fundamental correctness properties that all downstream analyses depend on:
     </p>
     <ul>
-        <li>Every edge references valid node IDs (no dangling references)</li>
-        <li>DFS visits each reachable node exactly once (no duplicates)</li>
-        <li>Node count is monotonically increasing after additions</li>
-        <li>JSON round-trip preserves node and edge counts</li>
-        <li>Connected components partition all nodes (no node left out)</li>
-        <li>BFS distances are monotonically non-decreasing</li>
+        <li><strong>Edge validity:</strong> Every edge references valid node IDs. A dangling edge reference would cause panics in traversal algorithms and produce incorrect adjacency results.</li>
+        <li><strong>DFS uniqueness:</strong> DFS visits each reachable node exactly once. Duplicate visits would break cycle detection and produce incorrect component counts.</li>
+        <li><strong>Monotonic node count:</strong> Adding nodes never decreases the count. This seems trivial but catches bugs in ID allocation or index maintenance.</li>
+        <li><strong>JSON round-trip:</strong> Serializing to JSON and deserializing back preserves node and edge counts. This verifies that no data is lost during export/import.</li>
+        <li><strong>Component coverage:</strong> Connected components partition all nodes with no node left out. A missing node would mean some variables are invisible to component-based analysis.</li>
+        <li><strong>BFS monotonicity:</strong> BFS distances are non-decreasing in the result vector. This is a fundamental property of breadth-first search that shortest-path computation depends on.</li>
     </ul>
     <p>
-        Each property test runs 256 cases with shrinking on failure, ensuring that any invariant violation produces a minimal reproducible example.
+        The random graph generator produces graphs with 1-20 nodes and 0-30 edges, with random names, timestamps, and borrow directions. This covers a wide range of topologies including linear chains, stars, diamonds, disconnected components, and dense clusters. The generator avoids self-loops (which are invalid in ownership graphs) but allows multiple edges between the same pair of nodes (which represents multiple borrows over time).
     </p>
 
     <h2>7.3 Battle Test Validation</h2>
     <p>
-        The graph construction is validated against real event streams captured from instrumented Rust programs. The <code>examples/macro-integration/events.json</code> fixture contains 117 events from a program exercising Rc, RefCell, closures, and method calls. The graph builds without panic and passes validation:
+        The graph construction is validated against real event streams captured from instrumented Rust programs. The <code>examples/macro-integration/events.json</code> fixture contains 117 events from a program exercising <code>Rc</code>, <code>RefCell</code>, closures, and method calls. This is not a synthetic test case but actual output from the BorrowScope runtime running on real code.
+    </p>
+    <p>
+        The validation checks two properties: first, that the graph builds without panic (no unexpected event formats, no missing IDs, no index corruption). Second, that the resulting graph passes the full validation suite (no dangling edges, no borrows outliving owners, no invalid timestamps). Both properties hold for the battle test fixture, confirming that the construction algorithm handles real-world event patterns correctly.
     </p>
     <div class="code-block">
         <pre class="rust-code"><span class="rust-keyword">let</span> events: Vec&lt;Event&gt; = serde_json::from_str(&amp;fixture_json).unwrap();
 <span class="rust-keyword">let</span> graph = OwnershipGraph::from_events(&amp;events);
 assert!(graph.node_count() > 0);
-assert!(is_valid(&amp;graph));</pre>
+assert!(is_valid(&amp;graph));  <span class="rust-comment">// Full validation: no dangling refs, no invalid timestamps</span></pre>
     </div>
+    <p>
+        The battle test events include patterns that are difficult to test synthetically: nested <code>Rc&lt;RefCell&lt;Vec&lt;T&gt;&gt;&gt;</code> types, closures capturing multiple variables, method chains that create temporary borrows, and drop ordering across scope boundaries. These patterns exercise the construction algorithm's handling of complex event sequences that simple unit tests do not cover.
+    </p>
 
     <h2>7.4 Performance</h2>
     <p>
-        Construction performance measured with Criterion benchmarks (release mode, averaged over 100 iterations):
+        Construction performance is measured with Criterion benchmarks in release mode, averaged over 100 iterations with warm-up. The benchmarks use two graph topologies: chains (each node borrows from the previous, maximizing active borrow tracking) and stars (all nodes borrow from a single center, maximizing incoming edge counts).
     </p>
     <table>
         <tr><th>Operation</th><th>100 events</th><th>1,000 events</th><th>10,000 events</th></tr>
@@ -60,16 +72,28 @@ assert!(is_valid(&amp;graph));</pre>
         <tr><td>MessagePack export</td><td>&lt; 0.05ms</td><td>&lt; 0.5ms</td><td>&lt; 5ms</td></tr>
     </table>
     <p>
-        These numbers confirm that graph construction and analysis add negligible overhead to the development workflow. A typical instrumented function producing 100-500 events can be analyzed in under 1ms.
+        These numbers confirm that graph construction and analysis add negligible overhead to the development workflow. A typical instrumented function producing 100-500 events can be fully analyzed (graph construction + conflict detection + statistics + DOT export) in under 5ms total. This is fast enough to run on every test execution without noticeable delay.
+    </p>
+    <p>
+        The performance scales linearly with event count, as expected from the O(n) construction algorithm. The constant factor is dominated by HashMap operations (insert and lookup), which are O(1) amortized but have higher constant overhead than array indexing. For graphs exceeding 100,000 events, the construction time approaches 100ms, which is still acceptable for batch analysis but may be noticeable in interactive scenarios. The streaming construction mode (Section 4) amortizes this cost over time, processing events as they arrive rather than in a single burst.
     </p>
 
     <h2>7.5 Export Format Comparison</h2>
+    <p>
+        Five export formats are provided, each optimized for a different use case. The choice of format depends on whether the consumer is a human (DOT, full JSON), a machine (MessagePack, compact JSON), or a web frontend (D3.js JSON). The following table compares their characteristics for a graph with 100 nodes and 150 edges:
+    </p>
     <table>
-        <tr><th>Format</th><th>Size (100 nodes)</th><th>Human Readable</th><th>Round-trip</th><th>Use Case</th></tr>
-        <tr><td>JSON (full)</td><td>~15 KB</td><td>Yes</td><td>Yes</td><td>Debugging, inspection</td></tr>
-        <tr><td>JSON (compact)</td><td>~9 KB</td><td>Partially</td><td>Yes</td><td>Storage, transmission</td></tr>
-        <tr><td>MessagePack</td><td>~6 KB</td><td>No</td><td>Yes</td><td>Efficient storage, caching</td></tr>
-        <tr><td>DOT</td><td>~4 KB</td><td>Yes</td><td>No</td><td>Visualization (Graphviz)</td></tr>
-        <tr><td>D3.js JSON</td><td>~8 KB</td><td>Yes</td><td>No</td><td>Web visualization</td></tr>
+        <tr><th>Format</th><th>Size</th><th>Human Readable</th><th>Round-trip</th><th>Use Case</th></tr>
+        <tr><td>JSON (full)</td><td>~15 KB</td><td>Yes</td><td>Yes</td><td>Debugging, inspection, version control diffs</td></tr>
+        <tr><td>JSON (compact)</td><td>~9 KB</td><td>Partially</td><td>Yes</td><td>Storage, API responses, transmission</td></tr>
+        <tr><td>MessagePack</td><td>~6 KB</td><td>No</td><td>Yes</td><td>Efficient storage, caching, large graphs</td></tr>
+        <tr><td>DOT (Graphviz)</td><td>~4 KB</td><td>Yes</td><td>No</td><td>Rendered diagrams (SVG, PNG, PDF)</td></tr>
+        <tr><td>D3.js JSON</td><td>~8 KB</td><td>Yes</td><td>No</td><td>Interactive web visualization</td></tr>
     </table>
+    <p>
+        The size differences are significant for large graphs. A program with 10,000 nodes produces approximately 1.5 MB of full JSON, 900 KB of compact JSON, or 600 KB of MessagePack. For graphs that are stored on disk or transmitted over a network, the 60% size reduction from MessagePack is meaningful. For graphs that are only used locally and inspected by humans, full JSON's readability outweighs its size overhead.
+    </p>
+    <p>
+        Round-trip capability (export then import produces an identical graph) is verified by dedicated tests for JSON and MessagePack. DOT and D3.js formats are one-way exports designed for visualization tools; they do not contain enough information to reconstruct the full graph (e.g., DOT does not preserve NodeIds or temporal metadata). If persistence is needed, use JSON or MessagePack; if visualization is needed, use DOT or D3.js.
+    </p>
 </div>
