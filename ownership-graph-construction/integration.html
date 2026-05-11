@@ -105,4 +105,136 @@ borrowscope-graph = <span class="rust-string">"0.1"</span>   <span class="rust-c
     <p>
         This workflow requires no special build configuration beyond the three crate dependencies. The analyzer must have been run previously (to generate <code>.borrowscope/type-info.json</code> for the macro), but the graph crate itself has no dependency on the analyzer. It works purely from the runtime event stream.
     </p>
+    <p>The following animation traces a value through the complete pipeline, from source code to rendered graph:</p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="e2e-svg" viewBox="0 0 750 250" style="max-width:950px;width:100%;border:1px solid var(--border-color);border-radius:8px;background:#fafafa;">
+            <!-- Phase 1: Source code + Macro -->
+            <rect id="e2e-p1" x="15" y="40" width="160" height="120" rx="6" fill="#ecf0f1" stroke="#bdc3c7" stroke-width="1.5"/>
+            <text x="95" y="30" text-anchor="middle" font-size="9" fill="#7f8c8d" font-weight="bold">1. Compile Time</text>
+            <text x="25" y="60" font-size="8" fill="#34495e" font-family="monospace">#[trace_borrow]</text>
+            <text x="25" y="75" font-size="8" fill="#34495e" font-family="monospace">fn process() {</text>
+            <text x="25" y="90" font-size="8" fill="#34495e" font-family="monospace">  let v = vec![1];</text>
+            <text x="25" y="105" font-size="8" fill="#34495e" font-family="monospace">  let r = &amp;v;</text>
+            <text x="25" y="120" font-size="8" fill="#34495e" font-family="monospace">  drop(r);</text>
+            <text x="25" y="135" font-size="8" fill="#34495e" font-family="monospace">}</text>
+            <text x="95" y="155" text-anchor="middle" font-size="8" fill="#9b59b6">macro instruments</text>
+
+            <!-- Arrow 1->2 -->
+            <g id="e2e-a1" opacity="0.3">
+                <path d="M 175 100 L 210 100" fill="none" stroke="#9b59b6" stroke-width="2" marker-end="url(#e2e-arr)"/>
+            </g>
+            <defs><marker id="e2e-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#9b59b6"/></marker></defs>
+
+            <!-- Phase 2: Runtime events -->
+            <rect id="e2e-p2" x="215" y="40" width="145" height="120" rx="6" fill="#ecf0f1" stroke="#bdc3c7" stroke-width="1.5"/>
+            <text x="287" y="30" text-anchor="middle" font-size="9" fill="#7f8c8d" font-weight="bold">2. Runtime</text>
+            <text id="e2e-ev1" x="225" y="62" font-size="8" fill="#2ecc71" font-family="monospace" opacity="0">New: v (Vec)</text>
+            <text id="e2e-ev2" x="225" y="78" font-size="8" fill="#3498db" font-family="monospace" opacity="0">Borrow: r -> v</text>
+            <text id="e2e-ev3" x="225" y="94" font-size="8" fill="#e74c3c" font-family="monospace" opacity="0">Drop: r</text>
+            <text id="e2e-ev4" x="225" y="110" font-size="8" fill="#e74c3c" font-family="monospace" opacity="0">Drop: v</text>
+            <text x="287" y="155" text-anchor="middle" font-size="8" fill="#e67e22">events captured</text>
+
+            <!-- Arrow 2->3 -->
+            <g id="e2e-a2" opacity="0.3">
+                <path d="M 360 100 L 395 100" fill="none" stroke="#e67e22" stroke-width="2" marker-end="url(#e2e-arr2)"/>
+                <text x="377" y="90" text-anchor="middle" font-size="7" fill="#e67e22">from_runtime()</text>
+            </g>
+            <defs><marker id="e2e-arr2" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#e67e22"/></marker></defs>
+
+            <!-- Phase 3: Graph -->
+            <rect id="e2e-p3" x="400" y="40" width="140" height="120" rx="6" fill="#ecf0f1" stroke="#bdc3c7" stroke-width="1.5"/>
+            <text x="470" y="30" text-anchor="middle" font-size="9" fill="#7f8c8d" font-weight="bold">3. Graph</text>
+            <g id="e2e-graph" opacity="0">
+                <rect x="420" y="55" width="50" height="22" rx="3" fill="#2ecc71"/><text x="445" y="70" text-anchor="middle" font-size="8" fill="white">v</text>
+                <rect x="420" y="95" width="50" height="22" rx="3" fill="#3498db"/><text x="445" y="110" text-anchor="middle" font-size="8" fill="white">r</text>
+                <line x1="445" y1="95" x2="445" y2="77" stroke="#3498db" stroke-width="1.5" stroke-dasharray="3,2"/>
+                <text x="455" y="88" font-size="7" fill="#3498db">&amp;</text>
+                <text x="470" y="145" text-anchor="middle" font-size="8" fill="#27ae60">2 nodes, 1 edge</text>
+            </g>
+            <text x="470" y="155" text-anchor="middle" font-size="8" fill="#27ae60">graph built</text>
+
+            <!-- Arrow 3->4 -->
+            <g id="e2e-a3" opacity="0.3">
+                <path d="M 540 100 L 575 100" fill="none" stroke="#27ae60" stroke-width="2" marker-end="url(#e2e-arr3)"/>
+                <text x="557" y="90" text-anchor="middle" font-size="7" fill="#27ae60">export</text>
+            </g>
+            <defs><marker id="e2e-arr3" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><path d="M0,0 L7,2.5 L0,5" fill="#27ae60"/></marker></defs>
+
+            <!-- Phase 4: Output -->
+            <rect id="e2e-p4" x="580" y="40" width="150" height="120" rx="6" fill="#ecf0f1" stroke="#bdc3c7" stroke-width="1.5"/>
+            <text x="655" y="30" text-anchor="middle" font-size="9" fill="#7f8c8d" font-weight="bold">4. Output</text>
+            <g id="e2e-out" opacity="0">
+                <rect x="595" y="55" width="120" height="22" rx="3" fill="#f4d03f" stroke="#f1c40f"/><text x="655" y="70" text-anchor="middle" font-size="8" fill="#7d6608">ownership.dot</text>
+                <rect x="595" y="82" width="120" height="22" rx="3" fill="#aed6f1" stroke="#5dade2"/><text x="655" y="97" text-anchor="middle" font-size="8" fill="#1b4f72">ownership.json</text>
+                <rect x="595" y="109" width="120" height="22" rx="3" fill="#d5f5e3" stroke="#82e0aa"/><text x="655" y="124" text-anchor="middle" font-size="8" fill="#1e8449">stats: 2n 1e</text>
+            </g>
+            <text x="655" y="155" text-anchor="middle" font-size="8" fill="#8e44ad">files written</text>
+
+            <!-- Progress bar -->
+            <rect x="15" y="190" width="720" height="8" rx="4" fill="#ecf0f1"/>
+            <rect id="e2e-progress" x="15" y="190" width="0" height="8" rx="4" fill="#3498db"/>
+
+            <!-- Status -->
+            <text id="e2e-status" x="375" y="225" text-anchor="middle" font-size="11" fill="#2c3e50" font-weight="bold">Auto-playing pipeline...</text>
+            <text x="375" y="245" text-anchor="middle" font-size="9" fill="#999">Click to restart</text>
+        </svg>
+    </div>
+    <script>
+    (function(){
+        var e2eStep=0, e2eTimer=null;
+        function e2ePlay(){
+            if(e2eStep===0){
+                document.getElementById('e2e-p1').setAttribute('stroke','#9b59b6');document.getElementById('e2e-p1').setAttribute('stroke-width','2.5');
+                document.getElementById('e2e-status').textContent='Phase 1: Macro instruments source code at compile time';
+                document.getElementById('e2e-progress').setAttribute('width','180');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,1500);
+            }else if(e2eStep===1){
+                document.getElementById('e2e-p1').setAttribute('stroke','#bdc3c7');document.getElementById('e2e-p1').setAttribute('stroke-width','1.5');
+                document.getElementById('e2e-a1').setAttribute('opacity','1');
+                document.getElementById('e2e-p2').setAttribute('stroke','#e67e22');document.getElementById('e2e-p2').setAttribute('stroke-width','2.5');
+                document.getElementById('e2e-ev1').setAttribute('opacity','1');
+                document.getElementById('e2e-status').textContent='Phase 2: Runtime captures events during execution...';
+                document.getElementById('e2e-progress').setAttribute('width','360');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,600);
+            }else if(e2eStep===2){
+                document.getElementById('e2e-ev2').setAttribute('opacity','1');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,600);
+            }else if(e2eStep===3){
+                document.getElementById('e2e-ev3').setAttribute('opacity','1');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,600);
+            }else if(e2eStep===4){
+                document.getElementById('e2e-ev4').setAttribute('opacity','1');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,800);
+            }else if(e2eStep===5){
+                document.getElementById('e2e-p2').setAttribute('stroke','#bdc3c7');document.getElementById('e2e-p2').setAttribute('stroke-width','1.5');
+                document.getElementById('e2e-a2').setAttribute('opacity','1');
+                document.getElementById('e2e-p3').setAttribute('stroke','#27ae60');document.getElementById('e2e-p3').setAttribute('stroke-width','2.5');
+                document.getElementById('e2e-graph').setAttribute('opacity','1');
+                document.getElementById('e2e-status').textContent='Phase 3: from_runtime() builds ownership graph';
+                document.getElementById('e2e-progress').setAttribute('width','540');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,1500);
+            }else if(e2eStep===6){
+                document.getElementById('e2e-p3').setAttribute('stroke','#bdc3c7');document.getElementById('e2e-p3').setAttribute('stroke-width','1.5');
+                document.getElementById('e2e-a3').setAttribute('opacity','1');
+                document.getElementById('e2e-p4').setAttribute('stroke','#8e44ad');document.getElementById('e2e-p4').setAttribute('stroke-width','2.5');
+                document.getElementById('e2e-out').setAttribute('opacity','1');
+                document.getElementById('e2e-status').textContent='Phase 4: Export to DOT, D3.js JSON, and print stats';
+                document.getElementById('e2e-progress').setAttribute('width','720');
+                e2eStep++;e2eTimer=setTimeout(e2ePlay,2500);
+            }else{
+                e2eStep=0;resetE2E();e2eTimer=setTimeout(e2ePlay,1000);
+            }
+        }
+        function resetE2E(){
+            ['e2e-p1','e2e-p2','e2e-p3','e2e-p4'].forEach(function(id){document.getElementById(id).setAttribute('stroke','#bdc3c7');document.getElementById(id).setAttribute('stroke-width','1.5');});
+            ['e2e-a1','e2e-a2','e2e-a3'].forEach(function(id){document.getElementById(id).setAttribute('opacity','0.3');});
+            ['e2e-ev1','e2e-ev2','e2e-ev3','e2e-ev4','e2e-graph','e2e-out'].forEach(function(id){document.getElementById(id).setAttribute('opacity','0');});
+            document.getElementById('e2e-progress').setAttribute('width','0');
+            document.getElementById('e2e-status').textContent='Auto-playing pipeline...';
+        }
+        e2eTimer=setTimeout(e2ePlay,800);
+        document.getElementById('e2e-svg').addEventListener('click',function(){clearTimeout(e2eTimer);e2eStep=0;resetE2E();e2eTimer=setTimeout(e2ePlay,500);});
+    })();
+    </script>
 </div>
