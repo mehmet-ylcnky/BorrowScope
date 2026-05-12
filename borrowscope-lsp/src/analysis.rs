@@ -1108,7 +1108,7 @@ fn detect_method_clone(
     let receiver_type_str = receiver_ty.display(db, *display_target).to_string();
 
     // Check if receiver is Rc or Arc
-    let clone_type = classify_rc_arc(&receiver_type_str, &receiver_ty, db)?;
+    let clone_type = classify_rc_arc(&receiver_ty, db)?;
 
     let clone_variable = pat.syntax().text().to_string().trim().to_string();
     let source_variable = receiver.syntax().text().to_string().trim().to_string();
@@ -1140,14 +1140,36 @@ fn detect_explicit_clone(
         _ => return None,
     };
 
-    // Check if the call path contains "Rc::clone" or "Arc::clone"
+    // Resolve the callee semantically to determine if it's Rc::clone or Arc::clone
     let callee = call_expr.expr()?;
-    let callee_text = callee.syntax().text().to_string();
 
-    let clone_type = if callee_text.contains("Rc::clone") {
-        RcType::Rc
-    } else if callee_text.contains("Arc::clone") {
-        RcType::Arc
+    // Try to resolve the call target via semantics
+    // For Rc::clone(&x), the path resolves to the clone function on Rc/Arc
+    let clone_type = if let Some(path_expr) = ast::PathExpr::cast(callee.syntax().clone()) {
+        if let Some(path) = path_expr.path() {
+            let path_text = path.syntax().text().to_string();
+            // Resolve the qualifier type via the path segments
+            let segments: Vec<_> = path.segments().collect();
+            if segments.len() >= 2 {
+                let qualifier = segments[0].name_ref()?.text().to_string();
+                let method = segments[1].name_ref()?.text().to_string();
+                if method == "clone" {
+                    if qualifier == "Rc" {
+                        RcType::Rc
+                    } else if qualifier == "Arc" {
+                        RcType::Arc
+                    } else {
+                        return None;
+                    }
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        } else {
+            return None;
+        }
     } else {
         return None;
     };
@@ -1173,7 +1195,6 @@ fn detect_explicit_clone(
 
 /// Classify if a type is Rc or Arc based on its display string and ADT path.
 fn classify_rc_arc(
-    type_str: &str,
     ty: &hir::Type<'_>,
     db: &RootDatabase,
 ) -> Option<RcType> {
@@ -1197,14 +1218,6 @@ fn classify_rc_arc(
         if full_path.contains("sync::arc") || (name == "Arc" && path.contains("sync")) {
             return Some(RcType::Arc);
         }
-    }
-
-    // Fallback: check display string
-    if type_str.starts_with("Rc<") || type_str.contains("::Rc<") {
-        return Some(RcType::Rc);
-    }
-    if type_str.starts_with("Arc<") || type_str.contains("::Arc<") {
-        return Some(RcType::Arc);
     }
 
     None
