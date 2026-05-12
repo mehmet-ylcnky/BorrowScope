@@ -180,3 +180,71 @@ fn test_exit_without_shutdown_code_one() {
     let status = server.process.wait().unwrap();
     assert_eq!(status.code(), Some(1));
 }
+
+// ── Text Document Synchronization Tests ──
+
+#[test]
+fn test_did_open_stores_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {
+            "uri": "file:///tmp/test.rs",
+            "languageId": "rust",
+            "version": 1,
+            "text": "fn main() {}"
+        }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/test.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn main() {}");
+}
+
+#[test]
+fn test_did_change_updates_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs", "languageId": "rust", "version": 1, "text": "fn main() {}" }
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs", "version": 2 },
+        "contentChanges": [{ "text": "fn main() { let x = 1; }" }]
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/test.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn main() { let x = 1; }");
+}
+
+#[test]
+fn test_did_close_keeps_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs", "languageId": "rust", "version": 1, "text": "fn main() {}" }
+    }));
+    server.notify("textDocument/didClose", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs" }
+    }));
+    // Content should still be available (not removed)
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/test.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn main() {}");
+}
+
+#[test]
+fn test_non_rust_file_ignored() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/readme.md", "languageId": "markdown", "version": 1, "text": "# Hello" }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/readme.md"
+    }));
+    // Non-rust file should not be stored
+    assert_eq!(resp["result"]["content"], "");
+}

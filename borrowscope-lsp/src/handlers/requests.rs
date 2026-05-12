@@ -24,13 +24,25 @@ pub fn handle(
         return Ok(());
     }
 
-    // Dispatch by method
-    let resp = Response::new_err(
-        req.id,
-        lsp_server::ErrorCode::MethodNotFound as i32,
-        format!("Method not found: {}", req.method),
-    );
-    sender.send(Message::Response(resp))?;
+    match req.method.as_str() {
+        // Debug request: return file content (for testing text sync)
+        "borrowscope/debug/fileContent" => {
+            let params: serde_json::Value = serde_json::from_value(req.params)?;
+            let uri = params["uri"].as_str().unwrap_or("");
+            let content = state.get_file_content(uri).unwrap_or("").to_string();
+            let resp = Response::new_ok(req.id, serde_json::json!({ "content": content }));
+            sender.send(Message::Response(resp))?;
+        }
+        _ => {
+            let resp = Response::new_err(
+                req.id,
+                lsp_server::ErrorCode::MethodNotFound as i32,
+                format!("Method not found: {}", req.method),
+            );
+            sender.send(Message::Response(resp))?;
+        }
+    }
+
     Ok(())
 }
 
