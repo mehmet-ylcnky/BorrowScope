@@ -8,16 +8,21 @@ use crate::state::GlobalState;
 use crate::workspace;
 
 pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<()> {
-    // Load workspace (blocking for now; M1.7 will make this async with progress)
-    match workspace::load_workspace(&state.root_path) {
-        Ok(ws) => {
-            tracing::info!("Workspace ready.");
-            state.workspace = Some(ws);
+    // Only attempt workspace loading if Cargo.toml exists
+    let cargo_toml = state.root_path.join("Cargo.toml");
+    if cargo_toml.exists() {
+        tracing::info!("Found Cargo.toml, loading workspace...");
+        match workspace::load_workspace(&state.root_path) {
+            Ok(ws) => {
+                tracing::info!("Workspace ready.");
+                state.workspace = Some(ws);
+            }
+            Err(e) => {
+                tracing::error!("Failed to load workspace: {}", e);
+            }
         }
-        Err(e) => {
-            tracing::error!("Failed to load workspace: {}", e);
-            // Continue running - some features may work without full workspace
-        }
+    } else {
+        tracing::warn!("No Cargo.toml at {:?}, skipping workspace loading", state.root_path);
     }
 
     for msg in &connection.receiver {
@@ -31,9 +36,7 @@ pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<()> 
             Message::Notification(notif) => {
                 handlers::handle_notification(&mut state, &connection.sender, notif)?;
             }
-            Message::Response(_resp) => {
-                // We don't send requests to the client yet
-            }
+            Message::Response(_resp) => {}
         }
     }
 
