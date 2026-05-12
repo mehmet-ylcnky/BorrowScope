@@ -952,209 +952,55 @@ fn test_analysis_updated_comment_only_change_no_notification() {
         "Comment-only change should NOT trigger notification. Got: {:?}", analysis_notifs);
 }
 
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 3.5 textDocument/publishDiagnostics tests
+// 3.5 textDocument/publishDiagnostics tests (require workspace for semantic analysis)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_diagnostics_sent_for_conflict() {
+fn test_diagnostics_not_sent_without_workspace() {
+    // Without workspace, no diagnostics are published (no heuristic fallback)
     let mut server = TestServer::start();
     server.initialize();
-    // Code with overlapping &mut and & on same variable
-    let code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/conflict.rs", "languageId": "rust", "version": 1, "text": code}
+    let notifs = server.notify_and_collect("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/diag.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {\n    let mut x = vec![1];\n    let r = &x;\n    let m = &mut x;\n    println!(\"{}\", r);\n}"}
     }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/conflict.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag_notifs: Vec<_> = notifs.iter()
-        .filter(|n| n["method"] == "textDocument/publishDiagnostics")
-        .collect();
-    assert!(!diag_notifs.is_empty(), "Should send diagnostics for conflict");
-    let diagnostics = diag_notifs[0]["params"]["diagnostics"].as_array().unwrap();
-    assert!(!diagnostics.is_empty(), "Should have at least one diagnostic");
-}
-
-#[test]
-fn test_diagnostics_severity_is_information() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/sev.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/sev.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics").unwrap();
-    let d = &diag["params"]["diagnostics"][0];
-    assert_eq!(d["severity"], 3, "Severity should be 3 (Information). Got: {}", d["severity"]);
-}
-
-#[test]
-fn test_diagnostics_source_is_borrowscope() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/src.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/src.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics").unwrap();
-    let d = &diag["params"]["diagnostics"][0];
-    assert_eq!(d["source"], "BorrowScope");
-}
-
-#[test]
-fn test_diagnostics_has_related_information() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/rel.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/rel.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics").unwrap();
-    let d = &diag["params"]["diagnostics"][0];
-    let related = d["relatedInformation"].as_array().unwrap();
-    assert_eq!(related.len(), 2, "Should have 2 related locations (both borrows)");
-    assert!(related[0]["message"].as_str().unwrap().contains("First borrow"));
-    assert!(related[1]["message"].as_str().unwrap().contains("Second borrow"));
-}
-
-#[test]
-fn test_diagnostics_has_correct_range() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/range.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/range.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics").unwrap();
-    let d = &diag["params"]["diagnostics"][0];
-    assert!(d["range"]["start"]["line"].is_number());
-    assert!(d["range"]["end"]["line"].is_number());
-}
-
-#[test]
-fn test_diagnostics_clear_when_conflict_resolved() {
-    let mut server = TestServer::start();
-    server.initialize();
-    // First: code with conflict
-    let conflict_code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/clear.rs", "languageId": "rust", "version": 1, "text": conflict_code}
-    }));
-    let notifs1 = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/clear.rs", "version": 2},
-        "contentChanges": [{"text": conflict_code}]
-    }));
-    // Should have diagnostics
-    let has_diag = notifs1.iter().any(|n| {
-        n["method"] == "textDocument/publishDiagnostics"
-            && !n["params"]["diagnostics"].as_array().unwrap().is_empty()
-    });
-    assert!(has_diag, "Should have diagnostics for conflict code");
-
-    // Now: fix the conflict (remove mutable borrow)
-    let fixed_code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    println!(\"{}\", r);\n}";
-    let notifs2 = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/clear.rs", "version": 3},
-        "contentChanges": [{"text": fixed_code}]
-    }));
-    // Should clear diagnostics (empty array)
-    let clear_diag = notifs2.iter().find(|n| n["method"] == "textDocument/publishDiagnostics");
-    assert!(clear_diag.is_some(), "Should send publishDiagnostics to clear");
-    let diagnostics = clear_diag.unwrap()["params"]["diagnostics"].as_array().unwrap();
-    assert!(diagnostics.is_empty(), "Diagnostics should be empty after fix. Got: {:?}", diagnostics);
-}
-
-#[test]
-fn test_no_diagnostics_for_valid_code() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let valid_code = "fn test() {\n    let data = vec![1];\n    let r = &data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/valid.rs", "languageId": "rust", "version": 1, "text": valid_code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/valid.rs", "version": 2},
-        "contentChanges": [{"text": valid_code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics");
-    if let Some(d) = diag {
-        let diagnostics = d["params"]["diagnostics"].as_array().unwrap();
-        assert!(diagnostics.is_empty(), "Valid code should have no diagnostics. Got: {:?}", diagnostics);
+    let diag_notifs: Vec<_> = notifs.iter().filter(|n| n["method"] == "textDocument/publishDiagnostics").collect();
+    // Either no notification or empty diagnostics
+    for n in &diag_notifs {
+        let diags = n["params"]["diagnostics"].as_array().unwrap();
+        assert!(diags.is_empty(), "Without workspace, diagnostics should be empty");
     }
-}
-
-#[test]
-fn test_diagnostics_message_contains_variable_names() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let mydata = vec![1];\n    let reader = &mydata;\n    let writer = &mut mydata;\n    println!(\"{}\", reader);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/names.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/names.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics").unwrap();
-    let d = &diag["params"]["diagnostics"][0];
-    let msg = d["message"].as_str().unwrap();
-    assert!(msg.contains("reader") || msg.contains("writer") || msg.contains("mydata"),
-        "Message should contain variable names. Got: {}", msg);
-}
-
-#[test]
-fn test_diagnostics_uri_matches_file() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let d = vec![1];\n    let r = &d;\n    let m = &mut d;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/uri_match.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/uri_match.rs", "version": 2},
-        "contentChanges": [{"text": code}]
-    }));
-    let diag = notifs.iter().find(|n| n["method"] == "textDocument/publishDiagnostics").unwrap();
-    assert_eq!(diag["params"]["uri"], "file:///tmp/uri_match.rs");
 }
 
 #[test]
 fn test_diagnostics_not_sent_for_non_rust() {
     let mut server = TestServer::start();
     server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/test.md", "languageId": "markdown", "version": 1, "text": "# Hello"}
+    let notifs = server.notify_and_collect("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.txt", "languageId": "text", "version": 1, "text": "hello"}
     }));
-    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/test.md", "version": 2},
-        "contentChanges": [{"text": "# Updated"}]
+    let diag_notifs: Vec<_> = notifs.iter().filter(|n| n["method"] == "textDocument/publishDiagnostics").collect();
+    assert!(diag_notifs.is_empty(), "Non-rust files should not get diagnostics");
+}
+
+#[test]
+fn test_diagnostics_uri_matches_file() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let notifs = server.notify_and_collect("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/uri_test.rs", "languageId": "rust", "version": 1, "text": "fn main() {}"}
     }));
-    let diag_notifs: Vec<_> = notifs.iter()
-        .filter(|n| n["method"] == "textDocument/publishDiagnostics")
-        .collect();
-    assert!(diag_notifs.is_empty(), "Should not send diagnostics for non-Rust files");
+    for n in &notifs {
+        if n["method"] == "textDocument/publishDiagnostics" {
+            assert_eq!(n["params"]["uri"], "file:///tmp/uri_test.rs");
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 3.6 textDocument/codeLens tests
+// 3.6 textDocument/codeLens tests (require workspace for semantic analysis)
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
@@ -1162,124 +1008,24 @@ fn test_code_lens_returns_array() {
     let mut server = TestServer::start();
     server.initialize();
     server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/lens.rs", "languageId": "rust", "version": 1, "text": "fn hello() {}"}
+        "textDocument": {"uri": "file:///tmp/cl.rs", "languageId": "rust", "version": 1, "text": "fn main() {}"}
     }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/lens.rs"}
-    }));
-    assert!(resp["result"].is_array());
+    let resp = server.request("textDocument/codeLens", serde_json::json!({"textDocument": {"uri": "file:///tmp/cl.rs"}}));
+    assert!(resp["result"].is_array(), "codeLens should return array");
 }
 
 #[test]
-fn test_code_lens_one_per_function() {
+fn test_code_lens_empty_without_workspace() {
+    // Without workspace loaded, codeLens returns empty (no heuristic stats)
     let mut server = TestServer::start();
     server.initialize();
     server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/two_fns.rs", "languageId": "rust", "version": 1,
-            "text": "fn alpha() {}\nfn beta() {}"}
+        "textDocument": {"uri": "file:///tmp/cl2.rs", "languageId": "rust", "version": 1,
+            "text": "fn main() {\n    let x = 42;\n}\nfn other() {}"}
     }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/two_fns.rs"}
-    }));
+    let resp = server.request("textDocument/codeLens", serde_json::json!({"textDocument": {"uri": "file:///tmp/cl2.rs"}}));
     let lenses = resp["result"].as_array().unwrap();
-    assert_eq!(lenses.len(), 2, "Should have one CodeLens per function");
-}
-
-#[test]
-fn test_code_lens_title_contains_counts() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/counts.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let x = 1;\n    let r = &x;\n}"}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/counts.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    let title = lenses[0]["command"]["title"].as_str().unwrap();
-    assert!(title.contains("vars"), "Title should contain 'vars'. Got: {}", title);
-    assert!(title.contains("borrows"), "Title should contain 'borrows'. Got: {}", title);
-    assert!(title.contains("moves"), "Title should contain 'moves'. Got: {}", title);
-}
-
-#[test]
-fn test_code_lens_range_on_function_line() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/range_lens.rs", "languageId": "rust", "version": 1,
-            "text": "// comment\nfn second() {}"}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/range_lens.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    assert_eq!(lenses.len(), 1);
-    assert_eq!(lenses[0]["range"]["start"]["line"], 1, "Should be on line 1 (0-indexed)");
-}
-
-#[test]
-fn test_code_lens_command_is_show_graph() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/cmd.rs", "languageId": "rust", "version": 1, "text": "fn test() {}"}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/cmd.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    assert_eq!(lenses[0]["command"]["command"], "borrowscope.showGraph");
-}
-
-#[test]
-fn test_code_lens_command_has_arguments() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/args.rs", "languageId": "rust", "version": 1, "text": "fn my_func() {}"}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/args.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    let args = lenses[0]["command"]["arguments"].as_array().unwrap();
-    assert_eq!(args[0], "file:///tmp/args.rs");
-    assert_eq!(args[1], "my_func");
-}
-
-#[test]
-fn test_code_lens_empty_function_shows_zeros() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/empty_fn.rs", "languageId": "rust", "version": 1, "text": "fn empty() {}"}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/empty_fn.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    let title = lenses[0]["command"]["title"].as_str().unwrap();
-    assert!(title.contains("0 vars"), "Empty fn should show 0 vars. Got: {}", title);
-    assert!(title.contains("0 borrows"), "Empty fn should show 0 borrows. Got: {}", title);
-    assert!(title.contains("0 moves"), "Empty fn should show 0 moves. Got: {}", title);
-}
-
-#[test]
-fn test_code_lens_conflict_shown_in_title() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn conflict() {\n    let data = vec![1];\n    let r = &data;\n    let m = &mut data;\n    println!(\"{}\", r);\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/conflict_lens.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/conflict_lens.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    let title = lenses[0]["command"]["title"].as_str().unwrap();
-    assert!(title.contains("conflict"), "Should show conflict count. Got: {}", title);
+    assert!(lenses.is_empty(), "Without workspace, codeLens should be empty (semantic only)");
 }
 
 #[test]
@@ -1287,33 +1033,21 @@ fn test_code_lens_no_lenses_for_empty_file() {
     let mut server = TestServer::start();
     server.initialize();
     server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/no_fns.rs", "languageId": "rust", "version": 1, "text": "// just a comment"}
+        "textDocument": {"uri": "file:///tmp/cl_empty.rs", "languageId": "rust", "version": 1, "text": ""}
     }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/no_fns.rs"}
-    }));
+    let resp = server.request("textDocument/codeLens", serde_json::json!({"textDocument": {"uri": "file:///tmp/cl_empty.rs"}}));
     let lenses = resp["result"].as_array().unwrap();
-    assert!(lenses.is_empty(), "File with no functions should have no lenses");
+    assert!(lenses.is_empty());
 }
 
 #[test]
-fn test_code_lens_pub_and_async_functions() {
+fn test_code_lens_before_workspace_ready_returns_empty() {
     let mut server = TestServer::start();
     server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/pub_async.rs", "languageId": "rust", "version": 1,
-            "text": "pub fn public_fn() {}\nasync fn async_fn() {}\npub async fn both() {}"}
-    }));
-    let resp = server.request("textDocument/codeLens", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/pub_async.rs"}
-    }));
-    let lenses = resp["result"].as_array().unwrap();
-    assert_eq!(lenses.len(), 3, "Should detect pub, async, and pub async functions");
+    let resp = server.request("textDocument/codeLens", serde_json::json!({"textDocument": {"uri": "file:///tmp/cl3.rs"}}));
+    assert!(resp["result"].is_array());
+    assert!(resp["result"].as_array().unwrap().is_empty());
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 3.7 textDocument/inlayHint tests
-// ═══════════════════════════════════════════════════════════════════════════
 
 fn inlay_request(server: &mut TestServer, uri: &str, end_line: u32) -> serde_json::Value {
     server.request("textDocument/inlayHint", serde_json::json!({
@@ -1323,119 +1057,17 @@ fn inlay_request(server: &mut TestServer, uri: &str, end_line: u32) -> serde_jso
 }
 
 #[test]
-fn test_inlay_hint_rc_variable() {
+fn test_inlay_hint_empty_without_workspace() {
+    // Without workspace, inlayHint returns empty (semantic only, no heuristics)
     let mut server = TestServer::start();
     server.initialize();
     server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_rc.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let rc = Rc::new(42);\n}"}
+        "textDocument": {"uri": "file:///tmp/ih2.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {\n    let rc = Rc::new(42);\n    let r = &rc;\n}"}
     }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_rc.rs", 10);
+    let resp = inlay_request(&mut server, "file:///tmp/ih2.rs", 10);
     let hints = resp["result"].as_array().unwrap();
-    assert!(!hints.is_empty(), "Rc variable should get a hint");
-    let label = hints[0]["label"].as_str().unwrap();
-    assert!(label.contains("Rc"), "Should show [Rc]. Got: {}", label);
-}
-
-#[test]
-fn test_inlay_hint_shared_ref() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_ref.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let x = vec![1];\n    let r = &x;\n}"}
-    }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_ref.rs", 10);
-    let hints = resp["result"].as_array().unwrap();
-    let ref_hint = hints.iter().find(|h| h["label"].as_str().unwrap().contains("&"));
-    assert!(ref_hint.is_some(), "& variable should get [&] hint. Got: {:?}", hints);
-}
-
-#[test]
-fn test_inlay_hint_mut_ref() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_mut.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let mut x = vec![1];\n    let m = &mut x;\n}"}
-    }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_mut.rs", 10);
-    let hints = resp["result"].as_array().unwrap();
-    let mut_hint = hints.iter().find(|h| h["label"].as_str().unwrap().contains("&mut"));
-    assert!(mut_hint.is_some(), "&mut variable should get [&mut] hint. Got: {:?}", hints);
-}
-
-#[test]
-fn test_inlay_hint_no_hint_for_vec() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_vec.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let v = vec![1, 2, 3];\n}"}
-    }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_vec.rs", 10);
-    let hints = resp["result"].as_array().unwrap();
-    assert!(hints.is_empty(), "Vec should NOT get a hint (owned is default). Got: {:?}", hints);
-}
-
-#[test]
-fn test_inlay_hint_no_hint_for_primitive() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_prim.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let x = 42;\n    let b = true;\n}"}
-    }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_prim.rs", 10);
-    let hints = resp["result"].as_array().unwrap();
-    assert!(hints.is_empty(), "Primitives should NOT get hints. Got: {:?}", hints);
-}
-
-#[test]
-fn test_inlay_hint_correct_position() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_pos.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let r = &x;\n}"}
-    }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_pos.rs", 10);
-    let hints = resp["result"].as_array().unwrap();
-    assert!(!hints.is_empty());
-    let pos = &hints[0]["position"];
-    assert_eq!(pos["line"], 1, "Hint should be on line 1 (the let statement)");
-    assert!(pos["character"].as_u64().unwrap() > 0, "Character should be after variable name");
-}
-
-#[test]
-fn test_inlay_hint_respects_visible_range() {
-    let mut server = TestServer::start();
-    server.initialize();
-    let code = "fn test() {\n    let a = &x;\n    let b = &y;\n    let c = &z;\n}";
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_range.rs", "languageId": "rust", "version": 1, "text": code}
-    }));
-    // Only request lines 0-1 (should only get hint for 'a', not 'b' or 'c')
-    let resp = server.request("textDocument/inlayHint", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_range.rs"},
-        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 0}}
-    }));
-    let hints = resp["result"].as_array().unwrap();
-    assert_eq!(hints.len(), 1, "Should only return hints in visible range. Got: {}", hints.len());
-}
-
-#[test]
-fn test_inlay_hint_closure() {
-    let mut server = TestServer::start();
-    server.initialize();
-    server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_closure.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let f = || println!(\"hi\");\n}"}
-    }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_closure.rs", 10);
-    let hints = resp["result"].as_array().unwrap();
-    let closure_hint = hints.iter().find(|h| h["label"].as_str().unwrap().contains("closure"));
-    assert!(closure_hint.is_some(), "Closure should get [closure] hint. Got: {:?}", hints);
+    assert!(hints.is_empty(), "Without workspace, inlayHint should be empty (semantic only)");
 }
 
 #[test]
@@ -1451,16 +1083,38 @@ fn test_inlay_hint_empty_file() {
 }
 
 #[test]
-fn test_inlay_hint_arc_variable() {
+fn test_inlay_hints_before_workspace_ready_returns_empty() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("textDocument/inlayHint", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/ih3.rs"},
+        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 10, "character": 0}}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_inlay_hint_no_hint_for_vec_without_workspace() {
     let mut server = TestServer::start();
     server.initialize();
     server.notify("textDocument/didOpen", serde_json::json!({
-        "textDocument": {"uri": "file:///tmp/ih_arc.rs", "languageId": "rust", "version": 1,
-            "text": "fn test() {\n    let a = Arc::new(42);\n}"}
+        "textDocument": {"uri": "file:///tmp/ih_vec.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {\n    let v = vec![1, 2, 3];\n}"}
     }));
-    let resp = inlay_request(&mut server, "file:///tmp/ih_arc.rs", 10);
+    let resp = inlay_request(&mut server, "file:///tmp/ih_vec.rs", 10);
     let hints = resp["result"].as_array().unwrap();
-    assert!(!hints.is_empty(), "Arc variable should get a hint");
-    let label = hints[0]["label"].as_str().unwrap();
-    assert!(label.contains("Arc"), "Should show [Arc]. Got: {}", label);
+    assert!(hints.is_empty(), "Without workspace, no hints");
+}
+
+#[test]
+fn test_inlay_hint_no_hint_for_primitive_without_workspace() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/ih_prim.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {\n    let x = 42;\n    let b = true;\n}"}
+    }));
+    let resp = inlay_request(&mut server, "file:///tmp/ih_prim.rs", 10);
+    let hints = resp["result"].as_array().unwrap();
+    assert!(hints.is_empty(), "Without workspace, no hints");
 }
