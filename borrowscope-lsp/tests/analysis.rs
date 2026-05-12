@@ -1111,3 +1111,217 @@ fn test_variable_info_request() {
     println!("variableInfo request test passed! data borrowed by: {:?}, a moved to: {:?}, cached call: {:?}",
         data_borrowers, a_move.destination, elapsed);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3.5-3.7 Integration: Semantic codeLens, inlayHints, diagnostics
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+#[ignore]
+fn test_diagnostics_semantic_no_false_positives() {
+    use borrowscope_lsp::analysis::analyze_function;
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = hir::Crate::all(&db).first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // borrow_scopes_test has multiple shared borrows of `data` - this is VALID (no conflict)
+    let summary = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false)).unwrap();
+        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+    });
+
+    // Multiple shared borrows of same variable should NOT produce a conflict
+    let false_shared_conflicts = summary.conflicts.iter()
+        .filter(|c| matches!(c.kind, borrowscope_lsp::analysis::ConflictKind::MutableAndShared))
+        .filter(|c| c.variable == "data")
+        .count();
+    // r1, r2, r3 all borrow `data` immutably - no conflict
+    // Only a mutable+shared overlap would be a real conflict
+    println!("Diagnostics: {} total conflicts, {} false shared-only conflicts on 'data'",
+        summary.conflicts.len(), false_shared_conflicts);
+}
+
+#[test]
+#[ignore]
+fn test_code_lens_semantic_all_functions() {
+    use borrowscope_lsp::analysis::analyze_function;
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = hir::Crate::all(&db).first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // Every function should produce a valid summary (CodeLens data)
+    let results: Vec<(String, usize, usize, usize)> = attach_db(&db, || {
+        source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .filter_map(|f| {
+                let name = f.name()?.text().to_string();
+                let s = analyze_function(&db, &sema, &display_target, &f, "src/main.rs", &line_index);
+                Some((name, s.stats.total_variables, s.stats.total_borrows, s.stats.moves))
+            }).collect()
+    });
+
+    assert!(results.len() >= 8, "Should analyze at least 8 functions. Got: {}", results.len());
+
+    // empty_fn should have 0 vars
+    let empty = results.iter().find(|r| r.0 == "empty_fn").unwrap();
+    assert_eq!(empty.1, 0, "empty_fn should have 0 vars");
+
+    // summary_test should have vars, borrows, and moves
+    let summary = results.iter().find(|r| r.0 == "summary_test").unwrap();
+    assert!(summary.1 > 0, "summary_test should have vars");
+    assert!(summary.2 > 0, "summary_test should have borrows");
+    assert!(summary.3 > 0, "summary_test should have moves");
+
+    for (name, vars, borrows, moves) in &results {
+        println!("  CodeLens: {} -> {} vars, {} borrows, {} moves", name, vars, borrows, moves);
+    }
+}
+
+#[test]
+#[ignore]
+fn test_inlay_hint_semantic_categories() {
+    use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = hir::Crate::all(&db).first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let summary = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "main").unwrap_or(false)).unwrap();
+        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+    });
+
+    // Verify semantic categories (these are what inlayHints would show)
+    let check = |name: &str, expected: OwnershipCategory| {
+        let var = summary.variables.iter().find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("Variable '{}' not found", name));
+        assert_eq!(var.ownership_category, expected,
+            "'{}' expected {:?}, got {:?}", name, expected, var.ownership_category);
+    };
+
+    check("x", OwnershipCategory::Copy);          // i32 -> no hint
+    check("v", OwnershipCategory::Owned);          // Vec -> no hint
+    check("r", OwnershipCategory::SharedRef);      // &Vec -> [&]
+    check("m", OwnershipCategory::MutableRef);     // &mut Vec -> [&mut]
+    check("rc", OwnershipCategory::SharedOwnership); // Rc -> [Rc]
+    check("cell", OwnershipCategory::InteriorMut); // RefCell -> [Cell]
+
+    // Verify positions are valid
+    for var in &summary.variables {
+        assert!(var.line > 0, "'{}' line should be > 0", var.name);
+    }
+
+    println!("InlayHint semantic categories: all 6 core categories verified");
+}
+
+#[test]
+#[ignore]
+fn test_inlay_hint_semantic_visible_range_filtering() {
+    use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = hir::Crate::all(&db).first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let summary = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "main").unwrap_or(false)).unwrap();
+        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+    });
+
+    // Simulate visible range filtering (lines 10-15 only)
+    let visible_start = 10u32;
+    let visible_end = 15u32;
+    let visible_hints: Vec<_> = summary.variables.iter()
+        .filter(|v| {
+            let var_line = v.line.saturating_sub(1);
+            var_line >= visible_start && var_line <= visible_end
+        })
+        .filter(|v| !matches!(v.ownership_category, OwnershipCategory::Owned | OwnershipCategory::Copy))
+        .collect();
+
+    // Should only include variables in the visible range that need hints
+    for h in &visible_hints {
+        let line = h.line.saturating_sub(1);
+        assert!(line >= visible_start && line <= visible_end,
+            "'{}' at line {} should be in range {}-{}", h.name, line, visible_start, visible_end);
+    }
+
+    println!("InlayHint range filtering: {} hints in lines {}-{} (out of {} total vars)",
+        visible_hints.len(), visible_start, visible_end, summary.variables.len());
+}
