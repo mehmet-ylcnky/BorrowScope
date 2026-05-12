@@ -24,6 +24,8 @@ pub struct GlobalState {
     pub root_path: PathBuf,
     /// Open file contents (uri -> content)
     pub open_files: HashMap<String, OpenFile>,
+    /// Receiver for background workspace loading result
+    pub loading_receiver: Option<crossbeam_channel::Receiver<anyhow::Result<WorkspaceData>>>,
 }
 
 impl GlobalState {
@@ -40,6 +42,7 @@ impl GlobalState {
             shutdown_requested: false,
             root_path,
             open_files: HashMap::new(),
+            loading_receiver: None,
         })
     }
 

@@ -283,3 +283,224 @@ fn test_non_rust_file_ignored() {
     // Non-rust file should not be stored
     assert_eq!(resp["result"]["content"], "");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Protocol edge cases
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_multiple_files_tracked_independently() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/a.rs", "languageId": "rust", "version": 1, "text": "fn a() {}" }
+    }));
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/b.rs", "languageId": "rust", "version": 1, "text": "fn b() {}" }
+    }));
+    // Change only b
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/b.rs", "version": 2 },
+        "contentChanges": [{ "text": "fn b_changed() {}" }]
+    }));
+    // a unchanged
+    let resp_a = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/a.rs"}));
+    assert_eq!(resp_a["result"]["content"], "fn a() {}");
+    // b changed
+    let resp_b = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/b.rs"}));
+    assert_eq!(resp_b["result"]["content"], "fn b_changed() {}");
+}
+
+#[test]
+fn test_empty_file_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/empty.rs", "languageId": "rust", "version": 1, "text": "" }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/empty.rs"}));
+    assert_eq!(resp["result"]["content"], "");
+}
+
+#[test]
+fn test_large_file_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    // 10KB file
+    let content = "fn main() { let x = 1; }\n".repeat(400);
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/large.rs", "languageId": "rust", "version": 1, "text": content }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/large.rs"}));
+    assert_eq!(resp["result"]["content"].as_str().unwrap().len(), content.len());
+}
+
+#[test]
+fn test_unicode_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let content = "fn main() { let 名前 = \"こんにちは\"; }";
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/unicode.rs", "languageId": "rust", "version": 1, "text": content }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/unicode.rs"}));
+    assert_eq!(resp["result"]["content"], content);
+}
+
+#[test]
+fn test_rapid_changes_all_applied() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/rapid.rs", "languageId": "rust", "version": 1, "text": "v0" }
+    }));
+    // Send 10 rapid changes
+    for i in 1..=10 {
+        server.notify("textDocument/didChange", serde_json::json!({
+            "textDocument": { "uri": "file:///tmp/rapid.rs", "version": i + 1 },
+            "contentChanges": [{ "text": format!("v{}", i) }]
+        }));
+    }
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/rapid.rs"}));
+    assert_eq!(resp["result"]["content"], "v10");
+}
+
+#[test]
+fn test_file_not_opened_returns_empty() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/never_opened.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "");
+}
+
+#[test]
+fn test_reopen_file_updates_content() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/reopen.rs", "languageId": "rust", "version": 1, "text": "original" }
+    }));
+    server.notify("textDocument/didClose", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/reopen.rs" }
+    }));
+    // Reopen with different content
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/reopen.rs", "languageId": "rust", "version": 2, "text": "reopened" }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/reopen.rs"}));
+    assert_eq!(resp["result"]["content"], "reopened");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Capabilities verification
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_text_document_sync_is_full() {
+    let mut server = TestServer::start();
+    let response = server.initialize();
+    // change: 1 = Full sync
+    assert_eq!(response["result"]["capabilities"]["textDocumentSync"]["change"], 1);
+}
+
+#[test]
+fn test_save_notification_configured() {
+    let mut server = TestServer::start();
+    let response = server.initialize();
+    let save = &response["result"]["capabilities"]["textDocumentSync"]["save"];
+    assert!(save.is_object());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Error handling
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_hover_before_workspace_ready() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("textDocument/hover", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"},
+        "position": {"line": 0, "character": 0}
+    }));
+    assert_eq!(resp["error"]["code"], -32002);
+    assert!(resp["error"]["message"].as_str().unwrap().contains("not yet loaded"));
+}
+
+#[test]
+fn test_code_lens_before_workspace_ready() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"}
+    }));
+    assert_eq!(resp["error"]["code"], -32002);
+}
+
+#[test]
+fn test_inlay_hints_before_workspace_ready() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("textDocument/inlayHint", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"},
+        "range": {"start": {"line":0,"character":0}, "end": {"line":10,"character":0}}
+    }));
+    assert_eq!(resp["error"]["code"], -32002);
+}
+
+#[test]
+fn test_custom_request_before_workspace_ready() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/ownershipGraph", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"},
+        "position": {"line": 0, "character": 0}
+    }));
+    assert_eq!(resp["error"]["code"], -32002);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Server robustness
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_multiple_requests_in_sequence() {
+    let mut server = TestServer::start();
+    server.initialize();
+    // Send 5 requests in sequence, all should get responses
+    for i in 0..5 {
+        let resp = server.request("nonexistent/method", serde_json::json!({"i": i}));
+        assert!(resp["error"].is_object());
+    }
+}
+
+#[test]
+fn test_notification_after_request() {
+    let mut server = TestServer::start();
+    server.initialize();
+    // Mix notifications and requests
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/mix.rs", "languageId": "rust", "version": 1, "text": "fn mix() {}" }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/mix.rs"}));
+    assert_eq!(resp["result"]["content"], "fn mix() {}");
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/mix.rs", "version": 2 },
+        "contentChanges": [{ "text": "fn mixed() {}" }]
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/mix.rs"}));
+    assert_eq!(resp["result"]["content"], "fn mixed() {}");
+}
+
+#[test]
+fn test_debug_file_content_for_nonexistent_uri() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///does/not/exist.rs"
+    }));
+    // Should return empty, not error
+    assert_eq!(resp["result"]["content"], "");
+}

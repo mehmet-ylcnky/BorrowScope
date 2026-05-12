@@ -34,6 +34,8 @@ pub fn handle(
                 if let Some(change) = params.content_changes.into_iter().last() {
                     state.set_file_content(uri, change.text);
                 }
+                // Apply to Salsa database for incremental re-analysis
+                state.apply_vfs_changes();
             }
         }
         "textDocument/didClose" => {
