@@ -1105,8 +1105,6 @@ fn detect_method_clone(
     // Get receiver type
     let receiver = method_call.receiver()?;
     let receiver_ty = sema.type_of_expr(&receiver)?.original;
-    let receiver_type_str = receiver_ty.display(db, *display_target).to_string();
-
     // Check if receiver is Rc or Arc
     let clone_type = classify_rc_arc(&receiver_ty, db)?;
 
