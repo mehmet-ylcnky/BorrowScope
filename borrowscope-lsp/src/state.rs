@@ -12,6 +12,7 @@ use crate::workspace::WorkspaceData;
 pub struct OpenFile {
     pub content: String,
     pub is_open: bool,
+    pub dirty: bool,
 }
 
 pub struct GlobalState {
@@ -51,9 +52,11 @@ impl GlobalState {
         let entry = self.open_files.entry(uri.to_string()).or_insert(OpenFile {
             content: String::new(),
             is_open: true,
+            dirty: false,
         });
         entry.content = content;
         entry.is_open = true;
+        entry.dirty = true;
     }
 
     /// Mark a file as closed (but keep content for references).
@@ -66,6 +69,68 @@ impl GlobalState {
     /// Get file content if available.
     pub fn get_file_content(&self, uri: &str) -> Option<&str> {
         self.open_files.get(uri).map(|f| f.content.as_str())
+    }
+
+    /// Apply file changes to the Salsa database for incremental re-analysis.
+    /// Returns the number of files updated in the VFS.
+    pub fn apply_vfs_changes(&mut self) -> usize {
+        let ws = match &mut self.workspace {
+            Some(ws) => ws,
+            None => return 0,
+        };
+
+        // Collect dirty file contents
+        let dirty_files: Vec<(String, String)> = self
+            .open_files
+            .iter()
+            .filter(|(_, f)| f.is_open && f.dirty)
+            .filter_map(|(uri, f)| {
+                uri.strip_prefix("file://")
+                    .map(|path| (path.to_string(), f.content.clone()))
+            })
+            .collect();
+
+        if dirty_files.is_empty() {
+            return 0;
+        }
+
+        let count = dirty_files.len();
+
+        // Push content into VFS
+        for (path, content) in &dirty_files {
+            let vfs_path = ra_ap_vfs::VfsPath::new_real_path(path.clone());
+            ws.vfs
+                .set_file_contents(vfs_path, Some(content.as_bytes().to_vec()));
+        }
+
+        // Apply VFS changes to the Salsa database
+        let changes = ws.vfs.take_changes();
+        if !changes.is_empty() {
+            let mut change = ra_ap_ide_db::ChangeWithProcMacros::default();
+            for (file_id, _) in &changes {
+                // Find content for this file_id
+                for (path, content) in &dirty_files {
+                    let vfs_path = ra_ap_vfs::VfsPath::new_real_path(path.clone());
+                    if let Some((fid, _)) = ws.vfs.file_id(&vfs_path) {
+                        if fid == *file_id {
+                            change
+                                .source_change
+                                .change_file(*file_id, Some(content.clone()));
+                            break;
+                        }
+                    }
+                }
+            }
+            ws.db.apply_change(change);
+            tracing::debug!("Applied {} file changes to Salsa database", count);
+        }
+
+        // Mark all files as clean
+        for file in self.open_files.values_mut() {
+            file.dirty = false;
+        }
+
+        count
     }
 }
 
