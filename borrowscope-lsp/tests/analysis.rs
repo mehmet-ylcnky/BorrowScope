@@ -368,3 +368,270 @@ fn test_borrow_scope_computation() {
 
     println!("All borrow scope assertions passed! ({} scopes found)", scopes.len());
 }
+
+/// Test move detection (step 2.4).
+#[test]
+#[ignore]
+fn test_move_detection() {
+    use borrowscope_lsp::analysis::{detect_moves, MoveDestination};
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let moves = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "move_detection_test").unwrap_or(false))
+            .expect("move_detection_test fn not found");
+
+        detect_moves(&db, &sema, &display_target, &test_fn, &line_index)
+    });
+
+    assert!(!moves.is_empty(), "Should detect moves. Got 0.");
+
+    // ── let b = a; (String): move to Variable("b") ──
+    let a_move = moves.iter().find(|m| m.source_name == "a");
+    assert!(a_move.is_some(), "Should detect move of 'a'. Found: {:?}",
+        moves.iter().map(|m| (&m.source_name, &m.destination)).collect::<Vec<_>>());
+    let a_move = a_move.unwrap();
+    assert_eq!(a_move.destination, MoveDestination::Variable("b".to_string()));
+    assert!(a_move.source_type.contains("String"));
+
+    // ── let m = n; (i32): NOT a move (Copy) ──
+    let n_move = moves.iter().find(|m| m.source_name == "n");
+    assert!(n_move.is_none(), "i32 assignment should NOT be detected as move");
+
+    // ── drop(v): move to FunctionArg ──
+    let v_move = moves.iter().find(|m| m.source_name == "v");
+    assert!(v_move.is_some(), "Should detect move of 'v' to drop()");
+    let v_move = v_move.unwrap();
+    assert!(matches!(&v_move.destination, MoveDestination::FunctionArg(f) if f == "drop"));
+
+    // ── move || { s }: move to ClosureCapture ──
+    let s_move = moves.iter().find(|m| m.source_name == "s" && matches!(&m.destination, MoveDestination::ClosureCapture(_)));
+    assert!(s_move.is_some(), "Should detect move of 's' into closure. Found: {:?}",
+        moves.iter().filter(|m| m.source_name == "s").collect::<Vec<_>>());
+
+    // ── return result: move to Return ──
+    let ret_move = moves.iter().find(|m| m.source_name == "result");
+    assert!(ret_move.is_some(), "Should detect return move of 'result'");
+    assert_eq!(ret_move.unwrap().destination, MoveDestination::Return);
+
+    println!("All move detection assertions passed! ({} moves detected)", moves.len());
+}
+
+/// Test closure capture analysis (step 2.5).
+#[test]
+#[ignore]
+fn test_closure_capture_analysis() {
+    use borrowscope_lsp::analysis::{analyze_closures, CaptureMode, FnTrait};
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let closures = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "closure_capture_test").unwrap_or(false))
+            .expect("closure_capture_test fn not found");
+
+        analyze_closures(&db, &sema, &display_target, &test_fn, &line_index)
+    });
+
+    assert!(!closures.is_empty(), "Should find closures. Got 0.");
+
+    // ── Fn closure: captures x by shared ref ──
+    let c_fn = closures.iter().find(|c| {
+        c.fn_trait == FnTrait::Fn && c.captures.iter().any(|cap| cap.name == "x")
+    });
+    assert!(c_fn.is_some(), "Should find Fn closure capturing x. Found traits: {:?}",
+        closures.iter().map(|c| (&c.fn_trait, c.captures.iter().map(|cap| &cap.name).collect::<Vec<_>>())).collect::<Vec<_>>());
+    let c_fn = c_fn.unwrap();
+    let x_cap = c_fn.captures.iter().find(|c| c.name == "x").unwrap();
+    assert_eq!(x_cap.capture_mode, CaptureMode::BySharedRef);
+
+    // ── FnMut closure: captures y by mut ref ──
+    let c_fnmut = closures.iter().find(|c| {
+        c.fn_trait == FnTrait::FnMut && c.captures.iter().any(|cap| cap.name == "y")
+    });
+    assert!(c_fnmut.is_some(), "Should find FnMut closure capturing y");
+    let y_cap = c_fnmut.unwrap().captures.iter().find(|c| c.name == "y").unwrap();
+    assert_eq!(y_cap.capture_mode, CaptureMode::ByMutRef);
+
+    // ── FnOnce (move) closure: captures z by move ──
+    let c_fnonce = closures.iter().find(|c| {
+        c.captures.iter().any(|cap| cap.name == "z" && cap.capture_mode == CaptureMode::ByMove)
+    });
+    assert!(c_fnonce.is_some(), "Should find closure capturing z by move");
+
+    // ── Empty closure: no captures ──
+    let c_empty = closures.iter().find(|c| c.captures.is_empty());
+    assert!(c_empty.is_some(), "Should find closure with no captures");
+
+    // ── Multiple captures: a and b ──
+    let c_multi = closures.iter().find(|c| c.captures.len() >= 2);
+    assert!(c_multi.is_some(), "Should find closure with multiple captures");
+    let c_multi = c_multi.unwrap();
+    let cap_names: Vec<&str> = c_multi.captures.iter().map(|c| c.name.as_str()).collect();
+    assert!(cap_names.contains(&"a"), "Should capture 'a'. Got: {:?}", cap_names);
+    assert!(cap_names.contains(&"b"), "Should capture 'b'. Got: {:?}", cap_names);
+
+    println!("All closure capture assertions passed! ({} closures analyzed)", closures.len());
+}
+
+/// Test Rc/Arc clone tracking (step 2.6) - 10 assertions.
+#[test]
+#[ignore]
+fn test_rc_clone_tracking() {
+    use borrowscope_lsp::analysis::{track_rc_clones, RcType};
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let clones = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "rc_clone_test").unwrap_or(false))
+            .expect("rc_clone_test fn not found");
+
+        track_rc_clones(&db, &sema, &display_target, &test_fn, &line_index)
+    });
+
+    // 1. Should find Rc/Arc clones (not zero)
+    assert!(!clones.is_empty(), "Should detect Rc/Arc clones. Got 0.");
+
+    // 2. rc2 = rc1.clone() detected as Rc
+    let rc2 = clones.iter().find(|c| c.clone_variable == "rc2");
+    assert!(rc2.is_some(), "Should detect rc2 clone. Found: {:?}",
+        clones.iter().map(|c| (&c.clone_variable, &c.source_variable)).collect::<Vec<_>>());
+    let rc2 = rc2.unwrap();
+    assert_eq!(rc2.clone_type, RcType::Rc);
+    assert_eq!(rc2.source_variable, "rc1");
+
+    // 3. rc3 = Rc::clone(&rc1) detected as Rc
+    let rc3 = clones.iter().find(|c| c.clone_variable == "rc3");
+    assert!(rc3.is_some(), "Should detect rc3 (explicit Rc::clone)");
+    let rc3 = rc3.unwrap();
+    assert_eq!(rc3.clone_type, RcType::Rc);
+    assert_eq!(rc3.source_variable, "rc1");
+
+    // 4. arc2 = arc1.clone() detected as Arc
+    let arc2 = clones.iter().find(|c| c.clone_variable == "arc2");
+    assert!(arc2.is_some(), "Should detect arc2 clone");
+    let arc2 = arc2.unwrap();
+    assert_eq!(arc2.clone_type, RcType::Arc);
+
+    // 5. arc3 = Arc::clone(&arc1) detected as Arc
+    let arc3 = clones.iter().find(|c| c.clone_variable == "arc3");
+    assert!(arc3.is_some(), "Should detect arc3 (explicit Arc::clone)");
+    assert_eq!(arc3.unwrap().clone_type, RcType::Arc);
+
+    // 6. String clone NOT detected (s2 should not appear)
+    let s2 = clones.iter().find(|c| c.clone_variable == "s2");
+    assert!(s2.is_none(), "String clone should NOT be detected as Rc/Arc");
+
+    // 7. Vec clone NOT detected (v2 should not appear)
+    let v2 = clones.iter().find(|c| c.clone_variable == "v2");
+    assert!(v2.is_none(), "Vec clone should NOT be detected as Rc/Arc");
+
+    // 8. Multiple clones from same source: rc4 from rc1
+    let rc4 = clones.iter().find(|c| c.clone_variable == "rc4");
+    assert!(rc4.is_some(), "Should detect rc4 clone");
+    assert_eq!(rc4.unwrap().source_variable, "rc1");
+
+    // 9. Multiple clones from same source: rc5 from rc1
+    let rc5 = clones.iter().find(|c| c.clone_variable == "rc5");
+    assert!(rc5.is_some(), "Should detect rc5 clone");
+    assert_eq!(rc5.unwrap().source_variable, "rc1");
+
+    // 10. All rc1 clones share the same source
+    let rc1_clones: Vec<_> = clones.iter()
+        .filter(|c| c.source_variable == "rc1")
+        .collect();
+    assert!(rc1_clones.len() >= 3,
+        "Should have at least 3 clones from rc1 (rc2, rc3, rc4, rc5). Got: {}",
+        rc1_clones.len());
+
+    println!("All Rc/Arc clone tracking assertions passed! ({} clones detected)", clones.len());
+}

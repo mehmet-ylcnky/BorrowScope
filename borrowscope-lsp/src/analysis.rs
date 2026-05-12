@@ -6,6 +6,7 @@
 use ra_ap_hir::{self as hir, HirDisplay, Semantics};
 use ra_ap_ide_db::RootDatabase;
 use ra_ap_syntax::{ast, AstNode, Edition};
+use ra_ap_syntax::ast::{HasName, HasArgList};
 use serde::Serialize;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -659,4 +660,548 @@ fn find_last_use(
     }
 
     last_offset
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 2.4 Move Detection
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Where a value was moved to.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum MoveDestination {
+    Variable(String),
+    FunctionArg(String),
+    Return,
+    ClosureCapture(String),
+}
+
+/// Information about a detected move.
+#[derive(Debug, Clone, Serialize)]
+pub struct MoveInfo {
+    pub source_name: String,
+    pub destination: MoveDestination,
+    pub line: u32,
+    pub column: u32,
+    pub source_type: String,
+}
+
+/// Detect all ownership transfers (moves) in a function.
+pub fn detect_moves(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<MoveInfo> {
+    let body = match function.body() {
+        Some(b) => b,
+        None => return vec![],
+    };
+
+    let mut moves = Vec::new();
+
+    for node in body.syntax().descendants() {
+        // Case 1: let b = a; (assignment move)
+        if let Some(let_stmt) = ast::LetStmt::cast(node.clone()) {
+            if let Some(move_info) = detect_let_move(db, sema, display_target, &let_stmt, line_index) {
+                moves.push(move_info);
+            }
+            continue;
+        }
+
+        // Case 2: foo(a) (function argument move)
+        if let Some(call_expr) = ast::CallExpr::cast(node.clone()) {
+            moves.extend(detect_call_arg_moves(db, sema, display_target, &call_expr, line_index));
+            continue;
+        }
+
+        // Case 3: return expr (return move)
+        if let Some(return_expr) = ast::ReturnExpr::cast(node.clone()) {
+            if let Some(move_info) = detect_return_move(db, sema, display_target, &return_expr, line_index) {
+                moves.push(move_info);
+            }
+            continue;
+        }
+
+        // Case 4: move || { ... } (closure capture move)
+        if let Some(closure) = ast::ClosureExpr::cast(node.clone()) {
+            moves.extend(detect_closure_capture_moves(db, sema, display_target, &closure, line_index));
+        }
+    }
+
+    moves
+}
+
+fn detect_let_move(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    let_stmt: &ast::LetStmt,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Option<MoveInfo> {
+    let init = let_stmt.initializer()?;
+    let pat = let_stmt.pat()?;
+
+    // Only path expressions (variable references) can be moves
+    let path_expr = match &init {
+        ast::Expr::PathExpr(p) => p,
+        _ => return None,
+    };
+
+    // Get the type of the initializer
+    let ty_info = sema.type_of_expr(&init)?;
+    let ty = ty_info.original;
+
+    // Copy types don't move
+    if ty.is_copy(db) {
+        return None;
+    }
+
+    // References are not moves
+    if ty.is_reference() {
+        return None;
+    }
+
+    let source_name = path_expr.syntax().text().to_string().trim().to_string();
+    let dest_name = pat.syntax().text().to_string().trim().to_string();
+    let (line, column) = line_index(let_stmt.syntax().text_range().start());
+
+    Some(MoveInfo {
+        source_name,
+        destination: MoveDestination::Variable(dest_name),
+        line,
+        column,
+        source_type: ty.display(db, *display_target).to_string(),
+    })
+}
+
+fn detect_call_arg_moves(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    call_expr: &ast::CallExpr,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<MoveInfo> {
+    let mut moves = Vec::new();
+
+    // Get function name
+    let fn_name = call_expr
+        .expr()
+        .map(|e| e.syntax().text().to_string().trim().to_string())
+        .unwrap_or_default();
+
+    // Check each argument
+    let arg_list = match call_expr.arg_list() {
+        Some(al) => al,
+        None => return moves,
+    };
+
+    for arg in arg_list.args() {
+        // Only path expressions (variable references) can be moves
+        if !matches!(&arg, ast::Expr::PathExpr(_)) {
+            continue;
+        }
+
+        let ty_info = match sema.type_of_expr(&arg) {
+            Some(ti) => ti,
+            None => continue,
+        };
+        let ty = ty_info.original;
+
+        // Copy types and references don't move
+        if ty.is_copy(db) || ty.is_reference() {
+            continue;
+        }
+
+        let source_name = arg.syntax().text().to_string().trim().to_string();
+        let (line, column) = line_index(call_expr.syntax().text_range().start());
+
+        moves.push(MoveInfo {
+            source_name,
+            destination: MoveDestination::FunctionArg(fn_name.clone()),
+            line,
+            column,
+            source_type: ty.display(db, *display_target).to_string(),
+        });
+    }
+
+    moves
+}
+
+fn detect_return_move(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    return_expr: &ast::ReturnExpr,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Option<MoveInfo> {
+    let expr = return_expr.expr()?;
+
+    // Only path expressions
+    if !matches!(&expr, ast::Expr::PathExpr(_)) {
+        return None;
+    }
+
+    let ty_info = sema.type_of_expr(&expr)?;
+    let ty = ty_info.original;
+
+    if ty.is_copy(db) || ty.is_reference() {
+        return None;
+    }
+
+    let source_name = expr.syntax().text().to_string().trim().to_string();
+    let (line, column) = line_index(return_expr.syntax().text_range().start());
+
+    Some(MoveInfo {
+        source_name,
+        destination: MoveDestination::Return,
+        line,
+        column,
+        source_type: ty.display(db, *display_target).to_string(),
+    })
+}
+
+fn detect_closure_capture_moves(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    closure: &ast::ClosureExpr,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<MoveInfo> {
+    let mut moves = Vec::new();
+
+    // Only `move` closures capture by move
+    if closure.move_token().is_none() {
+        return moves;
+    }
+
+    // Get the closure type and check captures via hir
+    let Some(ty_info) = sema.type_of_expr(&ast::Expr::ClosureExpr(closure.clone())) else {
+        return moves;
+    };
+
+    let Some(closure_hir) = ty_info.original.as_closure() else {
+        return moves;
+    };
+
+    let (line, column) = line_index(closure.syntax().text_range().start());
+
+    for capture in closure_hir.captured_items(db) {
+        let local = capture.local();
+        let name = local.name(db).display_no_db(Edition::Edition2021).to_string();
+        let ty = local.ty(db);
+
+        // Only non-Copy, non-reference types are actual moves
+        if ty.is_copy(db) || ty.is_reference() {
+            continue;
+        }
+
+        moves.push(MoveInfo {
+            source_name: name.clone(),
+            destination: MoveDestination::ClosureCapture(name),
+            line,
+            column,
+            source_type: ty.display(db, *display_target).to_string(),
+        });
+    }
+
+    moves
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 2.5 Closure Capture Analysis
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Which Fn trait a closure implements.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum FnTrait {
+    Fn,
+    FnMut,
+    FnOnce,
+}
+
+/// How a variable is captured by a closure.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum CaptureMode {
+    BySharedRef,
+    ByMutRef,
+    ByMove,
+}
+
+/// A variable captured by a closure.
+#[derive(Debug, Clone, Serialize)]
+pub struct CapturedVariable {
+    pub name: String,
+    pub capture_mode: CaptureMode,
+    pub variable_type: String,
+}
+
+/// Information about a closure's captures.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClosureCaptureInfo {
+    pub closure_line: u32,
+    pub closure_column: u32,
+    pub fn_trait: FnTrait,
+    pub captures: Vec<CapturedVariable>,
+}
+
+/// Analyze all closures in a function.
+pub fn analyze_closures(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<ClosureCaptureInfo> {
+    use ra_ap_hir::CaptureKind;
+
+    let body = match function.body() {
+        Some(b) => b,
+        None => return vec![],
+    };
+
+    let mut results = Vec::new();
+
+    for node in body.syntax().descendants() {
+        let closure_expr = match ast::ClosureExpr::cast(node) {
+            Some(c) => c,
+            None => continue,
+        };
+
+        // Get the closure's type
+        let ty_info = match sema.type_of_expr(&ast::Expr::ClosureExpr(closure_expr.clone())) {
+            Some(ti) => ti,
+            None => continue,
+        };
+
+        let closure_hir = match ty_info.original.as_closure() {
+            Some(c) => c,
+            None => continue,
+        };
+
+        let (closure_line, closure_column) =
+            line_index(closure_expr.syntax().text_range().start());
+
+        // Determine Fn trait
+        let fn_trait_str = closure_hir.fn_trait(db).to_string();
+        let fn_trait = match fn_trait_str.as_str() {
+            "Fn" => FnTrait::Fn,
+            "FnMut" => FnTrait::FnMut,
+            _ => FnTrait::FnOnce,
+        };
+
+        // Get captured variables
+        let mut captures = Vec::new();
+        for capture in closure_hir.captured_items(db) {
+            let local = capture.local();
+            let name = local.name(db).display_no_db(Edition::Edition2021).to_string();
+            let ty = local.ty(db);
+
+            let capture_mode = match capture.kind() {
+                CaptureKind::SharedRef => CaptureMode::BySharedRef,
+                CaptureKind::UniqueSharedRef => CaptureMode::BySharedRef,
+                CaptureKind::MutableRef => CaptureMode::ByMutRef,
+                CaptureKind::Move => CaptureMode::ByMove,
+            };
+
+            captures.push(CapturedVariable {
+                name,
+                capture_mode,
+                variable_type: ty.display(db, *display_target).to_string(),
+            });
+        }
+
+        results.push(ClosureCaptureInfo {
+            closure_line,
+            closure_column,
+            fn_trait,
+            captures,
+        });
+    }
+
+    results
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 2.6 Rc/Arc Clone Tracking
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Whether a clone is Rc or Arc.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum RcType {
+    Rc,
+    Arc,
+}
+
+/// Information about an Rc/Arc clone operation.
+#[derive(Debug, Clone, Serialize)]
+pub struct RcCloneInfo {
+    pub clone_variable: String,
+    pub source_variable: String,
+    pub clone_type: RcType,
+    pub line: u32,
+    pub column: u32,
+}
+
+/// Track all Rc::clone() and Arc::clone() calls in a function.
+pub fn track_rc_clones(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<RcCloneInfo> {
+    let body = match function.body() {
+        Some(b) => b,
+        None => return vec![],
+    };
+
+    let mut results = Vec::new();
+
+    for node in body.syntax().descendants() {
+        // Case 1: let b = a.clone() where a is Rc/Arc
+        if let Some(let_stmt) = ast::LetStmt::cast(node.clone()) {
+            if let Some(info) = detect_method_clone(db, sema, display_target, &let_stmt, line_index) {
+                results.push(info);
+                continue;
+            }
+            // Case 2: let b = Rc::clone(&a) or Arc::clone(&a)
+            if let Some(info) = detect_explicit_clone(db, sema, display_target, &let_stmt, line_index) {
+                results.push(info);
+            }
+        }
+    }
+
+    results
+}
+
+/// Detect `let b = a.clone()` where a is Rc<T> or Arc<T>.
+fn detect_method_clone(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    let_stmt: &ast::LetStmt,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Option<RcCloneInfo> {
+    let init = let_stmt.initializer()?;
+    let pat = let_stmt.pat()?;
+
+    // Must be a method call expression
+    let method_call = match &init {
+        ast::Expr::MethodCallExpr(mc) => mc,
+        _ => return None,
+    };
+
+    // Method must be "clone"
+    let method_name = method_call.name_ref()?;
+    if method_name.text() != "clone" {
+        return None;
+    }
+
+    // Get receiver type
+    let receiver = method_call.receiver()?;
+    let receiver_ty = sema.type_of_expr(&receiver)?.original;
+    let receiver_type_str = receiver_ty.display(db, *display_target).to_string();
+
+    // Check if receiver is Rc or Arc
+    let clone_type = classify_rc_arc(&receiver_type_str, &receiver_ty, db)?;
+
+    let clone_variable = pat.syntax().text().to_string().trim().to_string();
+    let source_variable = receiver.syntax().text().to_string().trim().to_string();
+    let (line, column) = line_index(let_stmt.syntax().text_range().start());
+
+    Some(RcCloneInfo {
+        clone_variable,
+        source_variable,
+        clone_type,
+        line,
+        column,
+    })
+}
+
+/// Detect `let b = Rc::clone(&a)` or `Arc::clone(&a)`.
+fn detect_explicit_clone(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    let_stmt: &ast::LetStmt,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Option<RcCloneInfo> {
+    let init = let_stmt.initializer()?;
+    let pat = let_stmt.pat()?;
+
+    // Must be a call expression (not method call)
+    let call_expr = match &init {
+        ast::Expr::CallExpr(c) => c,
+        _ => return None,
+    };
+
+    // Check if the call path contains "Rc::clone" or "Arc::clone"
+    let callee = call_expr.expr()?;
+    let callee_text = callee.syntax().text().to_string();
+
+    let clone_type = if callee_text.contains("Rc::clone") {
+        RcType::Rc
+    } else if callee_text.contains("Arc::clone") {
+        RcType::Arc
+    } else {
+        return None;
+    };
+
+    // Get the source variable from the argument
+    let arg_list = call_expr.arg_list()?;
+    let first_arg = arg_list.args().next()?;
+    // Strip the & from &a
+    let source_variable = first_arg.syntax().text().to_string().trim()
+        .trim_start_matches('&').trim().to_string();
+
+    let clone_variable = pat.syntax().text().to_string().trim().to_string();
+    let (line, column) = line_index(let_stmt.syntax().text_range().start());
+
+    Some(RcCloneInfo {
+        clone_variable,
+        source_variable,
+        clone_type,
+        line,
+        column,
+    })
+}
+
+/// Classify if a type is Rc or Arc based on its display string and ADT path.
+fn classify_rc_arc(
+    type_str: &str,
+    ty: &hir::Type<'_>,
+    db: &RootDatabase,
+) -> Option<RcType> {
+    // Check ADT canonical path
+    if let Some(adt) = ty.as_adt() {
+        let module = adt.module(db);
+        let path: String = module
+            .path_to_root(db)
+            .iter()
+            .rev()
+            .filter_map(|m| m.name(db))
+            .map(|n| n.display_no_db(Edition::Edition2021).to_string())
+            .collect::<Vec<_>>()
+            .join("::");
+        let name = adt.name(db).display_no_db(Edition::Edition2021).to_string();
+        let full_path = format!("{}::{}", path, name).to_lowercase();
+
+        if full_path.contains("rc::rc") || (name == "Rc" && path.contains("rc")) {
+            return Some(RcType::Rc);
+        }
+        if full_path.contains("sync::arc") || (name == "Arc" && path.contains("sync")) {
+            return Some(RcType::Arc);
+        }
+    }
+
+    // Fallback: check display string
+    if type_str.starts_with("Rc<") || type_str.contains("::Rc<") {
+        return Some(RcType::Rc);
+    }
+    if type_str.starts_with("Arc<") || type_str.contains("::Arc<") {
+        return Some(RcType::Arc);
+    }
+
+    None
 }
