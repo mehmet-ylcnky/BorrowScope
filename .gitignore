@@ -30,6 +30,5 @@ borrowscope-macro-intro/
 
 # Not ready for main branch yet
 battle-test/
-borrowscope-lsp/
 .borrowscope/
 .vscode/
