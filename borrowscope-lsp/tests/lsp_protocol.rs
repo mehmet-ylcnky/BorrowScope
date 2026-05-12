@@ -219,6 +219,41 @@ fn test_did_change_updates_content() {
 }
 
 #[test]
+fn test_did_change_multiple_edits_applies_last() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs", "languageId": "rust", "version": 1, "text": "v1" }
+    }));
+    // Full sync mode: multiple contentChanges, last one wins
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs", "version": 2 },
+        "contentChanges": [
+            { "text": "v2_intermediate" },
+            { "text": "v3_final" }
+        ]
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/test.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "v3_final");
+}
+
+#[test]
+fn test_content_not_corrupted_with_special_chars() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let content = "fn main() {\n    let s = \"hello\\nworld\";\n    let r = &s;\n}\n";
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": { "uri": "file:///tmp/test.rs", "languageId": "rust", "version": 1, "text": content }
+    }));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/test.rs"
+    }));
+    assert_eq!(resp["result"]["content"], content);
+}
+
+#[test]
 fn test_did_close_keeps_content() {
     let mut server = TestServer::start();
     server.initialize();
