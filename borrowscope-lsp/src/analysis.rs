@@ -1205,3 +1205,204 @@ fn classify_rc_arc(
 
     None
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 2.7 Conflict Detection
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Type of borrow conflict.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum ConflictKind {
+    MutableAndShared,
+    MultipleMutable,
+}
+
+/// A detected borrow conflict.
+#[derive(Debug, Clone, Serialize)]
+pub struct BorrowConflict {
+    pub variable: String,
+    pub borrow_a: String,
+    pub borrow_b: String,
+    pub kind: ConflictKind,
+    pub overlap_start_line: u32,
+    pub overlap_end_line: u32,
+}
+
+/// Detect borrow conflicts from computed borrow scopes.
+/// Two borrows conflict if they target the same variable, overlap in line range,
+/// and at least one is mutable.
+pub fn detect_conflicts(scopes: &[BorrowScopeInfo]) -> Vec<BorrowConflict> {
+    let mut conflicts = Vec::new();
+
+    for i in 0..scopes.len() {
+        for j in (i + 1)..scopes.len() {
+            let a = &scopes[i];
+            let b = &scopes[j];
+
+            // Must target the same variable
+            if a.target_name != b.target_name {
+                continue;
+            }
+
+            // At least one must be mutable
+            if !a.is_mutable && !b.is_mutable {
+                continue;
+            }
+
+            // Check line overlap
+            let overlap_start = a.start_line.max(b.start_line);
+            let overlap_end = a.end_line.min(b.end_line);
+
+            if overlap_start > overlap_end {
+                continue; // No overlap
+            }
+
+            let kind = if a.is_mutable && b.is_mutable {
+                ConflictKind::MultipleMutable
+            } else {
+                ConflictKind::MutableAndShared
+            };
+
+            conflicts.push(BorrowConflict {
+                variable: a.target_name.clone(),
+                borrow_a: a.borrower_name.clone(),
+                borrow_b: b.borrower_name.clone(),
+                kind,
+                overlap_start_line: overlap_start,
+                overlap_end_line: overlap_end,
+            });
+        }
+    }
+
+    conflicts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scope(borrower: &str, target: &str, mutable: bool, start: u32, end: u32) -> BorrowScopeInfo {
+        BorrowScopeInfo {
+            borrower_name: borrower.to_string(),
+            target_name: target.to_string(),
+            is_mutable: mutable,
+            start_line: start,
+            start_col: 0,
+            end_line: end,
+            end_col: 0,
+        }
+    }
+
+    #[test]
+    fn test_no_conflict_multiple_shared() {
+        let scopes = vec![
+            scope("r1", "x", false, 5, 10),
+            scope("r2", "x", false, 7, 12),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert!(conflicts.is_empty(), "Multiple shared borrows should not conflict");
+    }
+
+    #[test]
+    fn test_conflict_mutable_and_shared() {
+        let scopes = vec![
+            scope("r", "x", false, 5, 10),
+            scope("m", "x", true, 7, 12),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].kind, ConflictKind::MutableAndShared);
+        assert_eq!(conflicts[0].variable, "x");
+    }
+
+    #[test]
+    fn test_conflict_multiple_mutable() {
+        let scopes = vec![
+            scope("m1", "x", true, 5, 10),
+            scope("m2", "x", true, 7, 12),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].kind, ConflictKind::MultipleMutable);
+    }
+
+    #[test]
+    fn test_no_conflict_non_overlapping() {
+        let scopes = vec![
+            scope("m1", "x", true, 5, 10),
+            scope("r1", "x", false, 12, 15),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert!(conflicts.is_empty(), "Non-overlapping borrows should not conflict");
+    }
+
+    #[test]
+    fn test_no_conflict_different_variables() {
+        let scopes = vec![
+            scope("m1", "x", true, 5, 10),
+            scope("m2", "y", true, 5, 10),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert!(conflicts.is_empty(), "Borrows of different variables should not conflict");
+    }
+
+    #[test]
+    fn test_conflict_overlap_boundaries() {
+        // Exact boundary: a ends at line 10, b starts at line 10
+        let scopes = vec![
+            scope("m", "x", true, 5, 10),
+            scope("r", "x", false, 10, 15),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert_eq!(conflicts.len(), 1, "Borrows touching at boundary should conflict (overlap at line 10)");
+    }
+
+    #[test]
+    fn test_no_conflict_adjacent_no_overlap() {
+        // a ends at line 9, b starts at line 10
+        let scopes = vec![
+            scope("m", "x", true, 5, 9),
+            scope("r", "x", false, 10, 15),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert!(conflicts.is_empty(), "Adjacent non-overlapping borrows should not conflict");
+    }
+
+    #[test]
+    fn test_conflict_reports_correct_overlap_range() {
+        let scopes = vec![
+            scope("r", "data", false, 3, 12),
+            scope("m", "data", true, 8, 15),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].overlap_start_line, 8);
+        assert_eq!(conflicts[0].overlap_end_line, 12);
+    }
+
+    #[test]
+    fn test_multiple_conflicts_same_variable() {
+        let scopes = vec![
+            scope("r1", "x", false, 5, 20),
+            scope("m1", "x", true, 8, 12),
+            scope("m2", "x", true, 15, 18),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        // r1 conflicts with m1 (overlap 8-12) and m2 (overlap 15-18)
+        // m1 and m2 don't overlap (12 < 15)
+        assert_eq!(conflicts.len(), 2, "Should have 2 conflicts. Got: {:?}",
+            conflicts.iter().map(|c| (&c.borrow_a, &c.borrow_b)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_conflict_names_correct() {
+        let scopes = vec![
+            scope("reader", "data", false, 5, 10),
+            scope("writer", "data", true, 7, 12),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+        assert_eq!(conflicts[0].borrow_a, "reader");
+        assert_eq!(conflicts[0].borrow_b, "writer");
+        assert_eq!(conflicts[0].variable, "data");
+    }
+}
