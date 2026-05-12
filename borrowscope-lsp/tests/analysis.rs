@@ -132,7 +132,7 @@ fn test_exhaustive_type_extraction() {
         path.to_lowercase().contains("rc"),
         "Path should contain Rc, got: {}", path
     );
-    assert_eq!(info.ownership_category, OwnershipCategory::SharedOwnership);
+    assert_eq!(info.ownership_category, OwnershipCategory::Rc);
 
     // ── RefCell<i32>: Interior mutability ──
     let info = extract_var_info(&db, &vfs, "cell").expect("'cell' not found");
@@ -1260,7 +1260,7 @@ fn test_inlay_hint_semantic_categories() {
     check("v", OwnershipCategory::Owned);          // Vec -> no hint
     check("r", OwnershipCategory::SharedRef);      // &Vec -> [&]
     check("m", OwnershipCategory::MutableRef);     // &mut Vec -> [&mut]
-    check("rc", OwnershipCategory::SharedOwnership); // Rc -> [Rc]
+    check("rc", OwnershipCategory::Rc); // Rc -> [Rc]
     check("cell", OwnershipCategory::InteriorMut); // RefCell -> [Cell]
 
     // Verify positions are valid

@@ -117,7 +117,8 @@ pub enum OwnershipCategory {
     Owned,
     SharedRef,
     MutableRef,
-    SharedOwnership,
+    Rc,
+    Arc,
     InteriorMut,
     RawPointer,
     Copy,
@@ -324,11 +325,14 @@ fn classify_ownership(
         return OwnershipCategory::Copy;
     }
 
-    // Check ADT path for smart pointers
+    // Check ADT path for smart pointers (path is semantically resolved via hir)
     if let Some(ref path) = info.adt_canonical_path {
         let p = path.to_lowercase();
-        if p.contains("rc::rc") || p.contains("sync::arc") || p == "rc" || p.ends_with("::rc") {
-            return OwnershipCategory::SharedOwnership;
+        if p.contains("rc::rc") || p == "rc" || p.ends_with("::rc") {
+            return OwnershipCategory::Rc;
+        }
+        if p.contains("sync::arc") || p == "arc" || p.ends_with("::arc") {
+            return OwnershipCategory::Arc;
         }
         if p.contains("cell::refcell")
             || p.contains("cell::cell")

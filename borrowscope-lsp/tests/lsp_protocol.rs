@@ -665,8 +665,77 @@ fn test_ownership_graph_response_id_matches_request() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 3.2 borrowscope/borrowScopes request tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_borrow_scopes_before_workspace_ready() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/borrowScopes", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"}
+    }));
+    assert_eq!(resp["error"]["code"], -32002);
+}
+
+#[test]
+fn test_borrow_scopes_returns_scopes_field() {
+    // Without workspace, returns error; with workspace would return {scopes: [...]}
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/borrowScopes", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"}
+    }));
+    // Before workspace: error
+    assert!(resp["error"].is_object());
+}
+
+#[test]
+fn test_borrow_scopes_invalid_uri() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/borrowScopes", serde_json::json!({
+        "textDocument": {"uri": "http://invalid"}
+    }));
+    assert!(resp["error"].is_object());
+}
+
+#[test]
+fn test_borrow_scopes_missing_params() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/borrowScopes", serde_json::json!({}));
+    assert!(resp["error"].is_object());
+}
+
+#[test]
+fn test_borrow_scopes_does_not_crash_server() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.request("borrowscope/borrowScopes", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"}
+    }));
+    // Server still responds after
+    let resp = server.request("borrowscope/borrowScopes", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test2.rs"}
+    }));
+    assert!(resp.get("id").is_some());
+}
+
+#[test]
+fn test_borrow_scopes_response_id_matches() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp = server.request("borrowscope/borrowScopes", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/test.rs"}
+    }));
+    assert!(resp["id"].is_number());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 3.3 borrowscope/variableInfo request tests
 // ═══════════════════════════════════════════════════════════════════════════
+
 
 #[test]
 fn test_variable_info_before_workspace_ready() {

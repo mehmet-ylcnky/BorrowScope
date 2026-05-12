@@ -346,7 +346,8 @@ fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Re
                 let label = match &var.ownership_category {
                     borrowscope_lsp::analysis::OwnershipCategory::SharedRef => Some("[&]"),
                     borrowscope_lsp::analysis::OwnershipCategory::MutableRef => Some("[&mut]"),
-                    borrowscope_lsp::analysis::OwnershipCategory::SharedOwnership => if var.type_display.contains("Arc") { Some("[Arc]") } else { Some("[Rc]") },
+                    borrowscope_lsp::analysis::OwnershipCategory::Rc => Some("[Rc]"),
+                    borrowscope_lsp::analysis::OwnershipCategory::Arc => Some("[Arc]"),
                     borrowscope_lsp::analysis::OwnershipCategory::InteriorMut => Some("[Cell]"),
                     borrowscope_lsp::analysis::OwnershipCategory::RawPointer => Some("[*ptr]"),
                     _ => if var.is_closure { Some("[closure]") } else { None },
