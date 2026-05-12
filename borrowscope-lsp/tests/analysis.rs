@@ -1325,3 +1325,62 @@ fn test_inlay_hint_semantic_visible_range_filtering() {
     println!("InlayHint range filtering: {} hints in lines {}-{} (out of {} total vars)",
         visible_hints.len(), visible_start, visible_end, summary.variables.len());
 }
+
+#[test]
+#[ignore]
+fn test_semantic_edge_cases_no_heuristics() {
+    use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = hir::Crate::all(&db).first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let summary = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "semantic_edge_cases").unwrap_or(false)).unwrap();
+        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+    });
+
+    let check = |name: &str, expected: OwnershipCategory| {
+        let var = summary.variables.iter().find(|v| v.name == name)
+            .unwrap_or_else(|| panic!("Variable '{}' not found. Available: {:?}",
+                name, summary.variables.iter().map(|v| &v.name).collect::<Vec<_>>()));
+        assert_eq!(var.ownership_category, expected,
+            "'{}' expected {:?}, got {:?} (type: {})", name, expected, var.ownership_category, var.type_display);
+    };
+
+    // Type alias: `type MyRc<T> = Rc<T>` → hir resolves through alias to Rc
+    check("aliased_rc", OwnershipCategory::Rc);
+
+    // Factory function: `make_rc() -> Rc<i32>` → return type is Rc
+    check("factory_rc", OwnershipCategory::Rc);
+
+    // Complex expression: `&container.field` → is_reference() = true
+    check("field_ref", OwnershipCategory::SharedRef);
+
+    // Vec<&i32> → the Vec itself is Owned (not a reference)
+    check("ref_vec", OwnershipCategory::Owned);
+
+    // &mut data[..] → mutable reference
+    check("slice_mut", OwnershipCategory::MutableRef);
+
+    println!("Semantic edge cases: all 5 cases resolved without heuristics!");
+}
