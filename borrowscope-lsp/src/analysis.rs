@@ -1277,6 +1277,149 @@ pub fn detect_conflicts(scopes: &[BorrowScopeInfo]) -> Vec<BorrowConflict> {
     conflicts
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 2.8 Per-Function Ownership Summary
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Summary statistics for a function's ownership patterns.
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct FunctionStats {
+    pub total_variables: usize,
+    pub total_borrows: usize,
+    pub mutable_borrows: usize,
+    pub moves: usize,
+    pub rc_clones: usize,
+    pub closures: usize,
+    pub conflicts: usize,
+}
+
+/// Complete ownership summary for a single function.
+#[derive(Debug, Clone, Serialize)]
+pub struct FunctionOwnershipSummary {
+    pub function_name: String,
+    pub file: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub variables: Vec<VariableOwnershipInfo>,
+    pub method_calls: Vec<MethodCallResolution>,
+    pub borrow_scopes: Vec<BorrowScopeInfo>,
+    pub moves: Vec<MoveInfo>,
+    pub closures: Vec<ClosureCaptureInfo>,
+    pub rc_clones: Vec<RcCloneInfo>,
+    pub conflicts: Vec<BorrowConflict>,
+    pub stats: FunctionStats,
+}
+
+/// Analyze a complete function and produce its ownership summary.
+pub fn analyze_function(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    file: &str,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> FunctionOwnershipSummary {
+    let function_name = function
+        .name()
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
+
+    let (start_line, _) = line_index(function.syntax().text_range().start());
+    let (end_line, _) = line_index(function.syntax().text_range().end());
+
+    // 2.1: Extract variables
+    let variables = extract_variables(db, sema, display_target, function, file, line_index);
+
+    // 2.2: Resolve method calls
+    let method_calls = function
+        .body()
+        .map(|body| resolve_method_calls(db, sema, display_target, &body))
+        .unwrap_or_default();
+
+    // 2.3: Compute borrow scopes
+    let borrow_scopes = compute_borrow_scopes(db, sema, function, line_index);
+
+    // 2.4: Detect moves
+    let moves = detect_moves(db, sema, display_target, function, line_index);
+
+    // 2.5: Analyze closures
+    let closures = analyze_closures(db, sema, display_target, function, line_index);
+
+    // 2.6: Track Rc/Arc clones
+    let rc_clones = track_rc_clones(db, sema, display_target, function, line_index);
+
+    // 2.7: Detect conflicts
+    let conflicts = detect_conflicts(&borrow_scopes);
+
+    // Stats
+    let stats = FunctionStats {
+        total_variables: variables.len(),
+        total_borrows: borrow_scopes.len(),
+        mutable_borrows: borrow_scopes.iter().filter(|s| s.is_mutable).count(),
+        moves: moves.len(),
+        rc_clones: rc_clones.len(),
+        closures: closures.len(),
+        conflicts: conflicts.len(),
+    };
+
+    FunctionOwnershipSummary {
+        function_name,
+        file: file.to_string(),
+        start_line,
+        end_line,
+        variables,
+        method_calls,
+        borrow_scopes,
+        moves,
+        closures,
+        rc_clones,
+        conflicts,
+        stats,
+    }
+}
+
+/// Extract all variable type info from a function.
+fn extract_variables(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    file: &str,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<VariableOwnershipInfo> {
+    let body = match function.body() {
+        Some(b) => b,
+        None => return vec![],
+    };
+
+    let function_name = function.name().map(|n| n.text().to_string());
+    let mut variables = Vec::new();
+
+    for node in body.syntax().descendants() {
+        if let Some(let_stmt) = ast::LetStmt::cast(node) {
+            if let Some(pat) = let_stmt.pat() {
+                if let Some(ty_info) = sema.type_of_pat(&pat) {
+                    let name = pat.syntax().text().to_string().trim().to_string();
+                    let (line, col) = line_index(pat.syntax().text_range().start());
+                    let info = extract_full_type_info(
+                        db,
+                        display_target,
+                        &ty_info.original,
+                        &name,
+                        file,
+                        line,
+                        col,
+                        function_name.as_deref(),
+                    );
+                    variables.push(info);
+                }
+            }
+        }
+    }
+
+    variables
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1404,5 +1547,53 @@ mod tests {
         assert_eq!(conflicts[0].borrow_a, "reader");
         assert_eq!(conflicts[0].borrow_b, "writer");
         assert_eq!(conflicts[0].variable, "data");
+    }
+
+    #[test]
+    fn test_summary_stats_with_conflicts() {
+        // Simulate what analyze_function produces when there are conflicts
+        let scopes = vec![
+            scope("r", "data", false, 5, 15),
+            scope("m", "data", true, 10, 20),
+        ];
+        let conflicts = detect_conflicts(&scopes);
+
+        let stats = FunctionStats {
+            total_variables: 3,
+            total_borrows: scopes.len(),
+            mutable_borrows: scopes.iter().filter(|s| s.is_mutable).count(),
+            moves: 0,
+            rc_clones: 0,
+            closures: 0,
+            conflicts: conflicts.len(),
+        };
+
+        assert_eq!(stats.conflicts, 1, "Should have 1 conflict");
+        assert!(stats.conflicts > 0);
+        assert_eq!(stats.total_borrows, 2);
+        assert_eq!(stats.mutable_borrows, 1);
+    }
+
+    #[test]
+    fn test_summary_json_serializable() {
+        let summary = FunctionOwnershipSummary {
+            function_name: "test".to_string(),
+            file: "test.rs".to_string(),
+            start_line: 1,
+            end_line: 10,
+            variables: vec![],
+            method_calls: vec![],
+            borrow_scopes: vec![],
+            moves: vec![],
+            closures: vec![],
+            rc_clones: vec![],
+            conflicts: vec![],
+            stats: FunctionStats::default(),
+        };
+        let json = serde_json::to_string(&summary);
+        assert!(json.is_ok());
+        let json_str = json.unwrap();
+        assert!(json_str.contains("\"function_name\":\"test\""));
+        assert!(json_str.contains("\"total_variables\":0"));
     }
 }

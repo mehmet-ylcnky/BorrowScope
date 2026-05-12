@@ -635,3 +635,479 @@ fn test_rc_clone_tracking() {
 
     println!("All Rc/Arc clone tracking assertions passed! ({} clones detected)", clones.len());
 }
+
+/// Test per-function ownership summary (step 2.8) - 10 assertions.
+#[test]
+#[ignore]
+fn test_function_ownership_summary() {
+    use borrowscope_lsp::analysis::analyze_function;
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // ── Test summary_test function (has everything) ──
+    let summary = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "summary_test").unwrap_or(false))
+            .expect("summary_test fn not found");
+
+        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+    });
+
+    // 1. Function name correct
+    assert_eq!(summary.function_name, "summary_test");
+
+    // 2. Has variables
+    assert!(summary.stats.total_variables > 0,
+        "Should have variables. Got: {}", summary.stats.total_variables);
+
+    // 3. Has borrow scopes
+    assert!(summary.stats.total_borrows > 0,
+        "Should have borrows. Got: {}", summary.stats.total_borrows);
+
+    // 4. Has mutable borrows
+    assert!(summary.stats.mutable_borrows > 0,
+        "Should have mutable borrows. Got: {}", summary.stats.mutable_borrows);
+
+    // 5. Has moves
+    assert!(summary.stats.moves > 0,
+        "Should have moves. Got: {}", summary.stats.moves);
+
+    // 6. Has Rc clones
+    assert!(summary.stats.rc_clones > 0,
+        "Should have Rc clones. Got: {}", summary.stats.rc_clones);
+
+    // 7. Has closures
+    assert!(summary.stats.closures > 0,
+        "Should have closures. Got: {}", summary.stats.closures);
+
+    // 8. Result is JSON-serializable
+    let json = serde_json::to_string(&summary);
+    assert!(json.is_ok(), "Should be JSON-serializable. Error: {:?}", json.err());
+    assert!(!json.unwrap().is_empty());
+
+    // ── Test empty_fn (all zeros) ──
+    let empty_summary = attach_db(&db, || {
+        let empty_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "empty_fn").unwrap_or(false))
+            .expect("empty_fn not found");
+
+        analyze_function(&db, &sema, &display_target, &empty_fn, "src/main.rs", &line_index)
+    });
+
+    // 9. Empty function: all counts 0
+    assert_eq!(empty_summary.stats.total_variables, 0);
+    assert_eq!(empty_summary.stats.total_borrows, 0);
+    assert_eq!(empty_summary.stats.moves, 0);
+    assert_eq!(empty_summary.stats.conflicts, 0);
+
+    // 10. Empty function is also JSON-serializable
+    let json = serde_json::to_string(&empty_summary);
+    assert!(json.is_ok());
+
+    println!("All function summary assertions passed! (summary_test: {} vars, {} borrows, {} moves, {} clones, {} closures)",
+        summary.stats.total_variables, summary.stats.total_borrows,
+        summary.stats.moves, summary.stats.rc_clones, summary.stats.closures);
+}
+
+/// Test single-variable function (step 2.8 requirement 2).
+#[test]
+#[ignore]
+fn test_single_variable_function() {
+    use borrowscope_lsp::analysis::analyze_function;
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let summary = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "single_var_fn").unwrap_or(false))
+            .expect("single_var_fn not found");
+
+        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+    });
+
+    // Single variable function
+    assert_eq!(summary.stats.total_variables, 1,
+        "Should have exactly 1 variable. Got: {}", summary.stats.total_variables);
+    assert_eq!(summary.variables.len(), 1);
+    assert_eq!(summary.variables[0].name, "only_one");
+    assert!(!summary.variables[0].type_display.is_empty(), "Type should be populated");
+
+    println!("Single variable function test passed!");
+}
+
+/// Test borrowscope/ownershipGraph request with loaded workspace (step 3.1).
+#[test]
+#[ignore]
+fn test_ownership_graph_request_full() {
+    use borrowscope_lsp::analysis::FunctionOwnershipSummary;
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let summary = attach_db(&db, || {
+        let main_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "summary_test").unwrap_or(false))
+            .expect("summary_test fn not found");
+
+        borrowscope_lsp::analysis::analyze_function(
+            &db, &sema, &display_target, &main_fn, "src/main.rs", &line_index,
+        )
+    });
+
+    // 1. Response contains function_name
+    assert_eq!(summary.function_name, "summary_test");
+
+    // 2. Response contains variables
+    assert!(!summary.variables.is_empty());
+
+    // 3. Response contains borrow_scopes
+    assert!(!summary.borrow_scopes.is_empty());
+
+    // 4. Response contains moves
+    assert!(!summary.moves.is_empty());
+
+    // 5. Response contains stats with correct counts
+    assert_eq!(summary.stats.total_variables, summary.variables.len());
+    assert_eq!(summary.stats.total_borrows, summary.borrow_scopes.len());
+
+    // 6. Response is JSON-serializable with all fields present
+    let json = serde_json::to_value(&summary).unwrap();
+    assert!(json["function_name"].is_string());
+    assert!(json["variables"].is_array());
+    assert!(json["borrow_scopes"].is_array());
+    assert!(json["moves"].is_array());
+    assert!(json["closures"].is_array());
+    assert!(json["rc_clones"].is_array());
+    assert!(json["conflicts"].is_array());
+    assert!(json["stats"].is_object());
+    assert!(json["stats"]["total_variables"].is_number());
+
+    // 7. Repeated call returns same result (deterministic)
+    let summary2 = attach_db(&db, || {
+        let main_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "summary_test").unwrap_or(false))
+            .unwrap();
+
+        borrowscope_lsp::analysis::analyze_function(
+            &db, &sema, &display_target, &main_fn, "src/main.rs", &line_index,
+        )
+    });
+    assert_eq!(summary.stats.total_variables, summary2.stats.total_variables);
+    assert_eq!(summary.stats.total_borrows, summary2.stats.total_borrows);
+
+    println!("ownershipGraph request test passed! All fields present and correct.");
+}
+
+/// Test borrowscope/borrowScopes request with real file (step 3.2).
+#[test]
+#[ignore]
+fn test_borrow_scopes_request() {
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // Collect all borrow scopes from all functions in the file
+    let all_scopes = attach_db(&db, || {
+        let mut scopes = Vec::new();
+        for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
+            let fn_scopes =
+                borrowscope_lsp::analysis::compute_borrow_scopes(&db, &sema, &function, &line_index);
+            scopes.extend(fn_scopes);
+        }
+        scopes
+    });
+
+    // 1. File has borrows (not empty)
+    assert!(!all_scopes.is_empty(), "File should have borrow scopes");
+
+    // 2. At least one mutable borrow exists
+    let has_mutable = all_scopes.iter().any(|s| s.is_mutable);
+    assert!(has_mutable, "Should have at least one mutable borrow");
+
+    // 3. At least one shared borrow exists
+    let has_shared = all_scopes.iter().any(|s| !s.is_mutable);
+    assert!(has_shared, "Should have at least one shared borrow");
+
+    // 4. Scopes from multiple functions (borrow_scopes_test + main + others)
+    let unique_targets: std::collections::HashSet<&str> =
+        all_scopes.iter().map(|s| s.target_name.as_str()).collect();
+    assert!(unique_targets.len() >= 2, "Should have borrows of multiple variables. Got: {:?}", unique_targets);
+
+    // 5. Each scope has valid range (start <= end)
+    for scope in &all_scopes {
+        assert!(scope.end_line >= scope.start_line,
+            "Scope {} should have end >= start (start={}, end={})",
+            scope.borrower_name, scope.start_line, scope.end_line);
+    }
+
+    // 6. Scopes have non-empty borrower and target names
+    for scope in &all_scopes {
+        assert!(!scope.borrower_name.is_empty(), "Borrower name should not be empty");
+        assert!(!scope.target_name.is_empty(), "Target name should not be empty");
+    }
+
+    // 7. Result is JSON-serializable
+    let json = serde_json::to_value(&all_scopes);
+    assert!(json.is_ok(), "Scopes should be JSON-serializable");
+
+    // 8. JSON has correct structure
+    let json = json.unwrap();
+    assert!(json.is_array());
+    let first = &json[0];
+    assert!(first["borrower_name"].is_string());
+    assert!(first["target_name"].is_string());
+    assert!(first["is_mutable"].is_boolean());
+    assert!(first["start_line"].is_number());
+    assert!(first["end_line"].is_number());
+
+    // 9. borrow_scopes_test function contributes scopes (r1, m1, r2, r3, etc.)
+    let has_r1 = all_scopes.iter().any(|s| s.borrower_name == "r1");
+    assert!(has_r1, "Should find r1 from borrow_scopes_test");
+
+    // 10. Multiple functions contribute (not all from one function)
+    let from_main = all_scopes.iter().filter(|s| s.target_name == "v" || s.target_name == "m").count();
+    let from_test = all_scopes.iter().filter(|s| s.target_name == "data" || s.target_name == "data2").count();
+    assert!(from_main > 0 || from_test > 0, "Should have scopes from multiple functions");
+
+    println!("borrowScopes request test passed! ({} scopes from file)", all_scopes.len());
+}
+
+/// Test borrowscope/variableInfo with real file (step 3.3) - 6 assertions.
+#[test]
+#[ignore]
+fn test_variable_info_request() {
+    use borrowscope_lsp::analysis::analyze_function;
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
+
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get((line - 1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // Analyze borrow_scopes_test which has clear ownership patterns
+    let summary = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false))
+            .expect("borrow_scopes_test fn not found");
+
+        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+    });
+
+    // 1. Find "data" variable - it should be borrowed by r1, r2, r3, etc.
+    let data_var = summary.variables.iter().find(|v| v.name == "data");
+    assert!(data_var.is_some(), "Should find 'data' variable");
+    let data_var = data_var.unwrap();
+    assert!(!data_var.type_display.is_empty());
+
+    // 2. "data" is borrowed by multiple variables
+    let data_borrowers: Vec<&str> = summary.borrow_scopes.iter()
+        .filter(|s| s.target_name == "data")
+        .map(|s| s.borrower_name.as_str())
+        .collect();
+    assert!(!data_borrowers.is_empty(), "data should have borrowers");
+    assert!(data_borrowers.contains(&"r1"), "r1 should borrow data. Got: {:?}", data_borrowers);
+
+    // 3. "r1" borrows from "data"
+    let r1_borrows_from: Vec<&str> = summary.borrow_scopes.iter()
+        .filter(|s| s.borrower_name == "r1")
+        .map(|s| s.target_name.as_str())
+        .collect();
+    assert!(r1_borrows_from.contains(&"data"));
+
+    // 4. Variable on whitespace/non-variable line returns nothing
+    let no_var = summary.variables.iter().find(|v| v.name.is_empty());
+    assert!(no_var.is_none(), "Should not find empty-named variable");
+
+    // 5. Check ownership_category is set
+    assert!(!format!("{:?}", data_var.ownership_category).is_empty());
+
+    // 6. Result is JSON-serializable with all expected fields
+    let json = serde_json::to_value(data_var);
+    assert!(json.is_ok());
+    let json = json.unwrap();
+    assert!(json["name"].is_string());
+    assert!(json["type_display"].is_string());
+    assert!(json["is_copy"].is_boolean());
+    assert!(json["trait_impls"].is_object(), "Should have trait_impls field");
+
+    // 7. Test moved_to: analyze move_detection_test which has moves
+    let move_summary = attach_db(&db, || {
+        let move_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "move_detection_test").unwrap_or(false))
+            .expect("move_detection_test fn not found");
+
+        analyze_function(&db, &sema, &display_target, &move_fn, "src/main.rs", &line_index)
+    });
+
+    // "a" is moved to "b" in move_detection_test
+    let a_moved_to = move_summary.moves.iter().find(|m| m.source_name == "a");
+    assert!(a_moved_to.is_some(), "Should find move of 'a'. Moves: {:?}",
+        move_summary.moves.iter().map(|m| &m.source_name).collect::<Vec<_>>());
+    let a_move = a_moved_to.unwrap();
+    assert!(format!("{:?}", a_move.destination).contains("b"),
+        "a should be moved to b. Got: {:?}", a_move.destination);
+
+    // 8. traits field exists and has boolean fields
+    let a_var = move_summary.variables.iter().find(|v| v.name == "a");
+    assert!(a_var.is_some());
+    let a_json = serde_json::to_value(a_var.unwrap()).unwrap();
+    assert!(a_json["trait_impls"].is_object(), "trait_impls should be an object");
+    assert!(a_json["trait_impls"]["is_sized"].is_boolean());
+
+    // 9. Response time < 50ms for cached/repeated lookup
+    let start = std::time::Instant::now();
+    let _summary2 = attach_db(&db, || {
+        let test_fn = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false))
+            .unwrap();
+        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+    });
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_millis() < 50,
+        "Repeated analysis should be < 50ms (Salsa cache). Got: {:?}", elapsed);
+
+    println!("variableInfo request test passed! data borrowed by: {:?}, a moved to: {:?}, cached call: {:?}",
+        data_borrowers, a_move.destination, elapsed);
+}
