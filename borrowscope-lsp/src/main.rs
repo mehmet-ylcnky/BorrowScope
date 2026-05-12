@@ -1,7 +1,4 @@
 //! BorrowScope Language Server
-//!
-//! A language server that provides real-time ownership visualization
-//! for Rust programs using rust-analyzer's semantic engine.
 
 mod capabilities;
 mod handlers;
@@ -9,10 +6,9 @@ mod server;
 mod state;
 mod workspace;
 
-use anyhow::Result;
 use lsp_server::Connection;
 
-fn main() -> Result<()> {
+fn main() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .init();
@@ -21,9 +17,22 @@ fn main() -> Result<()> {
 
     if std::env::args().any(|arg| arg == "--version") {
         println!("borrowscope-lsp {}", env!("CARGO_PKG_VERSION"));
-        return Ok(());
+        std::process::exit(0);
     }
 
+    let exit_code = match run_server() {
+        Ok(true) => 0,  // Clean shutdown
+        Ok(false) => 1, // Disconnected without shutdown
+        Err(e) => {
+            tracing::error!("Server error: {}", e);
+            1
+        }
+    };
+
+    std::process::exit(exit_code);
+}
+
+fn run_server() -> anyhow::Result<bool> {
     let (connection, io_threads) = Connection::stdio();
 
     let (initialize_id, initialize_params) = connection.initialize_start()?;
@@ -39,12 +48,12 @@ fn main() -> Result<()> {
     })?;
     connection.initialize_finish(initialize_id, result)?;
 
-    tracing::info!("Initialized. Loading workspace...");
-
     let state = state::GlobalState::new(&params)?;
-    server::main_loop(&connection, state)?;
+    let shutdown_received = server::main_loop(&connection, state)?;
 
+    // Drop connection to unblock IO threads
+    drop(connection);
     io_threads.join()?;
-    tracing::info!("BorrowScope LSP shut down.");
-    Ok(())
+
+    Ok(shutdown_received)
 }

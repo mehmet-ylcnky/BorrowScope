@@ -7,7 +7,8 @@ use crate::handlers;
 use crate::state::GlobalState;
 use crate::workspace;
 
-pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<()> {
+/// Run the main loop. Returns true if shutdown was received, false if connection dropped.
+pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<bool> {
     // Only attempt workspace loading if Cargo.toml exists
     let cargo_toml = state.root_path.join("Cargo.toml");
     if cargo_toml.exists() {
@@ -22,14 +23,17 @@ pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<()> 
             }
         }
     } else {
-        tracing::warn!("No Cargo.toml at {:?}, skipping workspace loading", state.root_path);
+        tracing::warn!(
+            "No Cargo.toml at {:?}, skipping workspace loading",
+            state.root_path
+        );
     }
 
     for msg in &connection.receiver {
         match msg {
             Message::Request(req) => {
                 if connection.handle_shutdown(&req)? {
-                    return Ok(());
+                    return Ok(true);
                 }
                 handlers::handle_request(&mut state, &connection.sender, req)?;
             }
@@ -40,5 +44,6 @@ pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<()> 
         }
     }
 
-    Ok(())
+    // Connection dropped without shutdown
+    Ok(false)
 }

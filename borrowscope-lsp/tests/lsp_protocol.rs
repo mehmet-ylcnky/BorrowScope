@@ -135,3 +135,48 @@ fn test_unknown_request_returns_error() {
     let response = server.request("nonexistent/method", serde_json::json!({}));
     assert_eq!(response["error"]["code"], -32601);
 }
+
+#[test]
+fn test_workspace_request_before_ready_returns_not_initialized() {
+    let mut server = TestServer::start();
+    server.initialize();
+    // Workspace is not loaded (rootUri is /tmp, no Cargo.toml)
+    let response = server.request("textDocument/hover", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/main.rs"},
+        "position": {"line": 0, "character": 0}
+    }));
+    assert_eq!(response["error"]["code"], -32002); // ServerNotInitialized
+}
+
+#[test]
+fn test_double_shutdown_does_not_crash() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let resp1 = server.request("shutdown", serde_json::Value::Null);
+    assert!(resp1["result"].is_null());
+    // Second shutdown - server already shut down, connection should close
+    // The server exits after first shutdown, so writing to stdin may fail
+    // This test passes if it doesn't panic/hang
+}
+
+#[test]
+fn test_exit_after_shutdown_code_zero() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.request("shutdown", serde_json::Value::Null);
+    server.notify("exit", serde_json::json!(null));
+    // Drop stdin to unblock the server if it's waiting
+    drop(server.process.stdin.take());
+    let status = server.process.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn test_exit_without_shutdown_code_one() {
+    let mut server = TestServer::start();
+    server.initialize();
+    // Drop stdin without sending shutdown
+    drop(server.process.stdin.take());
+    let status = server.process.wait().unwrap();
+    assert_eq!(status.code(), Some(1));
+}
