@@ -1,0 +1,67 @@
+{
+  "name": "borrowscope",
+  "displayName": "BorrowScope",
+  "description": "Real-time ownership visualization for Rust",
+  "version": "0.1.0",
+  "publisher": "borrowscope",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mehmet-ylcnky/BorrowScope"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Visualization"],
+  "activationEvents": ["onLanguage:rust"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "borrowscope.showGraph", "title": "BorrowScope: Show Ownership Graph" },
+      { "command": "borrowscope.inspectVariable", "title": "BorrowScope: Inspect Variable" },
+      { "command": "borrowscope.toggleDecorations", "title": "BorrowScope: Toggle Decorations" },
+      { "command": "borrowscope.restartServer", "title": "BorrowScope: Restart Server" }
+    ],
+    "configuration": {
+      "title": "BorrowScope",
+      "properties": {
+        "borrowscope.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the borrowscope-lsp binary. If empty, searches PATH."
+        },
+        "borrowscope.decorations.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline ownership decorations."
+        },
+        "borrowscope.highlights.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show borrow scope background highlights."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "test": "node out/test/runTest.js",
+    "test:unit": "mocha out/test/suite/**/*.test.js",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.8",
+    "esbuild": "^0.20.0",
+    "eslint": "^8.56.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

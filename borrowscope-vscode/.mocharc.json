@@ -1,0 +1,5 @@
+{
+  "require": [],
+  "timeout": 5000,
+  "spec": "out/test/suite/**/*.test.js"
+}
