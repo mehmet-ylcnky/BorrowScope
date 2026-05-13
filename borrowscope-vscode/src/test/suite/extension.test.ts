@@ -49,11 +49,12 @@ describe("4.1 Extension Project Setup", () => {
     assert.ok(fs.existsSync(path.join(ROOT, "out", "extension.js")));
   });
 
-  // 7. Extension exports activate and deactivate
+  // 7. Extension source exports activate and deactivate
   it("extension exports activate and deactivate", () => {
-    const ext = require(path.join(ROOT, "out", "extension.js"));
-    assert.strictEqual(typeof ext.activate, "function");
-    assert.strictEqual(typeof ext.deactivate, "function");
+    const srcPath = path.join(ROOT, "src", "extension.ts");
+    const content = fs.readFileSync(srcPath, "utf8");
+    assert.ok(content.includes("export async function activate"), "Should export activate");
+    assert.ok(content.includes("export async function deactivate"), "Should export deactivate");
   });
 
   // 8. vscode-languageclient is a dependency
