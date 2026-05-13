@@ -159,4 +159,28 @@ describe("4.2 Language Client Configuration", () => {
     assert.ok(content.includes("stopClient"), "Should import stopClient");
     assert.ok(content.includes("restartClient"), "Should import restartClient");
   });
+
+  // 11. Client passes initialization options to server
+  it("client.ts passes initializationOptions", () => {
+    const srcPath = path.join(ROOT, "src", "client.ts");
+    const content = fs.readFileSync(srcPath, "utf8");
+    assert.ok(content.includes("initializationOptions"), "Should pass initializationOptions");
+    assert.ok(content.includes("decorations"), "Should include decorations setting");
+  });
+
+  // 12. Extension deactivate calls stopClient
+  it("deactivate calls stopClient", () => {
+    const srcPath = path.join(ROOT, "src", "extension.ts");
+    const content = fs.readFileSync(srcPath, "utf8");
+    assert.ok(content.includes("async function deactivate"), "deactivate should be async");
+    assert.ok(content.includes("stopClient()"), "deactivate should call stopClient");
+  });
+
+  // 13. Client uses vscode-languageclient (auto crash recovery)
+  it("client uses LanguageClient with crash recovery", () => {
+    const srcPath = path.join(ROOT, "src", "client.ts");
+    const content = fs.readFileSync(srcPath, "utf8");
+    assert.ok(content.includes("LanguageClient"), "Should use LanguageClient class");
+    assert.ok(content.includes("TransportKind.stdio"), "Should use stdio transport");
+  });
 });
