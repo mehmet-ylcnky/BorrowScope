@@ -12,6 +12,7 @@ interface Lifeline {
   endLine: number;
   color: string;
   label: string;
+  borrower: string;
   isMutable: boolean;
 }
 
@@ -54,6 +55,7 @@ export function applyLifelines(
     endLine: s.range.end.line,
     color: s.is_mutable ? COLORS.mutable : COLORS.shared,
     label: `${s.borrower} borrows ${s.target}`,
+    borrower: s.borrower,
     isMutable: s.is_mutable,
   }));
 
@@ -68,12 +70,15 @@ export function applyLifelines(
 
     for (let line = ll.startLine; line <= ll.endLine; line++) {
       let char: string;
+      let suffix = "";
       if (line === ll.startLine) {
-        char = "├─";  // branch start
+        char = "├─";
+        suffix = ` ⟵ ${ll.isMutable ? "🔴 &mut" : "🔵 &"} ${ll.label}`;
       } else if (line === ll.endLine) {
-        char = "╰─";  // branch end
+        char = "╰─";
+        suffix = ` ⟵ ○ ${ll.borrower} ends`;
       } else {
-        char = "│ ";   // continuation
+        char = "│ ";
       }
 
       decs.push({
@@ -84,6 +89,12 @@ export function applyLifelines(
             color,
             fontWeight: "bold",
           },
+          after: suffix ? {
+            contentText: suffix,
+            color: "rgba(150,150,150,0.7)",
+            fontStyle: "italic",
+            margin: "0 0 0 2em",
+          } as vscode.ThemableDecorationAttachmentRenderOptions : undefined,
         },
         hoverMessage: line === ll.startLine
           ? `Borrow starts: ${ll.label} (${ll.isMutable ? "&mut" : "&"})`
