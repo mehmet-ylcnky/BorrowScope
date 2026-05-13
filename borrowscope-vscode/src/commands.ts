@@ -25,12 +25,24 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
   if (!editor) return;
 
   const targetUri = uri || editor.document.uri.toString();
-  const line = editor.selection.active.line;
+
+  // Find the line for the function — either from name or cursor
+  let line = editor.selection.active.line;
+  if (functionName && editor.document.uri.toString() === targetUri) {
+    // Search for the function declaration in the document
+    for (let i = 0; i < editor.document.lineCount; i++) {
+      const text = editor.document.lineAt(i).text;
+      if (new RegExp(`\\bfn\\s+${functionName}\\b`).test(text)) {
+        line = i;
+        break;
+      }
+    }
+  }
 
   try {
     const graph = await client.sendRequest("borrowscope/ownershipGraph", {
       textDocument: { uri: targetUri },
-      position: { line, character: 0 },
+      position: { line, character: 4 },
     }) as any;
 
     if (!graph) {
