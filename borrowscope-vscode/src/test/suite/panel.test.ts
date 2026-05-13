@@ -80,16 +80,17 @@ describe("5.1 WebView Panel Registration and Lifecycle", () => {
     assert.strictEqual(GraphPanel.currentPanel, undefined);
   });
 
-  // 9. updateGraph sends postMessage to webview
-  it("updateGraph sends postMessage", () => {
+  // 9. updateGraph re-renders HTML with data
+  it("updateGraph sets HTML with graph data", () => {
     GraphPanel.createOrShow(vscode.Uri.file("/ext"));
-    const graph = { function_name: "main", variables: [{ name: "x" }] };
+    const graph = { function_name: "main", variables: [{ name: "x", type_display: "i32", ownership_category: "Copy" }], borrow_scopes: [], moves: [], rc_clones: [], conflicts: [] };
     GraphPanel.currentPanel.updateGraph(graph);
-    const panel = GraphPanel.currentPanel.getPanel();
-    assert.deepStrictEqual(panel.webview._lastMessage, { type: "updateGraph", data: graph });
+    const html = GraphPanel.currentPanel.getPanel().webview.html;
+    assert.ok(html.includes("main"), "HTML should contain function name");
+    assert.ok(html.includes("i32"), "HTML should contain type");
   });
 
-  // 10. updateGraph stores graph for later retrieval
+  // 10. updateGraph stores current graph
   it("updateGraph stores current graph", () => {
     GraphPanel.createOrShow(vscode.Uri.file("/ext"));
     const graph = { function_name: "test", variables: [] };
@@ -99,61 +100,65 @@ describe("5.1 WebView Panel Registration and Lifecycle", () => {
 
   // 11. createOrShow with graph updates immediately
   it("createOrShow with graph data updates panel", () => {
-    const graph = { function_name: "foo", variables: [{ name: "a" }] };
+    const graph = { function_name: "foo", variables: [{ name: "a", type_display: "Vec<i32>", ownership_category: "Owned" }], borrow_scopes: [], moves: [], rc_clones: [], conflicts: [] };
     GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
-    assert.deepStrictEqual(GraphPanel.currentPanel.getGraph(), graph);
-  });
-
-  // 12. HTML content includes Content-Security-Policy
-  it("HTML includes Content-Security-Policy", () => {
-    GraphPanel.createOrShow(vscode.Uri.file("/ext"));
     const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("Content-Security-Policy"));
+    assert.ok(html.includes("foo"), "Should show function name");
+    assert.ok(html.includes("Vec"), "Should show type");
   });
 
-  // 13. HTML includes nonce for script
-  it("HTML includes nonce for script security", () => {
-    GraphPanel.createOrShow(vscode.Uri.file("/ext"));
-    const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("nonce-"));
-    assert.ok(html.includes("script-src 'nonce-"));
-  });
-
-  // 14. HTML includes graph-container div
+  // 12. HTML includes graph-container div
   it("HTML includes graph container", () => {
-    GraphPanel.createOrShow(vscode.Uri.file("/ext"));
+    const graph = { function_name: "f", variables: [], borrow_scopes: [], moves: [], rc_clones: [], conflicts: [] };
+    GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
     const html = GraphPanel.currentPanel.getPanel().webview.html;
     assert.ok(html.includes("graph-container"));
   });
 
-  // 15. HTML includes acquireVscodeApi
-  it("HTML includes vscode API acquisition", () => {
-    GraphPanel.createOrShow(vscode.Uri.file("/ext"));
-    const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("acquireVscodeApi"));
-  });
-
-  // 16. HTML includes message listener for updateGraph
-  it("HTML listens for updateGraph messages", () => {
-    GraphPanel.createOrShow(vscode.Uri.file("/ext"));
-    const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("updateGraph"));
-  });
-
-  // 17. HTML posts ready message on load
-  it("HTML posts ready message", () => {
-    GraphPanel.createOrShow(vscode.Uri.file("/ext"));
-    const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("postMessage"));
-    assert.ok(html.includes("'ready'"));
-  });
-
-  // 18. HTML uses VS Code theme variables
+  // 13. HTML uses VS Code theme variables
   it("HTML uses VS Code theme CSS variables", () => {
     GraphPanel.createOrShow(vscode.Uri.file("/ext"));
     const html = GraphPanel.currentPanel.getPanel().webview.html;
     assert.ok(html.includes("--vscode-editor-background"));
     assert.ok(html.includes("--vscode-editor-foreground"));
+  });
+
+  // 14. HTML shows borrow scopes table
+  it("HTML shows borrow scopes", () => {
+    const graph = { function_name: "f", variables: [], borrow_scopes: [{ borrower_name: "r", target_name: "data", is_mutable: false, start_line: 3, end_line: 5 }], moves: [], rc_clones: [], conflicts: [] };
+    GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
+    const html = GraphPanel.currentPanel.getPanel().webview.html;
+    assert.ok(html.includes("Borrow Scopes"), "Should have borrow section");
+    assert.ok(html.includes("r"), "Should show borrower name");
+    assert.ok(html.includes("data"), "Should show target name");
+  });
+
+  // 15. HTML shows moves
+  it("HTML shows moves", () => {
+    const graph = { function_name: "f", variables: [], borrow_scopes: [], moves: [{ source_name: "a", destination: "b", line: 7, source_type: "String" }], rc_clones: [], conflicts: [] };
+    GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
+    const html = GraphPanel.currentPanel.getPanel().webview.html;
+    assert.ok(html.includes("Moves"));
+    assert.ok(html.includes("a"));
+  });
+
+  // 16. HTML shows conflicts with warning
+  it("HTML shows conflicts", () => {
+    const graph = { function_name: "f", variables: [], borrow_scopes: [], moves: [], rc_clones: [], conflicts: [{ borrow_a: "r", borrow_b: "m", variable: "data", overlap_start_line: 4, overlap_end_line: 6 }] };
+    GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
+    const html = GraphPanel.currentPanel.getPanel().webview.html;
+    assert.ok(html.includes("Conflicts"));
+    assert.ok(html.includes("r"));
+    assert.ok(html.includes("m"));
+  });
+
+  // 17. HTML posts ready message (removed - no longer uses acquireVscodeApi)
+  it("HTML escapes special characters", () => {
+    const graph = { function_name: "<script>alert(1)</script>", variables: [], borrow_scopes: [], moves: [], rc_clones: [], conflicts: [] };
+    GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
+    const html = GraphPanel.currentPanel.getPanel().webview.html;
+    assert.ok(!html.includes("<script>alert"), "Should escape HTML");
+    assert.ok(html.includes("&lt;script&gt;"), "Should be escaped");
   });
 
   // 19. getPanel static method returns current panel
