@@ -31,11 +31,7 @@ pub fn handle(
         "borrowscope/variableInfo" => handle_variable_info(state, sender, req)?,
         "textDocument/codeLens" => handle_code_lens(state, sender, req)?,
         "textDocument/inlayHint" => handle_inlay_hints(state, sender, req)?,
-        "textDocument/hover" => {
-            // Return null (no hover content) - prevents "method not found" error
-            let resp = Response::new_ok(req.id, serde_json::Value::Null);
-            sender.send(Message::Response(resp))?;
-        }
+        "textDocument/hover" => handle_hover(state, sender, req)?,
         "borrowscope/debug/fileContent" => {
             let params: serde_json::Value = serde_json::from_value(req.params)?;
             let uri = params["uri"].as_str().unwrap_or("");
@@ -268,6 +264,86 @@ fn handle_variable_info(state: &mut GlobalState, sender: &Sender<Message>, req: 
     });
 
     sender.send(Message::Response(Response::new_ok(req.id, result.unwrap_or(serde_json::Value::Null))))?;
+    Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// textDocument/hover — ownership info on hover
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn handle_hover(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+    let params: TextDocPositionParams = serde_json::from_value(req.params)?;
+    let ws = match &state.workspace {
+        Some(ws) => ws,
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+    let uri_str = params.text_document.uri.as_str();
+    let file_path = match uri_str.strip_prefix("file://") {
+        Some(p) => p.to_string(),
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+    let vfs_path = ra_ap_vfs::VfsPath::new_real_path(file_path.clone());
+    let file_id = match ws.vfs.file_id(&vfs_path) {
+        Some((fid, _)) => fid,
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode};
+    use ra_ap_syntax::ast::HasName;
+
+    let sema = Semantics::new(&ws.db);
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = match hir::Crate::all(&ws.db).first() {
+        Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+
+    let file_content = state.get_file_content(uri_str).unwrap_or("");
+    let line_index = build_line_index(file_content);
+    let target_line = params.position.line;
+
+    let hover = attach_db(&ws.db, || -> Option<String> {
+        let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
+            let (s, _) = line_index(f.syntax().text_range().start());
+            let (e, _) = line_index(f.syntax().text_range().end());
+            target_line >= s.saturating_sub(1) && target_line <= e
+        })?;
+
+        let summary = borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index);
+        let var = summary.variables.iter().find(|v| v.line == target_line + 1)?;
+
+        let borrowed_by: Vec<&str> = summary.borrow_scopes.iter()
+            .filter(|s| s.target_name == var.name)
+            .map(|s| s.borrower_name.as_str()).collect();
+        let borrows_from: Vec<&str> = summary.borrow_scopes.iter()
+            .filter(|s| s.borrower_name == var.name)
+            .map(|s| s.target_name.as_str()).collect();
+        let moved_to = summary.moves.iter()
+            .find(|m| m.source_name == var.name)
+            .map(|m| format!("{:?}", m.destination));
+
+        let mut md = format!("**{}** `{}`\n\n", var.name, var.type_display);
+        md.push_str(&format!("**Ownership:** `{:?}`\n\n", var.ownership_category));
+
+        if var.is_copy { md.push_str("• Copy type\n\n"); }
+        if !borrows_from.is_empty() { md.push_str(&format!("• Borrows from: `{}`\n\n", borrows_from.join("`, `"))); }
+        if !borrowed_by.is_empty() { md.push_str(&format!("• Borrowed by: `{}`\n\n", borrowed_by.join("`, `"))); }
+        if let Some(dest) = moved_to { md.push_str(&format!("• Moved to: `{}`\n\n", dest)); }
+        if let Some(size) = var.layout_size { md.push_str(&format!("• Size: {} bytes\n\n", size)); }
+
+        Some(md)
+    });
+
+    let result = match hover {
+        Some(content) => serde_json::json!({
+            "contents": { "kind": "markdown", "value": content }
+        }),
+        None => serde_json::Value::Null,
+    };
+
+    sender.send(Message::Response(Response::new_ok(req.id, result)))?;
     Ok(())
 }
 
