@@ -74,6 +74,29 @@ export class GraphPanel {
     this._extensionUri = extensionUri;
     this._panel.webview.html = this._buildHtml(undefined);
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+    // Handle messages from WebView
+    this._panel.webview.onDidReceiveMessage(
+      (message) => {
+        if (message.type === "nodeClicked" && message.line > 0) {
+          // Navigate to the line in the active editor
+          const editor = vscode.window.visibleTextEditors.find(
+            (e) => e.document.languageId === "rust"
+          );
+          if (editor) {
+            const pos = new vscode.Position(message.line - 1, 0);
+            editor.selection = new vscode.Selection(pos, pos);
+            editor.revealRange(
+              new vscode.Range(pos, pos),
+              vscode.TextEditorRevealType.InCenter
+            );
+            vscode.window.showTextDocument(editor.document, editor.viewColumn);
+          }
+        }
+      },
+      null,
+      this._disposables
+    );
   }
 
   public updateGraph(graph: any): void {
@@ -184,6 +207,10 @@ export class GraphPanel {
   <script src="${d3Uri}"></script>
   <script>
     (function() {
+      // VS Code WebView API for messaging back to extension
+      let vscodeApi;
+      try { vscodeApi = acquireVsCodeApi(); } catch(e) { vscodeApi = null; }
+
       const data = ${graphJson};
       const container = document.getElementById('graph-container');
       const width = container.clientWidth || 600;
@@ -347,7 +374,12 @@ export class GraphPanel {
 
       // Graph node hover -> highlight table
       node.on('mouseover', (event, d) => highlightVariable(d.name))
-          .on('mouseout', () => clearHighlight());
+          .on('mouseout', () => clearHighlight())
+          .on('click', (event, d) => {
+            if (vscodeApi && d.line > 0) {
+              vscodeApi.postMessage({ type: 'nodeClicked', file: '', line: d.line });
+            }
+          });
 
       // Table row hover -> highlight graph
       document.querySelectorAll('#tables tr[data-var]').forEach(row => {
