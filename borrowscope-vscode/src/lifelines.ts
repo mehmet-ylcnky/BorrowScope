@@ -7,120 +7,219 @@ export interface BorrowScope {
   range: { start: { line: number }; end: { line: number } };
 }
 
-interface Lifeline {
-  startLine: number;
-  endLine: number;
-  color: string;
-  label: string;
-  borrower: string;
-  target: string;
-  isMutable: boolean;
+export interface OwnershipGraph {
+  function_name: string;
+  start_line: number;
+  end_line: number;
+  variables: Array<{ name: string; line: number; ownership_category: string }>;
+  borrow_scopes: BorrowScope[];
+  moves: Array<{ source_name: string; line: number; destination: any; source_type: string }>;
+  rc_clones: Array<{ clone_variable: string; source_variable: string; clone_type: string; line: number }>;
+  conflicts: Array<{ variable: string; borrow_a: string; borrow_b: string; overlap_start_line: number; overlap_end_line: number }>;
 }
 
 const COLORS = {
+  owner: "#2ecc71",     // green
   shared: "#3498db",    // blue
   mutable: "#e74c3c",   // red
-  owner: "#2ecc71",     // green
   rc: "#9b59b6",        // purple
   conflict: "#f1c40f",  // yellow
+  move: "#e67e22",      // orange
 };
 
-// Decoration types for flow characters (one per color)
-const flowDecorationTypes: Map<string, vscode.TextEditorDecorationType> = new Map();
+// One decoration type per color — supports renderOptions per-item
+const lifelineDecorationTypes: Map<string, vscode.TextEditorDecorationType> = new Map();
 
-function getFlowDecorationType(color: string): vscode.TextEditorDecorationType {
-  if (flowDecorationTypes.has(color)) return flowDecorationTypes.get(color)!;
+function getDecorationType(color: string): vscode.TextEditorDecorationType {
+  if (lifelineDecorationTypes.has(color)) return lifelineDecorationTypes.get(color)!;
   const dt = vscode.window.createTextEditorDecorationType({
-    before: {
-      color,
-      margin: "0 0.5em 0 0",
-      fontWeight: "bold",
-    } as vscode.ThemableDecorationAttachmentRenderOptions,
+    isWholeLine: true,
   });
-  flowDecorationTypes.set(color, dt);
+  lifelineDecorationTypes.set(color, dt);
   return dt;
+}
+
+interface LineDecoration {
+  line: number;
+  char: string;
+  suffix: string;
+  color: string;
+  hover: string;
+}
+
+export function buildLifelineDecorations(
+  scopes: BorrowScope[],
+  graph?: OwnershipGraph
+): LineDecoration[] {
+  const decorations: LineDecoration[] = [];
+
+  // 1. Owner lifelines (green) — from variable creation to function end or move
+  if (graph) {
+    for (const v of graph.variables) {
+      if (v.ownership_category === "Owned") {
+        const startLine = v.line - 1; // 0-indexed
+        // Check if moved
+        const move = graph.moves.find((m) => m.source_name === v.name);
+        const endLine = move ? move.line - 1 : graph.end_line - 1;
+
+        for (let line = startLine; line <= endLine; line++) {
+          let char = "│ ";
+          let suffix = "";
+          if (line === startLine) {
+            char = "┌─";
+            suffix = ` ⊕ ${v.name} created`;
+          } else if (line === endLine && move) {
+            char = "└─";
+            suffix = ` ↦ ${v.name} moved`;
+          } else if (line === endLine) {
+            char = "└─";
+            suffix = ` 💀 ${v.name} dropped`;
+          }
+          decorations.push({
+            line, char, suffix, color: COLORS.owner,
+            hover: `Owner: ${v.name} (${v.ownership_category})`,
+          });
+        }
+      }
+    }
+  }
+
+  // 2. Shared borrow lifelines (blue)
+  for (const s of scopes.filter((s) => !s.is_mutable)) {
+    for (let line = s.range.start.line; line <= s.range.end.line; line++) {
+      let char = "│ ";
+      let suffix = "";
+      if (line === s.range.start.line) {
+        char = "├─";
+        suffix = ` 👁 &${s.borrower} ⟵ ${s.target}`;
+      } else if (line === s.range.end.line) {
+        char = "╰─";
+        suffix = ` 💧 ${s.borrower} released`;
+      }
+      decorations.push({
+        line, char, suffix, color: COLORS.shared,
+        hover: `& borrow: ${s.borrower} reads ${s.target}`,
+      });
+    }
+  }
+
+  // 3. Mutable borrow lifelines (red)
+  for (const s of scopes.filter((s) => s.is_mutable)) {
+    for (let line = s.range.start.line; line <= s.range.end.line; line++) {
+      let char = "│ ";
+      let suffix = "";
+      if (line === s.range.start.line) {
+        char = "├─";
+        suffix = ` 🔒 &mut ${s.borrower} ⟵ ${s.target}`;
+      } else if (line === s.range.end.line) {
+        char = "╰─";
+        suffix = ` 💧 ${s.borrower} released`;
+      }
+      decorations.push({
+        line, char, suffix, color: COLORS.mutable,
+        hover: `&mut borrow: ${s.borrower} exclusively locks ${s.target}`,
+      });
+    }
+  }
+
+  // 4. Rc/Arc clone lifelines (purple)
+  if (graph) {
+    for (const rc of graph.rc_clones) {
+      const startLine = rc.line - 1;
+      const endLine = graph.end_line - 1;
+      for (let line = startLine; line <= endLine; line++) {
+        let char = "│ ";
+        let suffix = "";
+        if (line === startLine) {
+          char = "├─";
+          suffix = ` 🔗 ${rc.clone_variable} cloned from ${rc.source_variable}`;
+        } else if (line === endLine) {
+          char = "╰─";
+          suffix = ` 🔗 ${rc.clone_variable} dropped`;
+        }
+        decorations.push({
+          line, char, suffix, color: COLORS.rc,
+          hover: `${rc.clone_type}: ${rc.clone_variable} shares ownership with ${rc.source_variable}`,
+        });
+      }
+    }
+  }
+
+  // 5. Conflict zones (yellow)
+  if (graph) {
+    for (const c of graph.conflicts) {
+      for (let line = c.overlap_start_line - 1; line <= c.overlap_end_line - 1; line++) {
+        let suffix = "";
+        if (line === c.overlap_start_line - 1) {
+          suffix = ` ⚠️ ${c.borrow_a} and ${c.borrow_b} overlap on ${c.variable}`;
+        }
+        decorations.push({
+          line, char: "┃ ", suffix, color: COLORS.conflict,
+          hover: `Conflict: ${c.borrow_a} and ${c.borrow_b} both borrow ${c.variable}`,
+        });
+      }
+    }
+  }
+
+  // 6. Move events (orange, single line)
+  if (graph) {
+    for (const m of graph.moves) {
+      const line = m.line - 1;
+      const dest = typeof m.destination === "string" ? m.destination : JSON.stringify(m.destination);
+      decorations.push({
+        line, char: "↦ ", suffix: ` ${m.source_name} moved to ${dest}`,
+        color: COLORS.move,
+        hover: `Move: ${m.source_name} (${m.source_type}) ownership transferred`,
+      });
+    }
+  }
+
+  return decorations;
 }
 
 export function applyLifelines(
   editor: vscode.TextEditor,
-  scopes: BorrowScope[]
+  scopes: BorrowScope[],
+  graph?: OwnershipGraph
 ): void {
   if (!isLifelinesEnabled()) {
     clearLifelines(editor);
     return;
   }
 
-  // Convert scopes to lifelines
-  const lifelines: Lifeline[] = scopes.map((s) => ({
-    startLine: s.range.start.line,
-    endLine: s.range.end.line,
-    color: s.is_mutable ? COLORS.mutable : COLORS.shared,
-    label: `${s.borrower} borrows ${s.target}`,
-    borrower: s.borrower,
-    target: s.target,
-    isMutable: s.is_mutable,
-  }));
+  const decorations = buildLifelineDecorations(scopes, graph);
 
-  // Build per-line flow characters
-  // Group decorations by color
-  const decorationsByColor: Map<string, vscode.DecorationOptions[]> = new Map();
-
-  for (const ll of lifelines) {
-    const color = ll.color;
-    if (!decorationsByColor.has(color)) decorationsByColor.set(color, []);
-    const decs = decorationsByColor.get(color)!;
-
-    for (let line = ll.startLine; line <= ll.endLine; line++) {
-      let char: string;
-      let suffix = "";
-      if (line === ll.startLine) {
-        char = "├─";
-        suffix = ll.isMutable
-          ? ` 🔒 &mut ${ll.borrower} ⟵ ${ll.target}`
-          : ` 👁 &${ll.borrower} ⟵ ${ll.target}`;
-      } else if (line === ll.endLine) {
-        char = "╰─";
-        suffix = ` 💧 ${ll.borrower} released`;
-      } else {
-        char = "│ ";
-      }
-
-      decs.push({
-        range: new vscode.Range(line, 0, line, 0),
-        renderOptions: {
-          before: {
-            contentText: char,
-            color,
-            fontWeight: "bold",
-          },
-          after: suffix ? {
-            contentText: suffix,
-            color: "rgba(150,150,150,0.7)",
-            fontStyle: "italic",
-            margin: "0 0 0 2em",
-          } as vscode.ThemableDecorationAttachmentRenderOptions : undefined,
-        },
-        hoverMessage: line === ll.startLine
-          ? `Borrow starts: ${ll.label} (${ll.isMutable ? "&mut" : "&"})`
-          : line === ll.endLine
-          ? `Borrow ends: ${ll.label}`
-          : `${ll.isMutable ? "&mut" : "&"} borrow active`,
-      });
-    }
+  // Group by color
+  const grouped: Map<string, vscode.DecorationOptions[]> = new Map();
+  for (const d of decorations) {
+    if (!grouped.has(d.color)) grouped.set(d.color, []);
+    grouped.get(d.color)!.push({
+      range: new vscode.Range(d.line, 0, d.line, 0),
+      renderOptions: {
+        before: { contentText: d.char, color: d.color, fontWeight: "bold" },
+        after: d.suffix ? {
+          contentText: d.suffix,
+          color: "rgba(150,150,150,0.7)",
+          fontStyle: "italic",
+          margin: "0 0 0 2em",
+        } as vscode.ThemableDecorationAttachmentRenderOptions : undefined,
+      },
+      hoverMessage: d.hover,
+    });
   }
 
-  // Clear all existing
+  // Clear existing
   clearLifelines(editor);
 
-  // Apply per-color decorations
-  for (const [color, decs] of decorationsByColor) {
-    const dt = getFlowDecorationType(color);
+  // Apply
+  for (const [color, decs] of grouped) {
+    const dt = getDecorationType(color);
     editor.setDecorations(dt, decs);
   }
 }
 
 export function clearLifelines(editor: vscode.TextEditor): void {
-  for (const dt of flowDecorationTypes.values()) {
+  for (const dt of lifelineDecorationTypes.values()) {
     editor.setDecorations(dt, []);
   }
 }
@@ -132,8 +231,8 @@ export function isLifelinesEnabled(): boolean {
 }
 
 export function disposeLifelines(): void {
-  for (const dt of flowDecorationTypes.values()) {
+  for (const dt of lifelineDecorationTypes.values()) {
     dt.dispose();
   }
-  flowDecorationTypes.clear();
+  lifelineDecorationTypes.clear();
 }
