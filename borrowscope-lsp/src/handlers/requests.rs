@@ -31,6 +31,11 @@ pub fn handle(
         "borrowscope/variableInfo" => handle_variable_info(state, sender, req)?,
         "textDocument/codeLens" => handle_code_lens(state, sender, req)?,
         "textDocument/inlayHint" => handle_inlay_hints(state, sender, req)?,
+        "textDocument/hover" => {
+            // Return null (no hover content) - prevents "method not found" error
+            let resp = Response::new_ok(req.id, serde_json::Value::Null);
+            sender.send(Message::Response(resp))?;
+        }
         "borrowscope/debug/fileContent" => {
             let params: serde_json::Value = serde_json::from_value(req.params)?;
             let uri = params["uri"].as_str().unwrap_or("");
