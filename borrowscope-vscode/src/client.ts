@@ -119,18 +119,35 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];
 
-    // Fetch full ownership graph for owner lifelines, moves, rc_clones, conflicts
+    // Fetch ownership graphs for all functions in the file
     let graph: OwnershipGraph | undefined;
     try {
-      // Request graph at cursor line (use line 0 to get first function, or iterate)
-      const graphResponse = await client.sendRequest("borrowscope/ownershipGraph", {
-        textDocument: { uri: editor.document.uri.toString() },
-        position: { line: 0, character: 0 },
-      });
-      if (graphResponse) graph = graphResponse as OwnershipGraph;
-    } catch {
-      // Graph not available (cursor not in function) — use scopes only
-    }
+      const graphs: OwnershipGraph[] = [];
+      for (let line = 0; line < editor.document.lineCount; line++) {
+        const text = editor.document.lineAt(line).text;
+        if (/^\s*(pub\s+)?(async\s+)?fn\s+/.test(text)) {
+          try {
+            const resp = await client.sendRequest("borrowscope/ownershipGraph", {
+              textDocument: { uri: editor.document.uri.toString() },
+              position: { line, character: 4 },
+            });
+            if (resp) graphs.push(resp as OwnershipGraph);
+          } catch { /* skip */ }
+        }
+      }
+      if (graphs.length > 0) {
+        graph = {
+          function_name: "all",
+          start_line: Math.min(...graphs.map(g => g.start_line)),
+          end_line: Math.max(...graphs.map(g => g.end_line)),
+          variables: graphs.flatMap(g => g.variables || []),
+          borrow_scopes: graphs.flatMap(g => g.borrow_scopes || []),
+          moves: graphs.flatMap(g => g.moves || []),
+          rc_clones: graphs.flatMap(g => g.rc_clones || []),
+          conflicts: graphs.flatMap(g => g.conflicts || []),
+        };
+      }
+    } catch { /* graph not available */ }
 
     applyLifelines(editor, scopes, graph);
   } catch {
