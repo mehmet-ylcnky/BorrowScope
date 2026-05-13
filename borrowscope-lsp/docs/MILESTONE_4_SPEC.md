@@ -302,12 +302,49 @@ fn example() {
 
 ---
 
-## 4.5 Gutter Icons
+## 4.5 Gutter Icons and Lifecycle Flow Lines
 
-**Objective:** Show small icons in the editor gutter (left margin) indicating ownership events: borrow start (blue dot), borrow end (blue circle), move (green arrow), drop (red X). These provide a visual timeline of ownership changes without reading the code.
+**Objective:** Show ownership lifecycle as colored vertical lines in the gutter/left border, plus small icons for key events. Each borrow phase gets a distinct colored line showing its active duration — similar to git branch flow visualization.
+
+**Lifecycle Phase Colors:**
+- 🟢 Green line — owner alive (from creation to drop/move)
+- 🔵 Blue line — shared borrow active (from `&x` to last use)
+- 🔴 Red line — mutable borrow active (from `&mut x` to last use)
+- 🟣 Purple line — Rc/Arc clone alive
+- ⚠️ Yellow overlap — conflict zone (two incompatible borrows overlap)
+
+**Gutter Icons (at key events):**
+- ● Blue dot — shared borrow starts
+- ● Red dot — mutable borrow starts
+- ○ Circle — borrow ends (last use)
+- → Arrow — move happened
+- ✕ Red X — drop
 
 **Code:**
 ```typescript
+// Lifecycle flow lines using borderLeft on whole lines
+const ownerLifeline = vscode.window.createTextEditorDecorationType({
+    borderLeft: '3px solid rgba(46, 204, 113, 0.5)',  // green
+    isWholeLine: true,
+});
+const sharedBorrowLifeline = vscode.window.createTextEditorDecorationType({
+    borderLeft: '3px solid rgba(52, 152, 219, 0.6)',  // blue
+    isWholeLine: true,
+});
+const mutBorrowLifeline = vscode.window.createTextEditorDecorationType({
+    borderLeft: '3px solid rgba(231, 76, 60, 0.6)',   // red
+    isWholeLine: true,
+});
+const rcLifeline = vscode.window.createTextEditorDecorationType({
+    borderLeft: '3px solid rgba(155, 89, 182, 0.5)',  // purple
+    isWholeLine: true,
+});
+const conflictLifeline = vscode.window.createTextEditorDecorationType({
+    borderLeft: '3px solid rgba(241, 196, 15, 0.8)',  // yellow warning
+    isWholeLine: true,
+});
+
+// Gutter icons for key events
 const borrowStartIcon = vscode.window.createTextEditorDecorationType({
     gutterIconPath: context.asAbsolutePath('media/icons/borrow-start.svg'),
     gutterIconSize: '80%',
@@ -320,68 +357,52 @@ const moveIcon = vscode.window.createTextEditorDecorationType({
     gutterIconPath: context.asAbsolutePath('media/icons/move.svg'),
     gutterIconSize: '80%',
 });
-
-function updateGutterIcons(editor: vscode.TextEditor, scopes: BorrowScopeRange[], moves: MoveInfo[]) {
-    const borrowStarts: vscode.DecorationOptions[] = scopes.map(s => ({
-        range: new vscode.Range(s.range.start.line, 0, s.range.start.line, 0),
-        hoverMessage: `Borrow: ${s.borrower} borrows ${s.target} (${s.is_mutable ? '&mut' : '&'})`,
-    }));
-
-    const borrowEnds: vscode.DecorationOptions[] = scopes.map(s => ({
-        range: new vscode.Range(s.range.end.line, 0, s.range.end.line, 0),
-        hoverMessage: `Borrow ends: ${s.borrower} released`,
-    }));
-
-    const moveDecorations: vscode.DecorationOptions[] = moves.map(m => ({
-        range: new vscode.Range(m.line, 0, m.line, 0),
-        hoverMessage: `Move: ${m.source_name} → ${m.destination}`,
-    }));
-
-    editor.setDecorations(borrowStartIcon, borrowStarts);
-    editor.setDecorations(borrowEndIcon, borrowEnds);
-    editor.setDecorations(moveIcon, moveDecorations);
-}
 ```
 
-**Gutter appearance:**
-```
-    │ fn example() {
-    │     let data = vec![1, 2, 3];
-  ● │     let r = &data;              ← blue dot: borrow starts
-    │     println!("{}", r);
-  ○ │     // r's last use              ← blue circle: borrow ends
-  → │     let moved = data;            ← green arrow: move
-    │ }
+**Appearance:**
+```rust
+fn example() {
+  ┃ green   let data = vec![1, 2, 3];     // owner alive
+  ┃ green
+  ┃ ┃ blue  let r = &data;               // shared borrow starts
+  ┃ ┃ blue  println!("{}", r);            // borrow active
+  ┃ ┃ blue  use_ref(r);                   // last use → borrow ends
+  ┃
+  ┃ ┃ red   let m = &mut data;           // mutable borrow starts
+  ┃ ┃ red   m.push(4);                   // last use → borrow ends
+  ┃
+  ┃         drop(data);                    // owner dropped → green ends
 ```
 
-**Expectation:** Gutter icons provide a scannable visual summary of ownership events. Hovering over an icon shows details.
+**Expectation:** Developers can visually trace borrow lifecycles like git branch flows. Nested borrows show as nested colored lines. Conflicts are immediately visible as yellow lines.
 
 **Tests for 4.5:**
-- Borrow start shows blue dot on correct line
-- Borrow end shows circle on last-use line
-- Move shows arrow on move line
-- Hover message contains variable names
-- Icons update after file edit
-- Icons disappear when gutter decorations disabled in settings
-- No icons for files without ownership events
+- Owner lifeline (green) spans from variable creation to drop/move
+- Shared borrow lifeline (blue) spans from borrow to last use
+- Mutable borrow lifeline (red) spans from borrow to last use
+- Rc/Arc lifeline (purple) spans clone lifetime
+- Conflict zone (yellow) shown when borrows overlap
+- Gutter icons appear at borrow start/end/move events
+- Hover on gutter icon shows variable names and relationship
+- Lines update after file edit
+- Lines disappear when disabled in settings
+- Nested borrows show nested colored lines
 
 ---
 
-## 4.6 Borrow Scope Highlighting
+## 4.6 Borrow Scope Background Highlighting
 
-**Objective:** Highlight the active region of each borrow with a colored background. Shared borrows get a light blue background, mutable borrows get a light red background. This makes borrow lifetimes visually obvious.
+**Objective:** In addition to the left-border lifeline, optionally highlight the active region of each borrow with a subtle colored background. This provides a secondary visual cue that complements the lifeline. Can be toggled independently via `borrowscope.decorations.borrowScopes` setting.
 
 **Code:**
 ```typescript
 const sharedBorrowHighlight = vscode.window.createTextEditorDecorationType({
-    backgroundColor: 'rgba(52, 152, 219, 0.08)',  // light blue
-    borderLeft: '2px solid rgba(52, 152, 219, 0.4)',
+    backgroundColor: 'rgba(52, 152, 219, 0.06)',  // very subtle blue
     isWholeLine: true,
 });
 
 const mutBorrowHighlight = vscode.window.createTextEditorDecorationType({
-    backgroundColor: 'rgba(231, 76, 60, 0.08)',   // light red
-    borderLeft: '2px solid rgba(231, 76, 60, 0.4)',
+    backgroundColor: 'rgba(231, 76, 60, 0.06)',   // very subtle red
     isWholeLine: true,
 });
 
@@ -411,32 +432,16 @@ function updateBorrowHighlights(editor: vscode.TextEditor, scopes: BorrowScopeRa
 }
 ```
 
-**Appearance (conceptual):**
-```rust
-fn example() {
-    let data = vec![1, 2, 3];
-┃   let r = &data;              ← blue background starts
-┃   println!("{}", r);
-┃   process(&r);                ← blue background ends (last use)
-
-┃   let m = &mut data;          ← red background starts
-┃   m.push(4);
-┃   m.push(5);                  ← red background ends (last use)
-
-    drop(data);
-}
-```
-
-**Expectation:** Borrow regions are visually distinct. Overlapping borrows (if they exist in educational examples) show blended colors. The highlighting is subtle enough to not distract from reading code.
+**Expectation:** Background highlighting is a subtle secondary cue. The primary visual is the colored lifeline (4.5). Background can be toggled off for users who find it distracting.
 
 **Tests for 4.6:**
 - Shared borrow region gets blue background
 - Mutable borrow region gets red background
 - Highlighting spans from borrow creation to last use
-- Multiple borrows in same function each get their own highlight
+- Multiple borrows each get their own highlight
 - Highlights update after file edit
 - Highlights respect dark/light theme (opacity adjusts)
-- Highlights can be toggled off via settings
+- Highlights can be toggled off via borrowscope.decorations.borrowScopes setting
 
 ---
 
