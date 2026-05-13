@@ -40,10 +40,13 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
   }
 
   try {
+    console.log(`[BorrowScope] showGraph: uri=${targetUri}, line=${line}, fn=${functionName}`);
     const graph = await client.sendRequest("borrowscope/ownershipGraph", {
       textDocument: { uri: targetUri },
       position: { line, character: 4 },
     }) as any;
+
+    console.log(`[BorrowScope] showGraph response:`, graph ? `${graph.function_name} (${(graph.variables||[]).length} vars)` : "null");
 
     if (!graph) {
       vscode.window.showInformationMessage("BorrowScope: No function at cursor position");
@@ -53,6 +56,7 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
     // Open the graph panel
     GraphPanel.createOrShow(extensionUri, graph);
   } catch (e: any) {
+    console.error(`[BorrowScope] showGraph error:`, e);
     vscode.window.showErrorMessage(`BorrowScope: ${e.message}`);
   }
 }

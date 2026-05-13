@@ -98,13 +98,12 @@ export class GraphPanel {
 
   private _getHtmlContent(): string {
     const nonce = getNonce();
-    const csp = `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';`;
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BorrowScope: Ownership Graph</title>
   <style>
@@ -119,29 +118,34 @@ export class GraphPanel {
   <div id="status">Waiting for data...</div>
   <div id="graph-container"></div>
   <script nonce="${nonce}">
-    const vscode = acquireVscodeApi();
-    const state = vscode.getState() || {};
+    (function() {
+      const vscode = acquireVscodeApi();
+      const previousState = vscode.getState() || {};
 
-    window.addEventListener('message', event => {
-      const message = event.data;
-      if (message.type === 'updateGraph') {
+      window.addEventListener('message', event => {
+        const message = event.data;
+        if (message.type === 'updateGraph') {
+          const graph = message.data;
+          document.getElementById('status').textContent =
+            'Function: ' + (graph.function_name || 'unknown') +
+            ' (' + (graph.variables || []).length + ' variables, ' +
+            (graph.borrow_scopes || []).length + ' borrows, ' +
+            (graph.moves || []).length + ' moves)';
+          vscode.setState({ graph: graph });
+          // D3.js rendering will be added in step 5.3
+        }
+      });
+
+      // Notify extension that WebView is ready
+      vscode.postMessage({ type: 'ready' });
+
+      // Restore state if available
+      if (previousState.graph) {
         document.getElementById('status').textContent =
-          'Function: ' + (message.data.function_name || 'unknown') +
-          ' (' + (message.data.variables || []).length + ' variables)';
-        vscode.setState({ graph: message.data });
-        // D3.js rendering will be added in step 5.3
+          'Function: ' + previousState.graph.function_name +
+          ' (' + (previousState.graph.variables || []).length + ' variables)';
       }
-    });
-
-    // Notify extension that WebView is ready
-    vscode.postMessage({ type: 'ready' });
-
-    // Restore state if available
-    if (state.graph) {
-      document.getElementById('status').textContent =
-        'Function: ' + state.graph.function_name +
-        ' (' + (state.graph.variables || []).length + ' variables)';
-    }
+    })();
   </script>
 </body>
 </html>`;
