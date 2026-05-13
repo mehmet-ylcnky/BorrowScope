@@ -122,3 +122,79 @@ fn main() {
 **Priority:** After Milestone 10 (all current milestones complete)
 **Estimated effort:** 2-3 weeks
 **Dependencies:** Milestone 2 (borrow scope computation), Milestone 3 (LSP endpoints)
+
+---
+
+## 11.7 Cross-File and Cross-Module Borrow Tracking
+
+**Objective:** Track borrow lifetimes across file and module boundaries. When a reference is created in `src/main.rs` and passed to a function defined in `src/utils.rs`, show the full borrow path spanning both files.
+
+**Scenarios:**
+
+```
+src/main.rs:
+  let data = load_data();
+  let result = src/processor.rs::transform(&data);  // borrow crosses file boundary
+  println!("{:?}", result);
+
+src/processor.rs:
+  pub fn transform(input: &[u8]) -> Output {
+      let parsed = parse(input);   // borrow flows deeper
+      validate(&parsed)
+  }
+```
+
+**What's needed:**
+
+1. **Workspace-wide call graph** — resolve function calls across modules/files using `hir::Function::module()` to find the source file
+2. **Cross-file borrow path** — include file URI in each path segment
+3. **Navigation support** — clicking a cross-file borrow opens the target file at the relevant line
+
+**Extended response format:**
+```json
+{
+  "cross_borrows": [
+    {
+      "origin_variable": "data",
+      "origin_file": "file:///project/src/main.rs",
+      "origin_line": 5,
+      "path": [
+        { "file": "file:///project/src/main.rs", "function": "main", "variable": "&data", "start_line": 5, "end_line": 12 },
+        { "file": "file:///project/src/processor.rs", "function": "transform", "variable": "input", "start_line": 1, "end_line": 8 },
+        { "file": "file:///project/src/processor.rs", "function": "parse", "variable": "data", "start_line": 1, "end_line": 5 }
+      ]
+    }
+  ]
+}
+```
+
+**VS Code visualization:**
+
+- In the current file: show lifeline with annotation `→ enters processor::transform (src/processor.rs:1)`
+- Clickable link to jump to the callee file
+- In the callee file: show annotation `← received from main (src/main.rs:8)`
+- Optional: split editor view showing both files with connected highlights
+
+**Implementation:**
+
+| Step | Description |
+|------|-------------|
+| 1 | Resolve call target's source file via `hir::Function::source()` |
+| 2 | Include `FileId` → URI mapping in borrow path |
+| 3 | Analyze callee in its own file context |
+| 4 | Return combined path with file URIs |
+| 5 | Extension renders cross-file annotations with clickable links |
+| 6 | Optional: `documentLink` provider for jump-to-definition on borrow paths |
+
+**Limitations:**
+- External crate functions (no source available) — show as opaque boundary
+- Macro-generated code — show expanded location if available
+- Very deep call chains (>5 levels) — truncate with "..." indicator
+
+**Tests:**
+- Borrow passed from main.rs to lib.rs function is tracked
+- Borrow passed through re-exported function is tracked
+- Multi-level: main.rs → utils.rs → helpers.rs shows full chain
+- External crate boundary shows "opaque" marker
+- Clicking annotation navigates to correct file and line
+- Cross-module (same file, different mod) is tracked
