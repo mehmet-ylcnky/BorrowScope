@@ -82,6 +82,16 @@ export async function startClient(
     })
   );
 
+  // Refresh when a document is opened
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      const editor = vscode.window.activeTextEditor;
+      if (editor && editor.document === doc && doc.languageId === "rust") {
+        setTimeout(() => refreshDecorations(editor), 500);
+      }
+    })
+  );
+
   // Debounced refresh on text change
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
@@ -92,10 +102,18 @@ export async function startClient(
     })
   );
 
-  // Initial decoration for current editor
-  if (vscode.window.activeTextEditor?.document.languageId === "rust") {
-    refreshDecorations(vscode.window.activeTextEditor);
-  }
+  // Initial decoration — retry until workspace is loaded
+  const initialRefresh = () => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor?.document.languageId === "rust") {
+      refreshDecorations(editor);
+    }
+  };
+  // Try immediately, then retry at intervals during workspace loading
+  initialRefresh();
+  setTimeout(initialRefresh, 5000);
+  setTimeout(initialRefresh, 15000);
+  setTimeout(initialRefresh, 30000);
 
   return client;
 }

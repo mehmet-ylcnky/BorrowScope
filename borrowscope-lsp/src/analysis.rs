@@ -571,7 +571,8 @@ pub fn compute_borrow_scopes(
         }
 
         // Get the borrower name
-        let borrower_name = pat.syntax().text().to_string().trim().to_string();
+        let borrower_name = pat.syntax().text().to_string().trim()
+            .trim_start_matches("mut ").trim().to_string();
 
         // Get start position (the let statement)
         let start_offset = let_stmt.syntax().text_range().start();
@@ -619,8 +620,63 @@ fn analyze_borrow_expr(
                     let target_name = expr.syntax().text().to_string().trim().to_string();
                     return (true, is_mutable, target_name);
                 }
+
+                // Check for guard types (RefCell, Mutex, RwLock)
+                if let Some(adt) = ty.original.as_adt() {
+                    let db = sema.db;
+                    let name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                    let module_path = adt.module(db).path_to_root(db).iter().rev()
+                        .filter_map(|m| m.name(db))
+                        .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
+                        .collect::<Vec<_>>().join("::");
+                    let full_path = format!("{}::{}", module_path, name).to_lowercase();
+
+                    // Detect borrow-like guards
+                    let is_guard = full_path.contains("cell::ref")
+                        || full_path.contains("sync::mutexguard")
+                        || full_path.contains("sync::rwlockreadguard")
+                        || full_path.contains("sync::rwlockwriteguard");
+
+                    if is_guard {
+                        let is_mutable = name.contains("Mut")
+                            || name.contains("RefMut")
+                            || name.contains("MutexGuard")
+                            || name.contains("WriteGuard");
+                        // Extract target from the method call receiver
+                        let target_name = extract_guard_target(expr);
+                        return (true, is_mutable, target_name);
+                    }
+                }
             }
             (false, false, String::new())
+        }
+    }
+}
+
+/// Extract the target variable from a guard-producing expression like `cell.borrow()`.
+fn extract_guard_target(expr: &ra_ap_syntax::ast::Expr) -> String {
+    use ra_ap_syntax::ast;
+
+    // Handle cell.borrow(), cell.borrow_mut(), mutex.lock().unwrap()
+    let mut current = expr.clone();
+    loop {
+        match &current {
+            ast::Expr::MethodCallExpr(call) => {
+                let method = call.name_ref().map(|n| n.text().to_string()).unwrap_or_default();
+                if method == "unwrap" || method == "expect" {
+                    // Skip .unwrap()/.expect() and look at receiver
+                    if let Some(receiver) = call.receiver() {
+                        current = receiver;
+                        continue;
+                    }
+                }
+                // The receiver is the target (e.g., `cell` in `cell.borrow()`)
+                if let Some(receiver) = call.receiver() {
+                    return receiver.syntax().text().to_string().trim().to_string();
+                }
+                return expr.syntax().text().to_string().trim().to_string();
+            }
+            _ => return expr.syntax().text().to_string().trim().to_string(),
         }
     }
 }

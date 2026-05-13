@@ -1384,3 +1384,54 @@ fn test_semantic_edge_cases_no_heuristics() {
 
     println!("Semantic edge cases: all 5 cases resolved without heuristics!");
 }
+
+#[test]
+#[ignore]
+fn test_refcell_guard_borrow_scopes() {
+    use borrowscope_lsp::analysis::compute_borrow_scopes;
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    let scopes = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "interior_mutability_example").unwrap_or(false)).unwrap();
+        compute_borrow_scopes(&db, &sema, &func, &line_index)
+    });
+
+    // Should detect reader (shared guard) and writer (mutable guard)
+    let reader_scope = scopes.iter().find(|s| s.borrower_name == "reader");
+    let writer_scope = scopes.iter().find(|s| s.borrower_name == "writer");
+
+    assert!(reader_scope.is_some(),
+        "Should detect RefCell::borrow() as a borrow scope. Found: {:?}",
+        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>());
+    assert!(!reader_scope.unwrap().is_mutable, "reader should be shared (not mutable)");
+    assert_eq!(reader_scope.unwrap().target_name, "cell", "reader borrows cell");
+
+    assert!(writer_scope.is_some(),
+        "Should detect RefCell::borrow_mut() as a borrow scope");
+    assert!(writer_scope.unwrap().is_mutable, "writer should be mutable");
+    assert_eq!(writer_scope.unwrap().target_name, "cell", "writer borrows cell");
+
+    println!("RefCell guard scopes: reader={:?}, writer={:?}",
+        reader_scope.map(|s| (&s.borrower_name, s.is_mutable)),
+        writer_scope.map(|s| (&s.borrower_name, s.is_mutable)));
+}
