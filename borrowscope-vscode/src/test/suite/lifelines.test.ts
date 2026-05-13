@@ -37,17 +37,13 @@ describe("4.5 Gutter Icons and Lifecycle Flow Lines", () => {
     conflicts: [{ variable: "data", borrow_a: "r1", borrow_b: "m1", overlap_start_line: 4, overlap_end_line: 6 }],
   };
 
-  // 1. Owner lifeline (green) spans from creation to move
-  it("owner lifeline spans creation to move", () => {
+  // 1. Owner lifelines disabled (too noisy) — moves shown as single events instead
+  it("owner lifelines disabled, moves shown as orange events", () => {
     const decs = lifelines.buildLifelineDecorations([], sampleGraph);
-    const ownerDecs = decs.filter((d: any) => d.color === "#2ecc71" && d.suffix.includes("data"));
-    assert.ok(ownerDecs.length > 0, "Should have green owner decorations");
-    const start = ownerDecs.find((d: any) => d.char === "┌─");
-    const end = ownerDecs.find((d: any) => d.char === "└─");
-    assert.ok(start, "Should have start marker");
-    assert.ok(end, "Should have end marker");
-    assert.ok(start.suffix.includes("created"), `Start: ${start.suffix}`);
-    assert.ok(end.suffix.includes("moved"), `End: ${end.suffix}`);
+    const ownerDecs = decs.filter((d: any) => d.color === "#2ecc71");
+    assert.strictEqual(ownerDecs.length, 0, "Owner lifelines should be disabled");
+    const moveDecs = decs.filter((d: any) => d.color === "#e67e22");
+    assert.ok(moveDecs.length > 0, "Moves should still show as orange");
   });
 
   // 2. Shared borrow lifeline (blue) spans borrow to last use

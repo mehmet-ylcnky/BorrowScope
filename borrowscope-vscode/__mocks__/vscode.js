@@ -46,6 +46,7 @@ module.exports = {
   },
   ConfigurationTarget: { Global: 1, Workspace: 2 },
   ProgressLocation: { Notification: 15 },
+  OverviewRulerLane: { Left: 1, Center: 2, Right: 4, Full: 7 },
   // Test helpers
   __test__: { decorationTypes, appliedDecorations },
 };

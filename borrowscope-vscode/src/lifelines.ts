@@ -53,36 +53,8 @@ export function buildLifelineDecorations(
 ): LineDecoration[] {
   const decorations: LineDecoration[] = [];
 
-  // 1. Owner lifelines (green) — from variable creation to function end or move
-  if (graph) {
-    for (const v of graph.variables) {
-      if (v.ownership_category === "Owned") {
-        const startLine = v.line - 1; // 0-indexed
-        // Check if moved
-        const move = graph.moves.find((m) => m.source_name === v.name);
-        const endLine = move ? move.line - 1 : graph.end_line - 1;
-
-        for (let line = startLine; line <= endLine; line++) {
-          let char = "│ ";
-          let suffix = "";
-          if (line === startLine) {
-            char = "┌─";
-            suffix = ` ⊕ ${v.name} created`;
-          } else if (line === endLine && move) {
-            char = "└─";
-            suffix = ` ↦ ${v.name} moved`;
-          } else if (line === endLine) {
-            char = "└─";
-            suffix = ` 💀 ${v.name} dropped`;
-          }
-          decorations.push({
-            line, char, suffix, color: COLORS.owner,
-            hover: `Owner: ${v.name} (${v.ownership_category})`,
-          });
-        }
-      }
-    }
-  }
+  // 1. Owner lifelines — DISABLED (too noisy, owners span entire function)
+  // Only show lifelines for borrows, moves, clones, and conflicts
 
   // 2. Shared borrow lifelines (blue)
   for (const s of scopes.filter((s) => !s.is_mutable)) {
@@ -122,26 +94,15 @@ export function buildLifelineDecorations(
     }
   }
 
-  // 4. Rc/Arc clone lifelines (purple)
+  // 4. Rc/Arc clone events (purple, single line marker)
   if (graph) {
     for (const rc of graph.rc_clones) {
-      const startLine = rc.line - 1;
-      const endLine = graph.end_line - 1;
-      for (let line = startLine; line <= endLine; line++) {
-        let char = "│ ";
-        let suffix = "";
-        if (line === startLine) {
-          char = "├─";
-          suffix = ` 🔗 ${rc.clone_variable} cloned from ${rc.source_variable}`;
-        } else if (line === endLine) {
-          char = "╰─";
-          suffix = ` 🔗 ${rc.clone_variable} dropped`;
-        }
-        decorations.push({
-          line, char, suffix, color: COLORS.rc,
-          hover: `${rc.clone_type}: ${rc.clone_variable} shares ownership with ${rc.source_variable}`,
-        });
-      }
+      const line = rc.line - 1;
+      decorations.push({
+        line, char: "├─", suffix: ` 🔗 ${rc.clone_variable} cloned from ${rc.source_variable}`,
+        color: COLORS.rc,
+        hover: `${rc.clone_type}: ${rc.clone_variable} shares ownership with ${rc.source_variable}`,
+      });
     }
   }
 

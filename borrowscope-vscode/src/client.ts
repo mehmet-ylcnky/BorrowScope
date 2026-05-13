@@ -9,6 +9,7 @@ import { resolveServerPath } from "./server-path";
 import { applyDecorations, clearDecorations, OwnershipHint } from "./decorations";
 import { applyLifelines, clearLifelines, BorrowScope, OwnershipGraph } from "./lifelines";
 import { applyHighlights, clearHighlights } from "./highlights";
+import { applyConflictDecorations, clearConflictDecorations } from "./conflicts";
 
 let client: LanguageClient | undefined;
 
@@ -63,6 +64,13 @@ export async function startClient(
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.uri.toString() !== params.uri) return;
     refreshDecorations(editor);
+  });
+
+  // Listen for diagnostics to apply inline conflict markers
+  client.onNotification("textDocument/publishDiagnostics", (params: any) => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.toString() !== params.uri) return;
+    applyConflictDecorations(editor, params.diagnostics || []);
   });
 
   // Apply decorations on active editor change
@@ -132,7 +140,7 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
       }
 
       const promises = fnLines.map((line) =>
-        client.sendRequest("borrowscope/ownershipGraph", {
+        client!.sendRequest("borrowscope/ownershipGraph", {
           textDocument: { uri: editor.document.uri.toString() },
           position: { line, character: 4 },
         }).catch(() => null)
