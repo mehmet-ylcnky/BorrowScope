@@ -13,6 +13,7 @@ interface Lifeline {
   color: string;
   label: string;
   borrower: string;
+  target: string;
   isMutable: boolean;
 }
 
@@ -56,6 +57,7 @@ export function applyLifelines(
     color: s.is_mutable ? COLORS.mutable : COLORS.shared,
     label: `${s.borrower} borrows ${s.target}`,
     borrower: s.borrower,
+    target: s.target,
     isMutable: s.is_mutable,
   }));
 
@@ -73,10 +75,12 @@ export function applyLifelines(
       let suffix = "";
       if (line === ll.startLine) {
         char = "├─";
-        suffix = ` ⟵ ${ll.isMutable ? "🔴 &mut" : "🔵 &"} ${ll.label}`;
+        suffix = ll.isMutable
+          ? ` 🔒 &mut ${ll.borrower} ⟵ ${ll.target}`
+          : ` 👁 &${ll.borrower} ⟵ ${ll.target}`;
       } else if (line === ll.endLine) {
         char = "╰─";
-        suffix = ` ⟵ ○ ${ll.borrower} ends`;
+        suffix = ` 💧 ${ll.borrower} released`;
       } else {
         char = "│ ";
       }
