@@ -6,7 +6,15 @@ class Position {
   constructor(line, character) { this.line = line; this.character = character; }
 }
 class Range {
-  constructor(start, end) { this.start = start; this.end = end; }
+  constructor(startLineOrPos, startCharOrEnd, endLine, endChar) {
+    if (typeof startLineOrPos === 'number') {
+      this.start = new Position(startLineOrPos, startCharOrEnd);
+      this.end = new Position(endLine, endChar);
+    } else {
+      this.start = startLineOrPos;
+      this.end = startCharOrEnd;
+    }
+  }
 }
 
 module.exports = {

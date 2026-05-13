@@ -7,6 +7,7 @@ import {
 } from "vscode-languageclient/node";
 import { resolveServerPath } from "./server-path";
 import { applyDecorations, clearDecorations, OwnershipHint } from "./decorations";
+import { applyLifelines, clearLifelines, BorrowScope } from "./lifelines";
 
 let client: LanguageClient | undefined;
 
@@ -94,7 +95,8 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
   if (!client) return;
 
   try {
-    const response = await client.sendRequest("textDocument/inlayHint", {
+    // Fetch inlay hints for inline annotations
+    const hintsResponse = await client.sendRequest("textDocument/inlayHint", {
       textDocument: { uri: editor.document.uri.toString() },
       range: {
         start: { line: 0, character: 0 },
@@ -102,15 +104,24 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
       },
     });
 
-    const hints: OwnershipHint[] = ((response as any[]) || []).map((h: any) => ({
+    const hints: OwnershipHint[] = ((hintsResponse as any[]) || []).map((h: any) => ({
       line: h.position.line,
       character: h.position.character,
       label: typeof h.label === "string" ? h.label.trim() : "",
     }));
 
     applyDecorations(editor, hints);
+
+    // Fetch borrow scopes for lifeline flow
+    const scopesResponse = await client.sendRequest("borrowscope/borrowScopes", {
+      textDocument: { uri: editor.document.uri.toString() },
+    });
+
+    const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];
+    applyLifelines(editor, scopes);
   } catch {
     clearDecorations(editor);
+    clearLifelines(editor);
   }
 }
 
