@@ -7,7 +7,7 @@ import {
 } from "vscode-languageclient/node";
 import { resolveServerPath } from "./server-path";
 import { applyDecorations, clearDecorations, OwnershipHint } from "./decorations";
-import { applyLifelines, clearLifelines, BorrowScope, OwnershipGraph } from "./lifelines";
+import { applyLifelines, clearLifelines, BorrowScope } from "./lifelines";
 import { applyHighlights, clearHighlights } from "./highlights";
 import { applyConflictDecorations, clearConflictDecorations } from "./conflicts";
 
@@ -73,12 +73,16 @@ export async function startClient(
     applyConflictDecorations(editor, params.diagnostics || []);
   });
 
-  // Apply decorations on active editor change
+  // Apply decorations on active editor change (debounced)
+  let editorChangeTimer: NodeJS.Timeout | undefined;
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor && editor.document.languageId === "rust") {
-        refreshDecorations(editor);
-      }
+      if (editorChangeTimer) clearTimeout(editorChangeTimer);
+      editorChangeTimer = setTimeout(() => {
+        if (editor && editor.document.languageId === "rust") {
+          refreshDecorations(editor);
+        }
+      }, 500);
     })
   );
 
@@ -146,43 +150,8 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];
 
-    // Fetch ownership graphs for all functions in parallel
-    let graph: OwnershipGraph | undefined;
-    try {
-      const fnLines: number[] = [];
-      for (let line = 0; line < editor.document.lineCount; line++) {
-        const text = editor.document.lineAt(line).text;
-        if (/^\s*(pub\s+)?(async\s+)?fn\s+/.test(text)) {
-          fnLines.push(line);
-        }
-      }
-
-      const promises = fnLines.map((line) =>
-        client!.sendRequest("borrowscope/ownershipGraph", {
-          textDocument: { uri: editor.document.uri.toString() },
-          position: { line, character: 4 },
-        }).catch(() => null)
-      );
-
-      const results = await Promise.all(promises);
-      const graphs = results.filter(Boolean) as OwnershipGraph[];
-
-      if (graphs.length > 0) {
-        graph = {
-          function_name: "all",
-          start_line: Math.min(...graphs.map(g => g.start_line)),
-          end_line: Math.max(...graphs.map(g => g.end_line)),
-          variables: graphs.flatMap(g => g.variables || []),
-          borrow_scopes: graphs.flatMap(g => g.borrow_scopes || []),
-          moves: graphs.flatMap(g => g.moves || []),
-          rc_clones: graphs.flatMap(g => g.rc_clones || []),
-          conflicts: graphs.flatMap(g => g.conflicts || []),
-        };
-      }
-    } catch { /* graph not available */ }
-
-    applyLifelines(editor, scopes, graph);
-    applyHighlights(editor, scopes, graph);
+    applyLifelines(editor, scopes);
+    applyHighlights(editor, scopes);
   } catch {
     clearDecorations(editor);
     clearLifelines(editor);

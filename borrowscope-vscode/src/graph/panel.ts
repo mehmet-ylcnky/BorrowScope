@@ -1,4 +1,22 @@
 import * as vscode from "vscode";
+import { buildGraphModel, OwnershipGraphData } from "./model";
+
+function buildGraphModelFromRaw(graph: any): any {
+  const data: OwnershipGraphData = {
+    function_name: graph.function_name || "",
+    variables: (graph.variables || []).map((v: any) => ({
+      name: v.name,
+      type_display: v.type_display || "unknown",
+      ownership_category: v.ownership_category || "Unknown",
+      line: v.line || 0,
+      is_copy: v.is_copy || false,
+    })),
+    borrow_scopes: graph.borrow_scopes || [],
+    moves: graph.moves || [],
+    rc_clones: graph.rc_clones || [],
+  };
+  return buildGraphModel(data);
+}
 
 export class GraphPanel {
   public static currentPanel: GraphPanel | undefined;
@@ -87,30 +105,33 @@ export class GraphPanel {
 </head><body><h2>BorrowScope: Ownership Graph</h2><p>Waiting for data... Click a CodeLens to load a function.</p></body></html>`;
     }
 
+    const d3Uri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "media", "d3.min.js")
+    );
+
     const vars = graph.variables || [];
     const scopes = graph.borrow_scopes || [];
     const moves = graph.moves || [];
     const clones = graph.rc_clones || [];
     const conflicts = graph.conflicts || [];
 
+    const graphModel = buildGraphModelFromRaw(graph);
+    const graphJson = JSON.stringify(graphModel).replace(/</g, "\\u003c");
+
     let varsHtml = vars.map((v: any) =>
-      `<tr><td><b>${esc(v.name)}</b></td><td><code>${esc(v.type_display)}</code></td><td>${esc(v.ownership_category)}</td></tr>`
+      `<tr data-var="${esc(v.name)}"><td><b>${esc(v.name)}</b></td><td><code>${esc(v.type_display)}</code></td><td>${esc(v.ownership_category)}</td></tr>`
     ).join("");
-
     let scopesHtml = scopes.map((s: any) =>
-      `<tr><td>${esc(s.borrower_name)}</td><td>${s.is_mutable ? "&mut" : "&"}</td><td>${esc(s.target_name)}</td><td>${s.start_line}-${s.end_line}</td></tr>`
+      `<tr data-var="${esc(s.borrower_name)}"><td>${esc(s.borrower_name)}</td><td>${s.is_mutable ? "&amp;mut" : "&amp;"}</td><td>${esc(s.target_name)}</td><td>${s.start_line}-${s.end_line}</td></tr>`
     ).join("");
-
     let movesHtml = moves.map((m: any) =>
-      `<tr><td>${esc(m.source_name)}</td><td>↦</td><td>${esc(JSON.stringify(m.destination))}</td><td>${m.line}</td></tr>`
+      `<tr data-var="${esc(m.source_name)}"><td>${esc(m.source_name)}</td><td>↦</td><td>${esc(JSON.stringify(m.destination))}</td><td>${m.line}</td></tr>`
     ).join("");
-
     let clonesHtml = clones.map((c: any) =>
-      `<tr><td>${esc(c.clone_variable)}</td><td>🔗</td><td>${esc(c.source_variable)}</td><td>${c.line}</td></tr>`
+      `<tr data-var="${esc(c.clone_variable)}"><td>${esc(c.clone_variable)}</td><td>🔗</td><td>${esc(c.source_variable)}</td><td>${c.line}</td></tr>`
     ).join("");
-
     let conflictsHtml = conflicts.map((c: any) =>
-      `<tr><td>⚠️ ${esc(c.borrow_a)}</td><td>&</td><td>${esc(c.borrow_b)}</td><td>${c.overlap_start_line}-${c.overlap_end_line}</td></tr>`
+      `<tr data-var="${esc(c.borrow_a)}"><td>⚠️ ${esc(c.borrow_a)}</td><td>&amp;</td><td>${esc(c.borrow_b)}</td><td>${c.overlap_start_line}-${c.overlap_end_line}</td></tr>`
     ).join("");
 
     return `<!DOCTYPE html>
@@ -120,42 +141,207 @@ export class GraphPanel {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BorrowScope: ${esc(graph.function_name)}</title>
   <style>
-    body { margin:0; padding:16px; font-family:var(--vscode-font-family); background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); font-size:13px; }
-    h2 { margin:0 0 4px 0; font-size:15px; }
-    .stats { opacity:0.7; margin-bottom:12px; }
-    table { border-collapse:collapse; width:100%; margin-bottom:16px; }
-    th,td { text-align:left; padding:4px 8px; border-bottom:1px solid var(--vscode-panel-border); }
-    th { opacity:0.7; font-size:11px; text-transform:uppercase; }
-    .section { margin-bottom:16px; }
-    .section-title { font-weight:bold; margin-bottom:4px; }
-    code { background:var(--vscode-textCodeBlock-background); padding:1px 4px; border-radius:3px; }
-    .cat-Owned { color:#2ecc71; } .cat-SharedRef { color:#3498db; } .cat-MutableRef { color:#e74c3c; }
-    .cat-Rc, .cat-Arc { color:#9b59b6; } .cat-InteriorMut { color:#e67e22; } .cat-Copy { color:#95a5a6; }
-    .cat-RawPointer { color:#7f8c8d; }
+    body { margin:0; padding:0; font-family:var(--vscode-font-family); background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); overflow:hidden; }
+    #header { padding:8px 16px; border-bottom:1px solid var(--vscode-panel-border); font-size:13px; }
+    #header h2 { margin:0; font-size:14px; }
+    #header .stats { opacity:0.7; font-size:12px; }
+    #graph-container { width:100%; height:45vh; border-bottom:1px solid var(--vscode-panel-border); }
+    svg { width:100%; height:100%; }
+    #tables { font-size:12px; }
+    #tables table { border-collapse:collapse; width:100%; margin:4px 0 12px 0; }
+    #tables th,#tables td { text-align:left; padding:3px 8px; border-bottom:1px solid var(--vscode-panel-border); }
+    #tables th { opacity:0.7; font-size:10px; text-transform:uppercase; }
+    #tables tr[data-var] { cursor:pointer; transition:background 0.15s; }
+    #tables tr[data-var]:hover { background:rgba(52,152,219,0.1); }
+    #tables summary { cursor:pointer; padding:4px 0; }
+    #tables code { background:var(--vscode-textCodeBlock-background); padding:1px 4px; border-radius:3px; }
+    .node circle { stroke-width:2px; cursor:pointer; }
+    .node text { font-size:11px; fill:var(--vscode-editor-foreground); pointer-events:none; }
+    .node .type-label { font-size:9px; opacity:0.6; }
+    .edge path { fill:none; stroke-width:1.5px; }
+    .edge text { font-size:9px; fill:var(--vscode-editor-foreground); opacity:0.7; }
+    .edge .mutable path { stroke-width:2.5px; }
   </style>
 </head>
 <body>
-  <h2>📊 ${esc(graph.function_name)}</h2>
-  <div class="stats">${vars.length} variables, ${scopes.length} borrows, ${moves.length} moves${conflicts.length > 0 ? `, ⚠️ ${conflicts.length} conflicts` : ""}</div>
-
-  ${vars.length > 0 ? `<div class="section"><div class="section-title">Variables</div>
-  <table><tr><th>Name</th><th>Type</th><th>Category</th></tr>${varsHtml}</table></div>` : ""}
-
-  ${scopes.length > 0 ? `<div class="section"><div class="section-title">Borrow Scopes</div>
-  <table><tr><th>Borrower</th><th>Kind</th><th>Target</th><th>Lines</th></tr>${scopesHtml}</table></div>` : ""}
-
-  ${moves.length > 0 ? `<div class="section"><div class="section-title">Moves</div>
-  <table><tr><th>Source</th><th></th><th>Destination</th><th>Line</th></tr>${movesHtml}</table></div>` : ""}
-
-  ${clones.length > 0 ? `<div class="section"><div class="section-title">Rc/Arc Clones</div>
-  <table><tr><th>Clone</th><th></th><th>Source</th><th>Line</th></tr>${clonesHtml}</table></div>` : ""}
-
-  ${conflicts.length > 0 ? `<div class="section"><div class="section-title">⚠️ Conflicts</div>
-  <table><tr><th>Borrow A</th><th></th><th>Borrow B</th><th>Lines</th></tr>${conflictsHtml}</table></div>` : ""}
-
-  <div id="graph-container" style="width:100%;height:calc(100vh - 300px);border:1px solid var(--vscode-panel-border);border-radius:4px;display:flex;align-items:center;justify-content:center;opacity:0.5;">
-    D3.js graph will render here (Step 5.3)
+  <div id="header">
+    <h2>📊 ${esc(graph.function_name)}</h2>
+    <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
   </div>
+  <div id="graph-container"></div>
+  <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
+    ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
+    <table><tr><th>Name</th><th>Type</th><th>Category</th></tr>${varsHtml}</table></details>` : ""}
+    ${scopes.length > 0 ? `<details open><summary><b>Borrow Scopes (${scopes.length})</b></summary>
+    <table><tr><th>Borrower</th><th>Kind</th><th>Target</th><th>Lines</th></tr>${scopesHtml}</table></details>` : ""}
+    ${moves.length > 0 ? `<details><summary><b>Moves (${moves.length})</b></summary>
+    <table><tr><th>Source</th><th></th><th>Destination</th><th>Line</th></tr>${movesHtml}</table></details>` : ""}
+    ${clones.length > 0 ? `<details><summary><b>Rc/Arc Clones (${clones.length})</b></summary>
+    <table><tr><th>Clone</th><th></th><th>Source</th><th>Line</th></tr>${clonesHtml}</table></details>` : ""}
+    ${conflicts.length > 0 ? `<details open><summary><b>⚠️ Conflicts (${conflicts.length})</b></summary>
+    <table><tr><th>Borrow A</th><th></th><th>Borrow B</th><th>Lines</th></tr>${conflictsHtml}</table></details>` : ""}
+  </div>
+  <script src="${d3Uri}"></script>
+  <script>
+    (function() {
+      const data = ${graphJson};
+      const container = document.getElementById('graph-container');
+      const width = container.clientWidth || 600;
+      const height = container.clientHeight || 400;
+
+      const svg = d3.select('#graph-container')
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      const g = svg.append('g');
+
+      // Zoom
+      svg.call(d3.zoom().on('zoom', (event) => {
+        g.attr('transform', event.transform);
+      }));
+
+      // Arrow markers
+      const defs = svg.append('defs');
+      const markerColors = {
+        shared_borrow: '#3498db',
+        mutable_borrow: '#e74c3c',
+        move: '#e67e22',
+        rc_clone: '#9b59b6',
+        arc_clone: '#8e44ad',
+      };
+      Object.entries(markerColors).forEach(([kind, color]) => {
+        defs.append('marker')
+          .attr('id', 'arrow-' + kind)
+          .attr('viewBox', '0 -5 10 10')
+          .attr('refX', 25)
+          .attr('markerWidth', 6)
+          .attr('markerHeight', 6)
+          .attr('orient', 'auto')
+          .append('path')
+          .attr('d', 'M0,-5L10,0L0,5')
+          .attr('fill', color);
+      });
+
+      // Node colors
+      function nodeColor(category) {
+        const colors = {
+          'Owned': '#2ecc71', 'SharedRef': '#3498db', 'MutableRef': '#e74c3c',
+          'Rc': '#9b59b6', 'Arc': '#8e44ad', 'InteriorMut': '#e67e22',
+          'Copy': '#95a5a6', 'RawPointer': '#7f8c8d', 'Unknown': '#bdc3c7'
+        };
+        return colors[category] || '#bdc3c7';
+      }
+
+      function edgeColor(kind) {
+        return markerColors[kind] || '#95a5a6';
+      }
+
+      function edgeDash(kind) {
+        if (kind === 'move') return '6,3';
+        if (kind === 'rc_clone' || kind === 'arc_clone') return '3,3';
+        return 'none';
+      }
+
+      // Force simulation
+      const simulation = d3.forceSimulation(data.nodes)
+        .force('link', d3.forceLink(data.edges).id(d => d.id).distance(100))
+        .force('charge', d3.forceManyBody().strength(-300))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(40));
+
+      // Edges
+      const edge = g.selectAll('.edge')
+        .data(data.edges)
+        .join('g')
+        .attr('class', d => 'edge' + (d.isMutable ? ' mutable' : ''));
+
+      const edgePath = edge.append('path')
+        .attr('stroke', d => edgeColor(d.kind))
+        .attr('stroke-dasharray', d => edgeDash(d.kind))
+        .attr('marker-end', d => 'url(#arrow-' + d.kind + ')');
+
+      const edgeLabel = edge.append('text')
+        .text(d => d.label)
+        .attr('text-anchor', 'middle');
+
+      // Nodes
+      const node = g.selectAll('.node')
+        .data(data.nodes)
+        .join('g')
+        .attr('class', 'node')
+        .call(d3.drag()
+          .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+          .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+          .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+        );
+
+      node.append('circle')
+        .attr('r', d => 12 + d.size * 3)
+        .attr('fill', d => nodeColor(d.category))
+        .attr('stroke', d => d.isAlive ? nodeColor(d.category) : '#e74c3c')
+        .attr('opacity', d => d.isAlive ? 0.9 : 0.4);
+
+      node.append('text')
+        .attr('dy', -18)
+        .attr('text-anchor', 'middle')
+        .text(d => d.name);
+
+      node.append('text')
+        .attr('class', 'type-label')
+        .attr('dy', 28)
+        .attr('text-anchor', 'middle')
+        .text(d => d.type.length > 20 ? d.type.slice(0, 18) + '..' : d.type);
+
+      // Tick
+      simulation.on('tick', () => {
+        edgePath.attr('d', d => {
+          return 'M' + d.source.x + ',' + d.source.y + 'L' + d.target.x + ',' + d.target.y;
+        });
+        edgeLabel.attr('x', d => (d.source.x + d.target.x) / 2)
+          .attr('y', d => (d.source.y + d.target.y) / 2 - 5);
+        node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
+      });
+
+      // === Linked highlighting: table <-> graph ===
+      function highlightVariable(name) {
+        // Highlight graph node
+        node.select('circle')
+          .attr('stroke-width', d => d.name === name ? 4 : 2)
+          .attr('stroke', d => d.name === name ? '#fff' : nodeColor(d.category));
+        // Highlight connected edges
+        edge.select('path')
+          .attr('stroke-width', d => (d.source.name === name || d.target.name === name) ? 3 : 1.5)
+          .attr('opacity', d => (d.source.name === name || d.target.name === name) ? 1 : 0.3);
+        // Highlight table row
+        document.querySelectorAll('#tables tr[data-var]').forEach(row => {
+          row.style.background = row.getAttribute('data-var') === name ? 'rgba(52,152,219,0.15)' : '';
+        });
+      }
+
+      function clearHighlight() {
+        node.select('circle')
+          .attr('stroke-width', 2)
+          .attr('stroke', d => d.isAlive ? nodeColor(d.category) : '#e74c3c');
+        edge.select('path')
+          .attr('stroke-width', d => d.isMutable ? 2.5 : 1.5)
+          .attr('opacity', 1);
+        document.querySelectorAll('#tables tr[data-var]').forEach(row => {
+          row.style.background = '';
+        });
+      }
+
+      // Graph node hover -> highlight table
+      node.on('mouseover', (event, d) => highlightVariable(d.name))
+          .on('mouseout', () => clearHighlight());
+
+      // Table row hover -> highlight graph
+      document.querySelectorAll('#tables tr[data-var]').forEach(row => {
+        row.addEventListener('mouseover', () => highlightVariable(row.getAttribute('data-var')));
+        row.addEventListener('mouseout', () => clearHighlight());
+      });
+    })();
+  </script>
 </body>
 </html>`;
   }

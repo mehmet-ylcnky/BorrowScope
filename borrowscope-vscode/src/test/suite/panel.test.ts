@@ -123,23 +123,20 @@ describe("5.1 WebView Panel Registration and Lifecycle", () => {
     assert.ok(html.includes("--vscode-editor-foreground"));
   });
 
-  // 14. HTML shows borrow scopes table
+  // 14. HTML shows borrow scopes in graph
   it("HTML shows borrow scopes", () => {
-    const graph = { function_name: "f", variables: [], borrow_scopes: [{ borrower_name: "r", target_name: "data", is_mutable: false, start_line: 3, end_line: 5 }], moves: [], rc_clones: [], conflicts: [] };
+    const graph = { function_name: "f", variables: [{ name: "data", type_display: "Vec<i32>", ownership_category: "Owned", line: 2, is_copy: false }], borrow_scopes: [{ borrower_name: "r", target_name: "data", is_mutable: false, start_line: 3, end_line: 5 }], moves: [], rc_clones: [], conflicts: [] };
     GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
     const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("Borrow Scopes"), "Should have borrow section");
-    assert.ok(html.includes("r"), "Should show borrower name");
-    assert.ok(html.includes("data"), "Should show target name");
+    assert.ok(html.includes("borrows"), "Should show borrow count in stats");
   });
 
-  // 15. HTML shows moves
+  // 15. HTML shows moves in graph
   it("HTML shows moves", () => {
-    const graph = { function_name: "f", variables: [], borrow_scopes: [], moves: [{ source_name: "a", destination: "b", line: 7, source_type: "String" }], rc_clones: [], conflicts: [] };
+    const graph = { function_name: "f", variables: [{ name: "a", type_display: "String", ownership_category: "Owned", line: 2, is_copy: false }], borrow_scopes: [], moves: [{ source_name: "a", destination: "b", line: 7, source_type: "String" }], rc_clones: [], conflicts: [] };
     GraphPanel.createOrShow(vscode.Uri.file("/ext"), graph);
     const html = GraphPanel.currentPanel.getPanel().webview.html;
-    assert.ok(html.includes("Moves"));
-    assert.ok(html.includes("a"));
+    assert.ok(html.includes("moves"), "Should show move count in stats");
   });
 
   // 16. HTML shows conflicts with warning
