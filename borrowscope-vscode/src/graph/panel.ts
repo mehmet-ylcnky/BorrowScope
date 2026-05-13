@@ -97,13 +97,10 @@ export class GraphPanel {
   }
 
   private _getHtmlContent(): string {
-    const nonce = getNonce();
-
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BorrowScope: Ownership Graph</title>
   <style>
@@ -117,7 +114,7 @@ export class GraphPanel {
   <h2 id="title">BorrowScope: Ownership Graph</h2>
   <div id="status">Waiting for data...</div>
   <div id="graph-container"></div>
-  <script nonce="${nonce}">
+  <script>
     (function() {
       const vscode = acquireVscodeApi();
       const previousState = vscode.getState() || {};
@@ -132,14 +129,11 @@ export class GraphPanel {
             (graph.borrow_scopes || []).length + ' borrows, ' +
             (graph.moves || []).length + ' moves)';
           vscode.setState({ graph: graph });
-          // D3.js rendering will be added in step 5.3
         }
       });
 
-      // Notify extension that WebView is ready
       vscode.postMessage({ type: 'ready' });
 
-      // Restore state if available
       if (previousState.graph) {
         document.getElementById('status').textContent =
           'Function: ' + previousState.graph.function_name +
