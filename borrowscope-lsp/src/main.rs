@@ -11,6 +11,8 @@ use lsp_server::Connection;
 fn main() {
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .with_max_level(tracing::Level::WARN)
         .init();
 
     tracing::info!("BorrowScope LSP v{} starting...", env!("CARGO_PKG_VERSION"));
