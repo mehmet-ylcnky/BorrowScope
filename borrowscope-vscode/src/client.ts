@@ -120,22 +120,27 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];
 
-    // Fetch ownership graphs for all functions in the file
+    // Fetch ownership graphs for all functions in parallel
     let graph: OwnershipGraph | undefined;
     try {
-      const graphs: OwnershipGraph[] = [];
+      const fnLines: number[] = [];
       for (let line = 0; line < editor.document.lineCount; line++) {
         const text = editor.document.lineAt(line).text;
         if (/^\s*(pub\s+)?(async\s+)?fn\s+/.test(text)) {
-          try {
-            const resp = await client.sendRequest("borrowscope/ownershipGraph", {
-              textDocument: { uri: editor.document.uri.toString() },
-              position: { line, character: 4 },
-            });
-            if (resp) graphs.push(resp as OwnershipGraph);
-          } catch { /* skip */ }
+          fnLines.push(line);
         }
       }
+
+      const promises = fnLines.map((line) =>
+        client.sendRequest("borrowscope/ownershipGraph", {
+          textDocument: { uri: editor.document.uri.toString() },
+          position: { line, character: 4 },
+        }).catch(() => null)
+      );
+
+      const results = await Promise.all(promises);
+      const graphs = results.filter(Boolean) as OwnershipGraph[];
+
       if (graphs.length > 0) {
         graph = {
           function_name: "all",
