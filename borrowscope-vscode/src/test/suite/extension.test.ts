@@ -33,7 +33,9 @@ describe("4.1 Extension Project Setup", () => {
     const props = pkg.contributes.configuration.properties;
     assert.ok("borrowscope.server.path" in props);
     assert.ok("borrowscope.decorations.enabled" in props);
-    assert.ok("borrowscope.highlights.enabled" in props);
+    assert.ok("borrowscope.decorations.borrowScopes" in props);
+    assert.ok("borrowscope.graph.layout" in props);
+    assert.strictEqual(props["borrowscope.graph.layout"].default, "hierarchical");
   });
 
   // 5. Main entry point is set

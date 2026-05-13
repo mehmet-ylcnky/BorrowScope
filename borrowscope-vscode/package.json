@@ -39,6 +39,17 @@
           "type": "boolean",
           "default": true,
           "description": "Show borrow scope background highlights."
+        },
+        "borrowscope.decorations.borrowScopes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight borrow scope regions."
+        },
+        "borrowscope.graph.layout": {
+          "type": "string",
+          "enum": ["force", "hierarchical"],
+          "default": "hierarchical",
+          "description": "Graph layout algorithm."
         }
       }
     }
