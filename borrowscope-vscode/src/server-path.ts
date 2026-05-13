@@ -4,6 +4,7 @@ import * as fs from "fs";
 export interface ServerPathContext {
   extensionPath: string;
   configuredPath: string;
+  globalStoragePath?: string;
 }
 
 export function resolveServerPath(ctx: ServerPathContext): string {
@@ -18,7 +19,16 @@ export function resolveServerPath(ctx: ServerPathContext): string {
     return bundled;
   }
 
-  // 3. System PATH
+  // 3. Downloaded binary in global storage
+  if (ctx.globalStoragePath) {
+    const binaryName = process.platform === "win32" ? "borrowscope-lsp.exe" : "borrowscope-lsp";
+    const downloaded = path.join(ctx.globalStoragePath, binaryName);
+    if (fs.existsSync(downloaded)) {
+      return downloaded;
+    }
+  }
+
+  // 4. System PATH
   const pathDirs = (process.env.PATH || "").split(path.delimiter);
   for (const dir of pathDirs) {
     const candidate = path.join(dir, "borrowscope-lsp");
