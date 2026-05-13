@@ -32,45 +32,40 @@ describe("4.8 CodeLens Rendering", () => {
     assert.ok(src.includes("borrowscope/ownershipGraph"));
   });
 
-  // 5. showGraph displays function name and stats
-  it("showGraph formats stats message", () => {
+  // 5. showGraph opens GraphPanel
+  it("showGraph opens GraphPanel", () => {
     const src = fs.readFileSync(path.join(ROOT, "src", "commands.ts"), "utf8");
-    assert.ok(src.includes("total_variables"));
-    assert.ok(src.includes("total_borrows"));
-    assert.ok(src.includes("moves"));
+    assert.ok(src.includes("GraphPanel.createOrShow"));
   });
 
-  // 6. showGraph offers Copy JSON action
-  it("showGraph offers Copy JSON action", () => {
+  // 6. showGraph passes graph data to panel
+  it("showGraph passes graph to panel", () => {
     const src = fs.readFileSync(path.join(ROOT, "src", "commands.ts"), "utf8");
-    assert.ok(src.includes("Copy JSON"));
-    assert.ok(src.includes("clipboard"));
+    assert.ok(src.includes("extensionUri"));
+    assert.ok(src.includes("graph"));
   });
 
-  // 7. showGraph offers Show Variables action
-  it("showGraph offers Show Variables action", () => {
+  // 7. showGraph handles no function at cursor
+  it("showGraph handles no function at cursor", () => {
     const src = fs.readFileSync(path.join(ROOT, "src", "commands.ts"), "utf8");
-    assert.ok(src.includes("Show Variables"));
-    assert.ok(src.includes("OutputChannel"));
+    assert.ok(src.includes("No function at cursor"));
   });
 
-  // 8. buildDetail formats variables with ownership category
-  it("buildDetail includes ownership category", () => {
+  // 8. showGraph handles server errors
+  it("showGraph handles errors gracefully", () => {
     const src = fs.readFileSync(path.join(ROOT, "src", "commands.ts"), "utf8");
-    assert.ok(src.includes("ownership_category"));
+    assert.ok(src.includes("showErrorMessage"));
   });
 
-  // 9. buildDetail formats borrow scopes
-  it("buildDetail includes borrow scope info", () => {
+  // 9. showGraph requests ownershipGraph
+  it("showGraph sends borrowscope/ownershipGraph request", () => {
     const src = fs.readFileSync(path.join(ROOT, "src", "commands.ts"), "utf8");
-    assert.ok(src.includes("borrower_name"));
-    assert.ok(src.includes("target_name"));
+    assert.ok(src.includes("borrowscope/ownershipGraph"));
   });
 
-  // 10. buildDetail formats conflicts with warning
-  it("buildDetail shows conflicts with warning symbol", () => {
+  // 10. showGraph handles missing client
+  it("showGraph warns when server not running", () => {
     const src = fs.readFileSync(path.join(ROOT, "src", "commands.ts"), "utf8");
-    assert.ok(src.includes("Conflicts"));
-    assert.ok(src.includes("overlap"));
+    assert.ok(src.includes("Server not running"));
   });
 });

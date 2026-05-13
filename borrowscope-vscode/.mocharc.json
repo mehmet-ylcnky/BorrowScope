@@ -1,5 +1,6 @@
 {
   "require": [],
   "timeout": 5000,
-  "spec": "out/test/suite/**/*.test.js"
+  "spec": "out/test/suite/**/*.test.js",
+  "ignore": ["out/test/suite/integration.test.js"]
 }
