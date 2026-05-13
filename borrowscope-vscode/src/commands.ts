@@ -54,8 +54,13 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
       return;
     }
 
-    // Open the graph panel
-    GraphPanel.createOrShow(extensionUri, graph);
+    // Open the graph panel with function list
+    const fnList: string[] = [];
+    for (let i = 0; i < editor.document.lineCount; i++) {
+      const match = editor.document.lineAt(i).text.match(/\bfn\s+(\w+)/);
+      if (match) fnList.push(match[1]);
+    }
+    GraphPanel.createOrShow(extensionUri, graph, fnList);
   } catch (e: any) {
     console.error(`[BorrowScope] showGraph error:`, e);
     vscode.window.showErrorMessage(`BorrowScope: ${e.message}`);

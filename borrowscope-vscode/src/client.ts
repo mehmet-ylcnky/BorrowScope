@@ -10,6 +10,7 @@ import { applyDecorations, clearDecorations, OwnershipHint } from "./decorations
 import { applyLifelines, clearLifelines, BorrowScope } from "./lifelines";
 import { applyHighlights, clearHighlights } from "./highlights";
 import { applyConflictDecorations, clearConflictDecorations } from "./conflicts";
+import { GraphPanel } from "./graph/panel";
 
 let client: LanguageClient | undefined;
 
@@ -59,11 +60,32 @@ export async function startClient(
 
   await client.start();
 
-  // Listen for analysisUpdated and refresh decorations
-  client.onNotification("borrowscope/analysisUpdated", (params: any) => {
+  // Listen for analysisUpdated and refresh decorations + panel
+  client.onNotification("borrowscope/analysisUpdated", async (params: any) => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.uri.toString() !== params.uri) return;
     refreshDecorations(editor);
+
+    // Live update the graph panel if open
+    const panel = GraphPanel.getPanel();
+    if (panel && panel.getGraph()) {
+      const currentFn = panel.getGraph().function_name;
+      if (currentFn && params.functions?.includes(currentFn)) {
+        try {
+          // Find the function line
+          for (let i = 0; i < editor.document.lineCount; i++) {
+            if (new RegExp(`\\bfn\\s+${currentFn}\\b`).test(editor.document.lineAt(i).text)) {
+              const graph = await client!.sendRequest("borrowscope/ownershipGraph", {
+                textDocument: { uri: params.uri },
+                position: { line: i, character: 4 },
+              });
+              if (graph) panel.updateGraph(graph);
+              break;
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
   });
 
   // Listen for diagnostics to apply inline conflict markers

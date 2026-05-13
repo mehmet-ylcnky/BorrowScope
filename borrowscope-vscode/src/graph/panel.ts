@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { buildGraphModel, OwnershipGraphData } from "./model";
+import { getClient } from "../client";
 
 function buildGraphModelFromRaw(graph: any): any {
   const data: OwnershipGraphData = {
@@ -32,12 +33,12 @@ export class GraphPanel {
     GraphPanel._context = context;
   }
 
-  public static createOrShow(extensionUri: vscode.Uri, graph?: any): void {
+  public static createOrShow(extensionUri: vscode.Uri, graph?: any, functionList?: string[]): void {
     const column = vscode.ViewColumn.Beside;
 
     if (GraphPanel.currentPanel) {
       GraphPanel.currentPanel._panel.reveal(column);
-      if (graph) GraphPanel.currentPanel.updateGraph(graph);
+      if (graph) GraphPanel.currentPanel.updateGraph(graph, functionList);
       return;
     }
 
@@ -55,7 +56,7 @@ export class GraphPanel {
     GraphPanel.currentPanel = new GraphPanel(panel, extensionUri);
 
     if (graph) {
-      GraphPanel.currentPanel.updateGraph(graph);
+      GraphPanel.currentPanel.updateGraph(graph, functionList);
     } else {
       // Restore last saved state
       const saved = GraphPanel._context?.workspaceState.get<any>(GraphPanel.STATE_KEY);
@@ -79,7 +80,6 @@ export class GraphPanel {
     this._panel.webview.onDidReceiveMessage(
       (message) => {
         if (message.type === "nodeClicked" && message.line > 0) {
-          // Navigate to the line in the active editor
           const editor = vscode.window.visibleTextEditors.find(
             (e) => e.document.languageId === "rust"
           );
@@ -92,6 +92,8 @@ export class GraphPanel {
             );
             vscode.window.showTextDocument(editor.document, editor.viewColumn);
           }
+        } else if (message.type === "selectFunction" && message.name) {
+          this._loadFunction(message.name);
         }
       },
       null,
@@ -99,10 +101,39 @@ export class GraphPanel {
     );
   }
 
-  public updateGraph(graph: any): void {
+  private async _loadFunction(name: string): Promise<void> {
+    const editor = vscode.window.visibleTextEditors.find(
+      (e) => e.document.languageId === "rust"
+    );
+    if (!editor) return;
+
+    for (let i = 0; i < editor.document.lineCount; i++) {
+      if (new RegExp(`\\bfn\\s+${name}\\b`).test(editor.document.lineAt(i).text)) {
+        try {
+          const client = getClient();
+          if (!client) return;
+          const graph = await client.sendRequest("borrowscope/ownershipGraph", {
+            textDocument: { uri: editor.document.uri.toString() },
+            position: { line: i, character: 4 },
+          });
+          if (graph) {
+            // Get function list from editor
+            const fnList: string[] = [];
+            for (let j = 0; j < editor.document.lineCount; j++) {
+              const match = editor.document.lineAt(j).text.match(/\bfn\s+(\w+)/);
+              if (match) fnList.push(match[1]);
+            }
+            this.updateGraph(graph, fnList);
+          }
+        } catch { /* ignore */ }
+        break;
+      }
+    }
+  }
+
+  public updateGraph(graph: any, functionList?: string[]): void {
     this._currentGraph = graph;
-    this._panel.webview.html = this._buildHtml(graph);
-    // Persist for next session
+    this._panel.webview.html = this._buildHtml(graph, functionList);
     GraphPanel._context?.workspaceState.update(GraphPanel.STATE_KEY, graph);
   }
 
@@ -121,7 +152,7 @@ export class GraphPanel {
     this._disposables = [];
   }
 
-  private _buildHtml(graph: any | undefined): string {
+  private _buildHtml(graph: any | undefined, functionList?: string[]): string {
     if (!graph) {
       return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>body{font-family:var(--vscode-font-family);background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);padding:16px;}</style>
@@ -184,14 +215,29 @@ export class GraphPanel {
     .edge path { fill:none; stroke-width:1.5px; }
     .edge text { font-size:9px; fill:var(--vscode-editor-foreground); opacity:0.7; }
     .edge .mutable path { stroke-width:2.5px; }
+    #tooltip { position:absolute; background:var(--vscode-editorHoverWidget-background, #1e1e1e); border:1px solid var(--vscode-editorHoverWidget-border, #454545); border-radius:4px; padding:8px 12px; font-size:12px; pointer-events:none; opacity:0; transition:opacity 0.15s; z-index:100; max-width:300px; }
+    #tooltip strong { font-size:13px; }
+    #tooltip code { background:var(--vscode-textCodeBlock-background); padding:1px 4px; border-radius:2px; font-size:11px; }
+    #tooltip hr { border:none; border-top:1px solid var(--vscode-panel-border); margin:4px 0; }
+    #filter-bar { padding:4px 16px; border-bottom:1px solid var(--vscode-panel-border); display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    #filter-bar .filter-label { font-size:11px; opacity:0.6; margin-right:4px; }
+    #filter-bar button { border:none; border-radius:3px; padding:2px 8px; font-size:11px; cursor:pointer; color:#fff; opacity:0.9; }
+    #filter-bar button.hidden { opacity:0.3; text-decoration:line-through; }
   </style>
 </head>
 <body>
   <div id="header">
     <h2>📊 ${esc(graph.function_name)}</h2>
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
+    <select id="fn-selector" style="float:right;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border);border-radius:3px;padding:2px 6px;font-size:12px;">
+      ${(functionList || [graph.function_name]).map((fn: string) =>
+        `<option value="${esc(fn)}"${fn === graph.function_name ? " selected" : ""}>${esc(fn)}</option>`
+      ).join("")}
+    </select>
   </div>
+  <div id="filter-bar"><span class="filter-label">Filter:</span></div>
   <div id="graph-container"></div>
+  <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
     <table><tr><th>Name</th><th>Type</th><th>Category</th></tr>${varsHtml}</table></details>` : ""}
@@ -347,6 +393,47 @@ export class GraphPanel {
         node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
       });
 
+      // === Function selector ===
+      const fnSelector = document.getElementById('fn-selector');
+      if (fnSelector) {
+        fnSelector.addEventListener('change', function() {
+          if (vscodeApi) {
+            vscodeApi.postMessage({ type: 'selectFunction', name: this.value });
+          }
+        });
+      }
+
+      // === Filter by category ===
+      const categories = [...new Set(data.nodes.map(n => n.category))];
+      const hiddenCategories = new Set();
+      const filterBar = d3.select('#filter-bar');
+
+      categories.forEach(cat => {
+        filterBar.append('button')
+          .attr('class', 'filter')
+          .style('background', nodeColor(cat))
+          .text(cat)
+          .on('click', function() {
+            if (hiddenCategories.has(cat)) {
+              hiddenCategories.delete(cat);
+              d3.select(this).classed('hidden', false);
+            } else {
+              hiddenCategories.add(cat);
+              d3.select(this).classed('hidden', true);
+            }
+            applyFilters();
+          });
+      });
+
+      function applyFilters() {
+        node.attr('display', d => hiddenCategories.has(d.category) ? 'none' : null);
+        edge.attr('display', d => {
+          const srcHidden = hiddenCategories.has(d.source.category || '');
+          const tgtHidden = hiddenCategories.has(d.target.category || '');
+          return (srcHidden || tgtHidden) ? 'none' : null;
+        });
+      }
+
       // === Linked highlighting: table <-> graph ===
       function highlightVariable(name) {
         node.select('circle')
@@ -372,10 +459,32 @@ export class GraphPanel {
         });
       }
 
-      // Graph node hover -> highlight table
-      node.on('mouseover', (event, d) => highlightVariable(d.name))
-          .on('mouseout', () => clearHighlight())
+      // Graph node hover -> highlight table + show tooltip
+      const tooltip = d3.select('#tooltip');
+      node.on('mouseover', (event, d) => {
+            highlightVariable(d.name);
+            tooltip.html(
+              '<strong>' + d.name + '</strong><br>' +
+              '<code>' + d.type + '</code>' +
+              '<hr>' +
+              'Category: ' + d.category + '<br>' +
+              'Line: ' + d.line + '<br>' +
+              (d.isCopy ? 'Copy type<br>' : '') +
+              (!d.isAlive ? '<em>Moved / dropped</em>' : '')
+            )
+            .style('left', (event.pageX + 12) + 'px')
+            .style('top', (event.pageY - 12) + 'px')
+            .style('opacity', 1);
+          })
+          .on('mouseout', () => {
+            clearHighlight();
+            tooltip.style('opacity', 0);
+          })
           .on('click', (event, d) => {
+            // Visual highlight on clicked node
+            node.select('circle').attr('stroke', n => nodeColor(n.category)).attr('stroke-width', 2);
+            d3.select(event.currentTarget).select('circle').attr('stroke', '#fff').attr('stroke-width', 4);
+            // Navigate in editor
             if (vscodeApi && d.line > 0) {
               vscodeApi.postMessage({ type: 'nodeClicked', file: '', line: d.line });
             }
