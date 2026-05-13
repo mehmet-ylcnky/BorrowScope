@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { startClient, stopClient, restartClient } from "./client";
+import { registerCommands } from "./commands";
 
 let outputChannel: vscode.OutputChannel;
 
@@ -11,8 +12,8 @@ export async function activate(
   context.subscriptions.push(outputChannel);
 
   // Register commands
+  registerCommands(context);
   context.subscriptions.push(
-    vscode.commands.registerCommand("borrowscope.showGraph", showGraph),
     vscode.commands.registerCommand(
       "borrowscope.inspectVariable",
       inspectVariable
@@ -43,10 +44,6 @@ export async function deactivate(): Promise<void> {
   if (outputChannel) {
     outputChannel.appendLine("BorrowScope deactivated");
   }
-}
-
-function showGraph(): void {
-  vscode.window.showInformationMessage("BorrowScope: Show Ownership Graph");
 }
 
 function inspectVariable(): void {
