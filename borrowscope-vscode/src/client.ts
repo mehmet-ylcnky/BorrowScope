@@ -8,6 +8,7 @@ import {
 import { resolveServerPath } from "./server-path";
 import { applyDecorations, clearDecorations, OwnershipHint } from "./decorations";
 import { applyLifelines, clearLifelines, BorrowScope, OwnershipGraph } from "./lifelines";
+import { applyHighlights, clearHighlights } from "./highlights";
 
 let client: LanguageClient | undefined;
 
@@ -150,9 +151,11 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
     } catch { /* graph not available */ }
 
     applyLifelines(editor, scopes, graph);
+    applyHighlights(editor, scopes, graph);
   } catch {
     clearDecorations(editor);
     clearLifelines(editor);
+    clearHighlights(editor);
   }
 }
 
