@@ -206,15 +206,17 @@ export class GraphPanel {
       const markerColors = {
         shared_borrow: '#3498db',
         mutable_borrow: '#e74c3c',
-        move: '#e67e22',
+        move: '#2ecc71',
         rc_clone: '#9b59b6',
         arc_clone: '#8e44ad',
+        closure_capture: '#e67e22',
+        refcell_borrow: '#e67e22',
       };
       Object.entries(markerColors).forEach(([kind, color]) => {
         defs.append('marker')
           .attr('id', 'arrow-' + kind)
           .attr('viewBox', '0 -5 10 10')
-          .attr('refX', 25)
+          .attr('refX', 20)
           .attr('markerWidth', 6)
           .attr('markerHeight', 6)
           .attr('orient', 'auto')
@@ -228,9 +230,20 @@ export class GraphPanel {
         const colors = {
           'Owned': '#2ecc71', 'SharedRef': '#3498db', 'MutableRef': '#e74c3c',
           'Rc': '#9b59b6', 'Arc': '#8e44ad', 'InteriorMut': '#e67e22',
-          'Copy': '#95a5a6', 'RawPointer': '#7f8c8d', 'Unknown': '#bdc3c7'
+          'Copy': '#1abc9c', 'RawPointer': '#7f8c8d', 'Unknown': '#bdc3c7',
+          'Closure': '#f1c40f'
         };
         return colors[category] || '#bdc3c7';
+      }
+
+      function nodeIcon(category) {
+        const icons = {
+          'Owned': '📦', 'SharedRef': '👁', 'MutableRef': '🔒',
+          'Rc': '🔗', 'Arc': '🔗', 'InteriorMut': '🔄',
+          'Copy': '📋', 'RawPointer': '⚡', 'Unknown': '?',
+          'Closure': '⚙'
+        };
+        return icons[category] || '•';
       }
 
       function edgeColor(kind) {
@@ -238,8 +251,11 @@ export class GraphPanel {
       }
 
       function edgeDash(kind) {
-        if (kind === 'move') return '6,3';
+        if (kind === 'shared_borrow') return '8,4';
+        if (kind === 'move') return 'none';
         if (kind === 'rc_clone' || kind === 'arc_clone') return '3,3';
+        if (kind === 'closure_capture') return '8,3,2,3';
+        if (kind === 'mutable_borrow') return 'none';
         return 'none';
       }
 
@@ -280,6 +296,7 @@ export class GraphPanel {
         .attr('r', d => 12 + d.size * 3)
         .attr('fill', d => nodeColor(d.category))
         .attr('stroke', d => d.isAlive ? nodeColor(d.category) : '#e74c3c')
+        .attr('stroke-width', 2)
         .attr('opacity', d => d.isAlive ? 0.9 : 0.4);
 
       node.append('text')
@@ -305,15 +322,12 @@ export class GraphPanel {
 
       // === Linked highlighting: table <-> graph ===
       function highlightVariable(name) {
-        // Highlight graph node
         node.select('circle')
           .attr('stroke-width', d => d.name === name ? 4 : 2)
           .attr('stroke', d => d.name === name ? '#fff' : nodeColor(d.category));
-        // Highlight connected edges
         edge.select('path')
           .attr('stroke-width', d => (d.source.name === name || d.target.name === name) ? 3 : 1.5)
           .attr('opacity', d => (d.source.name === name || d.target.name === name) ? 1 : 0.3);
-        // Highlight table row
         document.querySelectorAll('#tables tr[data-var]').forEach(row => {
           row.style.background = row.getAttribute('data-var') === name ? 'rgba(52,152,219,0.15)' : '';
         });
