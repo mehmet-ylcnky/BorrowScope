@@ -57,8 +57,9 @@
   "scripts": {
     "build": "node esbuild.js",
     "watch": "node esbuild.js --watch",
-    "test": "node out/test/runTest.js",
-    "test:unit": "mocha out/test/suite/**/*.test.js",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "mocha --require ./test-setup.js 'out/test/suite/**/*.test.js' --ignore 'out/test/suite/integration.test.js'",
+    "test:integration": "node out/test/runTest.js",
     "lint": "eslint src --ext ts",
     "package": "vsce package"
   },
