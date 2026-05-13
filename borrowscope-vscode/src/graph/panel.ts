@@ -2,10 +2,17 @@ import * as vscode from "vscode";
 
 export class GraphPanel {
   public static currentPanel: GraphPanel | undefined;
+  private static _context: vscode.ExtensionContext;
   private readonly _panel: vscode.WebviewPanel;
   private _disposables: vscode.Disposable[] = [];
   private _extensionUri: vscode.Uri;
   private _currentGraph: any | undefined;
+
+  private static readonly STATE_KEY = "borrowscope.lastGraph";
+
+  public static setContext(context: vscode.ExtensionContext): void {
+    GraphPanel._context = context;
+  }
 
   public static createOrShow(extensionUri: vscode.Uri, graph?: any): void {
     const column = vscode.ViewColumn.Beside;
@@ -28,7 +35,16 @@ export class GraphPanel {
     );
 
     GraphPanel.currentPanel = new GraphPanel(panel, extensionUri);
-    if (graph) GraphPanel.currentPanel.updateGraph(graph);
+
+    if (graph) {
+      GraphPanel.currentPanel.updateGraph(graph);
+    } else {
+      // Restore last saved state
+      const saved = GraphPanel._context?.workspaceState.get<any>(GraphPanel.STATE_KEY);
+      if (saved) {
+        GraphPanel.currentPanel.updateGraph(saved);
+      }
+    }
   }
 
   public static getPanel(): GraphPanel | undefined {
@@ -45,6 +61,8 @@ export class GraphPanel {
   public updateGraph(graph: any): void {
     this._currentGraph = graph;
     this._panel.webview.html = this._buildHtml(graph);
+    // Persist for next session
+    GraphPanel._context?.workspaceState.update(GraphPanel.STATE_KEY, graph);
   }
 
   public getGraph(): any | undefined {

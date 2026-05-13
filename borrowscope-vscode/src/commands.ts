@@ -6,6 +6,7 @@ let extensionUri: vscode.Uri;
 
 export function registerCommands(context: vscode.ExtensionContext): void {
   extensionUri = context.extensionUri;
+  GraphPanel.setContext(context);
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "borrowscope.showGraph",
