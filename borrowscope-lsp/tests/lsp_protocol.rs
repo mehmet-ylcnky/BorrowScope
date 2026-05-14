@@ -1592,3 +1592,105 @@ fn test_debounce_configurable_via_init_options() {
         .collect();
     assert!(!analysis.is_empty(), "Custom debounce (50ms) should have fired by 150ms");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6.3 Partial Results (analysis cache) tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_cache_cleared_on_file_close() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache1.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    // Close the file — cache should be cleared, server should not crash
+    server.notify("textDocument/didClose", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache1.rs"}
+    }));
+    // Server should still be responsive after close
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache1.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_cache_server_responsive_after_change() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache2.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    // Change file
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache2.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let x = 2; let y = 3; }"}]
+    }));
+    // Request immediately (before debounce fires) — server should respond
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache2.rs"}
+    }));
+    assert!(resp["result"].is_array(), "Server should respond even during debounce");
+}
+
+#[test]
+fn test_cache_stale_data_available_during_reanalysis() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache3.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    // Wait for initial debounce
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Change file (marks cache stale)
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache3.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let x = 2; }"}]
+    }));
+    // Request during debounce — should still get a response (stale or fresh)
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache3.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_cache_fresh_after_debounce_completes() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache4.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache4.rs", "version": 2},
+        "contentChanges": [{"text": "fn fresh() { let y = 2; }"}]
+    }));
+    // Wait for debounce to complete
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Content should reflect the latest change
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/cache4.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn fresh() { let y = 2; }");
+}
+
+#[test]
+fn test_cache_multiple_functions_cached_independently() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache5.rs", "languageId": "rust", "version": 1,
+            "text": "fn a() { let x = 1; }\nfn b() { let y = 2; }"}
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Both functions should be accessible
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/cache5.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}

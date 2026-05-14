@@ -15,6 +15,56 @@ pub struct OpenFile {
     pub dirty: bool,
 }
 
+/// Cached analysis result for a function.
+#[derive(Debug, Clone)]
+pub enum AnalysisState {
+    /// Fresh result from latest analysis.
+    Ready(serde_json::Value),
+    /// Previous result, file has changed since.
+    Stale(serde_json::Value),
+}
+
+/// Per-file analysis cache.
+#[derive(Debug, Default)]
+pub struct AnalysisCache {
+    /// function_name -> cached result
+    pub functions: HashMap<String, AnalysisState>,
+}
+
+impl AnalysisCache {
+    /// Get cached result (fresh or stale).
+    pub fn get(&self, function_name: &str) -> Option<&serde_json::Value> {
+        match self.functions.get(function_name) {
+            Some(AnalysisState::Ready(v)) | Some(AnalysisState::Stale(v)) => Some(v),
+            None => None,
+        }
+    }
+
+    /// Check if result is stale.
+    pub fn is_stale(&self, function_name: &str) -> bool {
+        matches!(self.functions.get(function_name), Some(AnalysisState::Stale(_)))
+    }
+
+    /// Store a fresh result.
+    pub fn set_ready(&mut self, function_name: String, value: serde_json::Value) {
+        self.functions.insert(function_name, AnalysisState::Ready(value));
+    }
+
+    /// Mark all entries as stale.
+    pub fn mark_all_stale(&mut self) {
+        for state in self.functions.values_mut() {
+            if let AnalysisState::Ready(v) = state.clone() {
+                *state = AnalysisState::Stale(v);
+            }
+        }
+    }
+
+    /// Clear all entries.
+    pub fn clear(&mut self) {
+        self.functions.clear();
+    }
+}
+
 pub struct GlobalState {
     /// Workspace data (None until loading completes)
     pub workspace: Option<WorkspaceData>,
@@ -32,6 +82,8 @@ pub struct GlobalState {
     pub last_change_time: Option<std::time::Instant>,
     /// Debounce duration in milliseconds
     pub debounce_ms: u64,
+    /// Per-file analysis cache (uri -> cache)
+    pub analysis_cache: HashMap<String, AnalysisCache>,
 }
 
 impl GlobalState {
@@ -60,6 +112,7 @@ impl GlobalState {
             pending_changes: Vec::new(),
             last_change_time: None,
             debounce_ms,
+            analysis_cache: HashMap::new(),
         })
     }
 

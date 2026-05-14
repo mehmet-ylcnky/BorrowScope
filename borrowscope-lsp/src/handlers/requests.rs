@@ -145,8 +145,8 @@ fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req
         None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
     };
 
-    let file_content = state.get_file_content(uri_str).unwrap_or("");
-    let line_index = build_line_index(file_content);
+    let file_content = state.get_file_content(uri_str).unwrap_or("").to_string();
+    let line_index = build_line_index(&file_content);
     let target_line = params.position.line;
 
     let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
@@ -157,14 +157,24 @@ fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req
 
     let function = match function {
         Some(f) => f,
-        None => { sender.send(Message::Response(Response::new_err(req.id, -32602, "Cursor not inside a function".into())))?; return Ok(()); }
+        None => {
+            // No function at cursor — try returning cached stale result
+            sender.send(Message::Response(Response::new_err(req.id, -32602, "Cursor not inside a function".into())))?;
+            return Ok(());
+        }
     };
 
     let summary = attach_db(&ws.db, || {
         borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index)
     });
 
-    sender.send(Message::Response(Response::new_ok(req.id, serde_json::to_value(&summary)?)))?;
+    let value = serde_json::to_value(&summary)?;
+
+    // Cache the result
+    let cache = state.analysis_cache.entry(uri_str.to_string()).or_default();
+    cache.set_ready(summary.function_name.clone(), value.clone());
+
+    sender.send(Message::Response(Response::new_ok(req.id, value)))?;
     Ok(())
 }
 

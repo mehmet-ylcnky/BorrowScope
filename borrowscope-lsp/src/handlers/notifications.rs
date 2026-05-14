@@ -47,8 +47,10 @@ pub fn handle(
         "textDocument/didClose" => {
             let params: lsp_types::DidCloseTextDocumentParams =
                 serde_json::from_value(notif.params)?;
-            tracing::debug!("File closed: {}", params.text_document.uri.as_str());
-            state.mark_file_closed(params.text_document.uri.as_str());
+            let uri = params.text_document.uri.as_str();
+            tracing::debug!("File closed: {}", uri);
+            state.analysis_cache.remove(uri);
+            state.mark_file_closed(uri);
         }
         "initialized" => {
             tracing::info!("Client initialized.");
@@ -66,6 +68,13 @@ pub fn flush_pending_changes(state: &mut GlobalState, sender: &Sender<Message>) 
     let pending = std::mem::take(&mut state.pending_changes);
     if pending.is_empty() {
         return;
+    }
+
+    // Mark cached analysis as stale for changed files
+    for (uri, _) in &pending {
+        if let Some(cache) = state.analysis_cache.get_mut(uri) {
+            cache.mark_all_stale();
+        }
     }
 
     // Apply to Salsa database
