@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BorrowScope: Memory Layout Lifecycle</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background: #1e1e2e; color: #cdd6f4; display: flex; height: 100vh; }
+  #code-panel { width: 40%; padding: 20px; overflow-y: auto; border-right: 1px solid #45475a; }
+  #memory-panel { width: 60%; padding: 20px; position: relative; }
+  #code-panel h2, #memory-panel h2 { font-size: 14px; color: #89b4fa; margin-bottom: 12px; }
+  .code-line { padding: 2px 8px; font-size: 13px; cursor: pointer; border-radius: 3px; display: flex; }
+  .code-line:hover { background: #313244; }
+  .code-line.active { background: #45475a; }
+  .code-line .num { color: #6c7086; width: 30px; text-align: right; margin-right: 12px; user-select: none; }
+  .code-line .text { white-space: pre; }
+  #controls { position: absolute; bottom: 20px; left: 20px; right: 20px; display: flex; align-items: center; gap: 12px; background: #313244; padding: 12px; border-radius: 8px; }
+  #controls label { font-size: 12px; color: #a6adc8; }
+  #slider { flex: 1; }
+  #line-display { font-size: 13px; color: #f9e2af; min-width: 80px; }
+  #play-btn { background: #89b4fa; border: none; color: #1e1e2e; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+  #play-btn:hover { background: #b4befe; }
+  svg { width: 100%; height: calc(100% - 80px); }
+  .stack-bg { fill: #1e1e2e; stroke: #89b4fa; stroke-width: 1; }
+  .heap-bg { fill: #1e1e2e; stroke: #a6e3a1; stroke-width: 1; }
+  .var-block { transition: opacity 0.3s, fill 0.3s; }
+  .var-label { font-size: 11px; fill: #cdd6f4; font-family: monospace; }
+  .var-size { font-size: 9px; fill: #6c7086; font-family: monospace; }
+  .pointer-arrow { stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+  .legend { font-size: 11px; fill: #a6adc8; }
+</style>
+</head>
+<body>
+
+<div id="code-panel">
+  <h2>📝 Source Code</h2>
+  <div id="code-lines"></div>
+</div>
+
+<div id="memory-panel">
+  <h2>🧠 Memory Layout (Stack + Heap)</h2>
+  <svg id="memory-svg"></svg>
+  <div id="controls">
+    <button id="play-btn">▶ Play</button>
+    <label>Line:</label>
+    <input type="range" id="slider" min="1" max="20" value="1">
+    <span id="line-display">Line 1</span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Sample Rust program data (simulating what the LSP would provide)
+// ═══════════════════════════════════════════════════════════════
+
+const sourceCode = [
+  'fn main() {',
+  '    let x: i32 = 42;',
+  '    let v: Vec<i32> = vec![1, 2, 3];',
+  '    let r = &v;',
+  '    println!("{:?}", r);',
+  '    // r released here',
+  '    let mut s = String::from("hello");',
+  '    let m = &mut s;',
+  '    m.push_str(" world");',
+  '    // m released here',
+  '    let rc = Rc::new(v);',
+  '    let rc2 = Rc::clone(&rc);',
+  '    drop(rc2);',
+  '    // rc2 dropped, rc still alive',
+  '    let b = Box::new([0u8; 1024]);',
+  '    drop(b);',
+  '    // b dropped, heap freed',
+  '    drop(rc);',
+  '    drop(s);',
+  '}  // x dropped (stack unwinds)',
+];
+
+// Variable lifecycle data: [name, type, size_stack, size_heap, start_line, end_line, region, color]
+const variables = [
+  { name: 'x', type: 'i32', stackSize: 4, heapSize: 0, start: 2, end: 20, color: '#a6e3a1' },
+  { name: 'v', type: 'Vec<i32>', stackSize: 24, heapSize: 12, start: 3, end: 11, color: '#89b4fa' },
+  { name: 'r', type: '&Vec<i32>', stackSize: 8, heapSize: 0, start: 4, end: 6, color: '#74c7ec', borrows: 'v' },
+  { name: 's', type: 'String', stackSize: 24, heapSize: 5, start: 7, end: 19, color: '#f9e2af' },
+  { name: 'm', type: '&mut String', stackSize: 8, heapSize: 0, start: 8, end: 10, color: '#f38ba8', borrows: 's' },
+  { name: 'rc', type: 'Rc<Vec<i32>>', stackSize: 8, heapSize: 12, start: 11, end: 18, color: '#cba6f7' },
+  { name: 'rc2', type: 'Rc<Vec<i32>>', stackSize: 8, heapSize: 0, start: 12, end: 13, color: '#f5c2e7', borrows: 'rc' },
+  { name: 'b', type: 'Box<[u8;1024]>', stackSize: 8, heapSize: 1024, start: 15, end: 16, color: '#fab387' },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// Render code panel
+// ═══════════════════════════════════════════════════════════════
+
+const codeContainer = document.getElementById('code-lines');
+sourceCode.forEach((line, i) => {
+  const div = document.createElement('div');
+  div.className = 'code-line';
+  div.dataset.line = i + 1;
+  div.innerHTML = `<span class="num">${i + 1}</span><span class="text">${escapeHtml(line)}</span>`;
+  div.onclick = () => setLine(i + 1);
+  codeContainer.appendChild(div);
+});
+
+function escapeHtml(s) { return s.replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ═══════════════════════════════════════════════════════════════
+// SVG Memory visualization
+// ═══════════════════════════════════════════════════════════════
+
+const svg = document.getElementById('memory-svg');
+const svgNS = 'http://www.w3.org/2000/svg';
+
+// Layout constants
+const STACK_X = 30, STACK_Y = 40, STACK_W = 200, STACK_H = 450;
+const HEAP_X = 350, HEAP_Y = 40, HEAP_W = 250, HEAP_H = 450;
+
+// Arrow marker
+svg.innerHTML = `
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#89b4fa"/>
+    </marker>
+  </defs>
+  <rect class="stack-bg" x="${STACK_X}" y="${STACK_Y}" width="${STACK_W}" height="${STACK_H}" rx="6"/>
+  <text x="${STACK_X + STACK_W/2}" y="30" text-anchor="middle" class="legend" fill="#89b4fa" font-weight="bold">STACK ↓</text>
+  <rect class="heap-bg" x="${HEAP_X}" y="${HEAP_Y}" width="${HEAP_W}" height="${HEAP_H}" rx="6"/>
+  <text x="${HEAP_X + HEAP_W/2}" y="30" text-anchor="middle" class="legend" fill="#a6e3a1" font-weight="bold">HEAP</text>
+  <g id="stack-vars"></g>
+  <g id="heap-vars"></g>
+  <g id="arrows"></g>
+`;
+
+// ═══════════════════════════════════════════════════════════════
+// Render memory state at a given line
+// ═══════════════════════════════════════════════════════════════
+
+function renderMemoryAtLine(currentLine) {
+  const stackGroup = document.getElementById('stack-vars');
+  const heapGroup = document.getElementById('heap-vars');
+  const arrowGroup = document.getElementById('arrows');
+  stackGroup.innerHTML = '';
+  heapGroup.innerHTML = '';
+  arrowGroup.innerHTML = '';
+
+  let stackOffset = 10;
+  let heapOffset = 10;
+
+  const aliveVars = variables.filter(v => currentLine >= v.start && currentLine <= v.end);
+  const dyingVars = variables.filter(v => currentLine === v.end + 1);
+
+  aliveVars.forEach(v => {
+    const blockH = Math.max(20, Math.min(50, v.stackSize * 1.5));
+
+    // Stack block
+    const rect = createSvgEl('rect', {
+      x: STACK_X + 10, y: STACK_Y + stackOffset, width: STACK_W - 20, height: blockH,
+      rx: 3, fill: v.color, opacity: 0.7, class: 'var-block'
+    });
+    stackGroup.appendChild(rect);
+
+    // Label
+    const label = createSvgEl('text', {
+      x: STACK_X + 16, y: STACK_Y + stackOffset + 14, class: 'var-label'
+    });
+    label.textContent = `${v.name}: ${v.type}`;
+    stackGroup.appendChild(label);
+
+    // Size
+    const size = createSvgEl('text', {
+      x: STACK_X + STACK_W - 16, y: STACK_Y + stackOffset + 14, class: 'var-size', 'text-anchor': 'end'
+    });
+    size.textContent = `${v.stackSize}B`;
+    stackGroup.appendChild(size);
+
+    // Heap allocation
+    if (v.heapSize > 0 && !v.borrows) {
+      const heapH = Math.max(20, Math.min(60, Math.log2(v.heapSize + 1) * 10));
+      const heapRect = createSvgEl('rect', {
+        x: HEAP_X + 10, y: HEAP_Y + heapOffset, width: HEAP_W - 20, height: heapH,
+        rx: 3, fill: v.color, opacity: 0.5, class: 'var-block'
+      });
+      heapGroup.appendChild(heapRect);
+
+      const heapLabel = createSvgEl('text', {
+        x: HEAP_X + 16, y: HEAP_Y + heapOffset + 14, class: 'var-label'
+      });
+      heapLabel.textContent = `[${v.name} data]`;
+      heapGroup.appendChild(heapLabel);
+
+      const heapSize = createSvgEl('text', {
+        x: HEAP_X + HEAP_W - 16, y: HEAP_Y + heapOffset + 14, class: 'var-size', 'text-anchor': 'end'
+      });
+      heapSize.textContent = `${v.heapSize}B`;
+      heapGroup.appendChild(heapSize);
+
+      // Arrow from stack to heap
+      const arrow = createSvgEl('path', {
+        d: `M${STACK_X + STACK_W - 10},${STACK_Y + stackOffset + blockH/2} C${STACK_X + STACK_W + 40},${STACK_Y + stackOffset + blockH/2} ${HEAP_X - 40},${HEAP_Y + heapOffset + heapH/2} ${HEAP_X + 10},${HEAP_Y + heapOffset + heapH/2}`,
+        stroke: v.color, class: 'pointer-arrow', opacity: 0.6
+      });
+      arrowGroup.appendChild(arrow);
+
+      heapOffset += heapH + 8;
+    }
+
+    // Borrow arrow (points to another stack var)
+    if (v.borrows) {
+      const target = aliveVars.find(t => t.name === v.borrows);
+      if (target) {
+        const targetIdx = aliveVars.indexOf(target);
+        let targetY = STACK_Y + 10;
+        for (let i = 0; i < targetIdx; i++) {
+          targetY += Math.max(20, Math.min(50, aliveVars[i].stackSize * 1.5)) + 8;
+        }
+        const arrow = createSvgEl('path', {
+          d: `M${STACK_X + 15},${STACK_Y + stackOffset + blockH/2} L${STACK_X + 5},${STACK_Y + stackOffset + blockH/2} L${STACK_X + 5},${targetY + 10} L${STACK_X + 15},${targetY + 10}`,
+          stroke: v.color, class: 'pointer-arrow', opacity: 0.8, 'stroke-dasharray': '4,2'
+        });
+        arrowGroup.appendChild(arrow);
+      }
+    }
+
+    stackOffset += blockH + 8;
+  });
+
+  // Show "freed" indicators for just-dropped vars
+  dyingVars.forEach(v => {
+    if (v.heapSize > 0) {
+      const text = createSvgEl('text', {
+        x: HEAP_X + HEAP_W/2, y: HEAP_Y + HEAP_H - 20, 'text-anchor': 'middle',
+        fill: '#f38ba8', 'font-size': '11px'
+      });
+      text.textContent = `💀 ${v.name} freed (${v.heapSize}B returned to allocator)`;
+      heapGroup.appendChild(text);
+    }
+  });
+
+  // Stack usage summary
+  const totalStack = aliveVars.reduce((s, v) => s + v.stackSize, 0);
+  const totalHeap = aliveVars.filter(v => v.heapSize > 0 && !v.borrows).reduce((s, v) => s + v.heapSize, 0);
+  const summary = createSvgEl('text', {
+    x: STACK_X, y: STACK_Y + STACK_H + 20, class: 'legend'
+  });
+  summary.textContent = `Stack: ${totalStack}B used | Heap: ${totalHeap}B allocated | ${aliveVars.length} vars alive`;
+  stackGroup.appendChild(summary);
+}
+
+function createSvgEl(tag, attrs) {
+  const el = document.createElementNS(svgNS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Controls
+// ═══════════════════════════════════════════════════════════════
+
+const slider = document.getElementById('slider');
+const lineDisplay = document.getElementById('line-display');
+const playBtn = document.getElementById('play-btn');
+slider.max = sourceCode.length;
+
+let currentLine = 1;
+let playing = false;
+let playInterval;
+
+function setLine(line) {
+  currentLine = line;
+  slider.value = line;
+  lineDisplay.textContent = `Line ${line}`;
+  renderMemoryAtLine(line);
+
+  // Highlight code line
+  document.querySelectorAll('.code-line').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.line) === line);
+  });
+}
+
+slider.oninput = () => setLine(parseInt(slider.value));
+
+playBtn.onclick = () => {
+  if (playing) {
+    clearInterval(playInterval);
+    playBtn.textContent = '▶ Play';
+    playing = false;
+  } else {
+    playing = true;
+    playBtn.textContent = '⏸ Pause';
+    playInterval = setInterval(() => {
+      currentLine++;
+      if (currentLine > sourceCode.length) currentLine = 1;
+      setLine(currentLine);
+    }, 800);
+  }
+};
+
+// Initial render
+setLine(1);
+</script>
+</body>
+</html>

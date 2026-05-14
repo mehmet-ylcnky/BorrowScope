@@ -25,10 +25,21 @@ pub enum AnalysisState {
 }
 
 /// Per-file analysis cache.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct AnalysisCache {
     /// function_name -> cached result
     pub functions: HashMap<String, AnalysisState>,
+    /// Last time this cache was accessed
+    pub last_accessed: std::time::Instant,
+}
+
+impl Default for AnalysisCache {
+    fn default() -> Self {
+        Self {
+            functions: HashMap::new(),
+            last_accessed: std::time::Instant::now(),
+        }
+    }
 }
 
 impl AnalysisCache {
@@ -47,6 +58,7 @@ impl AnalysisCache {
 
     /// Store a fresh result.
     pub fn set_ready(&mut self, function_name: String, value: serde_json::Value) {
+        self.last_accessed = std::time::Instant::now();
         self.functions.insert(function_name, AnalysisState::Ready(value));
     }
 
@@ -62,6 +74,16 @@ impl AnalysisCache {
     /// Clear all entries.
     pub fn clear(&mut self) {
         self.functions.clear();
+    }
+
+    /// Estimated memory usage in bytes.
+    pub fn estimated_size_bytes(&self) -> usize {
+        self.functions.values().map(|s| {
+            let v = match s {
+                AnalysisState::Ready(v) | AnalysisState::Stale(v) => v,
+            };
+            v.to_string().len()
+        }).sum()
     }
 }
 
@@ -203,6 +225,65 @@ impl GlobalState {
         }
 
         modified_paths
+    }
+
+    /// Evict analysis cache for closed files older than grace period.
+    pub fn evict_closed_caches(&mut self, grace_period_secs: u64) {
+        let now = std::time::Instant::now();
+        let grace = std::time::Duration::from_secs(grace_period_secs);
+
+        let open_uris: std::collections::HashSet<&String> = self.open_files.iter()
+            .filter(|(_, f)| f.is_open)
+            .map(|(uri, _)| uri)
+            .collect();
+
+        self.analysis_cache.retain(|uri, cache| {
+            // Never evict open files
+            if open_uris.contains(uri) {
+                return true;
+            }
+            // Keep if accessed within grace period
+            now.duration_since(cache.last_accessed) < grace
+        });
+    }
+
+    /// Evict LRU entries if total cache exceeds budget.
+    pub fn evict_if_over_budget(&mut self, max_bytes: usize) {
+        let total: usize = self.analysis_cache.values()
+            .map(|c| c.estimated_size_bytes())
+            .sum();
+
+        if total <= max_bytes {
+            return;
+        }
+
+        let open_uris: std::collections::HashSet<&String> = self.open_files.iter()
+            .filter(|(_, f)| f.is_open)
+            .map(|(uri, _)| uri)
+            .collect();
+
+        // Sort closed caches by last_accessed (oldest first)
+        let mut closed: Vec<(String, std::time::Instant)> = self.analysis_cache.iter()
+            .filter(|(uri, _)| !open_uris.contains(uri))
+            .map(|(uri, cache)| (uri.clone(), cache.last_accessed))
+            .collect();
+        closed.sort_by_key(|(_, t)| *t);
+
+        // Evict oldest until under budget
+        let mut current = total;
+        for (uri, _) in closed {
+            if current <= max_bytes {
+                break;
+            }
+            if let Some(cache) = self.analysis_cache.remove(&uri) {
+                current -= cache.estimated_size_bytes();
+            }
+        }
+    }
+
+    /// Total estimated cache memory in bytes.
+    pub fn total_cache_bytes(&self) -> usize {
+        self.analysis_cache.values().map(|c| c.estimated_size_bytes()).sum()
     }
 }
 

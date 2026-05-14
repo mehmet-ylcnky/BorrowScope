@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BorrowScope: Runtime Memory Layout (Simulated)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', monospace; background: #0d1117; color: #c9d1d9; display: flex; height: 100vh; }
+  #code-panel { width: 35%; padding: 16px; overflow-y: auto; border-right: 1px solid #30363d; }
+  #memory-panel { width: 65%; padding: 16px; display: flex; flex-direction: column; }
+  h2 { font-size: 13px; color: #58a6ff; margin-bottom: 10px; }
+  .code-line { padding: 1px 6px; font-size: 12px; cursor: pointer; border-radius: 2px; display: flex; }
+  .code-line:hover { background: #161b22; }
+  .code-line.active { background: #1f6feb33; border-left: 2px solid #58a6ff; }
+  .code-line.executed { opacity: 0.5; }
+  .code-line .num { color: #484f58; width: 24px; text-align: right; margin-right: 10px; }
+  #memory-view { flex: 1; display: flex; gap: 16px; overflow: hidden; }
+  .mem-column { flex: 1; background: #161b22; border-radius: 8px; padding: 12px; overflow-y: auto; }
+  .mem-column h3 { font-size: 12px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #30363d; }
+  .mem-column.stack h3 { color: #58a6ff; }
+  .mem-column.heap h3 { color: #3fb950; }
+  .mem-block { margin: 4px 0; padding: 6px 8px; border-radius: 4px; font-size: 11px; position: relative; transition: all 0.4s ease; }
+  .mem-block.alive { opacity: 1; }
+  .mem-block.dead { opacity: 0.2; text-decoration: line-through; }
+  .mem-block.new { animation: fadeIn 0.4s ease; }
+  .mem-block .addr { color: #8b949e; font-size: 10px; }
+  .mem-block .name { font-weight: bold; }
+  .mem-block .value { color: #a5d6ff; margin-left: 8px; }
+  .mem-block .size { float: right; color: #8b949e; font-size: 10px; }
+  .mem-block .pointer { color: #d2a8ff; font-size: 10px; display: block; margin-top: 2px; }
+  .freed { background: #f8514933; border: 1px dashed #f85149; }
+  .borrow-indicator { position: absolute; right: 6px; top: 6px; font-size: 9px; padding: 1px 4px; border-radius: 2px; }
+  .borrow-shared { background: #58a6ff33; color: #58a6ff; }
+  .borrow-mut { background: #f8514933; color: #f85149; }
+  #controls { padding: 12px; background: #161b22; border-radius: 8px; margin-top: 12px; display: flex; align-items: center; gap: 12px; }
+  #controls button { background: #238636; border: none; color: #fff; padding: 5px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  #controls button:hover { background: #2ea043; }
+  #controls button.pause { background: #da3633; }
+  #slider { flex: 1; }
+  #info { font-size: 11px; color: #8b949e; }
+  #stats { display: flex; gap: 16px; padding: 8px 12px; background: #161b22; border-radius: 6px; margin-bottom: 8px; font-size: 11px; }
+  .stat { display: flex; align-items: center; gap: 4px; }
+  .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+
+<div id="code-panel">
+  <h2>📝 Rust Source</h2>
+  <div id="code-lines"></div>
+</div>
+
+<div id="memory-panel">
+  <div id="stats">
+    <div class="stat"><div class="stat-dot" style="background:#58a6ff"></div> Stack: <span id="stack-usage">0 B</span></div>
+    <div class="stat"><div class="stat-dot" style="background:#3fb950"></div> Heap: <span id="heap-usage">0 B</span></div>
+    <div class="stat"><div class="stat-dot" style="background:#d2a8ff"></div> Borrows: <span id="borrow-count">0</span></div>
+    <div class="stat"><div class="stat-dot" style="background:#f85149"></div> Freed: <span id="freed-count">0 B</span></div>
+  </div>
+  <div id="memory-view">
+    <div class="mem-column stack">
+      <h3>STACK (0x7ffd3a2b1000)</h3>
+      <div id="stack-content"></div>
+    </div>
+    <div class="mem-column heap">
+      <h3>HEAP (0x55a1b2c30000)</h3>
+      <div id="heap-content"></div>
+    </div>
+  </div>
+  <div id="controls">
+    <button id="play-btn">▶ Play</button>
+    <button id="step-btn">⏭ Step</button>
+    <button id="reset-btn">⏮ Reset</button>
+    <input type="range" id="slider" min="0" max="25" value="0">
+    <span id="info">Event 0 / 25</span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Simulated runtime events (what borrowscope-runtime would capture)
+// ═══════════════════════════════════════════════════════════════
+
+const sourceCode = [
+  'fn main() {',
+  '    let x: i32 = 42;',
+  '    let v: Vec<i32> = vec![1, 2, 3];',
+  '    let r = &v;',
+  '    println!("{:?}", r);',
+  '    // r ends (last use)',
+  '    let mut s = String::from("hello");',
+  '    let m = &mut s;',
+  '    m.push_str(" world");',
+  '    // m ends (last use)',
+  '    let rc1 = Rc::new(100);',
+  '    let rc2 = Rc::clone(&rc1);',
+  '    let rc3 = Rc::clone(&rc1);',
+  '    drop(rc3);',
+  '    drop(rc2);',
+  '    let b = Box::new([0u8; 64]);',
+  '    process(&b);',
+  '    drop(b);',
+  '    drop(rc1);',
+  '    drop(s);',
+  '}  // stack unwinds',
+];
+
+// Simulated runtime events with actual addresses
+const events = [
+  { type: 'stack_alloc', line: 1, name: 'x', addr: '0x7ffd3a2b1c00', size: 4, value: '42', varType: 'i32' },
+  { type: 'stack_alloc', line: 2, name: 'v', addr: '0x7ffd3a2b1c08', size: 24, value: 'Vec{ptr,len:3,cap:4}', varType: 'Vec<i32>' },
+  { type: 'heap_alloc', line: 2, name: 'v.data', addr: '0x55a1b2c3d000', size: 16, value: '[1, 2, 3, _]', owner: 'v' },
+  { type: 'stack_alloc', line: 3, name: 'r', addr: '0x7ffd3a2b1c20', size: 8, value: '→ 0x7ffd3a2b1c08', varType: '&Vec<i32>', borrow: 'shared', target: 'v' },
+  { type: 'borrow_use', line: 4, name: 'r', target: 'v' },
+  { type: 'borrow_end', line: 5, name: 'r', target: 'v' },
+  { type: 'stack_alloc', line: 6, name: 's', addr: '0x7ffd3a2b1c28', size: 24, value: 'String{ptr,len:5,cap:5}', varType: 'String' },
+  { type: 'heap_alloc', line: 6, name: 's.data', addr: '0x55a1b2c3d020', size: 5, value: '"hello"', owner: 's' },
+  { type: 'stack_alloc', line: 7, name: 'm', addr: '0x7ffd3a2b1c40', size: 8, value: '→ 0x7ffd3a2b1c28', varType: '&mut String', borrow: 'mut', target: 's' },
+  { type: 'heap_realloc', line: 8, name: 's.data', oldAddr: '0x55a1b2c3d020', addr: '0x55a1b2c3d040', size: 11, value: '"hello world"', owner: 's' },
+  { type: 'borrow_end', line: 9, name: 'm', target: 's' },
+  { type: 'stack_alloc', line: 10, name: 'rc1', addr: '0x7ffd3a2b1c48', size: 8, value: 'Rc{ptr,strong:1}', varType: 'Rc<i32>' },
+  { type: 'heap_alloc', line: 10, name: 'rc1.inner', addr: '0x55a1b2c3d060', size: 16, value: '{strong:1,weak:0,val:100}', owner: 'rc1' },
+  { type: 'stack_alloc', line: 11, name: 'rc2', addr: '0x7ffd3a2b1c50', size: 8, value: 'Rc{ptr,strong:2}', varType: 'Rc<i32>' },
+  { type: 'rc_inc', line: 11, name: 'rc1.inner', count: 2 },
+  { type: 'stack_alloc', line: 12, name: 'rc3', addr: '0x7ffd3a2b1c58', size: 8, value: 'Rc{ptr,strong:3}', varType: 'Rc<i32>' },
+  { type: 'rc_inc', line: 12, name: 'rc1.inner', count: 3 },
+  { type: 'stack_drop', line: 13, name: 'rc3' },
+  { type: 'rc_dec', line: 13, name: 'rc1.inner', count: 2 },
+  { type: 'stack_drop', line: 14, name: 'rc2' },
+  { type: 'rc_dec', line: 14, name: 'rc1.inner', count: 1 },
+  { type: 'stack_alloc', line: 15, name: 'b', addr: '0x7ffd3a2b1c60', size: 8, value: 'Box{ptr}', varType: 'Box<[u8;64]>' },
+  { type: 'heap_alloc', line: 15, name: 'b.data', addr: '0x55a1b2c3d080', size: 64, value: '[0u8; 64]', owner: 'b' },
+  { type: 'stack_drop', line: 17, name: 'b' },
+  { type: 'heap_free', line: 17, name: 'b.data', addr: '0x55a1b2c3d080', size: 64 },
+  { type: 'stack_drop', line: 18, name: 'rc1' },
+  { type: 'heap_free', line: 18, name: 'rc1.inner', addr: '0x55a1b2c3d060', size: 16 },
+  { type: 'stack_drop', line: 19, name: 's' },
+  { type: 'heap_free', line: 19, name: 's.data', addr: '0x55a1b2c3d040', size: 11 },
+  { type: 'stack_drop', line: 20, name: 'v' },
+  { type: 'heap_free', line: 20, name: 'v.data', addr: '0x55a1b2c3d000', size: 16 },
+  { type: 'stack_drop', line: 20, name: 'x' },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════
+
+let stackVars = [];  // { name, addr, size, value, varType, alive, borrow, target }
+let heapBlocks = []; // { name, addr, size, value, owner, alive, refCount }
+let currentEvent = 0;
+let freedTotal = 0;
+
+// ═══════════════════════════════════════════════════════════════
+// Render
+// ═══════════════════════════════════════════════════════════════
+
+const codeContainer = document.getElementById('code-lines');
+sourceCode.forEach((line, i) => {
+  const div = document.createElement('div');
+  div.className = 'code-line';
+  div.dataset.line = i + 1;
+  div.innerHTML = `<span class="num">${i+1}</span><span class="text">${line.replace(/</g,'&lt;')}</span>`;
+  codeContainer.appendChild(div);
+});
+
+function render() {
+  // Stack
+  const stackEl = document.getElementById('stack-content');
+  stackEl.innerHTML = stackVars.map(v => {
+    const cls = v.alive ? 'alive' : 'dead';
+    let borrowBadge = '';
+    if (v.borrow === 'shared') borrowBadge = '<span class="borrow-indicator borrow-shared">& shared</span>';
+    if (v.borrow === 'mut') borrowBadge = '<span class="borrow-indicator borrow-mut">&mut exclusive</span>';
+    let pointer = '';
+    if (v.value && v.value.startsWith('→')) pointer = `<span class="pointer">↳ points to ${v.target || 'heap'}</span>`;
+    return `<div class="mem-block ${cls}" style="border-left:3px solid ${v.alive ? '#58a6ff' : '#484f58'}">
+      <span class="addr">${v.addr}</span> <span class="size">${v.size}B</span><br>
+      <span class="name">${v.name}</span>: <span style="color:#8b949e">${v.varType || ''}</span>
+      <span class="value">= ${v.value}</span>
+      ${borrowBadge}${pointer}
+    </div>`;
+  }).join('');
+
+  // Heap
+  const heapEl = document.getElementById('heap-content');
+  heapEl.innerHTML = heapBlocks.map(h => {
+    const cls = h.alive ? 'alive' : 'dead freed';
+    let rcBadge = h.refCount !== undefined ? ` <span style="color:#d2a8ff">[refs: ${h.refCount}]</span>` : '';
+    return `<div class="mem-block ${cls}" style="border-left:3px solid ${h.alive ? '#3fb950' : '#f85149'}">
+      <span class="addr">${h.addr}</span> <span class="size">${h.size}B</span>${rcBadge}<br>
+      <span class="name">${h.name}</span>
+      <span class="value">= ${h.value}</span>
+      ${!h.alive ? '<br><span style="color:#f85149;font-size:10px">💀 FREED</span>' : `<br><span style="color:#8b949e;font-size:10px">owned by: ${h.owner}</span>`}
+    </div>`;
+  }).join('');
+
+  // Stats
+  const aliveStack = stackVars.filter(v => v.alive);
+  document.getElementById('stack-usage').textContent = aliveStack.reduce((s,v) => s + v.size, 0) + ' B';
+  document.getElementById('heap-usage').textContent = heapBlocks.filter(h => h.alive).reduce((s,h) => s + h.size, 0) + ' B';
+  document.getElementById('borrow-count').textContent = aliveStack.filter(v => v.borrow).length;
+  document.getElementById('freed-count').textContent = freedTotal + ' B';
+
+  // Code highlight
+  const currentLine = currentEvent < events.length ? events[currentEvent].line : sourceCode.length;
+  document.querySelectorAll('.code-line').forEach(el => {
+    const line = parseInt(el.dataset.line);
+    el.classList.toggle('active', line === currentLine);
+    el.classList.toggle('executed', line < currentLine);
+  });
+
+  document.getElementById('info').textContent = `Event ${currentEvent} / ${events.length}`;
+  document.getElementById('slider').value = currentEvent;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Event processing
+// ═══════════════════════════════════════════════════════════════
+
+function processEvent(evt) {
+  switch (evt.type) {
+    case 'stack_alloc':
+      stackVars.push({ name: evt.name, addr: evt.addr, size: evt.size, value: evt.value, varType: evt.varType, alive: true, borrow: evt.borrow, target: evt.target });
+      break;
+    case 'stack_drop':
+      const sv = stackVars.find(v => v.name === evt.name && v.alive);
+      if (sv) sv.alive = false;
+      break;
+    case 'heap_alloc':
+      heapBlocks.push({ name: evt.name, addr: evt.addr, size: evt.size, value: evt.value, owner: evt.owner, alive: true });
+      break;
+    case 'heap_realloc':
+      const old = heapBlocks.find(h => h.name === evt.name && h.alive);
+      if (old) { old.alive = false; freedTotal += old.size; }
+      heapBlocks.push({ name: evt.name, addr: evt.addr, size: evt.size, value: evt.value, owner: evt.owner, alive: true });
+      break;
+    case 'heap_free':
+      const hb = heapBlocks.find(h => h.name === evt.name && h.alive);
+      if (hb) { hb.alive = false; freedTotal += hb.size; }
+      break;
+    case 'borrow_end':
+      const br = stackVars.find(v => v.name === evt.name && v.alive);
+      if (br) { br.borrow = null; br.alive = false; }
+      break;
+    case 'rc_inc':
+      const hi = heapBlocks.find(h => h.name === evt.name && h.alive);
+      if (hi) hi.refCount = evt.count;
+      break;
+    case 'rc_dec':
+      const hd = heapBlocks.find(h => h.name === evt.name && h.alive);
+      if (hd) hd.refCount = evt.count;
+      break;
+  }
+}
+
+function goToEvent(n) {
+  // Reset and replay
+  stackVars = [];
+  heapBlocks = [];
+  freedTotal = 0;
+  currentEvent = Math.min(n, events.length);
+  for (let i = 0; i < currentEvent; i++) {
+    processEvent(events[i]);
+  }
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Controls
+// ═══════════════════════════════════════════════════════════════
+
+const slider = document.getElementById('slider');
+slider.max = events.length;
+slider.oninput = () => goToEvent(parseInt(slider.value));
+
+let playing = false, playInterval;
+document.getElementById('play-btn').onclick = function() {
+  if (playing) {
+    clearInterval(playInterval);
+    this.textContent = '▶ Play';
+    this.classList.remove('pause');
+    playing = false;
+  } else {
+    playing = true;
+    this.textContent = '⏸ Pause';
+    this.classList.add('pause');
+    playInterval = setInterval(() => {
+      if (currentEvent >= events.length) { goToEvent(0); }
+      else { currentEvent++; if (currentEvent <= events.length) processEvent(events[currentEvent-1]); render(); slider.value = currentEvent; }
+    }, 600);
+  }
+};
+
+document.getElementById('step-btn').onclick = () => {
+  if (currentEvent < events.length) { currentEvent++; processEvent(events[currentEvent-1]); render(); slider.value = currentEvent; }
+};
+
+document.getElementById('reset-btn').onclick = () => goToEvent(0);
+
+// Initial
+goToEvent(0);
+</script>
+</body>
+</html>

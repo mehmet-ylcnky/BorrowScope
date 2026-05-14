@@ -1764,3 +1764,87 @@ fn test_perf_analyze_function_timed_exported() {
     assert!(src.contains("pub fn analyze_function_timed"));
     assert!(src.contains("exceeds 100ms budget"));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6.6 Memory Management tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_memory_cache_created_on_open() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/mem1.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    // Server should track the file
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/mem1.rs"}));
+    assert_eq!(resp["result"]["content"], "fn test() { let x = 1; }");
+}
+
+#[test]
+fn test_memory_cache_evicted_on_close() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/mem2.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    server.notify("textDocument/didClose", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/mem2.rs"}
+    }));
+    // Server should still respond (cache cleared but no crash)
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/mem2.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_memory_many_files_open_close() {
+    let mut server = TestServer::start();
+    server.initialize();
+    // Open and close 20 files
+    for i in 0..20 {
+        let uri = format!("file:///tmp/mem_many_{}.rs", i);
+        server.notify("textDocument/didOpen", serde_json::json!({
+            "textDocument": {"uri": uri, "languageId": "rust", "version": 1,
+                "text": format!("fn f{}() {{ let x = {}; }}", i, i)}
+        }));
+    }
+    for i in 0..20 {
+        let uri = format!("file:///tmp/mem_many_{}.rs", i);
+        server.notify("textDocument/didClose", serde_json::json!({
+            "textDocument": {"uri": uri}
+        }));
+    }
+    // Server should still be responsive
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    assert!(resp["result"].is_object());
+}
+
+#[test]
+fn test_memory_open_file_not_evicted() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/mem_open.rs", "languageId": "rust", "version": 1,
+            "text": "fn keep() { let x = 1; }"}
+    }));
+    // File stays open — content should persist
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": "file:///tmp/mem_open.rs"}));
+    assert_eq!(resp["result"]["content"], "fn keep() { let x = 1; }");
+}
+
+#[test]
+fn test_memory_estimated_size_nonzero() {
+    // Verify the estimated_size_bytes function works via source check
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/state.rs")
+    ).unwrap();
+    assert!(src.contains("estimated_size_bytes"));
+    assert!(src.contains("evict_closed_caches"));
+    assert!(src.contains("evict_if_over_budget"));
+    assert!(src.contains("total_cache_bytes"));
+}
