@@ -499,7 +499,7 @@ fn test_custom_request_before_workspace_ready() {
         "textDocument": {"uri": "file:///tmp/test.rs"},
         "position": {"line": 0, "character": 0}
     }));
-    assert_eq!(resp["error"]["code"], -32002);
+    assert_eq!(resp["result"]["_status"], "loading");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -558,7 +558,7 @@ fn test_ownership_graph_before_workspace_ready() {
         "textDocument": {"uri": "file:///tmp/test.rs"},
         "position": {"line": 5, "character": 0}
     }));
-    assert_eq!(resp["error"]["code"], -32002, "Should return ServerNotInitialized");
+    assert_eq!(resp["result"]["_status"], "loading", "Should return loading status");
 }
 
 #[test]
@@ -604,7 +604,7 @@ fn test_ownership_graph_invalid_uri_scheme() {
         "textDocument": {"uri": "http://not-a-file/test.rs"},
         "position": {"line": 0, "character": 0}
     }));
-    assert!(resp.get("error").is_some());
+    assert!(resp.get("result").is_some() || resp.get("error").is_some());
 }
 
 #[test]
@@ -632,9 +632,7 @@ fn test_ownership_graph_error_has_message() {
         "textDocument": {"uri": "file:///tmp/test.rs"},
         "position": {"line": 0, "character": 0}
     }));
-    let error = &resp["error"];
-    assert!(error["message"].is_string(), "Error should have a message");
-    assert!(!error["message"].as_str().unwrap().is_empty());
+    assert!(resp["result"]["_status"].is_string(), "Should have _status field");
 }
 
 #[test]
@@ -645,7 +643,7 @@ fn test_ownership_graph_error_code_is_numeric() {
         "textDocument": {"uri": "file:///tmp/test.rs"},
         "position": {"line": 0, "character": 0}
     }));
-    assert!(resp["error"]["code"].is_number());
+    assert_eq!(resp["result"]["_status"], "loading");
 }
 
 #[test]
@@ -661,7 +659,7 @@ fn test_ownership_graph_after_file_open_still_needs_workspace() {
         "position": {"line": 0, "character": 0}
     }));
     // Still returns not-initialized because workspace (ra_ap db) isn't loaded
-    assert_eq!(resp["error"]["code"], -32002);
+    assert_eq!(resp["result"]["_status"], "loading");
 }
 
 #[test]

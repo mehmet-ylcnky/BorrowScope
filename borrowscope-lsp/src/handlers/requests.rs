@@ -25,19 +25,21 @@ pub fn handle(
         return Ok(());
     }
 
-    match req.method.as_str() {
-        "borrowscope/ownershipGraph" => handle_ownership_graph(state, sender, req)?,
-        "borrowscope/borrowScopes" => handle_borrow_scopes(state, sender, req)?,
-        "borrowscope/variableInfo" => handle_variable_info(state, sender, req)?,
-        "textDocument/codeLens" => handle_code_lens(state, sender, req)?,
-        "textDocument/inlayHint" => handle_inlay_hints(state, sender, req)?,
-        "textDocument/hover" => handle_hover(state, sender, req)?,
+    let req_id = req.id.clone();
+    let result = match req.method.as_str() {
+        "borrowscope/ownershipGraph" => handle_ownership_graph(state, sender, req),
+        "borrowscope/borrowScopes" => handle_borrow_scopes(state, sender, req),
+        "borrowscope/variableInfo" => handle_variable_info(state, sender, req),
+        "textDocument/codeLens" => handle_code_lens(state, sender, req),
+        "textDocument/inlayHint" => handle_inlay_hints(state, sender, req),
+        "textDocument/hover" => handle_hover(state, sender, req),
         "borrowscope/debug/fileContent" => {
             let params: serde_json::Value = serde_json::from_value(req.params)?;
             let uri = params["uri"].as_str().unwrap_or("");
             let content = state.get_file_content(uri).unwrap_or("").to_string();
             let resp = Response::new_ok(req.id, serde_json::json!({ "content": content }));
             sender.send(Message::Response(resp))?;
+            Ok(())
         }
         _ => {
             let resp = Response::new_err(
@@ -46,7 +48,13 @@ pub fn handle(
                 format!("Method not found: {}", req.method),
             );
             sender.send(Message::Response(resp))?;
+            Ok(())
         }
+    };
+
+    if let Err(e) = result {
+        let resp = Response::new_err(req_id, -32602, format!("{}", e));
+        sender.send(Message::Response(resp))?;
     }
 
     Ok(())
@@ -129,8 +137,43 @@ fn build_line_index(content: &str) -> impl Fn(ra_ap_syntax::TextSize) -> (u32, u
 
 fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;
-    let ws = get_workspace_or_empty!(state, req, sender);
     let uri_str = params.text_document.uri.as_str();
+
+    // If workspace not loaded, try returning cached stale data or loading indicator
+    let ws = match &state.workspace {
+        Some(ws) => ws,
+        None => {
+            // Check cache for stale data
+            if let Some(cache) = state.analysis_cache.get(uri_str) {
+                // Find any cached function (best effort)
+                if let Some((_, cached_value)) = cache.functions.iter().next() {
+                    let value = match cached_value {
+                        crate::state::AnalysisState::Ready(v) | crate::state::AnalysisState::Stale(v) => v.clone(),
+                    };
+                    let mut resp_value = value;
+                    if let Some(obj) = resp_value.as_object_mut() {
+                        obj.insert("_stale".to_string(), serde_json::json!(true));
+                        obj.insert("_status".to_string(), serde_json::json!("loading"));
+                    }
+                    sender.send(Message::Response(Response::new_ok(req.id, resp_value)))?;
+                    return Ok(());
+                }
+            }
+            // No cache — return loading indicator
+            sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!({
+                "_status": "loading",
+                "_stale": false,
+                "function_name": "",
+                "variables": [],
+                "borrow_scopes": [],
+                "moves": [],
+                "rc_clones": [],
+                "conflicts": [],
+                "stats": {"total_variables": 0, "total_borrows": 0, "moves": 0, "conflicts": 0}
+            }))))?;
+            return Ok(());
+        }
+    };
     let (file_id, file_path) = get_file_id_or_empty!(ws, uri_str, req, sender);
 
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
@@ -168,7 +211,11 @@ fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req
         borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index)
     });
 
-    let value = serde_json::to_value(&summary)?;
+    let mut value = serde_json::to_value(&summary)?;
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("_stale".to_string(), serde_json::json!(false));
+        obj.insert("_status".to_string(), serde_json::json!("ready"));
+    }
 
     // Cache the result
     let cache = state.analysis_cache.entry(uri_str.to_string()).or_default();
@@ -459,6 +506,6 @@ fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Re
 
 fn requires_workspace(method: &str) -> bool {
     matches!(method,
-        "textDocument/hover" | "borrowscope/ownershipGraph" | "borrowscope/borrowScopes" | "borrowscope/variableInfo"
+        "textDocument/hover" | "borrowscope/borrowScopes" | "borrowscope/variableInfo"
     )
 }
