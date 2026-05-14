@@ -26,6 +26,12 @@ pub struct GlobalState {
     pub open_files: HashMap<String, OpenFile>,
     /// Receiver for background workspace loading result
     pub loading_receiver: Option<crossbeam_channel::Receiver<anyhow::Result<WorkspaceData>>>,
+    /// Debounce: pending files that changed (uri -> previous content)
+    pub pending_changes: Vec<(String, Option<String>)>,
+    /// Debounce: timestamp of last change
+    pub last_change_time: Option<std::time::Instant>,
+    /// Debounce duration in milliseconds
+    pub debounce_ms: u64,
 }
 
 impl GlobalState {
@@ -43,6 +49,9 @@ impl GlobalState {
             root_path,
             open_files: HashMap::new(),
             loading_receiver: None,
+            pending_changes: Vec::new(),
+            last_change_time: None,
+            debounce_ms: 300,
         })
     }
 

@@ -24,3 +24,7 @@ pub fn handle_notification(
 ) -> Result<()> {
     notifications::handle(state, sender, notif)
 }
+
+pub fn flush_pending_changes(state: &mut GlobalState, sender: &Sender<Message>) {
+    notifications::flush_pending_changes(state, sender)
+}

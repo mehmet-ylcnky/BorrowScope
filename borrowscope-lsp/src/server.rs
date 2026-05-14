@@ -28,9 +28,25 @@ pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<bool
     }
 
     // Message loop - responsive even during loading
-    for msg in &connection.receiver {
+    loop {
         // Check if background loading completed
         check_loading_result(&mut state);
+
+        // Check if debounce timer expired
+        if let Some(last_change) = state.last_change_time {
+            let elapsed = last_change.elapsed();
+            if elapsed.as_millis() >= state.debounce_ms as u128 {
+                handlers::flush_pending_changes(&mut state, &connection.sender);
+            }
+        }
+
+        // Wait for message with timeout (to check debounce periodically)
+        let timeout = std::time::Duration::from_millis(50);
+        let msg = match connection.receiver.recv_timeout(timeout) {
+            Ok(msg) => msg,
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        };
 
         match msg {
             Message::Request(req) => {

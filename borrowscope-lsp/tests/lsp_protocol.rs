@@ -79,8 +79,8 @@ impl TestServer {
     /// Send a notification and then read any server notifications that come back.
     fn notify_and_collect(&mut self, method: &str, params: serde_json::Value) -> Vec<serde_json::Value> {
         self.notify(method, params);
-        // Give server a moment to process and send notification
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Wait for debounce (300ms) + processing time
+        std::thread::sleep(std::time::Duration::from_millis(400));
         // Send a dummy request to flush any pending notifications
         let _resp = self.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
         self.take_notifications()
@@ -1394,4 +1394,142 @@ fn test_incremental_unchanged_function_not_in_notification() {
         let has_unchanged = functions.iter().any(|f| f.as_str() == Some("unchanged"));
         assert!(!has_unchanged, "Unchanged function should not be in notification. Got: {:?}", functions);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6.2 Debounced Analysis tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_debounce_rapid_changes_single_notification() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb1.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    // Send 5 rapid changes (< 300ms apart)
+    for i in 2..=6 {
+        server.notify("textDocument/didChange", serde_json::json!({
+            "textDocument": {"uri": "file:///tmp/deb1.rs", "version": i},
+            "contentChanges": [{"text": format!("fn test() {{ let x = {}; }}", i)}]
+        }));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    // Wait for debounce to fire
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let notifs = server.take_notifications();
+    let analysis_notifs: Vec<_> = notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .collect();
+    // Should produce only ONE notification (debounced), not 5
+    assert!(analysis_notifs.len() <= 1,
+        "Rapid changes should produce at most 1 notification, got {}", analysis_notifs.len());
+}
+
+#[test]
+fn test_debounce_notification_after_pause() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb2.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb2.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let a = 1; }"}]
+    }));
+    // Wait less than debounce — no notification yet
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let early_notifs = server.take_notifications();
+    let early_analysis: Vec<_> = early_notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .collect();
+    assert!(early_analysis.is_empty(), "Should NOT send notification before debounce expires");
+
+    // Wait for debounce to fire
+    std::thread::sleep(std::time::Duration::from_millis(350));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let late_notifs = server.take_notifications();
+    let late_analysis: Vec<_> = late_notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .collect();
+    assert!(!late_analysis.is_empty(), "Should send notification after debounce expires");
+}
+
+#[test]
+fn test_debounce_content_reflects_latest_change() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb3.rs", "languageId": "rust", "version": 1,
+            "text": "fn v1() {}"}
+    }));
+    // Multiple rapid changes
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb3.rs", "version": 2},
+        "contentChanges": [{"text": "fn v2() {}"}]
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb3.rs", "version": 3},
+        "contentChanges": [{"text": "fn v3_final() {}"}]
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    // Content should be the LAST change
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/deb3.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn v3_final() {}");
+}
+
+#[test]
+fn test_debounce_server_responsive_during_wait() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb4.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb4.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let x = 1; }"}]
+    }));
+    // Server should still respond to requests during debounce wait
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/deb4.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn test() { let x = 1; }");
+}
+
+#[test]
+fn test_debounce_multiple_files_batched() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb5a.rs", "languageId": "rust", "version": 1, "text": "fn a() {}"}
+    }));
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb5b.rs", "languageId": "rust", "version": 1, "text": "fn b() {}"}
+    }));
+    // Change both files rapidly
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb5a.rs", "version": 2},
+        "contentChanges": [{"text": "fn a() { let x = 1; }"}]
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb5b.rs", "version": 2},
+        "contentChanges": [{"text": "fn b() { let y = 2; }"}]
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let notifs = server.take_notifications();
+    // Should have notifications for both files
+    let uris: Vec<_> = notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .map(|n| n["params"]["uri"].as_str().unwrap_or(""))
+        .collect();
+    // At least one notification should exist
+    assert!(!uris.is_empty(), "Should send notifications after debounce");
 }

@@ -29,28 +29,19 @@ pub fn handle(
             tracing::debug!("File changed: {}", uri);
 
             if uri.ends_with(".rs") {
-                // Get previous content for diffing
-                let previous_content = state.get_file_content(&uri).map(|s| s.to_string());
+                // Store previous content for later diffing
+                let previous = state.get_file_content(&uri).map(|s| s.to_string());
 
                 // Full sync mode: last content change contains the full text
                 if let Some(change) = params.content_changes.into_iter().last() {
                     state.set_file_content(&uri, change.text);
                 }
 
-                // Apply to Salsa database for incremental re-analysis
-                state.apply_vfs_changes();
-
-                // Determine affected functions and send notification
-                let new_content = state.get_file_content(&uri).map(|s| s.to_string());
-                send_analysis_updated_if_changed(
-                    sender,
-                    &uri,
-                    previous_content.as_deref(),
-                    new_content.as_deref(),
-                );
-
-                // Publish diagnostics for borrow conflicts
-                publish_diagnostics(sender, &uri, state);
+                // Mark as pending for debounced analysis
+                if !state.pending_changes.iter().any(|(u, _)| u == &uri) {
+                    state.pending_changes.push((uri, previous));
+                }
+                state.last_change_time = Some(std::time::Instant::now());
             }
         }
         "textDocument/didClose" => {
@@ -67,6 +58,27 @@ pub fn handle(
         }
     }
     Ok(())
+}
+
+/// Flush pending debounced changes: apply to Salsa, send notifications.
+/// Called from the main loop when debounce timer expires.
+pub fn flush_pending_changes(state: &mut GlobalState, sender: &Sender<Message>) {
+    let pending = std::mem::take(&mut state.pending_changes);
+    if pending.is_empty() {
+        return;
+    }
+
+    // Apply to Salsa database
+    state.apply_vfs_changes();
+
+    // Send notifications for each changed file
+    for (uri, prev_content) in &pending {
+        let new_content = state.get_file_content(uri).map(|s| s.to_string());
+        send_analysis_updated_if_changed(sender, uri, prev_content.as_deref(), new_content.as_deref());
+        publish_diagnostics(sender, uri, state);
+    }
+
+    state.last_change_time = None;
 }
 
 /// Publish borrow conflict diagnostics via standard LSP publishDiagnostics.
