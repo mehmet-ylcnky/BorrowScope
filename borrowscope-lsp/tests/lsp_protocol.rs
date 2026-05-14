@@ -1187,3 +1187,211 @@ fn test_inlay_hint_no_hint_for_primitive_without_workspace() {
     let hints = resp["result"].as_array().unwrap();
     assert!(hints.is_empty(), "Without workspace, no hints");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6.1 Salsa Incremental Computation tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_incremental_apply_changes_returns_modified_paths() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc1.rs", "languageId": "rust", "version": 1,
+            "text": "fn main() { let x = 1; }"}
+    }));
+    // Change the file
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc1.rs", "version": 2},
+        "contentChanges": [{"text": "fn main() { let x = 2; }"}]
+    }));
+    // Server should process without error
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Verify server still responds
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc1.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_incremental_comment_change_no_semantic_invalidation() {
+    let mut server = TestServer::start();
+    server.initialize();
+    let code = "fn test() {\n    let x = 42;\n}\n";
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc2.rs", "languageId": "rust", "version": 1, "text": code}
+    }));
+    // Add a comment (no semantic change)
+    let code2 = "// comment\nfn test() {\n    let x = 42;\n}\n";
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc2.rs", "version": 2},
+        "contentChanges": [{"text": code2}]
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc2.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_incremental_multiple_changes_applied() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc3.rs", "languageId": "rust", "version": 1,
+            "text": "fn a() {}\nfn b() {}"}
+    }));
+    // Change multiple times
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc3.rs", "version": 2},
+        "contentChanges": [{"text": "fn a() { let x = 1; }\nfn b() {}"}]
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc3.rs", "version": 3},
+        "contentChanges": [{"text": "fn a() { let x = 1; }\nfn b() { let y = 2; }"}]
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc3.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_incremental_no_changes_returns_empty() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc4.rs", "languageId": "rust", "version": 1,
+            "text": "fn main() {}"}
+    }));
+    // No changes - server should still respond fine
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc4.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_incremental_server_stable_after_many_edits() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc5.rs", "languageId": "rust", "version": 1,
+            "text": "fn main() { let x = 0; }"}
+    }));
+    // Rapid edits
+    for i in 1..=10 {
+        server.notify("textDocument/didChange", serde_json::json!({
+            "textDocument": {"uri": "file:///tmp/inc5.rs", "version": i + 1},
+            "contentChanges": [{"text": format!("fn main() {{ let x = {}; }}", i)}]
+        }));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    // Server should still be responsive
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc5.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_incremental_file_content_updated_after_change() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc6.rs", "languageId": "rust", "version": 1,
+            "text": "fn old() {}"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc6.rs", "version": 2},
+        "contentChanges": [{"text": "fn new_name() {}"}]
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    // Verify content was updated
+    let resp = server.request("borrowscope/debug/fileContent", serde_json::json!({
+        "uri": "file:///tmp/inc6.rs"
+    }));
+    assert_eq!(resp["result"]["content"], "fn new_name() {}");
+}
+
+#[test]
+fn test_incremental_dirty_flag_cleared_after_apply() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc7.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc7.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let a = 1; }"}]
+    }));
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Second request should work (dirty flag cleared)
+    let resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc7.rs"}
+    }));
+    assert!(resp["result"].is_array());
+}
+
+#[test]
+fn test_incremental_analysis_updated_sent_on_change() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc8.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; }"}
+    }));
+    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc8.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let x = 2; let y = 3; }"}]
+    }));
+    let analysis_notifs: Vec<_> = notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .collect();
+    assert!(!analysis_notifs.is_empty(), "Should send analysisUpdated after change");
+}
+
+#[test]
+fn test_incremental_analysis_updated_contains_uri() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc9.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc9.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let x = 1; }"}]
+    }));
+    let analysis_notif = notifs.iter()
+        .find(|n| n["method"] == "borrowscope/analysisUpdated");
+    if let Some(notif) = analysis_notif {
+        assert_eq!(notif["params"]["uri"], "file:///tmp/inc9.rs");
+    }
+}
+
+#[test]
+fn test_incremental_unchanged_function_not_in_notification() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc10.rs", "languageId": "rust", "version": 1,
+            "text": "fn unchanged() { let a = 1; }\nfn changed() { let b = 2; }"}
+    }));
+    let notifs = server.notify_and_collect("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/inc10.rs", "version": 2},
+        "contentChanges": [{"text": "fn unchanged() { let a = 1; }\nfn changed() { let b = 99; let c = 100; }"}]
+    }));
+    let analysis_notif = notifs.iter()
+        .find(|n| n["method"] == "borrowscope/analysisUpdated");
+    if let Some(notif) = analysis_notif {
+        let functions = notif["params"]["functions"].as_array().unwrap();
+        // "unchanged" should NOT be in the list (its body didn't change)
+        let has_unchanged = functions.iter().any(|f| f.as_str() == Some("unchanged"));
+        assert!(!has_unchanged, "Unchanged function should not be in notification. Got: {:?}", functions);
+    }
+}

@@ -76,10 +76,10 @@ impl GlobalState {
 
     /// Apply file changes to the Salsa database for incremental re-analysis.
     /// Returns the number of files updated in the VFS.
-    pub fn apply_vfs_changes(&mut self) -> usize {
+    pub fn apply_vfs_changes(&mut self) -> Vec<String> {
         let ws = match &mut self.workspace {
             Some(ws) => ws,
-            None => return 0,
+            None => return vec![],
         };
 
         // Collect dirty file contents
@@ -94,10 +94,10 @@ impl GlobalState {
             .collect();
 
         if dirty_files.is_empty() {
-            return 0;
+            return vec![];
         }
 
-        let count = dirty_files.len();
+        let modified_paths: Vec<String> = dirty_files.iter().map(|(p, _)| p.clone()).collect();
 
         // Push content into VFS
         for (path, content) in &dirty_files {
@@ -125,7 +125,6 @@ impl GlobalState {
                 }
             }
             ws.db.apply_change(change);
-            tracing::debug!("Applied {} file changes to Salsa database", count);
         }
 
         // Mark all files as clean
@@ -133,7 +132,7 @@ impl GlobalState {
             file.dirty = false;
         }
 
-        count
+        modified_paths
     }
 }
 
