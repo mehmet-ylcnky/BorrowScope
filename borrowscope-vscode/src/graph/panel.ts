@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { buildGraphModel, OwnershipGraphData } from "./model";
-import { getClient } from "../client";
 
 function buildGraphModelFromRaw(graph: any): any {
   const data: OwnershipGraphData = {
@@ -110,7 +109,7 @@ export class GraphPanel {
     for (let i = 0; i < editor.document.lineCount; i++) {
       if (new RegExp(`\\bfn\\s+${name}\\b`).test(editor.document.lineAt(i).text)) {
         try {
-          const client = getClient();
+          const { getClient } = require("../client"); const client = getClient();
           if (!client) return;
           const graph = await client.sendRequest("borrowscope/ownershipGraph", {
             textDocument: { uri: editor.document.uri.toString() },

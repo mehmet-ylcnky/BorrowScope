@@ -207,8 +207,8 @@ fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req
         }
     };
 
-    let summary = attach_db(&ws.db, || {
-        borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index)
+    let (summary, _elapsed) = attach_db(&ws.db, || {
+        borrowscope_lsp::analysis::analyze_function_timed(&ws.db, &sema, &display_target, &function, &file_path, &line_index)
     });
 
     let mut value = serde_json::to_value(&summary)?;

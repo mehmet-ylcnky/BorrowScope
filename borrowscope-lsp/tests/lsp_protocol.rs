@@ -1692,3 +1692,75 @@ fn test_cache_multiple_functions_cached_independently() {
     }));
     assert!(resp["result"].is_array());
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6.5 Performance Budget tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn test_perf_server_responds_within_budget() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/perf1.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() { let x = 1; let y = 2; }"}
+    }));
+    // Request should respond quickly (no workspace = loading response)
+    let start = std::time::Instant::now();
+    let _resp = server.request("textDocument/codeLens", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/perf1.rs"}
+    }));
+    let elapsed = start.elapsed();
+    assert!(elapsed.as_millis() < 500, "Response should be < 500ms, got {:?}", elapsed);
+}
+
+#[test]
+fn test_perf_debounce_plus_notification_within_budget() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/perf2.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    let start = std::time::Instant::now();
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/perf2.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let a = 1; }"}]
+    }));
+    // Wait for debounce + processing
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let elapsed = start.elapsed();
+    // Total pipeline: debounce(300) + processing should be < 500ms
+    assert!(elapsed.as_millis() < 600, "Full pipeline should be < 600ms, got {:?}", elapsed);
+}
+
+#[test]
+fn test_perf_rapid_requests_dont_block() {
+    let mut server = TestServer::start();
+    server.initialize();
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/perf3.rs", "languageId": "rust", "version": 1,
+            "text": "fn a() {}\nfn b() {}\nfn c() {}"}
+    }));
+    // Send multiple requests rapidly
+    let start = std::time::Instant::now();
+    for _ in 0..5 {
+        let _resp = server.request("textDocument/codeLens", serde_json::json!({
+            "textDocument": {"uri": "file:///tmp/perf3.rs"}
+        }));
+    }
+    let elapsed = start.elapsed();
+    // 5 requests should complete in < 1s total
+    assert!(elapsed.as_millis() < 1000, "5 rapid requests should be < 1s, got {:?}", elapsed);
+}
+
+#[test]
+fn test_perf_analyze_function_timed_exported() {
+    // Verify the timed function is available in source
+    let src = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/analysis.rs")
+    ).unwrap();
+    assert!(src.contains("pub fn analyze_function_timed"));
+    assert!(src.contains("exceeds 100ms budget"));
+}

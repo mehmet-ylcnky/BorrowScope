@@ -1382,6 +1382,25 @@ pub struct FunctionOwnershipSummary {
 }
 
 /// Analyze a complete function and produce its ownership summary.
+/// Analyze a function with timing instrumentation.
+/// Logs a warning if analysis exceeds 100ms budget.
+pub fn analyze_function_timed(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    file: &str,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> (FunctionOwnershipSummary, std::time::Duration) {
+    let start = std::time::Instant::now();
+    let result = analyze_function(db, sema, display_target, function, file, line_index);
+    let elapsed = start.elapsed();
+    if elapsed.as_millis() > 100 {
+        tracing::warn!("Analysis of {} took {:?} (exceeds 100ms budget)", result.function_name, elapsed);
+    }
+    (result, elapsed)
+}
+
 pub fn analyze_function(
     db: &RootDatabase,
     sema: &hir::Semantics<'_, RootDatabase>,
