@@ -43,6 +43,14 @@ impl GlobalState {
             .or_else(|| params.root_path.as_ref().map(PathBuf::from))
             .ok_or_else(|| anyhow::anyhow!("No workspace root provided"))?;
 
+        // Read debounce from initialization options
+        let debounce_ms = params
+            .initialization_options
+            .as_ref()
+            .and_then(|opts| opts.get("debounceMs"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(300);
+
         Ok(Self {
             workspace: None,
             shutdown_requested: false,
@@ -51,7 +59,7 @@ impl GlobalState {
             loading_receiver: None,
             pending_changes: Vec::new(),
             last_change_time: None,
-            debounce_ms: 300,
+            debounce_ms,
         })
     }
 

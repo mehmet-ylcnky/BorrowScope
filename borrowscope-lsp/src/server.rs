@@ -34,8 +34,7 @@ pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<bool
 
         // Check if debounce timer expired
         if let Some(last_change) = state.last_change_time {
-            let elapsed = last_change.elapsed();
-            if elapsed.as_millis() >= state.debounce_ms as u128 {
+            if state.debounce_ms == 0 || last_change.elapsed().as_millis() >= state.debounce_ms as u128 {
                 handlers::flush_pending_changes(&mut state, &connection.sender);
             }
         }

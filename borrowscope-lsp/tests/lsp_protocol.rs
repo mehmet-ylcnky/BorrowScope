@@ -103,6 +103,20 @@ impl TestServer {
         self.notify("initialized", serde_json::json!({}));
         resp
     }
+
+    fn initialize_with_options(&mut self, options: serde_json::Value) -> serde_json::Value {
+        let resp = self.request(
+            "initialize",
+            serde_json::json!({
+                "processId": null,
+                "rootUri": "file:///tmp",
+                "capabilities": {},
+                "initializationOptions": options
+            }),
+        );
+        self.notify("initialized", serde_json::json!({}));
+        resp
+    }
 }
 
 impl Drop for TestServer {
@@ -1532,4 +1546,49 @@ fn test_debounce_multiple_files_batched() {
         .collect();
     // At least one notification should exist
     assert!(!uris.is_empty(), "Should send notifications after debounce");
+}
+
+#[test]
+fn test_debounce_zero_fires_immediately() {
+    let mut server = TestServer::start();
+    server.initialize_with_options(serde_json::json!({"debounceMs": 0}));
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb0.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/deb0.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let x = 1; }"}]
+    }));
+    // With debounce=0, should fire almost immediately (within 100ms loop cycle)
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let notifs = server.take_notifications();
+    let analysis: Vec<_> = notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .collect();
+    assert!(!analysis.is_empty(), "debounce=0 should fire immediately");
+}
+
+#[test]
+fn test_debounce_configurable_via_init_options() {
+    let mut server = TestServer::start();
+    // Set a very short debounce (50ms)
+    server.initialize_with_options(serde_json::json!({"debounceMs": 50}));
+    server.notify("textDocument/didOpen", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/debcfg.rs", "languageId": "rust", "version": 1,
+            "text": "fn test() {}"}
+    }));
+    server.notify("textDocument/didChange", serde_json::json!({
+        "textDocument": {"uri": "file:///tmp/debcfg.rs", "version": 2},
+        "contentChanges": [{"text": "fn test() { let a = 1; }"}]
+    }));
+    // Wait 150ms (> 50ms debounce) — should have fired
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    let _resp = server.request("borrowscope/debug/fileContent", serde_json::json!({"uri": ""}));
+    let notifs = server.take_notifications();
+    let analysis: Vec<_> = notifs.iter()
+        .filter(|n| n["method"] == "borrowscope/analysisUpdated")
+        .collect();
+    assert!(!analysis.is_empty(), "Custom debounce (50ms) should have fired by 150ms");
 }
