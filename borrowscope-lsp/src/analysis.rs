@@ -1927,6 +1927,7 @@ pub struct StackVariable {
     pub size: u64,
     pub alignment: u64,
     pub line: u32,
+    pub end_line: u32,
     pub category: MemoryCategory,
 }
 
@@ -2056,6 +2057,10 @@ pub fn analyze_memory_layout(
             _ => {}
         }
 
+        // Compute end of life (last use or function end)
+        let end_offset = find_last_use(sema, &pat, &body);
+        let (end_line, _) = line_index(end_offset);
+
         stack_vars.push(StackVariable {
             name,
             type_display,
@@ -2063,6 +2068,7 @@ pub fn analyze_memory_layout(
             size,
             alignment,
             line,
+            end_line,
             category,
         });
 

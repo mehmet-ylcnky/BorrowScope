@@ -264,6 +264,7 @@ export class GraphPanel {
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
     <div id="view-toggle" style="float:right;display:flex;gap:4px;">
       <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
+      <button class="view-btn" data-view="table" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Table</button>
       <button class="view-btn" data-view="timeline" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Timeline</button>
       <button class="view-btn" data-view="scopes" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Scopes</button>
       <button class="view-btn" data-view="refcount" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">RefCount</button>
@@ -285,7 +286,7 @@ export class GraphPanel {
   <div id="crossrefs-container" style="display:none;width:100%;height:45vh;overflow:hidden;display:none;"></div>
   <div id="memory-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="tooltip"></div>
-  <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
+  <div id="tables" style="display:none;padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
     <table><tr><th>Name</th><th>Type</th><th>Category</th></tr>${varsHtml}</table></details>` : ""}
     ${scopes.length > 0 ? `<details open><summary><b>Borrow Scopes (${scopes.length})</b></summary>
@@ -569,6 +570,7 @@ export class GraphPanel {
           const view = this.getAttribute('data-view');
           document.getElementById('graph-container').style.display = view === 'graph' ? '' : 'none';
           document.getElementById('filter-bar').style.display = view === 'graph' ? 'flex' : 'none';
+          document.getElementById('tables').style.display = view === 'table' ? '' : 'none';
           document.getElementById('timeline-container').style.display = view === 'timeline' ? '' : 'none';
           document.getElementById('scopes-container').style.display = view === 'scopes' ? '' : 'none';
           document.getElementById('refcount-container').style.display = view === 'refcount' ? '' : 'none';
@@ -1105,7 +1107,8 @@ export class GraphPanel {
         var currentLine = maxLine;
 
         function renderAtLine(line) {
-          var stackVars = allVars.filter(v => v.line <= line);
+          var stackVars = allVars.filter(v => v.line <= line && (!v.end_line || v.end_line >= line));
+          var droppedVars = allVars.filter(v => v.end_line && v.end_line < line && v.line <= line);
           var heapAllocs = allHeap.filter(h => stackVars.some(v => v.name === h.owner));
           var pointers = allPtrs.filter(p => stackVars.some(v => v.name === p.from));
 
@@ -1124,7 +1127,14 @@ export class GraphPanel {
             if (isNew) html += ' <span style="color:#3fb950;font-size:9px;">● new</span>';
             html += '</div>';
           }
-          if (stackVars.length === 0) html += '<div style="opacity:0.5;font-size:11px;">Empty stack frame</div>';
+          if (stackVars.length === 0 && droppedVars.length === 0) html += '<div style="opacity:0.5;font-size:11px;">Empty stack frame</div>';
+          // Dropped variables
+          if (droppedVars.length > 0) {
+            html += '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--vscode-panel-border);font-size:10px;color:#f85149;margin-bottom:4px;">Dropped:</div>';
+            for (var dv of droppedVars) {
+              html += '<div style="padding:2px 8px;margin:2px 0;font-size:10px;opacity:0.4;text-decoration:line-through;">' + dv.name + ': ' + dv.type_display + ' (' + dv.size + 'B)</div>';
+            }
+          }
           html += '</div>';
 
           // Heap column
