@@ -234,6 +234,7 @@ export class GraphPanel {
       <button class="view-btn" data-view="timeline" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Timeline</button>
       <button class="view-btn" data-view="scopes" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Scopes</button>
       <button class="view-btn" data-view="refcount" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">RefCount</button>
+      <button class="view-btn" data-view="moves" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Moves</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
@@ -241,6 +242,7 @@ export class GraphPanel {
   <div id="timeline-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="scopes-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="refcount-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
+  <div id="moves-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -528,9 +530,11 @@ export class GraphPanel {
           document.getElementById('timeline-container').style.display = view === 'timeline' ? '' : 'none';
           document.getElementById('scopes-container').style.display = view === 'scopes' ? '' : 'none';
           document.getElementById('refcount-container').style.display = view === 'refcount' ? '' : 'none';
+          document.getElementById('moves-container').style.display = view === 'moves' ? '' : 'none';
           if (view === 'timeline') renderTimeline();
           if (view === 'scopes') renderScopes();
           if (view === 'refcount') renderRefCount();
+          if (view === 'moves') renderMoves();
         });
       });
 
@@ -776,6 +780,51 @@ export class GraphPanel {
           totalH += chartH + 10;
         }
         svg.attr("height", totalH);
+      }
+
+      // === Move Chain View ===
+      function renderMoves() {
+        const container = document.getElementById('moves-container');
+        container.innerHTML = '';
+        const moves = rawGraph.moves || [];
+        if (moves.length === 0) {
+          container.innerHTML = '<p style="padding:20px;opacity:0.5">No ownership transfers in this function</p>';
+          return;
+        }
+        const vars = rawGraph.variables || [];
+        const movedAway = new Set(moves.map(m => m.source_name));
+        // Build chain HTML
+        let html = '';
+        for (const m of moves) {
+          const dest = typeof m.destination === 'string' ? m.destination : (m.destination.Variable || m.destination.FunctionArg?.function + '()' || m.destination.Return ? '(return)' : m.destination.Closure ? '(closure)' : JSON.stringify(m.destination));
+          const srcVar = vars.find(v => v.name === m.source_name);
+          const srcType = srcVar ? srcVar.type_display : m.source_type || '';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin:8px 0;">';
+          // Source box
+          html += '<div data-line="' + (srcVar ? srcVar.line : m.line) + '" style="border:2px solid #e67e22;border-radius:6px;padding:8px 12px;cursor:pointer;opacity:0.5;text-decoration:line-through;">';
+          html += '<b>' + m.source_name + '</b><br><span style="font-size:10px;color:#8b949e;">' + srcType + '</span>';
+          html += '<br><span style="color:#f85149;font-size:10px;">✗ moved</span>';
+          html += '</div>';
+          // Arrow
+          html += '<div style="display:flex;flex-direction:column;align-items:center;">';
+          html += '<span style="font-size:18px;color:#e67e22;">→</span>';
+          html += '<span style="font-size:9px;color:#8b949e;">line ' + m.line + '</span>';
+          html += '</div>';
+          // Destination box
+          const isAlive = !movedAway.has(dest);
+          html += '<div data-line="' + m.line + '" style="border:2px solid ' + (isAlive ? '#2ecc71' : '#e67e22') + ';border-radius:6px;padding:8px 12px;cursor:pointer;' + (isAlive ? '' : 'opacity:0.5;') + '">';
+          html += '<b>' + dest + '</b>';
+          if (isAlive) html += '<br><span style="color:#2ecc71;font-size:10px;">✓ alive</span>';
+          html += '</div>';
+          html += '</div>';
+        }
+        container.innerHTML = html;
+        // Click handlers
+        container.querySelectorAll('[data-line]').forEach(el => {
+          el.addEventListener('click', () => {
+            if (vscodeApi) vscodeApi.postMessage({ type: 'nodeClicked', line: parseInt(el.getAttribute('data-line')) });
+          });
+        });
       }
 
       function renderVarBox(v) {
