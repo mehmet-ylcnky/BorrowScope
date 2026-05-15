@@ -25,6 +25,7 @@ export class GraphPanel {
   private _disposables: vscode.Disposable[] = [];
   private _extensionUri: vscode.Uri;
   private _currentGraph: any | undefined;
+  private _previousGraph: any | undefined;
 
   private static readonly STATE_KEY = "borrowscope.lastGraph";
 
@@ -131,8 +132,9 @@ export class GraphPanel {
   }
 
   public updateGraph(graph: any, functionList?: string[]): void {
+    this._previousGraph = this._currentGraph;
     this._currentGraph = graph;
-    this._panel.webview.html = this._buildHtml(graph, functionList);
+    this._panel.webview.html = this._buildHtml(graph, functionList, this._previousGraph);
     GraphPanel._context?.workspaceState.update(GraphPanel.STATE_KEY, graph);
   }
 
@@ -151,7 +153,7 @@ export class GraphPanel {
     this._disposables = [];
   }
 
-  private _buildHtml(graph: any | undefined, functionList?: string[]): string {
+  private _buildHtml(graph: any | undefined, functionList?: string[], previousGraph?: any): string {
     if (!graph) {
       return `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>body{font-family:var(--vscode-font-family);background:var(--vscode-editor-background);color:var(--vscode-editor-foreground);padding:16px;}</style>
@@ -171,6 +173,7 @@ export class GraphPanel {
     const graphModel = buildGraphModelFromRaw(graph);
     const graphJson = JSON.stringify(graphModel).replace(/</g, "\\u003c");
     const rawGraphJson = JSON.stringify(graph).replace(/</g, "\\u003c");
+    const prevGraphJson = previousGraph ? JSON.stringify(previousGraph).replace(/</g, "\\u003c") : "null";
 
     let varsHtml = vars.map((v: any) =>
       `<tr data-var="${esc(v.name)}"><td><b>${esc(v.name)}</b></td><td><code>${esc(v.type_display)}</code></td><td>${esc(v.ownership_category)}</td></tr>`
@@ -235,6 +238,8 @@ export class GraphPanel {
       <button class="view-btn" data-view="scopes" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Scopes</button>
       <button class="view-btn" data-view="refcount" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">RefCount</button>
       <button class="view-btn" data-view="moves" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Moves</button>
+      <button class="view-btn" data-view="conflicts" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Conflicts</button>
+      <button class="view-btn" data-view="compare" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Compare</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
@@ -243,6 +248,8 @@ export class GraphPanel {
   <div id="scopes-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="refcount-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="moves-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
+  <div id="conflicts-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
+  <div id="compare-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -531,10 +538,14 @@ export class GraphPanel {
           document.getElementById('scopes-container').style.display = view === 'scopes' ? '' : 'none';
           document.getElementById('refcount-container').style.display = view === 'refcount' ? '' : 'none';
           document.getElementById('moves-container').style.display = view === 'moves' ? '' : 'none';
+          document.getElementById('conflicts-container').style.display = view === 'conflicts' ? '' : 'none';
+          document.getElementById('compare-container').style.display = view === 'compare' ? '' : 'none';
           if (view === 'timeline') renderTimeline();
           if (view === 'scopes') renderScopes();
           if (view === 'refcount') renderRefCount();
           if (view === 'moves') renderMoves();
+          if (view === 'conflicts') renderConflicts();
+          if (view === 'compare') renderCompare();
         });
       });
 
@@ -780,6 +791,118 @@ export class GraphPanel {
           totalH += chartH + 10;
         }
         svg.attr("height", totalH);
+      }
+
+      // === Comparison View ===
+      var previousGraph = ${prevGraphJson};
+      function renderCompare() {
+        const container = document.getElementById('compare-container');
+        container.innerHTML = '';
+        if (!previousGraph) {
+          container.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.7;"><p>No previous state to compare.</p><p style="font-size:11px;">Click a different function CodeLens, then come back to see the diff.</p></div>';
+          return;
+        }
+        // Compute diff
+        const beforeVars = new Set((previousGraph.variables || []).map(v => v.name));
+        const afterVars = new Set((rawGraph.variables || []).map(v => v.name));
+        const beforeBorrows = new Set((previousGraph.borrow_scopes || []).map(s => s.borrower_name + '->' + s.target_name));
+        const afterBorrows = new Set((rawGraph.borrow_scopes || []).map(s => s.borrower_name + '->' + s.target_name));
+
+        const added = [...afterVars].filter(v => !beforeVars.has(v));
+        const removed = [...beforeVars].filter(v => !afterVars.has(v));
+        const addedB = [...afterBorrows].filter(b => !beforeBorrows.has(b));
+        const removedB = [...beforeBorrows].filter(b => !afterBorrows.has(b));
+
+        const hasChanges = added.length + removed.length + addedB.length + removedB.length > 0;
+
+        let html = '<div style="margin-bottom:12px;font-size:12px;font-weight:bold;">';
+        html += 'Comparing: <span style="color:#8b949e;">' + (previousGraph.function_name || '?') + '</span> → <span style="color:#58a6ff;">' + (rawGraph.function_name || '?') + '</span>';
+        html += '</div>';
+
+        if (!hasChanges) {
+          html += '<div style="text-align:center;padding:20px;"><span style="font-size:24px;">≡</span><p style="opacity:0.7;margin-top:8px;">No ownership changes</p></div>';
+        } else {
+          // Summary
+          var parts = [];
+          if (added.length) parts.push('+' + added.length + ' vars');
+          if (removed.length) parts.push('-' + removed.length + ' vars');
+          if (addedB.length) parts.push('+' + addedB.length + ' borrows');
+          if (removedB.length) parts.push('-' + removedB.length + ' borrows');
+          html += '<div style="padding:6px 10px;background:rgba(88,166,255,0.1);border-radius:4px;margin-bottom:12px;font-size:12px;">' + parts.join(', ') + '</div>';
+
+          // Added variables
+          if (added.length) {
+            html += '<div style="margin:8px 0;"><b style="color:#3fb950;">+ Added variables:</b></div>';
+            for (const name of added) {
+              html += '<div style="border-left:3px solid #3fb950;padding:4px 8px;margin:4px 0 4px 12px;font-size:11px;">' + name + '</div>';
+            }
+          }
+          // Removed variables
+          if (removed.length) {
+            html += '<div style="margin:8px 0;"><b style="color:#f85149;">- Removed variables:</b></div>';
+            for (const name of removed) {
+              html += '<div style="border-left:3px solid #f85149;padding:4px 8px;margin:4px 0 4px 12px;font-size:11px;text-decoration:line-through;opacity:0.6;">' + name + '</div>';
+            }
+          }
+          // Added borrows
+          if (addedB.length) {
+            html += '<div style="margin:8px 0;"><b style="color:#3fb950;">+ Added borrows:</b></div>';
+            for (const b of addedB) {
+              html += '<div style="border-left:3px solid #3fb950;padding:4px 8px;margin:4px 0 4px 12px;font-size:11px;">' + b + '</div>';
+            }
+          }
+          // Removed borrows
+          if (removedB.length) {
+            html += '<div style="margin:8px 0;"><b style="color:#f85149;">- Removed borrows:</b></div>';
+            for (const b of removedB) {
+              html += '<div style="border-left:3px solid #f85149;padding:4px 8px;margin:4px 0 4px 12px;font-size:11px;text-decoration:line-through;opacity:0.6;">' + b + '</div>';
+            }
+          }
+        }
+        container.innerHTML = html;
+      }
+      // Store current as previous for next comparison
+
+      // === Conflict Highlight View ===
+      function renderConflicts() {
+        const container = document.getElementById('conflicts-container');
+        container.innerHTML = '';
+        const conflicts = rawGraph.conflicts || [];
+        if (conflicts.length === 0) {
+          container.innerHTML = '<div style="padding:20px;text-align:center;"><span style="font-size:24px;">✓</span><p style="opacity:0.7;margin-top:8px;">No conflicts detected in this function</p><p style="font-size:11px;opacity:0.5;">All borrows have non-overlapping scopes</p></div>';
+          return;
+        }
+        let html = '<div style="margin-bottom:12px;font-size:12px;color:#f85149;font-weight:bold;">⚠️ ' + conflicts.length + ' conflict(s) detected</div>';
+        for (const c of conflicts) {
+          html += '<div style="border:2px solid #f85149;border-radius:6px;padding:12px;margin:8px 0;background:rgba(248,81,73,0.05);">';
+          html += '<div style="font-weight:bold;margin-bottom:6px;">Conflict on <code style="color:#f9e2af;">' + c.variable + '</code></div>';
+          html += '<div style="display:flex;gap:12px;margin:8px 0;">';
+          // Borrow A
+          html += '<div style="flex:1;border:1px solid #3498db;border-radius:4px;padding:8px;">';
+          html += '<div style="font-size:10px;color:#3498db;margin-bottom:4px;">Borrow A</div>';
+          html += '<b>' + c.borrow_a + '</b>';
+          html += '</div>';
+          // VS
+          html += '<div style="display:flex;align-items:center;color:#f85149;font-weight:bold;">⚡</div>';
+          // Borrow B
+          html += '<div style="flex:1;border:1px solid #e74c3c;border-radius:4px;padding:8px;">';
+          html += '<div style="font-size:10px;color:#e74c3c;margin-bottom:4px;">Borrow B</div>';
+          html += '<b>' + c.borrow_b + '</b>';
+          html += '</div>';
+          html += '</div>';
+          // Overlap info
+          html += '<div style="font-size:11px;color:#8b949e;margin-top:6px;">';
+          html += 'Overlap: lines ' + c.overlap_start_line + ' – ' + c.overlap_end_line;
+          html += ' <span data-line="' + c.overlap_start_line + '" style="color:#58a6ff;cursor:pointer;text-decoration:underline;">Go to line →</span>';
+          html += '</div>';
+          html += '</div>';
+        }
+        container.innerHTML = html;
+        container.querySelectorAll('[data-line]').forEach(el => {
+          el.addEventListener('click', () => {
+            if (vscodeApi) vscodeApi.postMessage({ type: 'nodeClicked', line: parseInt(el.getAttribute('data-line')) });
+          });
+        });
       }
 
       // === Move Chain View ===
