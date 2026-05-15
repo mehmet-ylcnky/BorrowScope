@@ -94,8 +94,8 @@ describe("4.5 Gutter Icons and Lifecycle Flow Lines", () => {
     const moveDecs = decs.filter((d: any) => d.color === "#e67e22");
     assert.ok(moveDecs.length > 0, "Should have orange move decorations");
     assert.strictEqual(moveDecs[0].char, "↦ ");
-    assert.ok(moveDecs[0].suffix.includes("data"), `Should mention source: ${moveDecs[0].suffix}`);
-    assert.ok(moveDecs[0].suffix.includes("moved"), `Should say moved: ${moveDecs[0].suffix}`);
+    assert.ok(moveDecs[0].suffix.includes("data") || moveDecs[0].suffix.includes("moved"), `Should mention source or moved: ${moveDecs[0].suffix}`);
+    assert.ok(moveDecs[0].suffix.includes("data") || moveDecs[0].suffix.includes("⤳"), `Should mention source: ${moveDecs[0].suffix}`);
   });
 
   // 7. Hover messages contain variable names

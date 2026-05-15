@@ -67,6 +67,23 @@
           "type": "boolean",
           "default": true,
           "description": "Show inline annotations on cross-function call lines."
+        },
+        "borrowscope.memoryLayout.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show memory layout CodeLens and panel tab."
+        },
+        "borrowscope.memoryLayout.showAlignment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show alignment info in memory layout."
+        },
+        "borrowscope.memoryLayout.animationSpeed": {
+          "type": "number",
+          "default": 600,
+          "minimum": 100,
+          "maximum": 2000,
+          "description": "Animation speed in ms per line step."
         }
       }
     }
