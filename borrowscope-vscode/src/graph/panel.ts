@@ -995,14 +995,17 @@ export class GraphPanel {
           edges.push({ source: fnName, target: target.function_name, variable: cr.origin_variable, isMutable: target.is_mutable });
         }
 
-        // File tree (left)
+        // Build file tree - only include project files (skip stdlib paths)
         var fileSet = new Map();
         fileSet.set(currentFile, { count: 0, isCurrent: true });
         for (var cr of crossRefs) {
           for (var seg of cr.path) {
-            var f = (seg.file || currentFile).split('/').pop() || currentFile;
+            var f = (seg.file || '').split('/').pop() || '';
+            // Skip empty, stdlib, or non-.rs files
+            if (!f || !f.endsWith('.rs') && f !== currentFile) continue;
+            if (f === currentFile) continue;
             if (!fileSet.has(f)) fileSet.set(f, { count: 0, isCurrent: false });
-            if (f !== currentFile) fileSet.get(f).count++;
+            fileSet.get(f).count++;
           }
         }
 
