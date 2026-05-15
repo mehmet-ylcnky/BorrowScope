@@ -1121,10 +1121,18 @@ export class GraphPanel {
           for (var v of stackVars) {
             var color = catColors[v.category] || '#95a5a6';
             var isNew = v.line === line;
-            html += '<div style="border-left:3px solid ' + color + ';padding:4px 8px;margin:3px 0;border-radius:2px;font-size:11px;' + (isNew ? 'background:rgba(88,166,255,0.1);' : '') + '">';
-            html += '<b>' + v.name + '</b>: <code style="font-size:10px;">' + v.type_display + '</code>';
-            html += '<span style="float:right;color:#8b949e;font-size:10px;">' + v.size + 'B</span>';
-            if (isNew) html += ' <span style="color:#3fb950;font-size:9px;">● new</span>';
+            html += '<div style="border-left:3px solid ' + color + ';padding:6px 10px;margin:4px 0;border-radius:3px;font-size:11px;' + (isNew ? 'background:rgba(88,166,255,0.1);' : '') + '">';
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+            html += '<b>' + v.name + '</b>';
+            html += '<span style="color:#8b949e;font-size:10px;">' + v.size + 'B (align ' + v.alignment + ')</span>';
+            html += '</div>';
+            html += '<div style="font-size:10px;margin-top:2px;"><code>' + v.type_display + '</code></div>';
+            html += '<div style="display:flex;gap:8px;margin-top:3px;font-size:9px;color:#8b949e;">';
+            html += '<span>offset: +' + v.offset + '</span>';
+            html += '<span>lines: ' + v.line + '–' + (v.end_line || '?') + '</span>';
+            html += '<span style="color:' + color + ';">' + v.category + '</span>';
+            html += '</div>';
+            if (isNew) html += '<div style="color:#3fb950;font-size:9px;margin-top:2px;">● allocated this line</div>';
             html += '</div>';
           }
           if (stackVars.length === 0 && droppedVars.length === 0) html += '<div style="opacity:0.5;font-size:11px;">Empty stack frame</div>';
