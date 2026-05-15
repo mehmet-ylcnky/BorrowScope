@@ -232,11 +232,13 @@ export class GraphPanel {
     <div id="view-toggle" style="float:right;display:flex;gap:4px;">
       <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
       <button class="view-btn" data-view="timeline" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Timeline</button>
+      <button class="view-btn" data-view="scopes" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Scopes</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
   <div id="graph-container"></div>
   <div id="timeline-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
+  <div id="scopes-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -522,7 +524,9 @@ export class GraphPanel {
           const view = this.getAttribute('data-view');
           document.getElementById('graph-container').style.display = view === 'graph' ? '' : 'none';
           document.getElementById('timeline-container').style.display = view === 'timeline' ? '' : 'none';
+          document.getElementById('scopes-container').style.display = view === 'scopes' ? '' : 'none';
           if (view === 'timeline') renderTimeline();
+          if (view === 'scopes') renderScopes();
         });
       });
 
@@ -623,6 +627,90 @@ export class GraphPanel {
         svg.append('text').attr('x', margin.left + 76).attr('y', ly + 7).attr('font-size', '9px').attr('fill', 'var(--vscode-descriptionForeground)').text('& borrow');
         svg.append('rect').attr('x', margin.left + 140).attr('y', ly).attr('width', 12).attr('height', 8).attr('fill', '#e74c3c').attr('opacity', 0.6);
         svg.append('text').attr('x', margin.left + 156).attr('y', ly + 7).attr('font-size', '9px').attr('fill', 'var(--vscode-descriptionForeground)').text('&mut borrow');
+      }
+
+      // === Scope Nesting View ===
+      function renderScopes() {
+        const container = document.getElementById('scopes-container');
+        container.innerHTML = '';
+
+        const vars = (rawGraph.variables || []);
+        const scopes = (rawGraph.borrow_scopes || []);
+        const fnName = rawGraph.function_name || 'fn';
+        const fnStart = rawGraph.start_line || 1;
+        const fnEnd = rawGraph.end_line || 20;
+
+        if (vars.length === 0) {
+          container.innerHTML = '<p style="opacity:0.5">No variables in this function</p>';
+          return;
+        }
+
+        // Detect inner blocks: variables whose borrows end before function end
+        const innerVarNames = new Set();
+        for (const s of scopes) {
+          if (s.end_line < fnEnd - 2) innerVarNames.add(s.borrower_name);
+        }
+
+        const outerVars = vars.filter(v => !innerVarNames.has(v.name));
+        const innerVars = vars.filter(v => innerVarNames.has(v.name));
+
+        // Render nested boxes as HTML
+        let html = '<div style="border:2px solid #58a6ff;border-radius:6px;padding:10px;margin:4px 0;">';
+        html += '<div style="font-size:11px;color:#58a6ff;margin-bottom:8px;font-weight:bold;">fn ' + fnName + '() — lines ' + fnStart + '-' + fnEnd + '</div>';
+
+        // Outer variables
+        for (const v of outerVars) {
+          html += renderVarBox(v);
+        }
+
+        // Inner block (if any)
+        if (innerVars.length > 0) {
+          const blockStart = Math.min(...innerVars.map(v => v.line));
+          const blockEnd = Math.max(...innerVars.map(v => v.line)) + 2;
+          html += '<div style="border:1px solid #a6adc8;border-radius:4px;padding:8px;margin:6px 0 6px 16px;">';
+          html += '<div style="font-size:10px;color:#a6adc8;margin-bottom:6px;">{ block } — lines ' + blockStart + '-' + blockEnd + '</div>';
+          for (const v of innerVars) {
+            html += renderVarBox(v);
+          }
+          html += '</div>';
+        }
+
+        // Drop order
+        const dropOrder = [...vars].reverse().map(v => v.name);
+        html += '<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--vscode-panel-border);font-size:10px;color:#a6adc8;">';
+        html += '💀 Drop order: ' + dropOrder.join(' → ');
+        html += '</div>';
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Click and hover handlers
+        container.querySelectorAll('[data-line]').forEach(el => {
+          el.addEventListener('click', () => {
+            if (vscodeApi) vscodeApi.postMessage({ type: 'nodeClicked', line: parseInt(el.getAttribute('data-line')) });
+          });
+        });
+        container.querySelectorAll('.scope-var').forEach(el => {
+          el.addEventListener('mouseover', () => {
+            const name = el.getAttribute('data-var');
+            document.querySelectorAll('#tables tr[data-var]').forEach(row => {
+              row.style.background = row.getAttribute('data-var') === name ? 'rgba(52,152,219,0.15)' : '';
+            });
+          });
+          el.addEventListener('mouseout', () => {
+            document.querySelectorAll('#tables tr[data-var]').forEach(row => { row.style.background = ''; });
+          });
+        });
+      }
+
+      function renderVarBox(v) {
+        const colors = { 'Owned':'#2ecc71','SharedRef':'#3498db','MutableRef':'#e74c3c','Rc':'#9b59b6','Arc':'#8e44ad','InteriorMut':'#e67e22','Copy':'#1abc9c','RawPointer':'#7f8c8d' };
+        const color = colors[v.ownership_category] || '#95a5a6';
+        return '<div class="scope-var" data-var="' + v.name + '" data-line="' + v.line + '" style="border-left:3px solid ' + color + ';padding:4px 8px;margin:4px 0 4px 8px;border-radius:2px;cursor:pointer;font-size:11px;">' +
+          '<b>' + v.name + '</b>: <code style="font-size:10px;">' + v.type_display + '</code> ' +
+          '<span style="color:' + color + ';font-size:10px;">[' + v.ownership_category + ']</span> ' +
+          '<span style="color:#6c7086;font-size:10px;">line ' + v.line + '</span>' +
+          '</div>';
       }
     })();
   </script>
