@@ -233,12 +233,14 @@ export class GraphPanel {
       <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
       <button class="view-btn" data-view="timeline" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Timeline</button>
       <button class="view-btn" data-view="scopes" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Scopes</button>
+      <button class="view-btn" data-view="refcount" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">RefCount</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
   <div id="graph-container"></div>
   <div id="timeline-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="scopes-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
+  <div id="refcount-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -525,8 +527,10 @@ export class GraphPanel {
           document.getElementById('graph-container').style.display = view === 'graph' ? '' : 'none';
           document.getElementById('timeline-container').style.display = view === 'timeline' ? '' : 'none';
           document.getElementById('scopes-container').style.display = view === 'scopes' ? '' : 'none';
+          document.getElementById('refcount-container').style.display = view === 'refcount' ? '' : 'none';
           if (view === 'timeline') renderTimeline();
           if (view === 'scopes') renderScopes();
+          if (view === 'refcount') renderRefCount();
         });
       });
 
@@ -701,6 +705,77 @@ export class GraphPanel {
             document.querySelectorAll('#tables tr[data-var]').forEach(row => { row.style.background = ''; });
           });
         });
+      }
+
+      // === Reference Count History ===
+      function renderRefCount() {
+        const container = document.getElementById("refcount-container");
+        container.innerHTML = "";
+        const clones = rawGraph.rc_clones || [];
+        const vars = rawGraph.variables || [];
+        const fnEnd = rawGraph.end_line || 20;
+        if (clones.length === 0) {
+          container.innerHTML = '<p style="padding:20px;opacity:0.5">No Rc/Arc variables in this function</p>';
+          return;
+        }
+        // Build series per source
+        const sources = new Map();
+        for (const v of vars) {
+          if ((v.ownership_category === "Rc" || v.ownership_category === "Arc") && !clones.some(c => c.clone_variable === v.name)) {
+            sources.set(v.name, [{ line: v.line, count: 1, label: "new " + v.name }]);
+          }
+        }
+        for (const c of clones) {
+          const s = sources.get(c.source_variable);
+          if (s) { const prev = s[s.length-1].count; s.push({ line: c.line, count: prev+1, label: "clone " + c.clone_variable }); }
+        }
+        // Add drops
+        for (const [name, events] of sources) {
+          const numClones = clones.filter(c => c.source_variable === name).length;
+          for (let i = 0; i < numClones; i++) {
+            const prev = events[events.length-1].count;
+            events.push({ line: fnEnd - numClones + i, count: prev - 1, label: "drop clone" });
+          }
+          const prev = events[events.length-1].count;
+          events.push({ line: fnEnd, count: prev - 1, label: "drop " + name });
+        }
+        // Render chart per series
+        const margin = { top: 30, right: 20, bottom: 30, left: 50 };
+        const chartH = 120;
+        let totalH = 0;
+        const svg = d3.select("#refcount-container").append("svg").attr("width", "100%");
+        for (const [name, events] of sources) {
+          const g = svg.append("g").attr("transform", "translate(0," + totalH + ")");
+          const w = (container.clientWidth || 400) - margin.left - margin.right;
+          const xMin = Math.min(...events.map(e => e.line));
+          const xMax = Math.max(...events.map(e => e.line));
+          const yMax = Math.max(...events.map(e => e.count));
+          const x = d3.scaleLinear().domain([xMin, xMax]).range([margin.left, margin.left + w]);
+          const y = d3.scaleLinear().domain([0, yMax + 1]).range([chartH - margin.bottom, margin.top]);
+          // Title
+          g.append("text").attr("x", margin.left).attr("y", 16).attr("font-size", "12px").attr("fill", "#cba6f7").attr("font-weight", "bold").text(name + " (ref count)");
+          // Axes
+          g.append("line").attr("x1", margin.left).attr("x2", margin.left + w).attr("y1", chartH - margin.bottom).attr("y2", chartH - margin.bottom).attr("stroke", "var(--vscode-panel-border)");
+          g.append("line").attr("x1", margin.left).attr("x2", margin.left).attr("y1", margin.top).attr("y2", chartH - margin.bottom).attr("stroke", "var(--vscode-panel-border)");
+          // Y labels
+          for (let i = 0; i <= yMax; i++) {
+            g.append("text").attr("x", margin.left - 8).attr("y", y(i) + 4).attr("text-anchor", "end").attr("font-size", "9px").attr("fill", "var(--vscode-descriptionForeground)").text(i);
+          }
+          // Step line
+          const line = d3.line().x(d => x(d.line)).y(d => y(d.count)).curve(d3.curveStepAfter);
+          g.append("path").datum(events).attr("d", line).attr("stroke", "#cba6f7").attr("stroke-width", 2).attr("fill", "none");
+          // Event dots
+          g.selectAll(".dot").data(events).join("circle").attr("cx", d => x(d.line)).attr("cy", d => y(d.count)).attr("r", 4).attr("fill", d => d.count === 0 ? "#f85149" : "#cba6f7");
+          // Event labels
+          g.selectAll(".elabel").data(events).join("text").attr("x", d => x(d.line)).attr("y", d => y(d.count) - 8).attr("text-anchor", "middle").attr("font-size", "9px").attr("fill", "var(--vscode-descriptionForeground)").text(d => d.label);
+          // Warning if leaked
+          const finalCount = events[events.length-1].count;
+          if (finalCount > 0) {
+            g.append("text").attr("x", margin.left + w / 2).attr("y", chartH - 5).attr("text-anchor", "middle").attr("font-size", "11px").attr("fill", "#f9e2af").text("⚠️ Potential leak: final count = " + finalCount);
+          }
+          totalH += chartH + 10;
+        }
+        svg.attr("height", totalH);
       }
 
       function renderVarBox(v) {
