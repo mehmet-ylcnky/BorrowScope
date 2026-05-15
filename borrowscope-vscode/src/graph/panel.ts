@@ -26,6 +26,7 @@ export class GraphPanel {
   private _extensionUri: vscode.Uri;
   private _currentGraph: any | undefined;
   private _previousGraph: any | undefined;
+  private static _lastView: string | undefined;
 
   private static readonly STATE_KEY = "borrowscope.lastGraph";
 
@@ -121,6 +122,8 @@ export class GraphPanel {
           }
         } else if (message.type === "selectFunction" && message.name) {
           this._loadFunction(message.name);
+        } else if (message.type === "viewChanged" && message.view) {
+          GraphPanel._lastView = message.view;
         }
       },
       null,
@@ -229,6 +232,8 @@ export class GraphPanel {
   <title>BorrowScope: ${esc(graph.function_name)}</title>
   <style>
     body { margin:0; padding:0; font-family:var(--vscode-font-family); background:var(--vscode-editor-background); color:var(--vscode-editor-foreground); overflow:hidden; }
+    .landing-btn, #landing a { transition: background 0.3s ease, border-color 0.3s ease, transform 0.2s ease; border-color:#3fb950 !important; background:rgba(63,185,80,0.06); }
+    .landing-btn:hover, #landing a:hover { background:rgba(63,185,80,0.2); border-color:#56d364 !important; transform:scale(1.05); }
     #header { padding:8px 16px; border-bottom:1px solid var(--vscode-panel-border); font-size:13px; }
     #header h2 { margin:0; font-size:14px; }
     #header .stats { opacity:0.7; font-size:12px; }
@@ -260,29 +265,27 @@ export class GraphPanel {
 </head>
 <body>
   <div id="landing" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:20px;">
-    <img src="${logoUri}" style="height:80px;margin-bottom:24px;">
+    <img src="${logoUri}" style="height:256px;margin-bottom:28px;">
     <h2 style="margin:0 0 4px;font-size:16px;">${esc(graph.function_name)}</h2>
     <p style="margin:0 0 24px;font-size:12px;opacity:0.6;">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</p>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:400px;">
-      <div class="landing-btn" data-view="graph" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">📊</span><span style="font-size:10px;margin-top:4px;">Graph</span></div>
-      <div class="landing-btn" data-view="table" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">📋</span><span style="font-size:10px;margin-top:4px;">Table</span></div>
-      <div class="landing-btn" data-view="timeline" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">📈</span><span style="font-size:10px;margin-top:4px;">Timeline</span></div>
-      <div class="landing-btn" data-view="scopes" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🔍</span><span style="font-size:10px;margin-top:4px;">Scopes</span></div>
-      <div class="landing-btn" data-view="refcount" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🔗</span><span style="font-size:10px;margin-top:4px;">RefCount</span></div>
-      <div class="landing-btn" data-view="moves" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">↦</span><span style="font-size:10px;margin-top:4px;">Moves</span></div>
-      <div class="landing-btn" data-view="conflicts" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">⚠️</span><span style="font-size:10px;margin-top:4px;">Conflicts</span></div>
-      <div class="landing-btn" data-view="compare" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🔄</span><span style="font-size:10px;margin-top:4px;">Compare</span></div>
-      <div class="landing-btn" data-view="crossrefs" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🌐</span><span style="font-size:10px;margin-top:4px;">CrossRefs</span></div>
-      <div class="landing-btn" data-view="memory" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🧠</span><span style="font-size:10px;margin-top:4px;">Memory</span></div>
-    </div>
-    <div style="display:flex;gap:12px;margin-top:24px;">
-      <a href="https://github.com/mehmet-ylcnky/BorrowScope" style="display:flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid var(--vscode-panel-border);border-radius:6px;text-decoration:none;color:var(--vscode-foreground);font-size:11px;cursor:pointer;"><svg height="18" viewBox="0 0 16 16" width="18" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Source Code</a>
-      <a href="https://mehmet-ylcnky.github.io/BorrowScope/" style="display:flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid var(--vscode-panel-border);border-radius:6px;text-decoration:none;color:var(--vscode-foreground);font-size:11px;cursor:pointer;"><span style="font-size:18px;">📄</span>Research</a>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;width:100%;max-width:560px;">
+      <div class="landing-btn" data-view="graph" title="Force-directed ownership graph showing variables, borrows, and relationships" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🕸️</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Graph</span></div>
+      <div class="landing-btn" data-view="table" title="Tabular view of all variables, their types, and ownership categories" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">▦</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Table</span></div>
+      <div class="landing-btn" data-view="timeline" title="Chronological timeline of ownership events (borrows, moves, drops)" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">⏱️</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Timeline</span></div>
+      <div class="landing-btn" data-view="scopes" title="Nested borrow scopes showing which borrows are active at each point" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🔍</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Scopes</span></div>
+      <div class="landing-btn" data-view="refcount" title="Reference counting visualization for Rc/Arc smart pointers" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🔗</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">RefCount</span></div>
+      <div class="landing-btn" data-view="moves" title="Ownership transfers between variables with source and destination" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">↦</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Moves</span></div>
+      <div class="landing-btn" data-view="conflicts" title="Borrow conflicts where mutable and immutable borrows overlap" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">⚠️</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Conflicts</span></div>
+      <div class="landing-btn" data-view="compare" title="Side-by-side comparison of two functions ownership patterns" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🪞</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Compare</span></div>
+      <div class="landing-btn" data-view="crossrefs" title="Cross-function borrow tracking across call boundaries" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🔀</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">CrossRefs</span></div>
+      <div class="landing-btn" data-view="memory" title="Stack and heap memory layout with sizes, offsets, and timeline" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🧠</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Memory</span></div>
+      <a href="https://github.com/mehmet-ylcnky/BorrowScope" title="View the source code on GitHub" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;text-decoration:none;color:var(--vscode-foreground);"><span style="font-size:28px;">💻</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Source Code</span></a>
+      <a href="https://mehmet-ylcnky.github.io/BorrowScope/" title="Read the technical whitepaper" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;text-decoration:none;color:var(--vscode-foreground);"><span style="font-size:28px;">🎓</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Research</span></a>
     </div>
   </div>
   <div id="main-content" style="display:none;">
   <div id="header">
-    <h2><button id="home-btn" style="background:none;border:none;cursor:pointer;font-size:16px;vertical-align:middle;margin-right:4px;" title="Back to home">🏠</button><img src="${logoUri}" style="height:28px;vertical-align:middle;margin-right:6px;">${esc(graph.function_name)}</h2>
+    <h2><button id="home-btn" style="background:none;border:none;cursor:pointer;font-size:22px;vertical-align:middle;margin-right:4px;" title="Back to home">🏠</button>${esc(graph.function_name)}</h2>
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
     <div id="view-toggle" style="float:right;display:flex;gap:4px;">
       <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
@@ -580,10 +583,12 @@ export class GraphPanel {
       });
       // === View toggle: Graph / Timeline ===
       const rawGraph = ${rawGraphJson};
+      const lastView = ${JSON.stringify(GraphPanel._lastView || '')};
       // === Landing page handlers ===
       function showView(view) {
         document.getElementById('landing').style.display = 'none';
         document.getElementById('main-content').style.display = '';
+        if (vscodeApi) vscodeApi.postMessage({ type: 'viewChanged', view: view });
         // Trigger the view button click
         var btn = document.querySelector('.view-btn[data-view="' + view + '"]');
         if (btn) btn.click();
@@ -594,8 +599,6 @@ export class GraphPanel {
       }
       document.querySelectorAll('.landing-btn').forEach(btn => {
         btn.addEventListener('click', function() { showView(this.getAttribute('data-view')); });
-        btn.addEventListener('mouseover', function() { this.style.background = 'rgba(88,166,255,0.1)'; });
-        btn.addEventListener('mouseout', function() { this.style.background = ''; });
       });
       document.getElementById('home-btn').addEventListener('click', showLanding);
 
@@ -611,6 +614,7 @@ export class GraphPanel {
           this.style.color = 'var(--vscode-button-foreground)';
           this.classList.add('active');
           const view = this.getAttribute('data-view');
+          if (vscodeApi) vscodeApi.postMessage({ type: 'viewChanged', view: view });
           document.getElementById('graph-container').style.display = view === 'graph' ? '' : 'none';
           document.getElementById('filter-bar').style.display = view === 'graph' ? 'flex' : 'none';
           document.getElementById('tables').style.display = view === 'table' ? '' : 'none';
@@ -1263,6 +1267,9 @@ export class GraphPanel {
           '<span style="color:#6c7086;font-size:10px;">line ' + v.line + '</span>' +
           '</div>';
       }
+
+      // Auto-restore last view if set
+      if (lastView) { showView(lastView); }
     })();
   </script>
 </body>
