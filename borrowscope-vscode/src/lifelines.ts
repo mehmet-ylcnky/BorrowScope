@@ -56,7 +56,7 @@ export function buildLifelineDecorations(
   // 1. Owner lifelines — DISABLED (too noisy, owners span entire function)
   // Only show lifelines for borrows, moves, clones, and conflicts
 
-  // 2. Shared borrow lifelines (blue)
+  // 2. Shared borrow lifelines (blue) + frozen indicator on target
   for (const s of scopes.filter((s) => !s.is_mutable)) {
     for (let line = s.range.start.line; line <= s.range.end.line; line++) {
       let char = "│ ";
@@ -73,9 +73,15 @@ export function buildLifelineDecorations(
         hover: `& borrow: ${s.borrower} reads ${s.target}`,
       });
     }
+    // Frozen indicator: show ❄ on the target variable's line during borrow
+    decorations.push({
+      line: s.range.start.line, char: "❄ ", suffix: `${s.target} frozen (immutably borrowed)`,
+      color: "rgba(52, 152, 219, 0.4)",
+      hover: `${s.target} is frozen: cannot move or mutably borrow while ${s.borrower} exists`,
+    });
   }
 
-  // 3. Mutable borrow lifelines (red)
+  // 3. Mutable borrow lifelines (red) + locked indicator on target
   for (const s of scopes.filter((s) => s.is_mutable)) {
     for (let line = s.range.start.line; line <= s.range.end.line; line++) {
       let char = "│ ";
@@ -92,6 +98,12 @@ export function buildLifelineDecorations(
         hover: `&mut borrow: ${s.borrower} exclusively locks ${s.target}`,
       });
     }
+    // Locked indicator: show 🔒 on target during mutable borrow
+    decorations.push({
+      line: s.range.start.line, char: "🔒", suffix: `${s.target} locked (exclusively borrowed)`,
+      color: "rgba(231, 76, 60, 0.4)",
+      hover: `${s.target} is locked: cannot read, write, or borrow while ${s.borrower} exists`,
+    });
   }
 
   // 4. Rc/Arc clone events (purple, single line marker)
@@ -122,15 +134,21 @@ export function buildLifelineDecorations(
     }
   }
 
-  // 6. Move events (orange, single line)
+  // 6. Move events (orange) + drop bar showing variable is dead
   if (graph) {
     for (const m of graph.moves) {
       const line = m.line - 1;
       const dest = typeof m.destination === "string" ? m.destination : JSON.stringify(m.destination);
       decorations.push({
-        line, char: "↦ ", suffix: ` ${m.source_name} moved to ${dest}`,
+        line, char: "↦ ", suffix: ` ${m.source_name} ⤳ ${dest}`,
         color: COLORS.move,
-        hover: `Move: ${m.source_name} (${m.source_type}) ownership transferred`,
+        hover: `Move: ${m.source_name} (${m.source_type}) ownership transferred to ${dest}`,
+      });
+      // Dead indicator: variable can no longer be used after this line
+      decorations.push({
+        line, char: "─┘", suffix: `${m.source_name} dead (moved away)`,
+        color: "rgba(231, 76, 60, 0.3)",
+        hover: `${m.source_name} is no longer accessible after this line`,
       });
     }
   }

@@ -287,7 +287,7 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
     let file_content = state.get_file_content(uri_str).unwrap_or("").to_string();
     let line_index = build_line_index(&file_content);
 
-    let cross_borrows = attach_db(&ws.db, || {
+    let mut cross_borrows = attach_db(&ws.db, || {
         let mut all = Vec::new();
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
             let borrows = borrowscope_lsp::analysis::analyze_cross_function_borrows(
@@ -297,6 +297,19 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
         }
         all
     });
+
+    // Resolve file_id:N references to actual file paths
+    for borrow in &mut cross_borrows {
+        for seg in &mut borrow.path {
+            if seg.file.starts_with("file_id:") {
+                if let Ok(id) = seg.file[8..].parse::<u32>() {
+                    let fid = ra_ap_vfs::FileId::from_raw(id);
+                    let vfs_path = ws.vfs.file_path(fid);
+                    seg.file = vfs_path.to_string();
+                }
+            }
+        }
+    }
 
     let resp = Response::new_ok(req.id, serde_json::json!({ "cross_borrows": cross_borrows }));
     sender.send(Message::Response(resp))?;

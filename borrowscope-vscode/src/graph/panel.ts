@@ -80,27 +80,43 @@ export class GraphPanel {
     this._panel.webview.onDidReceiveMessage(
       (message) => {
         if (message.type === "nodeClicked") {
-          const editor = vscode.window.visibleTextEditors.find(
-            (e) => e.document.languageId === "rust"
-          );
-          if (editor) {
-            let targetLine = message.line > 0 ? message.line - 1 : -1;
-            // If fnName provided, find the function line
-            if (message.fnName && targetLine < 0) {
-              for (let i = 0; i < editor.document.lineCount; i++) {
-                if (new RegExp(`\\bfn\\s+${message.fnName}\\b`).test(editor.document.lineAt(i).text)) {
-                  targetLine = i; break;
+          // If file path provided and it's a different file, open it
+          if (message.file && message.file.endsWith(".rs")) {
+            const fileUri = vscode.Uri.file(message.file);
+            vscode.workspace.openTextDocument(fileUri).then((doc) => {
+              vscode.window.showTextDocument(doc, vscode.ViewColumn.One).then((editor) => {
+                if (message.fnName) {
+                  for (let i = 0; i < editor.document.lineCount; i++) {
+                    if (new RegExp(`\\bfn\\s+${message.fnName}\\b`).test(editor.document.lineAt(i).text)) {
+                      const pos = new vscode.Position(i, 0);
+                      editor.selection = new vscode.Selection(pos, pos);
+                      editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+                      break;
+                    }
+                  }
+                }
+              });
+            }).catch(() => {});
+          } else {
+            // Same file navigation
+            const editor = vscode.window.visibleTextEditors.find(
+              (e) => e.document.languageId === "rust"
+            );
+            if (editor) {
+              let targetLine = message.line > 0 ? message.line - 1 : -1;
+              if (message.fnName && targetLine < 0) {
+                for (let i = 0; i < editor.document.lineCount; i++) {
+                  if (new RegExp(`\\bfn\\s+${message.fnName}\\b`).test(editor.document.lineAt(i).text)) {
+                    targetLine = i; break;
+                  }
                 }
               }
-            }
-            if (targetLine >= 0) {
-              const pos = new vscode.Position(targetLine, 0);
-              editor.selection = new vscode.Selection(pos, pos);
-              editor.revealRange(
-                new vscode.Range(pos, pos),
-                vscode.TextEditorRevealType.InCenter
-              );
-              vscode.window.showTextDocument(editor.document, editor.viewColumn);
+              if (targetLine >= 0) {
+                const pos = new vscode.Position(targetLine, 0);
+                editor.selection = new vscode.Selection(pos, pos);
+                editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+                vscode.window.showTextDocument(editor.document, editor.viewColumn);
+              }
             }
           }
         } else if (message.type === "selectFunction" && message.name) {
@@ -174,6 +190,9 @@ export class GraphPanel {
     const d3Uri = this._panel.webview.asWebviewUri(
       vscode.Uri.joinPath(this._extensionUri, "media", "d3.min.js")
     );
+    const logoUri = this._panel.webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "media", "logo.png")
+    );
 
     const vars = graph.variables || [];
     const scopes = graph.borrow_scopes || [];
@@ -241,7 +260,7 @@ export class GraphPanel {
 </head>
 <body>
   <div id="header">
-    <h2>📊 ${esc(graph.function_name)}</h2>
+    <h2><img src="${logoUri}" style="height:28px;vertical-align:middle;margin-right:6px;">${esc(graph.function_name)}</h2>
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
     <div id="view-toggle" style="float:right;display:flex;gap:4px;">
       <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
@@ -990,32 +1009,39 @@ export class GraphPanel {
           var target = cr.path[1];
           if (!nodeSet.has(target.function_name)) {
             nodeSet.add(target.function_name);
-            nodes.push({ id: target.function_name, kind: 'target', param: target.variable, isMutable: target.is_mutable });
+            nodes.push({ id: target.function_name, kind: 'target', param: target.variable, isMutable: target.is_mutable, file: target.file || '' });
           }
           edges.push({ source: fnName, target: target.function_name, variable: cr.origin_variable, isMutable: target.is_mutable });
         }
 
         // Build file tree - only include project files (skip stdlib paths)
         var fileSet = new Map();
-        fileSet.set(currentFile, { count: 0, isCurrent: true });
         for (var cr of crossRefs) {
           for (var seg of cr.path) {
-            var f = (seg.file || '').split('/').pop() || '';
-            // Skip empty, stdlib, or non-.rs files
-            if (!f || !f.endsWith('.rs') && f !== currentFile) continue;
-            if (f === currentFile) continue;
-            if (!fileSet.has(f)) fileSet.set(f, { count: 0, isCurrent: false });
+            var f = (seg.file || '');
+            // Extract relative path from /src/
+            var srcIdx = f.indexOf('/src/');
+            if (srcIdx >= 0) f = f.substring(srcIdx + 1);
+            else f = f.split('/').pop() || '';
+            // Skip stdlib paths (contain /rust/ or /library/ or /alloc/)
+            if (seg.file && (seg.file.includes('/rust/') || seg.file.includes('/library/') || seg.file.includes('/rustc/'))) continue;
+            if (!f || !f.endsWith('.rs')) continue;
+            if (!fileSet.has(f)) fileSet.set(f, { count: 0, isCurrent: false, fullPath: seg.file || '' });
             fileSet.get(f).count++;
           }
         }
+        // Mark current file
+        var currentRelative = 'src/main.rs';
+        if (fileSet.has(currentRelative)) { fileSet.get(currentRelative).isCurrent = true; fileSet.get(currentRelative).count = 0; }
+        else { fileSet.set(currentRelative, { count: 0, isCurrent: true, fullPath: '' }); }
 
-        var html = '<div style="width:160px;border-right:1px solid var(--vscode-panel-border);padding:8px;font-size:11px;overflow-y:auto;">';
+        var html = '<div style="width:180px;border-right:1px solid var(--vscode-panel-border);padding:8px;font-size:11px;overflow-y:auto;">';
         html += '<div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:6px;text-transform:uppercase;">Files</div>';
         for (var [fname, info] of fileSet) {
           var cls = info.isCurrent ? 'background:rgba(88,166,255,0.15);font-weight:bold;' : (info.count > 0 ? '' : 'opacity:0.35;');
           var icon = info.isCurrent ? '#58a6ff' : (info.count > 0 ? '#3fb950' : '#484f58');
           var badge = info.count > 0 ? ' <span style="background:var(--vscode-badge-background,#4d4d4d);color:var(--vscode-badge-foreground,#fff);border-radius:8px;padding:0 5px;font-size:10px;">' + info.count + '</span>' : '';
-          html += '<div style="padding:3px 6px;border-radius:3px;margin:2px 0;display:flex;align-items:center;gap:4px;' + cls + '"><div style="width:8px;height:8px;border-radius:50%;background:' + icon + ';"></div>' + fname + badge + '</div>';
+          html += '<div class="file-entry" data-path="' + (info.fullPath || '') + '" style="padding:3px 6px;border-radius:3px;margin:2px 0;display:flex;align-items:center;gap:4px;cursor:pointer;' + cls + '"><div style="width:8px;height:8px;border-radius:50%;background:' + icon + ';"></div><span style="overflow:hidden;text-overflow:ellipsis;">' + fname + '</span>' + badge + '</div>';
         }
         html += '</div>';
 
@@ -1046,7 +1072,7 @@ export class GraphPanel {
         nd.append('circle').attr('r',18).attr('fill', function(d){return d.kind==='origin'?'#58a6ff':'#3fb950';}).attr('opacity',0.8).attr('stroke',function(d){return d.kind==='origin'?'#58a6ff':'#3fb950';}).attr('stroke-width',2);
         nd.append('text').attr('dy',-22).attr('text-anchor','middle').attr('font-size','11px').attr('fill','var(--vscode-editor-foreground)').text(function(d){return d.id+'()';});
         nd.append('text').attr('dy',4).attr('text-anchor','middle').attr('font-size','9px').attr('fill','var(--vscode-descriptionForeground)').text(function(d){return d.param||'';});
-        nd.style("cursor","pointer").on("click", function(event, d) { if (vscodeApi) vscodeApi.postMessage({ type: "nodeClicked", file: "", line: 0, fnName: d.id }); });
+        nd.style("cursor","pointer").on("click", function(event, d) { if (vscodeApi) vscodeApi.postMessage({ type: "nodeClicked", file: d.file || "", line: 0, fnName: d.id }); });
 
         sim.on('tick', function() {
           link.select('line').attr('x1',function(d){return d.source.x;}).attr('y1',function(d){return d.source.y;}).attr('x2',function(d){return d.target.x;}).attr('y2',function(d){return d.target.y;});

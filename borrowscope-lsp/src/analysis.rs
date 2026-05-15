@@ -1723,6 +1723,11 @@ pub enum BorrowPathKind {
 
 /// Analyze cross-function borrows for a single function.
 /// Finds all call expressions that pass references and resolves the callee.
+/// Maximum number of cross-function borrows to track per function.
+const MAX_CROSS_BORROWS: usize = 50;
+/// Maximum analysis time before aborting (ms).
+const MAX_CROSS_ANALYSIS_TIME_MS: u64 = 200;
+
 pub fn analyze_cross_function_borrows(
     db: &RootDatabase,
     sema: &hir::Semantics<'_, RootDatabase>,
@@ -1738,9 +1743,14 @@ pub fn analyze_cross_function_borrows(
     };
 
     let mut results = Vec::new();
+    let start_time = std::time::Instant::now();
 
     // Find all call expressions
     for node in body.syntax().descendants() {
+        // Performance guard: abort if too many results or too slow
+        if results.len() >= MAX_CROSS_BORROWS { break; }
+        if start_time.elapsed().as_millis() >= MAX_CROSS_ANALYSIS_TIME_MS as u128 { break; }
+
         // Handle function calls: foo(&data)
         if let Some(call) = ast::CallExpr::cast(node.clone()) {
             if let Some(arg_list) = call.arg_list() {
@@ -1850,12 +1860,13 @@ pub fn analyze_cross_function_borrows(
     results
 }
 
-/// Resolve a call expression to its target function name, file, and parameter names.
+/// Resolve a call expression to its target function name, file path, and parameter names.
 fn resolve_call_target(
     sema: &hir::Semantics<'_, RootDatabase>,
     db: &RootDatabase,
     callee: &ast::Expr,
 ) -> Option<(String, String, Vec<String>)> {
+    use hir::HasSource;
     match callee {
         ast::Expr::PathExpr(path_expr) => {
             let path = path_expr.path()?;
@@ -1863,17 +1874,25 @@ fn resolve_call_target(
             match resolution {
                 hir::PathResolution::Def(hir::ModuleDef::Function(f)) => {
                     let name = f.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
-                    let module = f.module(db);
-                    let file = module.path_to_root(db).iter().rev()
-                        .filter_map(|m| m.name(db))
-                        .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
-                        .collect::<Vec<_>>().join("::");
+                    let file_path = f.source(db)
+                        .map(|in_file| {
+                            let editioned = in_file.file_id.original_file(db);
+                            let file_id = editioned.file_id(db);
+                            format!("file_id:{}", file_id.index())
+                        })
+                        .unwrap_or_else(|| {
+                            let module = f.module(db);
+                            module.path_to_root(db).iter().rev()
+                                .filter_map(|m| m.name(db))
+                                .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
+                                .collect::<Vec<_>>().join("::")
+                        });
                     let params: Vec<String> = f.params_without_self(db).iter()
                         .map(|p| p.name(db)
                             .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
                             .unwrap_or_else(|| "_".to_string()))
                         .collect();
-                    Some((name, file, params))
+                    Some((name, file_path, params))
                 }
                 _ => None,
             }
