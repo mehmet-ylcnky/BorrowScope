@@ -347,10 +347,10 @@ export class GraphPanel {
 
       // Force simulation
       const simulation = d3.forceSimulation(data.nodes)
-        .force('link', d3.forceLink(data.edges).id(d => d.id).distance(60))
-        .force('charge', d3.forceManyBody().strength(-120))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(25));
+        .force('link', d3.forceLink(data.edges).id(d => d.id).distance(80))
+        .force('charge', d3.forceManyBody().strength(-80))
+        .force('center', d3.forceCenter(width / 2, height / 2).strength(0.15))
+        .force('collision', d3.forceCollide().radius(30));
 
       // Edges
       const edge = g.selectAll('.edge')

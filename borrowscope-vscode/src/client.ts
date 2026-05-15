@@ -13,6 +13,9 @@ import { applyConflictDecorations, clearConflictDecorations } from "./conflicts"
 import { GraphPanel } from "./graph/panel";
 
 let client: LanguageClient | undefined;
+let lastGraph: any = undefined;
+let lastGraphFn: string = "";
+let lastGraphUri: string = "";
 
 export function getClient(): LanguageClient | undefined {
   return client;
@@ -64,6 +67,7 @@ export async function startClient(
   client.onNotification("borrowscope/analysisUpdated", async (params: any) => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.uri.toString() !== params.uri) return;
+    lastGraph = undefined; lastGraphFn = ""; // invalidate cache
     refreshDecorations(editor);
 
     // Live update the graph panel if open
@@ -141,6 +145,24 @@ export async function startClient(
   setTimeout(initialRefresh, 15000);
   setTimeout(initialRefresh, 30000);
 
+  // Pre-fetch all functions in background (warms Salsa cache)
+  setTimeout(async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== "rust" || !client) return;
+    const uri = editor.document.uri.toString();
+    for (let i = 0; i < editor.document.lineCount; i++) {
+      const match = editor.document.lineAt(i).text.match(/\bfn\s+(\w+)/);
+      if (match) {
+        try {
+          await client.sendRequest("borrowscope/ownershipGraph", {
+            textDocument: { uri },
+            position: { line: i, character: 4 },
+          });
+        } catch { /* skip */ }
+      }
+    }
+  }, 20000); // Start pre-fetch 20s after activation (workspace should be loaded)
+
   return client;
 }
 
@@ -165,25 +187,47 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     applyDecorations(editor, hints);
 
-    // Fetch borrow scopes for lifeline flow
-    const scopesResponse = await client.sendRequest("borrowscope/borrowScopes", {
-      textDocument: { uri: editor.document.uri.toString() },
+    // Fetch borrow scopes and ownership graph in parallel
+    const uri = editor.document.uri.toString();
+    const cursorLine = editor.selection.active.line;
+
+    // Determine which function cursor is in
+    let fnName = "";
+    for (let i = cursorLine; i >= 0; i--) {
+      const match = editor.document.lineAt(i).text.match(/\bfn\s+(\w+)/);
+      if (match) { fnName = match[1]; break; }
+    }
+
+    const scopesPromise = client.sendRequest("borrowscope/borrowScopes", {
+      textDocument: { uri },
     });
+
+    let graphPromise: Promise<any> = Promise.resolve(lastGraph);
+    if (fnName && (fnName !== lastGraphFn || uri !== lastGraphUri)) {
+      let fnLine = cursorLine;
+      for (let i = 0; i < editor.document.lineCount; i++) {
+        if (new RegExp(`\\bfn\\s+${fnName}\\b`).test(editor.document.lineAt(i).text)) {
+          fnLine = i; break;
+        }
+      }
+      graphPromise = client.sendRequest("borrowscope/ownershipGraph", {
+        textDocument: { uri },
+        position: { line: fnLine, character: 4 },
+      }).catch(() => lastGraph);
+    }
+
+    const [scopesResponse, graph] = await Promise.all([scopesPromise, graphPromise]);
+
+    if (graph && graph !== lastGraph) {
+      lastGraph = graph;
+      lastGraphFn = fnName;
+      lastGraphUri = uri;
+    }
 
     const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];
 
-    // Fetch ownership graph for cursor function (moves, clones, conflicts)
-    let graph: any = undefined;
-    try {
-      const cursorLine = editor.selection.active.line;
-      graph = await client.sendRequest("borrowscope/ownershipGraph", {
-        textDocument: { uri: editor.document.uri.toString() },
-        position: { line: cursorLine, character: 4 },
-      });
-    } catch { /* no function at cursor */ }
-
-    applyLifelines(editor, scopes, graph);
-    applyHighlights(editor, scopes, graph);
+    applyLifelines(editor, scopes, graph || lastGraph);
+    applyHighlights(editor, scopes, graph || lastGraph);
   } catch {
     clearDecorations(editor);
     clearLifelines(editor);
