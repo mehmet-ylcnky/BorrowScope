@@ -16,6 +16,7 @@ let client: LanguageClient | undefined;
 let lastGraph: any = undefined;
 let lastGraphFn: string = "";
 let lastGraphUri: string = "";
+const graphCache: Map<string, any> = new Map(); // fnName -> graph
 
 export function getClient(): LanguageClient | undefined {
   return client;
@@ -67,7 +68,8 @@ export async function startClient(
   client.onNotification("borrowscope/analysisUpdated", async (params: any) => {
     const editor = vscode.window.activeTextEditor;
     if (!editor || editor.document.uri.toString() !== params.uri) return;
-    lastGraph = undefined; lastGraphFn = ""; // invalidate cache
+    lastGraph = undefined; lastGraphFn = ""; graphCache.clear(); // invalidate cache
+    refreshInlayHints(editor);
     refreshDecorations(editor);
 
     // Live update the graph panel if open
@@ -108,7 +110,7 @@ export async function startClient(
         if (editor && editor.document.languageId === "rust") {
           refreshDecorations(editor);
         }
-      }, 500);
+      }, 150);
     })
   );
 
@@ -117,7 +119,7 @@ export async function startClient(
     vscode.workspace.onDidOpenTextDocument((doc) => {
       const editor = vscode.window.activeTextEditor;
       if (editor && editor.document === doc && doc.languageId === "rust") {
-        setTimeout(() => refreshDecorations(editor), 500);
+        setTimeout(() => { refreshInlayHints(editor); refreshDecorations(editor); }, 500);
       }
     })
   );
@@ -136,6 +138,7 @@ export async function startClient(
   const initialRefresh = () => {
     const editor = vscode.window.activeTextEditor;
     if (editor?.document.languageId === "rust") {
+      refreshInlayHints(editor);
       refreshDecorations(editor);
     }
   };
@@ -146,31 +149,39 @@ export async function startClient(
   setTimeout(initialRefresh, 30000);
 
   // Pre-fetch all functions in background (warms Salsa cache)
-  setTimeout(async () => {
+  // Triggered after first successful analysisUpdated (workspace loaded)
+  let preFetched = false;
+  const preFetchAll = async () => {
+    if (preFetched || !client) return;
     const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== "rust" || !client) return;
+    if (!editor || editor.document.languageId !== "rust") return;
+    preFetched = true;
     const uri = editor.document.uri.toString();
+    const fnLines: number[] = [];
     for (let i = 0; i < editor.document.lineCount; i++) {
-      const match = editor.document.lineAt(i).text.match(/\bfn\s+(\w+)/);
-      if (match) {
-        try {
-          await client.sendRequest("borrowscope/ownershipGraph", {
-            textDocument: { uri },
-            position: { line: i, character: 4 },
-          });
-        } catch { /* skip */ }
-      }
+      if (/\bfn\s+\w+/.test(editor.document.lineAt(i).text)) fnLines.push(i);
     }
-  }, 20000); // Start pre-fetch 20s after activation (workspace should be loaded)
+    // Fire all in parallel for maximum speed
+    const results = await Promise.all(fnLines.map(line =>
+      client!.sendRequest("borrowscope/ownershipGraph", {
+        textDocument: { uri },
+        position: { line, character: 4 },
+      }).catch(() => null)
+    ));
+    results.forEach((r: any) => {
+      if (r && r.function_name) graphCache.set(r.function_name, r);
+    });
+  };
+  // Try pre-fetch at multiple points
+  setTimeout(preFetchAll, 10000);
+  setTimeout(preFetchAll, 20000);
 
   return client;
 }
 
-export async function refreshDecorations(editor: vscode.TextEditor): Promise<void> {
+export async function refreshInlayHints(editor: vscode.TextEditor): Promise<void> {
   if (!client) return;
-
   try {
-    // Fetch inlay hints for inline annotations
     const hintsResponse = await client.sendRequest("textDocument/inlayHint", {
       textDocument: { uri: editor.document.uri.toString() },
       range: {
@@ -178,15 +189,19 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
         end: { line: editor.document.lineCount, character: 0 },
       },
     });
-
     const hints: OwnershipHint[] = ((hintsResponse as any[]) || []).map((h: any) => ({
       line: h.position.line,
       character: h.position.character,
       label: typeof h.label === "string" ? h.label.trim() : "",
     }));
-
     applyDecorations(editor, hints);
+  } catch { /* ignore */ }
+}
 
+export async function refreshDecorations(editor: vscode.TextEditor): Promise<void> {
+  if (!client) return;
+
+  try {
     // Fetch borrow scopes and ownership graph in parallel
     const uri = editor.document.uri.toString();
     const cursorLine = editor.selection.active.line;
@@ -204,16 +219,21 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     let graphPromise: Promise<any> = Promise.resolve(lastGraph);
     if (fnName && (fnName !== lastGraphFn || uri !== lastGraphUri)) {
-      let fnLine = cursorLine;
-      for (let i = 0; i < editor.document.lineCount; i++) {
-        if (new RegExp(`\\bfn\\s+${fnName}\\b`).test(editor.document.lineAt(i).text)) {
-          fnLine = i; break;
+      // Check local cache first
+      if (graphCache.has(fnName)) {
+        graphPromise = Promise.resolve(graphCache.get(fnName));
+      } else {
+        let fnLine = cursorLine;
+        for (let i = 0; i < editor.document.lineCount; i++) {
+          if (new RegExp(`\\bfn\\s+${fnName}\\b`).test(editor.document.lineAt(i).text)) {
+            fnLine = i; break;
+          }
         }
+        graphPromise = client.sendRequest("borrowscope/ownershipGraph", {
+          textDocument: { uri },
+          position: { line: fnLine, character: 4 },
+        }).catch(() => lastGraph);
       }
-      graphPromise = client.sendRequest("borrowscope/ownershipGraph", {
-        textDocument: { uri },
-        position: { line: fnLine, character: 4 },
-      }).catch(() => lastGraph);
     }
 
     const [scopesResponse, graph] = await Promise.all([scopesPromise, graphPromise]);
@@ -222,6 +242,7 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
       lastGraph = graph;
       lastGraphFn = fnName;
       lastGraphUri = uri;
+      if (fnName) graphCache.set(fnName, graph);
     }
 
     const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];

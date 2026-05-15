@@ -438,7 +438,8 @@ fn handle_code_lens(state: &mut GlobalState, sender: &Sender<Message>, req: Requ
             let title = if summary.stats.conflicts > 0 {
                 format!("{} vars, {} borrows, {} moves, {} conflicts!", summary.stats.total_variables, summary.stats.total_borrows, summary.stats.moves, summary.stats.conflicts)
             } else {
-                format!("{} vars, {} borrows, {} moves", summary.stats.total_variables, summary.stats.total_borrows, summary.stats.moves)
+                format!("{} vars, {} borrows, {} moves{}", summary.stats.total_variables, summary.stats.total_borrows, summary.stats.moves,
+                    if summary.stats.rc_clones > 0 { format!(", {} clones", summary.stats.rc_clones) } else { String::new() })
             };
             lenses.push(serde_json::json!({"range": {"start": {"line": fn_line.saturating_sub(1), "character": 0}, "end": {"line": fn_line.saturating_sub(1), "character": 0}}, "command": {"title": title, "command": "borrowscope.showGraph", "arguments": [uri_str, fn_name]}}));
         }
