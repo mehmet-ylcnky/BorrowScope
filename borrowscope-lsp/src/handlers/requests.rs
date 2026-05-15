@@ -31,6 +31,7 @@ pub fn handle(
         "borrowscope/borrowScopes" => handle_borrow_scopes(state, sender, req),
         "borrowscope/variableInfo" => handle_variable_info(state, sender, req),
         "borrowscope/crossFunctionBorrows" => handle_cross_function_borrows(state, sender, req),
+        "borrowscope/memoryLayout" => handle_memory_layout(state, sender, req),
         "textDocument/codeLens" => handle_code_lens(state, sender, req),
         "textDocument/inlayHint" => handle_inlay_hints(state, sender, req),
         "textDocument/hover" => handle_hover(state, sender, req),
@@ -316,6 +317,63 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
     Ok(())
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 13.2 borrowscope/memoryLayout
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn handle_memory_layout(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+    let params: TextDocPositionParams = serde_json::from_value(req.params)?;
+    let ws = match &state.workspace {
+        Some(ws) => ws,
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+    let uri_str = params.text_document.uri.as_str();
+    let file_path = match uri_str.strip_prefix("file://") {
+        Some(p) => p.to_string(),
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+    let vfs_path = ra_ap_vfs::VfsPath::new_real_path(file_path.clone());
+    let file_id = match ws.vfs.file_id(&vfs_path) {
+        Some((fid, _)) => fid,
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+
+    use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode};
+    use ra_ap_syntax::ast::HasName;
+
+    let sema = Semantics::new(&ws.db);
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let display_target = match hir::Crate::all(&ws.db).first() {
+        Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
+        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+    };
+
+    let file_content = state.get_file_content(uri_str).unwrap_or("").to_string();
+    let line_index = build_line_index(&file_content);
+    let target_line = params.position.line;
+
+    let result = attach_db(&ws.db, || {
+        let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
+            let (s, _) = line_index(f.syntax().text_range().start());
+            let (e, _) = line_index(f.syntax().text_range().end());
+            target_line >= s.saturating_sub(1) && target_line <= e
+        });
+        match function {
+            Some(f) => Some(borrowscope_lsp::analysis::analyze_memory_layout(&ws.db, &sema, &display_target, &f, &line_index)),
+            None => None,
+        }
+    });
+
+    let resp = match result {
+        Some(layout) => Response::new_ok(req.id, serde_json::to_value(&layout)?),
+        None => Response::new_ok(req.id, serde_json::Value::Null),
+    };
+    sender.send(Message::Response(resp))?;
+    Ok(())
+}
+
 fn handle_variable_info(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;
     let ws = match &state.workspace {
@@ -492,6 +550,13 @@ fn handle_code_lens(state: &mut GlobalState, sender: &Sender<Message>, req: Requ
                     if summary.stats.rc_clones > 0 { format!(", {} clones", summary.stats.rc_clones) } else { String::new() })
             };
             lenses.push(serde_json::json!({"range": {"start": {"line": fn_line.saturating_sub(1), "character": 0}, "end": {"line": fn_line.saturating_sub(1), "character": 0}}, "command": {"title": title, "command": "borrowscope.showGraph", "arguments": [uri_str, fn_name]}}));
+
+            // Memory layout CodeLens
+            let mem_layout = borrowscope_lsp::analysis::analyze_memory_layout(&ws.db, &sema, &display_target, &function, &line_index);
+            let heap_total: u64 = mem_layout.heap_allocations.iter().map(|h| h.estimated_size).sum();
+            let ptr_count = mem_layout.pointer_relationships.len();
+            let mem_title = format!("\u{1f9e0} Stack: {}B | Heap: ~{}B | {} ptrs", mem_layout.stack_frame.total_size, heap_total, ptr_count);
+            lenses.push(serde_json::json!({"range": {"start": {"line": fn_line.saturating_sub(1), "character": 0}, "end": {"line": fn_line.saturating_sub(1), "character": 0}}, "command": {"title": mem_title, "command": "borrowscope.showGraph", "arguments": [uri_str, fn_name]}}));
         }
         lenses
     });

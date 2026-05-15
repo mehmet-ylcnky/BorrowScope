@@ -71,9 +71,19 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
       const fnCross = allCross.filter((b: any) => b.path.length > 0 && b.path[0].function_name === (functionName || graph.function_name));
       if (fnCross.length > 0) {
         graph._crossRefs = fnCross;
-        GraphPanel.getPanel()?.updateGraph(graph, fnList);
       }
     } catch { /* ignore */ }
+
+    // Fetch memory layout for this function
+    try {
+      const memLayout = await client.sendRequest("borrowscope/memoryLayout", {
+        textDocument: { uri: targetUri },
+        position: { line, character: 4 },
+      });
+      if (memLayout) graph._memoryLayout = memLayout;
+    } catch { /* ignore */ }
+
+    GraphPanel.getPanel()?.updateGraph(graph, fnList);
 
 
   } catch (e: any) {

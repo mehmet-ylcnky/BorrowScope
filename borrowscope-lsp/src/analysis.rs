@@ -1900,3 +1900,188 @@ fn resolve_call_target(
         _ => None,
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Memory Layout Analysis (Milestone 13)
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryLayoutInfo {
+    pub function_name: String,
+    pub stack_frame: StackFrame,
+    pub heap_allocations: Vec<HeapAllocation>,
+    pub pointer_relationships: Vec<PointerRelation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StackFrame {
+    pub total_size: u64,
+    pub variables: Vec<StackVariable>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StackVariable {
+    pub name: String,
+    pub type_display: String,
+    pub offset: u64,
+    pub size: u64,
+    pub alignment: u64,
+    pub line: u32,
+    pub category: MemoryCategory,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum MemoryCategory {
+    StackOnly,
+    HeapBacked,
+    Reference,
+    RefCounted,
+    InteriorMut,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HeapAllocation {
+    pub owner: String,
+    pub type_display: String,
+    pub estimated_size: u64,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PointerRelation {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+}
+
+pub fn analyze_memory_layout(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    display_target: &hir::DisplayTarget,
+    function: &ast::Fn,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> MemoryLayoutInfo {
+    use ra_ap_syntax::ast::HasName;
+
+    let fn_name = function.name().map(|n| n.text().to_string()).unwrap_or_default();
+    let body = match function.body() {
+        Some(b) => b,
+        None => return MemoryLayoutInfo { function_name: fn_name, stack_frame: StackFrame { total_size: 0, variables: vec![] }, heap_allocations: vec![], pointer_relationships: vec![] },
+    };
+
+    let mut stack_vars = Vec::new();
+    let mut heap_allocs = Vec::new();
+    let mut pointers = Vec::new();
+    let mut current_offset: u64 = 0;
+
+    for node in body.syntax().descendants() {
+        let let_stmt = match ast::LetStmt::cast(node) {
+            Some(ls) => ls,
+            None => continue,
+        };
+
+        let pat = match let_stmt.pat() { Some(p) => p, None => continue };
+        let name = pat.syntax().text().to_string().trim().trim_start_matches("mut ").to_string();
+
+        let init = match let_stmt.initializer() { Some(e) => e, None => continue };
+        let ty = match sema.type_of_expr(&init) { Some(t) => t.original, None => continue };
+
+        let (size, alignment) = match ty.layout(db) {
+            Ok(layout) => (layout.size(), layout.align()),
+            Err(_) => (0, 1),
+        };
+
+        // Align offset
+        if alignment > 0 {
+            current_offset = (current_offset + alignment - 1) & !(alignment - 1);
+        }
+
+        let (line, _) = line_index(let_stmt.syntax().text_range().start());
+        let type_display = ty.display(db, *display_target).to_string();
+
+        // Classify memory category
+        let category = if ty.is_reference() {
+            MemoryCategory::Reference
+        } else if ty.is_copy(db) && size <= 16 {
+            MemoryCategory::StackOnly
+        } else {
+            // Check ADT path for heap-backed types
+            let is_heap = if let Some(adt) = ty.as_adt() {
+                let adt_name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                matches!(adt_name.as_str(), "Vec" | "String" | "Box" | "VecDeque" | "HashMap" | "HashSet" | "BTreeMap" | "BTreeSet")
+            } else { false };
+
+            let is_rc = if let Some(adt) = ty.as_adt() {
+                let adt_name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                matches!(adt_name.as_str(), "Rc" | "Arc")
+            } else { false };
+
+            let is_cell = if let Some(adt) = ty.as_adt() {
+                let adt_name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                matches!(adt_name.as_str(), "RefCell" | "Cell" | "Mutex" | "RwLock")
+            } else { false };
+
+            if is_rc { MemoryCategory::RefCounted }
+            else if is_cell { MemoryCategory::InteriorMut }
+            else if is_heap { MemoryCategory::HeapBacked }
+            else { MemoryCategory::StackOnly }
+        };
+
+        // Create heap allocation for heap-backed types
+        match &category {
+            MemoryCategory::HeapBacked => {
+                let heap_size = estimate_heap_size_for_type(&type_display);
+                heap_allocs.push(HeapAllocation {
+                    owner: name.clone(),
+                    type_display: format!("[{} data]", type_display),
+                    estimated_size: heap_size,
+                    kind: "backing storage".to_string(),
+                });
+                pointers.push(PointerRelation { from: name.clone(), to: format!("{}.data", name), kind: "owns_heap".to_string() });
+            }
+            MemoryCategory::RefCounted => {
+                heap_allocs.push(HeapAllocation {
+                    owner: name.clone(),
+                    type_display: format!("[{} inner]", type_display),
+                    estimated_size: size + 16, // value + strong + weak counts
+                    kind: "ref-counted inner".to_string(),
+                });
+                pointers.push(PointerRelation { from: name.clone(), to: format!("{}.inner", name), kind: "owns_heap".to_string() });
+            }
+            MemoryCategory::Reference => {
+                // Try to find what it borrows from the initializer text
+                let target = init.syntax().text().to_string().trim().trim_start_matches('&').trim_start_matches("mut ").to_string();
+                pointers.push(PointerRelation { from: name.clone(), to: target, kind: "borrows".to_string() });
+            }
+            _ => {}
+        }
+
+        stack_vars.push(StackVariable {
+            name,
+            type_display,
+            offset: current_offset,
+            size,
+            alignment,
+            line,
+            category,
+        });
+
+        current_offset += size;
+    }
+
+    MemoryLayoutInfo {
+        function_name: fn_name,
+        stack_frame: StackFrame { total_size: current_offset, variables: stack_vars },
+        heap_allocations: heap_allocs,
+        pointer_relationships: pointers,
+    }
+}
+
+fn estimate_heap_size_for_type(type_display: &str) -> u64 {
+    // Rough estimates based on type
+    if type_display.contains("Vec<") { 24 } // 3 elements * 8 avg
+    else if type_display == "String" || type_display.contains("String") { 16 }
+    else if type_display.contains("HashMap") { 64 }
+    else if type_display.contains("Box<") { 8 }
+    else { 16 }
+}

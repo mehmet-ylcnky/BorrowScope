@@ -271,6 +271,7 @@ export class GraphPanel {
       <button class="view-btn" data-view="conflicts" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Conflicts</button>
       <button class="view-btn" data-view="compare" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Compare</button>
       <button class="view-btn" data-view="crossrefs" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">CrossRefs</button>
+      <button class="view-btn" data-view="memory" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Memory</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
@@ -282,6 +283,7 @@ export class GraphPanel {
   <div id="conflicts-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="compare-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="crossrefs-container" style="display:none;width:100%;height:45vh;overflow:hidden;display:none;"></div>
+  <div id="memory-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -574,6 +576,7 @@ export class GraphPanel {
           document.getElementById('conflicts-container').style.display = view === 'conflicts' ? '' : 'none';
           document.getElementById('compare-container').style.display = view === 'compare' ? '' : 'none';
           document.getElementById('crossrefs-container').style.display = view === 'crossrefs' ? 'flex' : 'none';
+          document.getElementById('memory-container').style.display = view === 'memory' ? '' : 'none';
           if (view === 'timeline') renderTimeline();
           if (view === 'scopes') renderScopes();
           if (view === 'refcount') renderRefCount();
@@ -581,6 +584,7 @@ export class GraphPanel {
           if (view === 'conflicts') renderConflicts();
           if (view === 'compare') renderCompare();
           if (view === 'crossrefs') renderCrossRefs();
+          if (view === 'memory') renderMemory();
         });
       });
 
@@ -1078,6 +1082,114 @@ export class GraphPanel {
           link.select('line').attr('x1',function(d){return d.source.x;}).attr('y1',function(d){return d.source.y;}).attr('x2',function(d){return d.target.x;}).attr('y2',function(d){return d.target.y;});
           link.select('text').attr('x',function(d){return (d.source.x+d.target.x)/2;}).attr('y',function(d){return (d.source.y+d.target.y)/2-8;});
           nd.attr('transform', function(d){return 'translate('+d.x+','+d.y+')';});
+        });
+      }
+
+      // === Memory Layout View ===
+      function renderMemory() {
+        const container = document.getElementById('memory-container');
+        container.innerHTML = '';
+        const layout = rawGraph._memoryLayout;
+        if (!layout || !layout.stack_frame) {
+          container.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5;"><p>No memory layout data.</p><p style="font-size:11px;">Click a function CodeLens to load memory layout.</p></div>';
+          return;
+        }
+
+        const allVars = layout.stack_frame.variables || [];
+        const allHeap = layout.heap_allocations || [];
+        const allPtrs = layout.pointer_relationships || [];
+        const catColors = { StackOnly:'#2ecc71', HeapBacked:'#3498db', Reference:'#9b59b6', RefCounted:'#cba6f7', InteriorMut:'#e67e22' };
+
+        const minLine = allVars.length > 0 ? Math.min(...allVars.map(v => v.line)) : 1;
+        const maxLine = rawGraph.end_line || (allVars.length > 0 ? Math.max(...allVars.map(v => v.line)) + 5 : 10);
+        var currentLine = maxLine;
+
+        function renderAtLine(line) {
+          var stackVars = allVars.filter(v => v.line <= line);
+          var heapAllocs = allHeap.filter(h => stackVars.some(v => v.name === h.owner));
+          var pointers = allPtrs.filter(p => stackVars.some(v => v.name === p.from));
+
+          var html = '<div style="display:flex;gap:12px;padding:12px;height:calc(100% - 40px);">';
+
+          // Stack column
+          html += '<div style="flex:1;border:1px solid #58a6ff;border-radius:6px;padding:8px;overflow-y:auto;">';
+          var stackSize = stackVars.reduce(function(s,v){return s+v.size;},0);
+          html += '<div style="font-size:11px;color:#58a6ff;font-weight:bold;margin-bottom:8px;">STACK (' + stackSize + 'B)</div>';
+          for (var v of stackVars) {
+            var color = catColors[v.category] || '#95a5a6';
+            var isNew = v.line === line;
+            html += '<div style="border-left:3px solid ' + color + ';padding:4px 8px;margin:3px 0;border-radius:2px;font-size:11px;' + (isNew ? 'background:rgba(88,166,255,0.1);' : '') + '">';
+            html += '<b>' + v.name + '</b>: <code style="font-size:10px;">' + v.type_display + '</code>';
+            html += '<span style="float:right;color:#8b949e;font-size:10px;">' + v.size + 'B</span>';
+            if (isNew) html += ' <span style="color:#3fb950;font-size:9px;">● new</span>';
+            html += '</div>';
+          }
+          if (stackVars.length === 0) html += '<div style="opacity:0.5;font-size:11px;">Empty stack frame</div>';
+          html += '</div>';
+
+          // Heap column
+          html += '<div style="flex:1;border:1px solid #3fb950;border-radius:6px;padding:8px;overflow-y:auto;">';
+          var heapSize = heapAllocs.reduce(function(s,h){return s+h.estimated_size;},0);
+          html += '<div style="font-size:11px;color:#3fb950;font-weight:bold;margin-bottom:8px;">HEAP (' + heapSize + 'B)</div>';
+          for (var h of heapAllocs) {
+            html += '<div style="border-left:3px solid #3fb950;padding:4px 8px;margin:3px 0;border-radius:2px;font-size:11px;">';
+            html += '<b>' + h.type_display + '</b> <span style="color:#8b949e;font-size:10px;">~' + h.estimated_size + 'B</span>';
+            html += '<div style="font-size:9px;color:#8b949e;">owned by: ' + h.owner + '</div>';
+            html += '</div>';
+          }
+          if (heapAllocs.length === 0) html += '<div style="opacity:0.5;font-size:11px;">No heap allocations</div>';
+
+          // Pointers
+          if (pointers.length > 0) {
+            html += '<div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--vscode-panel-border);font-size:10px;color:#d2a8ff;">';
+            for (var p of pointers) { html += p.from + ' → ' + p.to + ' (' + p.kind + ')<br>'; }
+            html += '</div>';
+          }
+          html += '</div>';
+          html += '</div>';
+
+          document.getElementById('mem-content').innerHTML = html;
+          document.getElementById('mem-line-info').textContent = 'Line ' + line + ' / ' + maxLine;
+        }
+
+        // Container with timeline
+        container.innerHTML = '<div id="mem-content" style="height:calc(100% - 44px);overflow:auto;"></div>' +
+          '<div style="padding:6px 12px;border-top:1px solid var(--vscode-panel-border);display:flex;align-items:center;gap:8px;">' +
+          '<button id="mem-play" style="background:var(--vscode-button-background);border:none;color:var(--vscode-button-foreground);padding:3px 10px;border-radius:3px;cursor:pointer;font-size:11px;">▶</button>' +
+          '<button id="mem-step" style="background:var(--vscode-button-background);border:none;color:var(--vscode-button-foreground);padding:3px 8px;border-radius:3px;cursor:pointer;font-size:11px;">⏭</button>' +
+          '<input id="mem-slider" type="range" min="' + minLine + '" max="' + maxLine + '" value="' + maxLine + '" style="flex:1;">' +
+          '<span id="mem-line-info" style="font-size:11px;min-width:80px;">Line ' + maxLine + '</span>' +
+          '</div>';
+
+        renderAtLine(currentLine);
+
+        // Slider
+        document.getElementById('mem-slider').addEventListener('input', function() {
+          currentLine = parseInt(this.value);
+          renderAtLine(currentLine);
+        });
+
+        // Step button
+        document.getElementById('mem-step').addEventListener('click', function() {
+          if (currentLine < maxLine) { currentLine++; } else { currentLine = minLine; }
+          document.getElementById('mem-slider').value = currentLine;
+          renderAtLine(currentLine);
+        });
+
+        // Play button
+        var memPlaying = false, memInterval;
+        document.getElementById('mem-play').addEventListener('click', function() {
+          if (memPlaying) {
+            clearInterval(memInterval); this.textContent = '▶'; memPlaying = false;
+          } else {
+            memPlaying = true; this.textContent = '⏸';
+            memInterval = setInterval(function() {
+              currentLine++;
+              if (currentLine > maxLine) currentLine = minLine;
+              document.getElementById('mem-slider').value = currentLine;
+              renderAtLine(currentLine);
+            }, 600);
+          }
         });
       }
 
