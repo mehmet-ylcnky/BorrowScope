@@ -170,6 +170,7 @@ export class GraphPanel {
 
     const graphModel = buildGraphModelFromRaw(graph);
     const graphJson = JSON.stringify(graphModel).replace(/</g, "\\u003c");
+    const rawGraphJson = JSON.stringify(graph).replace(/</g, "\\u003c");
 
     let varsHtml = vars.map((v: any) =>
       `<tr data-var="${esc(v.name)}"><td><b>${esc(v.name)}</b></td><td><code>${esc(v.type_display)}</code></td><td>${esc(v.ownership_category)}</td></tr>`
@@ -228,14 +229,14 @@ export class GraphPanel {
   <div id="header">
     <h2>📊 ${esc(graph.function_name)}</h2>
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
-    <select id="fn-selector" style="float:right;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border);border-radius:3px;padding:2px 6px;font-size:12px;">
-      ${(functionList || [graph.function_name]).map((fn: string) =>
-        `<option value="${esc(fn)}"${fn === graph.function_name ? " selected" : ""}>${esc(fn)}</option>`
-      ).join("")}
-    </select>
+    <div id="view-toggle" style="float:right;display:flex;gap:4px;">
+      <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
+      <button class="view-btn" data-view="timeline" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Timeline</button>
+    </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
   <div id="graph-container"></div>
+  <div id="timeline-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -333,10 +334,10 @@ export class GraphPanel {
 
       // Force simulation
       const simulation = d3.forceSimulation(data.nodes)
-        .force('link', d3.forceLink(data.edges).id(d => d.id).distance(100))
-        .force('charge', d3.forceManyBody().strength(-300))
+        .force('link', d3.forceLink(data.edges).id(d => d.id).distance(60))
+        .force('charge', d3.forceManyBody().strength(-120))
         .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(40));
+        .force('collision', d3.forceCollide().radius(25));
 
       // Edges
       const edge = g.selectAll('.edge')
@@ -489,11 +490,140 @@ export class GraphPanel {
             }
           });
 
-      // Table row hover -> highlight graph
+      // Table row hover -> highlight graph + timeline
       document.querySelectorAll('#tables tr[data-var]').forEach(row => {
-        row.addEventListener('mouseover', () => highlightVariable(row.getAttribute('data-var')));
-        row.addEventListener('mouseout', () => clearHighlight());
+        row.addEventListener('mouseover', () => {
+          highlightVariable(row.getAttribute('data-var'));
+          // Also highlight timeline bars
+          const name = row.getAttribute('data-var');
+          document.querySelectorAll('#timeline-container rect[data-var]').forEach(r => {
+            r.setAttribute('opacity', r.getAttribute('data-var') === name ? '0.8' : '0.2');
+          });
+        });
+        row.addEventListener('mouseout', () => {
+          clearHighlight();
+          document.querySelectorAll('#timeline-container rect[data-var]').forEach(r => {
+            r.setAttribute('opacity', '0.4');
+          });
+        });
       });
+      // === View toggle: Graph / Timeline ===
+      const rawGraph = ${rawGraphJson};
+      document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          document.querySelectorAll('.view-btn').forEach(b => {
+            b.style.background = 'transparent';
+            b.style.color = 'var(--vscode-foreground)';
+            b.classList.remove('active');
+          });
+          this.style.background = 'var(--vscode-button-background)';
+          this.style.color = 'var(--vscode-button-foreground)';
+          this.classList.add('active');
+          const view = this.getAttribute('data-view');
+          document.getElementById('graph-container').style.display = view === 'graph' ? '' : 'none';
+          document.getElementById('timeline-container').style.display = view === 'timeline' ? '' : 'none';
+          if (view === 'timeline') renderTimeline();
+        });
+      });
+
+      // === Timeline (Gantt chart) rendering ===
+      function renderTimeline() {
+        const container = document.getElementById('timeline-container');
+        container.innerHTML = '';
+
+        const vars = (rawGraph.variables || []).map(v => ({
+          name: v.name, type: v.type_display, category: v.ownership_category,
+          start: v.line, end: rawGraph.end_line || v.line + 10
+        }));
+        const scopes = (rawGraph.borrow_scopes || []).map(s => ({
+          borrower: s.borrower_name, target: s.target_name, mutable: s.is_mutable,
+          start: s.start_line, end: s.end_line
+        }));
+        const conflicts = (rawGraph.conflicts || []).map(c => ({
+          start: c.overlap_start_line, end: c.overlap_end_line
+        }));
+
+        // Update var end lines from scopes
+        for (const s of scopes) {
+          const bVar = vars.find(v => v.name === s.borrower);
+          if (bVar) { bVar.start = Math.min(bVar.start, s.start); bVar.end = Math.max(bVar.end, s.end); }
+        }
+
+        if (vars.length === 0) { container.innerHTML = '<p style="padding:20px;opacity:0.5">No variables to display</p>'; return; }
+
+        const margin = { top: 30, right: 20, bottom: 30, left: 120 };
+        const barH = 22, gap = 4;
+        const width = container.clientWidth || 500;
+        const height = vars.length * (barH + gap) + margin.top + margin.bottom;
+        const minLine = Math.min(...vars.map(v => v.start));
+        const maxLine = Math.max(...vars.map(v => v.end));
+
+        const svg = d3.select('#timeline-container').append('svg')
+          .attr('width', width).attr('height', height);
+
+        const x = d3.scaleLinear().domain([minLine, maxLine + 1]).range([margin.left, width - margin.right]);
+
+        // Grid lines
+        for (let l = minLine; l <= maxLine; l += Math.max(1, Math.floor((maxLine - minLine) / 10))) {
+          svg.append('line').attr('x1', x(l)).attr('x2', x(l)).attr('y1', margin.top - 10).attr('y2', height - margin.bottom)
+            .attr('stroke', 'var(--vscode-panel-border)').attr('stroke-dasharray', '2,2');
+          svg.append('text').attr('x', x(l)).attr('y', margin.top - 14).attr('text-anchor', 'middle')
+            .attr('font-size', '9px').attr('fill', 'var(--vscode-descriptionForeground)').text(l);
+        }
+
+        // Conflict zones (red vertical bands)
+        for (const c of conflicts) {
+          svg.append('rect').attr('x', x(c.start)).attr('width', x(c.end) - x(c.start))
+            .attr('y', margin.top - 5).attr('height', height - margin.top - margin.bottom + 10)
+            .attr('fill', 'rgba(231,76,60,0.1)').attr('stroke', 'rgba(231,76,60,0.3)').attr('stroke-dasharray', '4,2');
+        }
+
+        // Variable bars
+        vars.forEach((v, i) => {
+          const y = margin.top + i * (barH + gap);
+          const color = nodeColor(v.category);
+
+          // Label
+          svg.append('text').attr('x', margin.left - 8).attr('y', y + barH / 2 + 4)
+            .attr('text-anchor', 'end').attr('font-size', '11px').attr('fill', 'var(--vscode-foreground)').text(v.name);
+
+          // Lifetime bar
+          svg.append('rect').attr('x', x(v.start)).attr('width', Math.max(2, x(v.end) - x(v.start)))
+            .attr('y', y).attr('height', barH).attr('rx', 3)
+            .attr('fill', color).attr('opacity', 0.4).attr('stroke', color).attr('stroke-width', 1)
+            .attr('data-var', v.name)
+            .style('cursor', 'pointer')
+            .on('click', () => { if (vscodeApi) vscodeApi.postMessage({ type: 'nodeClicked', line: v.start }); })
+            .on('mouseover', () => {
+              document.querySelectorAll('#tables tr[data-var]').forEach(row => {
+                row.style.background = row.getAttribute('data-var') === v.name ? 'rgba(52,152,219,0.15)' : '';
+              });
+              svg.selectAll('rect[data-var]').attr('opacity', d => d === v.name ? 0.8 : 0.2);
+            })
+            .on('mouseout', () => {
+              document.querySelectorAll('#tables tr[data-var]').forEach(row => { row.style.background = ''; });
+              svg.selectAll('rect[data-var]').attr('opacity', 0.4);
+            });
+
+          // Borrow overlays on this variable
+          scopes.filter(s => s.target === v.name).forEach(s => {
+            svg.append('rect').attr('x', x(s.start)).attr('width', Math.max(2, x(s.end) - x(s.start)))
+              .attr('y', y + 3).attr('height', barH - 6).attr('rx', 2)
+              .attr('fill', s.mutable ? '#e74c3c' : '#3498db').attr('opacity', 0.6);
+            svg.append('text').attr('x', x(s.start) + 3).attr('y', y + barH / 2 + 3)
+              .attr('font-size', '9px').attr('fill', '#fff').text(s.mutable ? '&mut ' + s.borrower : '& ' + s.borrower);
+          });
+        });
+
+        // Legend
+        const ly = height - 15;
+        svg.append('rect').attr('x', margin.left).attr('y', ly).attr('width', 12).attr('height', 8).attr('fill', '#2ecc71').attr('opacity', 0.4);
+        svg.append('text').attr('x', margin.left + 16).attr('y', ly + 7).attr('font-size', '9px').attr('fill', 'var(--vscode-descriptionForeground)').text('alive');
+        svg.append('rect').attr('x', margin.left + 60).attr('y', ly).attr('width', 12).attr('height', 8).attr('fill', '#3498db').attr('opacity', 0.6);
+        svg.append('text').attr('x', margin.left + 76).attr('y', ly + 7).attr('font-size', '9px').attr('fill', 'var(--vscode-descriptionForeground)').text('& borrow');
+        svg.append('rect').attr('x', margin.left + 140).attr('y', ly).attr('width', 12).attr('height', 8).attr('fill', '#e74c3c').attr('opacity', 0.6);
+        svg.append('text').attr('x', margin.left + 156).attr('y', ly + 7).attr('font-size', '9px').attr('fill', 'var(--vscode-descriptionForeground)').text('&mut borrow');
+      }
     })();
   </script>
 </body>

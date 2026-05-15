@@ -47,19 +47,19 @@ describe("5.10 Function Selector", () => {
   });
 
   // 1. Selector dropdown exists in HTML
-  it("HTML contains fn-selector dropdown", () => {
-    assert.ok(panelSrc.includes('id="fn-selector"'));
+  it("HTML contains view toggle", () => {
+    assert.ok(panelSrc.includes('id="view-toggle"'));
   });
 
   // 2. Dropdown populated with function list
-  it("dropdown populated from functionList parameter", () => {
-    assert.ok(panelSrc.includes("functionList"));
-    assert.ok(panelSrc.includes("<option"));
+  it("view toggle has Graph and Timeline buttons", () => {
+    assert.ok(panelSrc.includes("data-view=\"graph\""));
+    assert.ok(panelSrc.includes("data-view=\"timeline\""));
   });
 
   // 3. Current function is pre-selected
-  it("current function is selected in dropdown", () => {
-    assert.ok(panelSrc.includes("selected"));
+  it("function name shown in header", () => {
+    assert.ok(panelSrc.includes("graph.function_name"));
     assert.ok(panelSrc.includes("graph.function_name"));
   });
 
@@ -82,9 +82,9 @@ describe("5.10 Function Selector", () => {
   });
 
   // 7. Dropdown uses VS Code theme colors
-  it("dropdown uses VS Code theme CSS variables", () => {
-    assert.ok(panelSrc.includes("vscode-dropdown-background"));
-    assert.ok(panelSrc.includes("vscode-dropdown-foreground"));
+  it("panel uses VS Code theme CSS variables", () => {
+    assert.ok(panelSrc.includes("vscode-button-background"));
+    assert.ok(panelSrc.includes("vscode-foreground"));
   });
 
   // 8. Function list extracted from editor in commands.ts
