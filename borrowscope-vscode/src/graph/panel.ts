@@ -259,8 +259,30 @@ export class GraphPanel {
   </style>
 </head>
 <body>
+  <div id="landing" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:20px;">
+    <img src="${logoUri}" style="height:80px;margin-bottom:24px;">
+    <h2 style="margin:0 0 4px;font-size:16px;">${esc(graph.function_name)}</h2>
+    <p style="margin:0 0 24px;font-size:12px;opacity:0.6;">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</p>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:400px;">
+      <div class="landing-btn" data-view="graph" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">📊</span><span style="font-size:10px;margin-top:4px;">Graph</span></div>
+      <div class="landing-btn" data-view="table" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">📋</span><span style="font-size:10px;margin-top:4px;">Table</span></div>
+      <div class="landing-btn" data-view="timeline" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">📈</span><span style="font-size:10px;margin-top:4px;">Timeline</span></div>
+      <div class="landing-btn" data-view="scopes" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🔍</span><span style="font-size:10px;margin-top:4px;">Scopes</span></div>
+      <div class="landing-btn" data-view="refcount" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🔗</span><span style="font-size:10px;margin-top:4px;">RefCount</span></div>
+      <div class="landing-btn" data-view="moves" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">↦</span><span style="font-size:10px;margin-top:4px;">Moves</span></div>
+      <div class="landing-btn" data-view="conflicts" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">⚠️</span><span style="font-size:10px;margin-top:4px;">Conflicts</span></div>
+      <div class="landing-btn" data-view="compare" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🔄</span><span style="font-size:10px;margin-top:4px;">Compare</span></div>
+      <div class="landing-btn" data-view="crossrefs" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🌐</span><span style="font-size:10px;margin-top:4px;">CrossRefs</span></div>
+      <div class="landing-btn" data-view="memory" style="display:flex;flex-direction:column;align-items:center;padding:14px 8px;border:1px solid var(--vscode-panel-border);border-radius:8px;cursor:pointer;"><span style="font-size:24px;">🧠</span><span style="font-size:10px;margin-top:4px;">Memory</span></div>
+    </div>
+    <div style="display:flex;gap:12px;margin-top:24px;">
+      <a href="https://github.com/mehmet-ylcnky/BorrowScope" style="display:flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid var(--vscode-panel-border);border-radius:6px;text-decoration:none;color:var(--vscode-foreground);font-size:11px;cursor:pointer;"><svg height="18" viewBox="0 0 16 16" width="18" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Source Code</a>
+      <a href="https://mehmet-ylcnky.github.io/BorrowScope/" style="display:flex;align-items:center;gap:6px;padding:8px 16px;border:1px solid var(--vscode-panel-border);border-radius:6px;text-decoration:none;color:var(--vscode-foreground);font-size:11px;cursor:pointer;"><span style="font-size:18px;">📄</span>Research</a>
+    </div>
+  </div>
+  <div id="main-content" style="display:none;">
   <div id="header">
-    <h2><img src="${logoUri}" style="height:28px;vertical-align:middle;margin-right:6px;">${esc(graph.function_name)}</h2>
+    <h2><button id="home-btn" style="background:none;border:none;cursor:pointer;font-size:16px;vertical-align:middle;margin-right:4px;" title="Back to home">🏠</button><img src="${logoUri}" style="height:28px;vertical-align:middle;margin-right:6px;">${esc(graph.function_name)}</h2>
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
     <div id="view-toggle" style="float:right;display:flex;gap:4px;">
       <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
@@ -298,6 +320,7 @@ export class GraphPanel {
     ${conflicts.length > 0 ? `<details open><summary><b>⚠️ Conflicts (${conflicts.length})</b></summary>
     <table><tr><th>Borrow A</th><th></th><th>Borrow B</th><th>Lines</th></tr>${conflictsHtml}</table></details>` : ""}
   </div>
+  </div><!-- end main-content -->
   <script src="${d3Uri}"></script>
   <script>
     (function() {
@@ -557,6 +580,26 @@ export class GraphPanel {
       });
       // === View toggle: Graph / Timeline ===
       const rawGraph = ${rawGraphJson};
+      // === Landing page handlers ===
+      function showView(view) {
+        document.getElementById('landing').style.display = 'none';
+        document.getElementById('main-content').style.display = '';
+        // Trigger the view button click
+        var btn = document.querySelector('.view-btn[data-view="' + view + '"]');
+        if (btn) btn.click();
+      }
+      function showLanding() {
+        document.getElementById('landing').style.display = 'flex';
+        document.getElementById('main-content').style.display = 'none';
+      }
+      document.querySelectorAll('.landing-btn').forEach(btn => {
+        btn.addEventListener('click', function() { showView(this.getAttribute('data-view')); });
+        btn.addEventListener('mouseover', function() { this.style.background = 'rgba(88,166,255,0.1)'; });
+        btn.addEventListener('mouseout', function() { this.style.background = ''; });
+      });
+      document.getElementById('home-btn').addEventListener('click', showLanding);
+
+      // === View toggle: Graph / Timeline / etc ===
       document.querySelectorAll('.view-btn').forEach(btn => {
         btn.addEventListener('click', function() {
           document.querySelectorAll('.view-btn').forEach(b => {
