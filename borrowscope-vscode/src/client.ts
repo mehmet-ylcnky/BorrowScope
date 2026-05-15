@@ -249,11 +249,49 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     applyLifelines(editor, scopes, graph || lastGraph);
     applyHighlights(editor, scopes, graph || lastGraph);
+
+    // Fetch cross-function borrows and show annotations
+    try {
+      const crossResponse = await client.sendRequest("borrowscope/crossFunctionBorrows", {
+        textDocument: { uri },
+      }) as any;
+      const crossBorrows = crossResponse?.cross_borrows || [];
+      if (crossBorrows.length > 0) {
+        applyCrossFunctionAnnotations(editor, crossBorrows);
+      }
+    } catch { /* cross-function not available */ }
   } catch {
     clearDecorations(editor);
     clearLifelines(editor);
     clearHighlights(editor);
   }
+}
+
+// Cross-function borrow annotations
+const crossFnDecorationType = vscode.window.createTextEditorDecorationType({
+  isWholeLine: true,
+});
+
+function applyCrossFunctionAnnotations(editor: vscode.TextEditor, crossBorrows: any[]): void {
+  const decorations: vscode.DecorationOptions[] = crossBorrows.map((b: any) => {
+    const line = (b.origin_line || 1) - 1;
+    const targetFn = b.path.length > 1 ? b.path[1].function_name : "?";
+    const paramName = b.path.length > 1 ? b.path[1].variable : "?";
+    const isMut = b.path.length > 1 && b.path[1].is_mutable;
+    return {
+      range: new vscode.Range(line, 0, line, 0),
+      renderOptions: {
+        after: {
+          contentText: ` ──→ ${isMut ? "🔒" : "👁"} &${b.origin_variable} enters ${targetFn}(${paramName})`,
+          color: "rgba(26, 188, 156, 0.6)",
+          fontStyle: "italic",
+          margin: "0 0 0 2em",
+        } as vscode.ThemableDecorationAttachmentRenderOptions,
+      },
+      hoverMessage: `**Cross-function borrow**\n\n\`${b.origin_variable}\` is passed as \`${isMut ? "&mut " : "&"}${paramName}\` to \`${targetFn}()\``,
+    };
+  });
+  editor.setDecorations(crossFnDecorationType, decorations);
 }
 
 export async function stopClient(): Promise<void> {

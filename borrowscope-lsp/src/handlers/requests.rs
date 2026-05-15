@@ -30,6 +30,7 @@ pub fn handle(
         "borrowscope/ownershipGraph" => handle_ownership_graph(state, sender, req),
         "borrowscope/borrowScopes" => handle_borrow_scopes(state, sender, req),
         "borrowscope/variableInfo" => handle_variable_info(state, sender, req),
+        "borrowscope/crossFunctionBorrows" => handle_cross_function_borrows(state, sender, req),
         "textDocument/codeLens" => handle_code_lens(state, sender, req),
         "textDocument/inlayHint" => handle_inlay_hints(state, sender, req),
         "textDocument/hover" => handle_hover(state, sender, req),
@@ -265,6 +266,42 @@ fn handle_borrow_scopes(state: &mut GlobalState, sender: &Sender<Message>, req: 
 // ═══════════════════════════════════════════════════════════════════════════
 // 3.3 borrowscope/variableInfo
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11.3 borrowscope/crossFunctionBorrows
+// ═══════════════════════════════════════════════════════════════════════════
+
+fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+    let params: TextDocParams = serde_json::from_value(req.params)?;
+    let ws = get_workspace_or_empty!(state, req, sender);
+    let uri_str = params.text_document.uri.as_str();
+    let (file_id, file_path) = get_file_id_or_empty!(ws, uri_str, req, sender);
+
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+
+    let sema = Semantics::new(&ws.db);
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_content = state.get_file_content(uri_str).unwrap_or("").to_string();
+    let line_index = build_line_index(&file_content);
+
+    let cross_borrows = attach_db(&ws.db, || {
+        let mut all = Vec::new();
+        for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
+            let borrows = borrowscope_lsp::analysis::analyze_cross_function_borrows(
+                &ws.db, &sema, &function, &file_path, &line_index,
+            );
+            all.extend(borrows);
+        }
+        all
+    });
+
+    let resp = Response::new_ok(req.id, serde_json::json!({ "cross_borrows": cross_borrows }));
+    sender.send(Message::Response(resp))?;
+    Ok(())
+}
 
 fn handle_variable_info(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;

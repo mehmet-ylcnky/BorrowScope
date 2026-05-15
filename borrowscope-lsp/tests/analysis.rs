@@ -1586,3 +1586,217 @@ fn test_incremental_performance_cached_under_100ms() {
 
     println!("Performance: cached analysis of basic_borrows took {:?}", elapsed);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 11.1 Cross-Function Borrow Analysis
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+#[ignore]
+fn test_cross_function_borrow_detection() {
+    use borrowscope_lsp::analysis::analyze_cross_function_borrows;
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // Test cross_call_borrows function which passes &data to process_slice
+    let cross_borrows = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "borrow_through_return").unwrap_or(false)).unwrap();
+        analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
+    });
+
+    // Should detect at least one cross-function borrow (longest(&s1, &s2) or first_word(&sentence))
+    assert!(!cross_borrows.is_empty(),
+        "Should detect cross-function borrows. Got: {:?}",
+        cross_borrows.iter().map(|b| &b.origin_variable).collect::<Vec<_>>());
+
+    // Each borrow should have at least 2 path segments (origin + parameter)
+    for b in &cross_borrows {
+        assert!(b.path.len() >= 2,
+            "Borrow path should have >= 2 segments. Got {} for {}",
+            b.path.len(), b.origin_variable);
+    }
+
+    println!("Cross-function borrows detected: {}",
+        cross_borrows.iter().map(|b| format!("{} -> {}", b.origin_variable, b.path[1].function_name)).collect::<Vec<_>>().join(", "));
+}
+
+#[test]
+#[ignore]
+fn test_cross_function_direct_call() {
+    use borrowscope_lsp::analysis::analyze_cross_function_borrows;
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // cross_function_demo calls process_items(&data) — direct call with reference arg
+    let borrows = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "cross_function_demo").unwrap_or(false)).unwrap();
+        analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
+    });
+
+    // Should detect process_items(&data) and transform_string(&mut text) and first_word(&sentence)
+    let process_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].function_name == "process_items");
+    assert!(process_borrow.is_some(), "Should detect process_items(&data). Found: {:?}",
+        borrows.iter().map(|b| format!("{} -> {}", b.origin_variable, b.path.get(1).map(|p| p.function_name.as_str()).unwrap_or("?"))).collect::<Vec<_>>());
+
+    // Parameter name should be resolved (not param[0])
+    let p = process_borrow.unwrap();
+    assert!(!p.path[1].variable.contains("param["), "Should resolve param name, got: {}", p.path[1].variable);
+
+    println!("Direct call test passed: {} -> {}({})", p.origin_variable, p.path[1].function_name, p.path[1].variable);
+}
+
+#[test]
+#[ignore]
+fn test_cross_function_method_call() {
+    use borrowscope_lsp::analysis::analyze_cross_function_borrows;
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // mutable_borrows() calls m.push(4) — method call with &mut self
+    let borrows = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "mutable_borrows").unwrap_or(false)).unwrap();
+        analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
+    });
+
+    // Should detect method calls (push, retain, etc.)
+    let method_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].variable == "self");
+    assert!(method_borrow.is_some(), "Should detect method calls with &self/&mut self. Found: {:?}",
+        borrows.iter().map(|b| format!("{} -> {}", b.origin_variable, b.path.get(1).map(|p| p.function_name.as_str()).unwrap_or("?"))).collect::<Vec<_>>());
+
+    println!("Method call test passed: {} method calls detected", borrows.len());
+}
+
+#[test]
+#[ignore]
+fn test_cross_function_mutable_borrow() {
+    use borrowscope_lsp::analysis::analyze_cross_function_borrows;
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // cross_function_demo calls transform_string(&mut text)
+    let borrows = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "cross_function_demo").unwrap_or(false)).unwrap();
+        analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
+    });
+
+    let mut_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].function_name == "transform_string");
+    assert!(mut_borrow.is_some(), "Should detect transform_string(&mut text)");
+    assert!(mut_borrow.unwrap().path[1].is_mutable, "Should be marked as mutable borrow");
+
+    println!("Mutable cross-function borrow test passed");
+}
+
+#[test]
+#[ignore]
+fn test_cross_function_no_borrows_for_owned_args() {
+    use borrowscope_lsp::analysis::analyze_cross_function_borrows;
+    use ra_ap_hir::{self as hir, Semantics};
+    use ra_ap_hir_ty::attach_db;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
+    use ra_ap_syntax::ast::HasName;
+    use ra_ap_vfs::VfsPath;
+
+    let (db, vfs) = load_workspace();
+    let sema = Semantics::new(&db);
+    let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
+    let (file_id, _) = vfs.file_id(&main_path).unwrap();
+    let source_file = sema.parse(sema.attach_first_edition(file_id));
+    let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
+    let line_starts: Vec<usize> = std::iter::once(0)
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let line_index = |offset: TextSize| -> (u32, u32) {
+        let offset = u32::from(offset) as usize;
+        let line = line_starts.partition_point(|&start| start <= offset) as u32;
+        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        (line, col as u32)
+    };
+
+    // move_patterns() calls consume_string(s) — owned arg, NOT a borrow
+    let borrows = attach_db(&db, || {
+        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "move_patterns").unwrap_or(false)).unwrap();
+        analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
+    });
+
+    // consume_string takes String (owned), not &String — should NOT appear
+    let consume_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].function_name == "consume_string");
+    assert!(consume_borrow.is_none(), "Owned args should NOT be detected as cross-function borrows");
+
+    println!("No-borrow for owned args test passed (found {} borrows, none for consume_string)", borrows.len());
+}

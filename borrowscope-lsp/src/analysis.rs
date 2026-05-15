@@ -1687,3 +1687,197 @@ mod tests {
         assert!(json_str.contains("\"total_variables\":0"));
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Cross-Function Borrow Tracking (Milestone 11)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// A borrow that crosses a function boundary.
+#[derive(Debug, Clone, Serialize)]
+pub struct CrossFunctionBorrow {
+    pub origin_variable: String,
+    pub origin_line: u32,
+    pub path: Vec<BorrowPathSegment>,
+}
+
+/// One segment in a cross-function borrow path.
+#[derive(Debug, Clone, Serialize)]
+pub struct BorrowPathSegment {
+    pub file: String,
+    pub function_name: String,
+    pub variable: String,
+    pub start_line: u32,
+    pub end_line: u32,
+    pub is_mutable: bool,
+    pub kind: BorrowPathKind,
+}
+
+/// What role this segment plays in the borrow path.
+#[derive(Debug, Clone, Serialize)]
+pub enum BorrowPathKind {
+    Origin,
+    Parameter,
+    PassThrough,
+    Return,
+}
+
+/// Analyze cross-function borrows for a single function.
+/// Finds all call expressions that pass references and resolves the callee.
+pub fn analyze_cross_function_borrows(
+    db: &RootDatabase,
+    sema: &hir::Semantics<'_, RootDatabase>,
+    function: &ast::Fn,
+    file_path: &str,
+    line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
+) -> Vec<CrossFunctionBorrow> {
+    use ra_ap_syntax::ast::HasArgList;
+
+    let body = match function.body() {
+        Some(b) => b,
+        None => return vec![],
+    };
+
+    let mut results = Vec::new();
+
+    // Find all call expressions
+    for node in body.syntax().descendants() {
+        // Handle function calls: foo(&data)
+        if let Some(call) = ast::CallExpr::cast(node.clone()) {
+            if let Some(arg_list) = call.arg_list() {
+                for (idx, arg) in arg_list.args().enumerate() {
+                    // Check if argument is a reference type
+                    let ty = match sema.type_of_expr(&arg) {
+                        Some(t) => t,
+                        None => continue,
+                    };
+                    if !ty.original.is_reference() {
+                        continue;
+                    }
+
+                    let is_mutable = ty.original.is_mutable_reference();
+                    let arg_text = arg.syntax().text().to_string().trim()
+                        .trim_start_matches('&').trim_start_matches("mut ").trim().to_string();
+
+                    // Resolve the call target
+                    let callee = match call.expr() {
+                        Some(e) => e,
+                        None => continue,
+                    };
+
+                    let (target_fn_name, target_file, param_names) = match resolve_call_target(sema, db, &callee) {
+                        Some(info) => info,
+                        None => continue,
+                    };
+
+                    let (call_line, _) = line_index(call.syntax().text_range().start());
+                    let fn_name = function.name().map(|n| n.text().to_string()).unwrap_or_default();
+                    let param_name = param_names.get(idx).cloned().unwrap_or_else(|| format!("param[{}]", idx));
+
+                    results.push(CrossFunctionBorrow {
+                        origin_variable: arg_text.clone(),
+                        origin_line: call_line,
+                        path: vec![
+                            BorrowPathSegment {
+                                file: file_path.to_string(),
+                                function_name: fn_name,
+                                variable: arg_text,
+                                start_line: call_line,
+                                end_line: call_line,
+                                is_mutable,
+                                kind: BorrowPathKind::Origin,
+                            },
+                            BorrowPathSegment {
+                                file: target_file,
+                                function_name: target_fn_name,
+                                variable: param_name,
+                                start_line: 0,
+                                end_line: 0,
+                                is_mutable,
+                                kind: BorrowPathKind::Parameter,
+                            },
+                        ],
+                    });
+                }
+            }
+        }
+
+        // Handle method calls: data.process()
+        if let Some(method_call) = ast::MethodCallExpr::cast(node.clone()) {
+            // Check if receiver is passed as &self or &mut self
+            if let Some(receiver) = method_call.receiver() {
+                if let Some(func) = sema.resolve_method_call(&method_call) {
+                    let self_param = func.self_param(db);
+                    if let Some(self_param) = self_param {
+                        let is_mutable = matches!(
+                            self_param.access(db),
+                            hir::Access::Exclusive
+                        );
+                        let receiver_text = receiver.syntax().text().to_string().trim().to_string();
+                        let (call_line, _) = line_index(method_call.syntax().text_range().start());
+                        let fn_name = function.name().map(|n| n.text().to_string()).unwrap_or_default();
+                        let target_fn_name = func.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+
+                        results.push(CrossFunctionBorrow {
+                            origin_variable: receiver_text.clone(),
+                            origin_line: call_line,
+                            path: vec![
+                                BorrowPathSegment {
+                                    file: file_path.to_string(),
+                                    function_name: fn_name,
+                                    variable: receiver_text,
+                                    start_line: call_line,
+                                    end_line: call_line,
+                                    is_mutable,
+                                    kind: BorrowPathKind::Origin,
+                                },
+                                BorrowPathSegment {
+                                    file: file_path.to_string(),
+                                    function_name: target_fn_name,
+                                    variable: "self".to_string(),
+                                    start_line: 0,
+                                    end_line: 0,
+                                    is_mutable,
+                                    kind: BorrowPathKind::Parameter,
+                                },
+                            ],
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    results
+}
+
+/// Resolve a call expression to its target function name, file, and parameter names.
+fn resolve_call_target(
+    sema: &hir::Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
+    callee: &ast::Expr,
+) -> Option<(String, String, Vec<String>)> {
+    match callee {
+        ast::Expr::PathExpr(path_expr) => {
+            let path = path_expr.path()?;
+            let resolution = sema.resolve_path(&path)?;
+            match resolution {
+                hir::PathResolution::Def(hir::ModuleDef::Function(f)) => {
+                    let name = f.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                    let module = f.module(db);
+                    let file = module.path_to_root(db).iter().rev()
+                        .filter_map(|m| m.name(db))
+                        .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
+                        .collect::<Vec<_>>().join("::");
+                    let params: Vec<String> = f.params_without_self(db).iter()
+                        .map(|p| p.name(db)
+                            .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
+                            .unwrap_or_else(|| "_".to_string()))
+                        .collect();
+                    Some((name, file, params))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
