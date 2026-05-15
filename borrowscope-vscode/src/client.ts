@@ -7,7 +7,7 @@ import {
 } from "vscode-languageclient/node";
 import { resolveServerPath } from "./server-path";
 import { applyDecorations, clearDecorations, OwnershipHint } from "./decorations";
-import { applyLifelines, clearLifelines, BorrowScope } from "./lifelines";
+import { applyLifelines, clearLifelines, BorrowScope, OwnershipGraph } from "./lifelines";
 import { applyHighlights, clearHighlights } from "./highlights";
 import { applyConflictDecorations, clearConflictDecorations } from "./conflicts";
 import { GraphPanel } from "./graph/panel";
@@ -172,8 +172,18 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
 
     const scopes: BorrowScope[] = (scopesResponse as any)?.scopes || [];
 
-    applyLifelines(editor, scopes);
-    applyHighlights(editor, scopes);
+    // Fetch ownership graph for cursor function (moves, clones, conflicts)
+    let graph: any = undefined;
+    try {
+      const cursorLine = editor.selection.active.line;
+      graph = await client.sendRequest("borrowscope/ownershipGraph", {
+        textDocument: { uri: editor.document.uri.toString() },
+        position: { line: cursorLine, character: 4 },
+      });
+    } catch { /* no function at cursor */ }
+
+    applyLifelines(editor, scopes, graph);
+    applyHighlights(editor, scopes, graph);
   } catch {
     clearDecorations(editor);
     clearLifelines(editor);
