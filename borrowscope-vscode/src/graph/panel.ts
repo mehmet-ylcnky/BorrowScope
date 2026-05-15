@@ -232,7 +232,7 @@ export class GraphPanel {
     #header { padding:8px 16px; border-bottom:1px solid var(--vscode-panel-border); font-size:13px; }
     #header h2 { margin:0; font-size:14px; }
     #header .stats { opacity:0.7; font-size:12px; }
-    #graph-container { width:100%; height:45vh; border-bottom:1px solid var(--vscode-panel-border); }
+    #graph-container { width:100%; height:calc(100vh - 90px); border-bottom:1px solid var(--vscode-panel-border); }
     svg { width:100%; height:100%; }
     #tables { font-size:12px; }
     #tables table { border-collapse:collapse; width:100%; margin:4px 0 12px 0; }
@@ -277,16 +277,16 @@ export class GraphPanel {
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
   <div id="graph-container"></div>
-  <div id="timeline-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
-  <div id="scopes-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
-  <div id="refcount-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
-  <div id="moves-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
-  <div id="conflicts-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
-  <div id="compare-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
-  <div id="crossrefs-container" style="display:none;width:100%;height:45vh;overflow:hidden;display:none;"></div>
-  <div id="memory-container" style="display:none;width:100%;height:45vh;overflow:auto;"></div>
+  <div id="timeline-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;"></div>
+  <div id="scopes-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
+  <div id="refcount-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;"></div>
+  <div id="moves-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
+  <div id="conflicts-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
+  <div id="compare-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
+  <div id="crossrefs-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:hidden;display:none;"></div>
+  <div id="memory-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;"></div>
   <div id="tooltip"></div>
-  <div id="tables" style="display:none;padding:16px;overflow-y:auto;max-height:40vh;">
+  <div id="tables" style="display:none;padding:16px;overflow-y:auto;height:calc(100vh - 90px);">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
     <table><tr><th>Name</th><th>Type</th><th>Category</th></tr>${varsHtml}</table></details>` : ""}
     ${scopes.length > 0 ? `<details open><summary><b>Borrow Scopes (${scopes.length})</b></summary>
