@@ -61,6 +61,21 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
       if (match) fnList.push(match[1]);
     }
     GraphPanel.createOrShow(extensionUri, graph, fnList);
+
+    // Fetch cross-function borrows for this function and attach to graph
+    try {
+      const crossResponse = await client.sendRequest("borrowscope/crossFunctionBorrows", {
+        textDocument: { uri: targetUri },
+      }) as any;
+      const allCross = crossResponse?.cross_borrows || [];
+      const fnCross = allCross.filter((b: any) => b.path.length > 0 && b.path[0].function_name === (functionName || graph.function_name));
+      if (fnCross.length > 0) {
+        graph._crossRefs = fnCross;
+        GraphPanel.getPanel()?.updateGraph(graph, fnList);
+      }
+    } catch { /* ignore */ }
+
+
   } catch (e: any) {
     console.error(`[BorrowScope] showGraph error:`, e);
     vscode.window.showErrorMessage(`BorrowScope: ${e.message}`);

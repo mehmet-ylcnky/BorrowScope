@@ -250,7 +250,8 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
     applyLifelines(editor, scopes, graph || lastGraph);
     applyHighlights(editor, scopes, graph || lastGraph);
 
-    // Fetch cross-function borrows and show annotations
+    // Cross-function borrows: only show annotations (not dashed lines)
+    // Dashed lifelines shown on demand via CodeLens click
     try {
       const crossResponse = await client.sendRequest("borrowscope/crossFunctionBorrows", {
         textDocument: { uri },
@@ -259,7 +260,8 @@ export async function refreshDecorations(editor: vscode.TextEditor): Promise<voi
       if (crossBorrows.length > 0) {
         applyCrossFunctionAnnotations(editor, crossBorrows);
       }
-    } catch { /* cross-function not available */ }
+    } catch {
+    }
   } catch {
     clearDecorations(editor);
     clearLifelines(editor);

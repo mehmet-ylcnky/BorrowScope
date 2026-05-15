@@ -79,18 +79,29 @@ export class GraphPanel {
     // Handle messages from WebView
     this._panel.webview.onDidReceiveMessage(
       (message) => {
-        if (message.type === "nodeClicked" && message.line > 0) {
+        if (message.type === "nodeClicked") {
           const editor = vscode.window.visibleTextEditors.find(
             (e) => e.document.languageId === "rust"
           );
           if (editor) {
-            const pos = new vscode.Position(message.line - 1, 0);
-            editor.selection = new vscode.Selection(pos, pos);
-            editor.revealRange(
-              new vscode.Range(pos, pos),
-              vscode.TextEditorRevealType.InCenter
-            );
-            vscode.window.showTextDocument(editor.document, editor.viewColumn);
+            let targetLine = message.line > 0 ? message.line - 1 : -1;
+            // If fnName provided, find the function line
+            if (message.fnName && targetLine < 0) {
+              for (let i = 0; i < editor.document.lineCount; i++) {
+                if (new RegExp(`\\bfn\\s+${message.fnName}\\b`).test(editor.document.lineAt(i).text)) {
+                  targetLine = i; break;
+                }
+              }
+            }
+            if (targetLine >= 0) {
+              const pos = new vscode.Position(targetLine, 0);
+              editor.selection = new vscode.Selection(pos, pos);
+              editor.revealRange(
+                new vscode.Range(pos, pos),
+                vscode.TextEditorRevealType.InCenter
+              );
+              vscode.window.showTextDocument(editor.document, editor.viewColumn);
+            }
           }
         } else if (message.type === "selectFunction" && message.name) {
           this._loadFunction(message.name);
@@ -240,6 +251,7 @@ export class GraphPanel {
       <button class="view-btn" data-view="moves" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Moves</button>
       <button class="view-btn" data-view="conflicts" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Conflicts</button>
       <button class="view-btn" data-view="compare" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Compare</button>
+      <button class="view-btn" data-view="crossrefs" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">CrossRefs</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
@@ -250,6 +262,7 @@ export class GraphPanel {
   <div id="moves-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="conflicts-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
   <div id="compare-container" style="display:none;width:100%;height:45vh;overflow:auto;padding:12px;"></div>
+  <div id="crossrefs-container" style="display:none;width:100%;height:45vh;overflow:hidden;display:none;"></div>
   <div id="tooltip"></div>
   <div id="tables" style="padding:16px;overflow-y:auto;max-height:40vh;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
@@ -534,18 +547,21 @@ export class GraphPanel {
           this.classList.add('active');
           const view = this.getAttribute('data-view');
           document.getElementById('graph-container').style.display = view === 'graph' ? '' : 'none';
+          document.getElementById('filter-bar').style.display = view === 'graph' ? 'flex' : 'none';
           document.getElementById('timeline-container').style.display = view === 'timeline' ? '' : 'none';
           document.getElementById('scopes-container').style.display = view === 'scopes' ? '' : 'none';
           document.getElementById('refcount-container').style.display = view === 'refcount' ? '' : 'none';
           document.getElementById('moves-container').style.display = view === 'moves' ? '' : 'none';
           document.getElementById('conflicts-container').style.display = view === 'conflicts' ? '' : 'none';
           document.getElementById('compare-container').style.display = view === 'compare' ? '' : 'none';
+          document.getElementById('crossrefs-container').style.display = view === 'crossrefs' ? 'flex' : 'none';
           if (view === 'timeline') renderTimeline();
           if (view === 'scopes') renderScopes();
           if (view === 'refcount') renderRefCount();
           if (view === 'moves') renderMoves();
           if (view === 'conflicts') renderConflicts();
           if (view === 'compare') renderCompare();
+          if (view === 'crossrefs') renderCrossRefs();
         });
       });
 
@@ -947,6 +963,92 @@ export class GraphPanel {
           el.addEventListener('click', () => {
             if (vscodeApi) vscodeApi.postMessage({ type: 'nodeClicked', line: parseInt(el.getAttribute('data-line')) });
           });
+        });
+      }
+
+      // === Cross-References View ===
+      function renderCrossRefs() {
+        const container = document.getElementById('crossrefs-container');
+        container.innerHTML = '';
+        container.style.display = 'flex';
+
+        const crossRefs = rawGraph._crossRefs || [];
+        const fnName = rawGraph.function_name || '';
+        const currentFile = 'main.rs';
+
+        if (crossRefs.length === 0) {
+          container.innerHTML = '<div style="padding:20px;width:100%;text-align:center;opacity:0.5;"><p>No cross-function references detected.</p><p style="font-size:11px;">Click a function CodeLens that calls other functions with &amp; arguments.</p></div>';
+          return;
+        }
+
+        // Build nodes and edges from cross-refs
+        var nodes = [{ id: fnName, kind: 'origin' }];
+        var edges = [];
+        var nodeSet = new Set([fnName]);
+        for (var cr of crossRefs) {
+          if (cr.path.length < 2) continue;
+          var target = cr.path[1];
+          if (!nodeSet.has(target.function_name)) {
+            nodeSet.add(target.function_name);
+            nodes.push({ id: target.function_name, kind: 'target', param: target.variable, isMutable: target.is_mutable });
+          }
+          edges.push({ source: fnName, target: target.function_name, variable: cr.origin_variable, isMutable: target.is_mutable });
+        }
+
+        // File tree (left)
+        var fileSet = new Map();
+        fileSet.set(currentFile, { count: 0, isCurrent: true });
+        for (var cr of crossRefs) {
+          for (var seg of cr.path) {
+            var f = (seg.file || currentFile).split('/').pop() || currentFile;
+            if (!fileSet.has(f)) fileSet.set(f, { count: 0, isCurrent: false });
+            if (f !== currentFile) fileSet.get(f).count++;
+          }
+        }
+
+        var html = '<div style="width:160px;border-right:1px solid var(--vscode-panel-border);padding:8px;font-size:11px;overflow-y:auto;">';
+        html += '<div style="font-size:10px;color:var(--vscode-descriptionForeground);margin-bottom:6px;text-transform:uppercase;">Files</div>';
+        for (var [fname, info] of fileSet) {
+          var cls = info.isCurrent ? 'background:rgba(88,166,255,0.15);font-weight:bold;' : (info.count > 0 ? '' : 'opacity:0.35;');
+          var icon = info.isCurrent ? '#58a6ff' : (info.count > 0 ? '#3fb950' : '#484f58');
+          var badge = info.count > 0 ? ' <span style="background:var(--vscode-badge-background,#4d4d4d);color:var(--vscode-badge-foreground,#fff);border-radius:8px;padding:0 5px;font-size:10px;">' + info.count + '</span>' : '';
+          html += '<div style="padding:3px 6px;border-radius:3px;margin:2px 0;display:flex;align-items:center;gap:4px;' + cls + '"><div style="width:8px;height:8px;border-radius:50%;background:' + icon + ';"></div>' + fname + badge + '</div>';
+        }
+        html += '</div>';
+
+        // Graph (right)
+        html += '<div id="crossrefs-graph" style="flex:1;"></div>';
+        container.innerHTML = html;
+
+        // Render D3 graph
+        var graphDiv = document.getElementById('crossrefs-graph');
+        var w = graphDiv.clientWidth || 300;
+        var h = graphDiv.clientHeight || 250;
+
+        var svg = d3.select('#crossrefs-graph').append('svg').attr('width', w).attr('height', h);
+        var g2 = svg.append('g');
+        svg.call(d3.zoom().on('zoom', function(event) { g2.attr('transform', event.transform); }));
+
+        var sim = d3.forceSimulation(nodes)
+          .force('link', d3.forceLink(edges).id(function(d){return d.id;}).distance(100))
+          .force('charge', d3.forceManyBody().strength(-150))
+          .force('center', d3.forceCenter(w/2, h/2));
+
+        var link = g2.selectAll('.link').data(edges).join('g');
+        link.append('line').attr('stroke', function(d){return d.isMutable?'#e74c3c':'#3498db';}).attr('stroke-width', function(d){return d.isMutable?3:1.5;});
+        link.append('text').attr('font-size','9px').attr('fill','var(--vscode-descriptionForeground)').text(function(d){return (d.isMutable?'&mut ':'&')+d.variable;});
+
+        var nd = g2.selectAll('.nd').data(nodes).join('g')
+          .call(d3.drag().on('start',function(e,d){if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y;}).on('drag',function(e,d){d.fx=e.x;d.fy=e.y;}).on('end',function(e,d){if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;}));
+        nd.append('circle').attr('r',18).attr('fill', function(d){return d.kind==='origin'?'#58a6ff':'#3fb950';}).attr('opacity',0.8).attr('stroke',function(d){return d.kind==='origin'?'#58a6ff':'#3fb950';}).attr('stroke-width',2);
+        nd.append('text').attr('dy',-22).attr('text-anchor','middle').attr('font-size','11px').attr('fill','var(--vscode-editor-foreground)').text(function(d){return d.id+'()';});
+        nd.append('text').attr('dy',4).attr('text-anchor','middle').attr('font-size','9px').attr('fill','var(--vscode-descriptionForeground)').text(function(d){return d.param||'';});
+        nd.style("cursor","pointer").on("click", function(event, d) { if (vscodeApi) vscodeApi.postMessage({ type: "nodeClicked", file: "", line: 0, fnName: d.id }); });
+
+        sim.on('tick', function() {
+          link.select('line').attr('x1',function(d){return d.source.x;}).attr('y1',function(d){return d.source.y;}).attr('x2',function(d){return d.target.x;}).attr('y2',function(d){return d.target.y;});
+          link.select('text').attr('x',function(d){return (d.source.x+d.target.x)/2;}).attr('y',function(d){return (d.source.y+d.target.y)/2-8;});
+          nd.attr('transform', function(d){return 'translate('+d.x+','+d.y+')';});
         });
       }
 
