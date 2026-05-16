@@ -786,6 +786,58 @@ pub enum Event {
         var_id: String,
         location: String,
     },
+
+    // =========================================================================
+    // Phase 10: Memory Layout Tracking
+    // =========================================================================
+    /// Stack variable address recorded
+    StackAddr {
+        timestamp: u64,
+        var_name: String,
+        var_id: String,
+        addr: usize,
+        size: usize,
+        type_name: String,
+        location: String,
+    },
+
+    /// Stack variable field (ptr/len/cap) recorded
+    StackField {
+        timestamp: u64,
+        var_id: String,
+        field_name: String,
+        field_value: String,
+        offset: usize,
+    },
+
+    /// Heap allocation address recorded
+    HeapAddr {
+        timestamp: u64,
+        var_id: String,
+        owner_name: String,
+        addr: usize,
+        size: usize,
+        capacity: usize,
+        content_preview: String,
+    },
+
+    /// Heap reallocation (Vec grow, String grow)
+    HeapRealloc {
+        timestamp: u64,
+        var_id: String,
+        old_addr: usize,
+        new_addr: usize,
+        old_size: usize,
+        new_size: usize,
+    },
+
+    /// Padding detected between stack variables
+    StackPadding {
+        timestamp: u64,
+        after_var: String,
+        addr: usize,
+        bytes: usize,
+    },
 }
 
 impl Event {
@@ -880,6 +932,11 @@ impl Event {
             | Event::MaybeUninitAssumeInit { timestamp, .. }
             | Event::MaybeUninitAssumeInitRead { timestamp, .. }
             | Event::MaybeUninitAssumeInitDrop { timestamp, .. } => *timestamp,
+            | Event::StackAddr { timestamp, .. } => *timestamp,
+            | Event::StackField { timestamp, .. } => *timestamp,
+            | Event::HeapAddr { timestamp, .. } => *timestamp,
+            | Event::HeapRealloc { timestamp, .. } => *timestamp,
+            | Event::StackPadding { timestamp, .. } => *timestamp,
         }
     }
 
@@ -966,6 +1023,11 @@ impl Event {
             | Event::MaybeUninitAssumeInit { .. }
             | Event::MaybeUninitAssumeInitRead { .. }
             | Event::MaybeUninitAssumeInitDrop { .. } => None,
+            | Event::StackAddr { ref var_name, .. } => Some(var_name.as_str()),
+            | Event::StackField { .. } => None,
+            | Event::HeapAddr { ref owner_name, .. } => Some(owner_name.as_str()),
+            | Event::HeapRealloc { .. } => None,
+            | Event::StackPadding { .. } => None,
             Event::WeakNew { var_name, .. }
             | Event::WeakClone { var_name, .. }
             | Event::BoxNew { var_name, .. }

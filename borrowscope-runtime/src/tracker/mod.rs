@@ -1521,9 +1521,11 @@ mod sampling;
 mod smart_pointers;
 mod statics;
 mod unsafe_code;
+mod memory;
 
 // Re-export all public items
 pub use self::core::*;
+pub use self::memory::*;
 pub use async_tracking::*;
 pub use concurrency::*;
 pub use control_flow::*;

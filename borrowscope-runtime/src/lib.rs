@@ -317,6 +317,10 @@ pub use tracker::{
     track_unsafe_fn_call, track_unwrap, track_var_read, track_var_write, track_variant_construct,
     track_weak_clone, track_weak_clone_sync, track_weak_new, track_weak_new_sync,
     track_weak_upgrade, track_weak_upgrade_sync, TrackingSummary,
+    // Memory layout tracking
+    track_stack_addr, track_stack_addr_with_id, track_stack_field,
+    track_heap_addr, track_heap_realloc, track_stack_padding,
+    track_string_layout, track_vec_layout,
 };
 
 /// Convenience macro for RefCell borrow tracking with auto file:line capture
@@ -355,6 +359,98 @@ pub fn export_json<P: AsRef<std::path::Path>>(path: P) -> BorrowScopeResult<()> 
     let graph = build_graph(&events);
     let export = ExportData::new(graph, events);
     export.to_file(path)
+}
+
+/// Export memory layout events as a JSON file for the VS Code Memory tab.
+/// Filters events to StackAddr, StackField, HeapAddr, HeapRealloc, StackPadding
+/// and formats them into the memory-events.json schema.
+pub fn export_memory_json<P: AsRef<std::path::Path>>(path: P, function_name: &str) -> BorrowScopeResult<()> {
+    use serde_json::{json, Value};
+    use crate::event::Event;
+
+    let events = get_events();
+    let mut variables: Vec<Value> = Vec::new();
+    let mut heap_allocations: Vec<Value> = Vec::new();
+    let mut padding: Vec<Value> = Vec::new();
+    let mut stack_pointer = String::new();
+    let mut current_fields: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
+
+    for event in &events {
+        match event {
+            Event::StackAddr { var_name, var_id, addr, size, type_name, .. } => {
+                if stack_pointer.is_empty() {
+                    stack_pointer = format!("0x{:x}", addr);
+                }
+                current_fields.entry(var_id.clone()).or_default();
+                variables.push(json!({
+                    "name": var_name,
+                    "type": type_name,
+                    "addr": format!("0x{:x}", addr),
+                    "size": size,
+                    "var_id": var_id,
+                    "fields": []
+                }));
+            }
+            Event::StackField { var_id, field_name, field_value, offset, .. } => {
+                current_fields.entry(var_id.clone()).or_default().push(json!({
+                    "name": field_name,
+                    "value": field_value,
+                    "offset": offset
+                }));
+            }
+            Event::HeapAddr { owner_name, addr, size, capacity, content_preview, .. } => {
+                heap_allocations.push(json!({
+                    "addr": format!("0x{:x}", addr),
+                    "size": size,
+                    "owner": owner_name,
+                    "content": content_preview,
+                    "capacity": capacity,
+                    "used": size
+                }));
+            }
+            Event::StackPadding { after_var, addr, bytes, .. } => {
+                padding.push(json!({
+                    "after": after_var,
+                    "bytes": bytes,
+                    "addr": format!("0x{:x}", addr)
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    // Attach fields to their variables
+    for var in variables.iter_mut() {
+        if let Some(var_id) = var.get("var_id").and_then(|v| v.as_str()) {
+            if let Some(fields) = current_fields.get(var_id) {
+                var["fields"] = json!(fields);
+            }
+        }
+        // Remove internal var_id from output
+        if let Some(obj) = var.as_object_mut() {
+            obj.remove("var_id");
+        }
+    }
+
+    let output = json!({
+        "function": function_name,
+        "stack_pointer": stack_pointer,
+        "variables": variables,
+        "heap_allocations": heap_allocations,
+        "padding": padding
+    });
+
+    let json_str = serde_json::to_string_pretty(&output)
+        .map_err(|e| crate::error::Error::SerializationError(e))?;
+
+    if let Some(parent) = path.as_ref().parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| crate::error::Error::IoError(e))?;
+    }
+    std::fs::write(path, json_str)
+        .map_err(|e| crate::error::Error::IoError(e))?;
+
+    Ok(())
 }
 
 #[cfg(test)]
