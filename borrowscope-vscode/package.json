@@ -20,7 +20,15 @@
       { "command": "borrowscope.showGraph", "title": "BorrowScope: Show Ownership Graph" },
       { "command": "borrowscope.inspectVariable", "title": "BorrowScope: Inspect Variable" },
       { "command": "borrowscope.toggleDecorations", "title": "BorrowScope: Toggle Decorations" },
-      { "command": "borrowscope.restartServer", "title": "BorrowScope: Restart Server" }
+      { "command": "borrowscope.restartServer", "title": "BorrowScope: Restart Server" },
+      { "command": "borrowscope.toggleRuntime", "title": "BorrowScope: Toggle Runtime Overlay" },
+      { "command": "borrowscope.runtime.enable", "title": "BorrowScope: Enable Runtime Overlay" },
+      { "command": "borrowscope.runtime.disable", "title": "BorrowScope: Disable Runtime Overlay" },
+      { "command": "borrowscope.runtime.toggleTimings", "title": "BorrowScope: Toggle Timing Annotations" },
+      { "command": "borrowscope.runtime.toggleDropOrder", "title": "BorrowScope: Toggle Drop Order" },
+      { "command": "borrowscope.runtime.toggleRefCounts", "title": "BorrowScope: Toggle Ref Count Display" },
+      { "command": "borrowscope.runtime.toggleDivergences", "title": "BorrowScope: Toggle Divergence Highlights" },
+      { "command": "borrowscope.runtime.setSource", "title": "BorrowScope: Set Runtime Event Source" }
     ],
     "configuration": {
       "title": "BorrowScope",
@@ -84,6 +92,47 @@
           "minimum": 100,
           "maximum": 2000,
           "description": "Animation speed in ms per line step."
+        },
+        "borrowscope.runtime.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable runtime data overlay (requires borrowscope-runtime instrumentation)."
+        },
+        "borrowscope.runtime.source": {
+          "type": "string",
+          "enum": ["file", "websocket"],
+          "default": "file",
+          "description": "How to receive runtime events."
+        },
+        "borrowscope.runtime.filePath": {
+          "type": "string",
+          "default": ".borrowscope/events.json",
+          "description": "Path to runtime events file (relative to workspace)."
+        },
+        "borrowscope.runtime.websocketPort": {
+          "type": "number",
+          "default": 9876,
+          "description": "WebSocket port for live runtime events."
+        },
+        "borrowscope.runtime.showTimings": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show variable lifetime durations inline."
+        },
+        "borrowscope.runtime.showDropOrder": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show drop order numbers."
+        },
+        "borrowscope.runtime.showRefCounts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Rc/Arc reference count changes."
+        },
+        "borrowscope.runtime.highlightDivergences": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight where static and runtime analysis disagree."
         }
       }
     }

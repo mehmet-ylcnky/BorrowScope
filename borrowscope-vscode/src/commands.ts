@@ -83,6 +83,15 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
       if (memLayout) graph._memoryLayout = memLayout;
     } catch { /* ignore */ }
 
+    // Attach runtime events if available
+    try {
+      const { getRuntimeWatcher } = require("./extension");
+      const watcher = getRuntimeWatcher();
+      if (watcher && watcher.eventCount > 0) {
+        graph._runtimeEvents = watcher.getEvents();
+      }
+    } catch { /* ignore */ }
+
     GraphPanel.getPanel()?.updateGraph(graph, fnList);
 
 

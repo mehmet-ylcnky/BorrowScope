@@ -235,8 +235,12 @@ export class GraphPanel {
     .landing-btn, #landing a { transition: background 0.3s ease, border-color 0.3s ease, transform 0.2s ease; border-color:#3fb950 !important; background:rgba(63,185,80,0.06); }
     .landing-btn:hover, #landing a:hover { background:rgba(63,185,80,0.2); border-color:#56d364 !important; transform:scale(1.05); }
     #header { padding:8px 16px; border-bottom:1px solid var(--vscode-panel-border); font-size:13px; }
-    #header h2 { margin:0; font-size:14px; }
-    #header .stats { opacity:0.7; font-size:12px; }
+    #header h2 { margin:0; font-size:14px; display:inline; }
+    #header .stats { opacity:0.7; font-size:12px; margin-left:12px; }
+    #view-toggle { position:fixed; right:0; top:50px; display:flex; flex-direction:column; gap:2px; padding:4px; background:var(--vscode-sideBar-background,#252526); border-left:1px solid var(--vscode-panel-border); z-index:10; }
+    #view-toggle .view-btn { width:42px; height:42px; display:flex; align-items:center; justify-content:center; font-size:22px; padding:0; border-radius:6px; border:1px solid var(--vscode-panel-border,#454545); background:transparent; color:var(--vscode-foreground); cursor:pointer; transition:background 0.2s; }
+    #view-toggle .view-btn:hover { background:rgba(88,166,255,0.1); }
+    #view-toggle .view-btn.active { background:var(--vscode-button-background); }
     #graph-container { width:100%; height:calc(100vh - 90px); border-bottom:1px solid var(--vscode-panel-border); }
     svg { width:100%; height:100%; }
     #tables { font-size:12px; }
@@ -279,39 +283,42 @@ export class GraphPanel {
       <div class="landing-btn" data-view="compare" title="Side-by-side comparison of two functions ownership patterns" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🪞</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Compare</span></div>
       <div class="landing-btn" data-view="crossrefs" title="Cross-function borrow tracking across call boundaries" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🔀</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">CrossRefs</span></div>
       <div class="landing-btn" data-view="memory" title="Stack and heap memory layout with sizes, offsets, and timeline" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🧠</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Memory</span></div>
+      <div class="landing-btn" data-view="runtime" title="Runtime event timeline, drop order, ref counts, and divergences" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;"><span style="font-size:28px;">🔬</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Runtime</span></div>
       <a href="https://github.com/mehmet-ylcnky/BorrowScope" title="View the source code on GitHub" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;text-decoration:none;color:var(--vscode-foreground);"><span style="font-size:28px;">💻</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Source Code</span></a>
       <a href="https://mehmet-ylcnky.github.io/BorrowScope/" title="Read the technical whitepaper" style="display:flex;flex-direction:column;align-items:center;padding:20px;border:1px solid #585858;border-radius:50%;width:70px;height:70px;justify-content:center;cursor:pointer;text-decoration:none;color:var(--vscode-foreground);"><span style="font-size:28px;">🎓</span><span style="font-size:11px;font-weight:bold;margin-top:6px;">Research</span></a>
     </div>
   </div>
-  <div id="main-content" style="display:none;">
+  <div id="main-content" style="display:none;width:100%;padding-right:54px;box-sizing:border-box;">
   <div id="header">
     <h2><button id="home-btn" style="background:none;border:none;cursor:pointer;font-size:22px;vertical-align:middle;margin-right:4px;" title="Back to home">🏠</button>${esc(graph.function_name)}</h2>
     <span class="stats">${(graph.variables||[]).length} variables, ${(graph.borrow_scopes||[]).length} borrows, ${(graph.moves||[]).length} moves</span>
-    <div id="view-toggle" style="float:right;display:flex;gap:4px;">
-      <button class="view-btn active" data-view="graph" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Graph</button>
-      <button class="view-btn" data-view="table" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Table</button>
-      <button class="view-btn" data-view="timeline" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Timeline</button>
-      <button class="view-btn" data-view="scopes" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Scopes</button>
-      <button class="view-btn" data-view="refcount" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">RefCount</button>
-      <button class="view-btn" data-view="moves" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Moves</button>
-      <button class="view-btn" data-view="conflicts" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Conflicts</button>
-      <button class="view-btn" data-view="compare" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Compare</button>
-      <button class="view-btn" data-view="crossrefs" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">CrossRefs</button>
-      <button class="view-btn" data-view="memory" style="padding:2px 8px;border:1px solid var(--vscode-button-border,#454545);background:transparent;color:var(--vscode-foreground);border-radius:3px;cursor:pointer;font-size:11px;">Memory</button>
+    <div id="view-toggle">
+      <button class="view-btn active" data-view="graph" title="Force-directed ownership graph" >🕸️</button>
+      <button class="view-btn" data-view="table" title="Tabular view of variables and types" >▦</button>
+      <button class="view-btn" data-view="timeline" title="Chronological ownership events" >⏱️</button>
+      <button class="view-btn" data-view="scopes" title="Nested borrow scopes" >🔍</button>
+      <button class="view-btn" data-view="refcount" title="Rc/Arc reference counting" >🔗</button>
+      <button class="view-btn" data-view="moves" title="Ownership transfers" >↦</button>
+      <button class="view-btn" data-view="conflicts" title="Borrow conflicts" >⚠️</button>
+      <button class="view-btn" data-view="compare" title="Side-by-side function comparison" >🪞</button>
+      <button class="view-btn" data-view="crossrefs" title="Cross-function borrow tracking" >🔀</button>
+      <button class="view-btn" data-view="memory" title="Stack/heap memory layout" >🧠</button>
+      <button class="view-btn" data-view="runtime" title="Runtime events and divergences" >🔬</button>
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
   <div id="graph-container"></div>
-  <div id="timeline-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;"></div>
-  <div id="scopes-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
-  <div id="refcount-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;"></div>
-  <div id="moves-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
-  <div id="conflicts-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
-  <div id="compare-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;"></div>
-  <div id="crossrefs-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:hidden;display:none;"></div>
-  <div id="memory-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;"></div>
+  <div id="timeline-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;box-sizing:border-box;"></div>
+  <div id="scopes-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;box-sizing:border-box;"></div>
+  <div id="refcount-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;box-sizing:border-box;"></div>
+  <div id="moves-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;box-sizing:border-box;"></div>
+  <div id="conflicts-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;box-sizing:border-box;"></div>
+  <div id="compare-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;box-sizing:border-box;"></div>
+  <div id="crossrefs-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:hidden;box-sizing:border-box;"></div>
+  <div id="memory-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;box-sizing:border-box;"></div>
+  <div id="runtime-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;box-sizing:border-box;"></div>
   <div id="tooltip"></div>
-  <div id="tables" style="display:none;padding:16px;overflow-y:auto;height:calc(100vh - 90px);">
+  <div id="tables" style="display:none;padding:16px;overflow-y:auto;height:calc(100vh - 90px);width:100%;">
     ${vars.length > 0 ? `<details open><summary><b>Variables (${vars.length})</b></summary>
     <table><tr><th>Name</th><th>Type</th><th>Category</th></tr>${varsHtml}</table></details>` : ""}
     ${scopes.length > 0 ? `<details open><summary><b>Borrow Scopes (${scopes.length})</b></summary>
@@ -626,6 +633,7 @@ export class GraphPanel {
           document.getElementById('compare-container').style.display = view === 'compare' ? '' : 'none';
           document.getElementById('crossrefs-container').style.display = view === 'crossrefs' ? 'flex' : 'none';
           document.getElementById('memory-container').style.display = view === 'memory' ? '' : 'none';
+          document.getElementById('runtime-container').style.display = view === 'runtime' ? '' : 'none';
           if (view === 'timeline') renderTimeline();
           if (view === 'scopes') renderScopes();
           if (view === 'refcount') renderRefCount();
@@ -634,6 +642,7 @@ export class GraphPanel {
           if (view === 'compare') renderCompare();
           if (view === 'crossrefs') renderCrossRefs();
           if (view === 'memory') renderMemory();
+          if (view === 'runtime') renderRuntime();
         });
       });
 
@@ -1266,6 +1275,271 @@ export class GraphPanel {
           '<span style="color:' + color + ';font-size:10px;">[' + v.ownership_category + ']</span> ' +
           '<span style="color:#6c7086;font-size:10px;">line ' + v.line + '</span>' +
           '</div>';
+      }
+
+      // === Runtime View (Timeline + Drop Order + Ref Count + Divergences + Events) ===
+      function renderRuntime() {
+        const container = document.getElementById('runtime-container');
+        const events = rawGraph._runtimeEvents || [];
+        const variables = rawGraph.variables || [];
+
+        if (events.length === 0) {
+          container.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5;"><p>No runtime events loaded.</p><p style="font-size:11px;">Enable runtime overlay and run your instrumented program.<br>Events file: <code>.borrowscope/events.json</code></p></div>';
+          return;
+        }
+
+        // Parse events into usable data
+        var rtVars = [];
+        var drops = [];
+        var rcPoints = [];
+        var creationTimes = {};
+        var varNames = {};
+        var rcSource = null;
+        var strongCount = 0;
+
+        for (var e of events) {
+          var type = e.type || Object.keys(e)[0];
+          var data = e.type ? e : e[type];
+          if (type === 'New' || type === 'RcNew' || type === 'ArcNew' || type === 'BoxNew' || type === 'RefCellNew' || type === 'CellNew') {
+            creationTimes[data.var_id] = data.timestamp;
+            varNames[data.var_id] = data.var_name;
+            var staticMatch = variables.find(function(sv){return sv.name === data.var_name;});
+            var varLine = staticMatch ? staticMatch.line : (rawGraph.start_line ? rawGraph.start_line + rtVars.length + 1 : 0);
+            rtVars.push({ id: data.var_id, name: data.var_name, type: data.type_name || type, start: data.timestamp, end: null, moved: false, borrows: [], line: varLine });
+          }
+          if (type === 'Drop' && data.var_id) {
+            var rv = rtVars.find(function(v){return v.id===data.var_id;});
+            if (rv) rv.end = data.timestamp;
+            drops.push({ var_id: data.var_id, name: varNames[data.var_id] || data.var_id, timestamp: data.timestamp, order: drops.length + 1 });
+          }
+          if (type === 'Move') {
+            var mv = rtVars.find(function(v){return v.id===data.from_id;});
+            if (mv) { mv.moved = true; mv.end = data.timestamp; mv.moveTo = data.to_name; }
+          }
+          if (type === 'Borrow') {
+            var bv = rtVars.find(function(v){return v.id===data.owner_id;});
+            if (bv) bv.borrows.push({ name: data.borrower_name, start: data.timestamp, mut: data.mutable });
+          }
+          if (type === 'RcNew' || type === 'ArcNew') {
+            rcSource = data.var_id; strongCount = data.strong_count || 1;
+            rcPoints.push({ t: data.timestamp, s: strongCount, w: data.weak_count||0, label: type+'('+data.var_name+')' });
+          }
+          if (type === 'RcClone' || type === 'ArcClone') {
+            strongCount = data.strong_count || strongCount+1;
+            rcPoints.push({ t: data.timestamp, s: strongCount, w: data.weak_count||0, label: 'clone('+data.var_name+')' });
+          }
+        }
+
+        // Compute time range
+        var minT = rtVars.length > 0 ? Math.min.apply(null, rtVars.map(function(v){return v.start;})) : 0;
+        var maxT = Math.max.apply(null, rtVars.map(function(v){return v.end||v.start+100;}).concat(drops.map(function(d){return d.timestamp;})));
+        var timeRange = maxT - minT || 1;
+
+        // Build sub-tabs
+        var html = '<div style="display:flex;gap:2px;padding:8px 12px;border-bottom:1px solid var(--vscode-panel-border);">';
+        html += '<button class="rt-tab active" data-rt="tl" style="padding:3px 10px;border:1px solid var(--vscode-panel-border,#3c3c3c);background:var(--vscode-editor-background,#1e1e1e);color:#58a6ff;border-radius:3px;cursor:pointer;font-size:11px;">⏱ Timeline</button>';
+        html += '<button class="rt-tab" data-rt="do" style="padding:3px 10px;border:1px solid var(--vscode-panel-border,#3c3c3c);background:var(--vscode-input-background,#2d2d2d);color:var(--vscode-descriptionForeground,#8b949e);border-radius:3px;cursor:pointer;font-size:11px;">💀 Drop Order</button>';
+        html += '<button class="rt-tab" data-rt="rc" style="padding:3px 10px;border:1px solid var(--vscode-panel-border,#3c3c3c);background:var(--vscode-input-background,#2d2d2d);color:var(--vscode-descriptionForeground,#8b949e);border-radius:3px;cursor:pointer;font-size:11px;">🔗 Ref Count</button>';
+        html += '<button class="rt-tab" data-rt="ev" style="padding:3px 10px;border:1px solid var(--vscode-panel-border,#3c3c3c);background:var(--vscode-input-background,#2d2d2d);color:var(--vscode-descriptionForeground,#8b949e);border-radius:3px;cursor:pointer;font-size:11px;">📋 Events</button>';
+        html += '<span style="margin-left:auto;font-size:10px;color:#3fb950;">' + events.length + ' events</span>';
+        html += '</div>';
+
+        // Timeline sub-view
+        html += '<div id="rt-tl" style="padding:12px;">';
+        html += '<div style="margin-bottom:8px;display:flex;align-items:center;gap:8px;"><button id="rt-play-btn" style="background:var(--vscode-button-secondaryBackground,#3c3c3c);border:1px solid var(--vscode-panel-border,#555);color:var(--vscode-editor-foreground,#d4d4d4);padding:3px 10px;border-radius:3px;cursor:pointer;font-size:11px;">▶ Play</button>';
+        html += '<input type="range" id="rt-slider" min="0" max="100" value="100" style="flex:1;"><span id="rt-time" style="font-size:10px;min-width:60px;">100%</span></div>';
+        for (var i = 0; i < rtVars.length && i < 12; i++) {
+          var v = rtVars[i];
+          var lifeEnd = v.end || maxT;
+          var x1pct = ((v.start - minT) / timeRange * 100).toFixed(1);
+          var wpct = (((lifeEnd - v.start) / timeRange) * 100).toFixed(1);
+          var color = v.moved ? '#e67e22' : (v.type||'').indexOf('Rc')>=0 ? '#a371f7' : '#2ecc71';
+          html += '<div class="rt-bar" data-start="'+x1pct+'" data-width="'+wpct+'" data-line="'+v.line+'" style="display:flex;align-items:center;margin:3px 0;cursor:pointer;">';
+          html += '<span style="width:80px;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="'+v.name+': '+v.type+'">'+v.name+'</span>';
+          html += '<div style="flex:1;height:18px;background:var(--vscode-input-background,#2d2d2d);border-radius:3px;position:relative;overflow:hidden;">';
+          html += '<div class="rt-life" style="position:absolute;left:'+x1pct+'%;width:'+wpct+'%;height:100%;background:'+color+';opacity:0.3;border-radius:3px;transition:width 0.3s;"></div>';
+          html += '<div style="position:absolute;left:'+x1pct+'%;width:'+wpct+'%;height:100%;border:1px solid '+color+';border-radius:3px;box-sizing:border-box;"></div>';
+          // Borrow regions
+          for (var b of v.borrows) {
+            var bx = ((b.start - minT) / timeRange * 100).toFixed(1);
+            var bw = '5';
+            var bc = b.mut ? '#f85149' : '#58a6ff';
+            html += '<div style="position:absolute;left:'+bx+'%;width:'+bw+'%;height:100%;background:'+bc+';opacity:0.5;border-radius:2px;"></div>';
+          }
+          html += '</div>';
+          html += '<span style="width:60px;font-size:9px;color:var(--vscode-descriptionForeground,#8b949e);text-align:right;">'+(v.moved?'→'+v.moveTo:(v.end?((v.end-v.start)+'ns'):'alive'))+'</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+
+        // Drop Order sub-view
+        html += '<div id="rt-do" style="display:none;padding:12px;">';
+        if (drops.length === 0) { html += '<div style="opacity:0.5;font-size:11px;">No drops recorded</div>'; }
+        for (var d of drops) {
+          var lifetime = creationTimes[d.var_id] ? (d.timestamp - creationTimes[d.var_id]) + 'ns' : '?';
+          var dline = 0;
+          var dsv = variables.find(function(v){return v.name===d.name;});
+          if (dsv) dline = dsv.line;
+          if (!dline) { var drv = rtVars.find(function(v){return v.id===d.var_id;}); if (drv) dline = drv.line; }
+          html += '<div class="rt-drop-item" data-drop-line="'+dline+'" style="display:flex;align-items:center;gap:8px;margin:4px 0;padding:4px 8px;border-radius:3px;background:var(--vscode-input-background,#2d2d2d);cursor:pointer;">';
+          html += '<span style="width:28px;height:28px;border-radius:50%;background:rgba(63,185,80,0.15);border:1px solid #3fb950;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;color:#3fb950;">#'+d.order+'</span>';
+          html += '<span style="font-size:11px;font-weight:bold;">'+d.name+'</span>';
+          html += '<span style="font-size:10px;color:var(--vscode-descriptionForeground,#8b949e);margin-left:auto;">lifetime: '+lifetime+'</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+
+        // Ref Count sub-view
+        html += '<div id="rt-rc" style="display:none;padding:12px;">';
+        if (rcPoints.length === 0) { html += '<div style="opacity:0.5;font-size:11px;">No Rc/Arc events</div>'; }
+        else {
+          var maxS = Math.max.apply(null, rcPoints.map(function(p){return p.s;}));
+          html += '<svg width="100%" height="180" viewBox="0 0 600 180">';
+          // Grid
+          for (var c = 0; c <= maxS; c++) {
+            var gy = 160 - (c / (maxS||1)) * 140;
+            html += '<line x1="40" y1="'+gy+'" x2="580" y2="'+gy+'" stroke="#333" stroke-dasharray="2,4"/>';
+            html += '<text x="35" y="'+(gy+4)+'" text-anchor="end" fill="#6c7086" font-size="10">'+c+'</text>';
+          }
+          // Line
+          var rcMinT = rcPoints[0].t;
+          var rcMaxT = rcPoints[rcPoints.length-1].t;
+          var rcRange = rcMaxT - rcMinT || 1;
+          var path = 'M 40 ' + (160 - (rcPoints[0].s/(maxS||1))*140);
+          for (var pi = 1; pi < rcPoints.length; pi++) {
+            var px = 40 + ((rcPoints[pi].t - rcMinT) / rcRange) * 540;
+            var py1 = 160 - (rcPoints[pi-1].s/(maxS||1))*140;
+            var py2 = 160 - (rcPoints[pi].s/(maxS||1))*140;
+            path += ' L '+px+' '+py1+' L '+px+' '+py2;
+          }
+          html += '<path d="'+path+'" fill="none" stroke="#58a6ff" stroke-width="2.5"/>';
+          // Dots
+          for (var pi = 0; pi < rcPoints.length; pi++) {
+            var px = 40 + ((rcPoints[pi].t - rcMinT) / rcRange) * 540;
+            var py = 160 - (rcPoints[pi].s/(maxS||1))*140;
+            html += '<circle cx="'+px+'" cy="'+py+'" r="5" fill="#58a6ff" stroke="#1e1e1e" stroke-width="2"/>';
+            html += '<text x="'+px+'" y="175" text-anchor="middle" fill="#8b949e" font-size="8">'+rcPoints[pi].label+'</text>';
+          }
+          html += '</svg>';
+        }
+        html += '</div>';
+
+        // Events sub-view
+        html += '<div id="rt-ev" style="display:none;padding:12px;font-size:11px;max-height:calc(100vh - 180px);overflow-y:auto;">';
+        var typeColors = {New:'#2ecc71',Drop:'#e67e22',Borrow:'#58a6ff',Move:'#d2a8ff',RcNew:'#a371f7',RcClone:'#a371f7',ArcNew:'#a371f7',ArcClone:'#a371f7',FnEnter:'#6c7086',FnExit:'#6c7086',RefCellBorrow:'#f0883e',RefCellDrop:'#f0883e',CellNew:'#f0883e',CellGet:'#f0883e',CellSet:'#f0883e',UnsafeBlockEnter:'#f85149',UnsafeBlockExit:'#f85149',RawPtrCreated:'#f85149',RawPtrDeref:'#f85149',WeakNew:'#a371f7',WeakUpgrade:'#a371f7',BoxNew:'#2ecc71'};
+        for (var ei = 0; ei < events.length; ei++) {
+          var etype = events[ei].type || Object.keys(events[ei])[0];
+          var edata = events[ei].type ? events[ei] : events[ei][etype];
+          var ec = typeColors[etype] || '#6c7086';
+          var eline = 0;
+          if (edata.location) { var lm = String(edata.location).match(/:(\d+):/); if (lm) eline = parseInt(lm[1]); }
+          if (!eline) {
+            var ename = edata.var_name || edata.borrower_name || edata.to_name || edata.fn_name || '';
+            if (ename) { var sv = variables.find(function(v){return v.name===ename;}); if (sv) eline = sv.line; }
+          }
+          if (!eline && edata.var_id) {
+            var rv = rtVars.find(function(v){return v.id===edata.var_id;});
+            if (rv) eline = rv.line;
+          }
+          if (!eline && edata.owner_id) {
+            var ov = rtVars.find(function(v){return v.id===edata.owner_id;});
+            if (ov) eline = ov.line;
+          }
+          if (!eline && edata.from_id) {
+            var fv = rtVars.find(function(v){return v.id===edata.from_id;});
+            if (fv) eline = fv.line;
+          }
+          html += '<div data-evt-line="'+eline+'" style="display:flex;gap:8px;padding:2px 0;border-bottom:1px solid var(--vscode-panel-border,#2d2d2d);cursor:pointer;">';
+          html += '<span style="color:#6c7086;min-width:50px;">'+edata.timestamp+'ns</span>';
+          html += '<span style="background:'+ec+';opacity:0.8;color:var(--vscode-editor-background,#1e1e1e);padding:0 5px;border-radius:2px;font-size:10px;font-weight:bold;min-width:60px;text-align:center;">'+etype+'</span>';
+          html += '<span style="color:var(--vscode-editor-foreground,#d4d4d4);">'+(edata.var_name||edata.fn_name||edata.borrower_name||edata.from_id||edata.borrow_id||edata.block_id||edata.ptr_id||'')+'</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+
+        container.innerHTML = html;
+
+        // Sub-tab switching
+        container.querySelectorAll('.rt-tab').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var id = this.getAttribute('data-rt');
+            ['tl','do','rc','ev'].forEach(function(t){document.getElementById('rt-'+t).style.display=t===id?'':'none';});
+            container.querySelectorAll('.rt-tab').forEach(function(b){b.style.background='var(--vscode-input-background,#2d2d2d)';b.style.color='var(--vscode-descriptionForeground,#8b949e)';});
+            this.style.background='var(--vscode-editor-background,#1e1e1e)';this.style.color='#58a6ff';
+          });
+        });
+
+        // Click timeline bars to navigate to source line
+        container.querySelectorAll('.rt-bar').forEach(function(bar) {
+          bar.addEventListener('mouseover', function() { this.style.background='rgba(88,166,255,0.08)'; });
+          bar.addEventListener('mouseout', function() { this.style.background=''; });
+          bar.addEventListener('click', function() {
+            var line = parseInt(this.getAttribute('data-line'));
+            if (line > 0 && vscodeApi) {
+              vscodeApi.postMessage({ type: 'nodeClicked', line: line });
+              // Flash feedback
+              this.style.background='rgba(88,166,255,0.2)';
+              var self = this;
+              setTimeout(function(){ self.style.background=''; }, 300);
+            }
+          });
+        });
+
+        // Click event rows to navigate
+        container.querySelectorAll('[data-evt-line]').forEach(function(row) {
+          row.addEventListener('mouseover', function() { this.style.background='rgba(88,166,255,0.08)'; });
+          row.addEventListener('mouseout', function() { this.style.background=''; });
+          row.addEventListener('click', function() {
+            var line = parseInt(this.getAttribute('data-evt-line'));
+            if (line > 0 && vscodeApi) {
+              vscodeApi.postMessage({ type: 'nodeClicked', line: line });
+              this.style.background='rgba(88,166,255,0.2)';
+              var self = this;
+              setTimeout(function(){ self.style.background=''; }, 300);
+            }
+          });
+        });
+
+        // Click drop order items to navigate
+        container.querySelectorAll('.rt-drop-item').forEach(function(item) {
+          item.addEventListener('mouseover', function() { this.style.background='rgba(63,185,80,0.1)'; });
+          item.addEventListener('mouseout', function() { this.style.background='var(--vscode-input-background,#2d2d2d)'; });
+          item.addEventListener('click', function() {
+            var line = parseInt(this.getAttribute('data-drop-line'));
+            if (line > 0 && vscodeApi) {
+              vscodeApi.postMessage({ type: 'nodeClicked', line: line });
+              this.style.background='rgba(63,185,80,0.2)';
+              var self = this;
+              setTimeout(function(){ self.style.background='var(--vscode-input-background,#2d2d2d)'; }, 300);
+            }
+          });
+        });
+
+        // Play/scrub
+        var rtPlaying = false, rtInterval;
+        function rtScrub(pct) {
+          document.getElementById('rt-time').textContent = pct + '%';
+          container.querySelectorAll('.rt-life').forEach(function(bar){
+            var startPct = parseFloat(bar.parentElement.parentElement.getAttribute('data-start')||0);
+            var fullW = parseFloat(bar.parentElement.parentElement.getAttribute('data-width')||0);
+            var visibleW = Math.max(0, Math.min(fullW, pct - startPct));
+            bar.style.width = visibleW + '%';
+          });
+        }
+        document.getElementById('rt-slider').addEventListener('input', function() { rtScrub(parseInt(this.value)); });
+        document.getElementById('rt-play-btn').addEventListener('click', function() {
+          var btn = this;
+          if (rtPlaying) { clearInterval(rtInterval); rtPlaying=false; btn.textContent='▶ Play'; return; }
+          rtPlaying=true; btn.textContent='⏸ Pause';
+          document.getElementById('rt-slider').value = 0;
+          rtScrub(0);
+          rtInterval = setInterval(function(){
+            var val = parseInt(document.getElementById('rt-slider').value) + 2;
+            if (val > 100) { val=100; clearInterval(rtInterval); rtPlaying=false; btn.textContent='▶ Play'; }
+            document.getElementById('rt-slider').value = val;
+            rtScrub(val);
+          }, 60);
+        });
       }
 
       // Auto-restore last view if set

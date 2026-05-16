@@ -1,6 +1,19 @@
 // Minimal vscode mock for unit testing outside Extension Development Host
 const decorationTypes = [];
 
+class EventEmitter {
+  constructor() { this._listeners = []; }
+  get event() { return (listener) => { this._listeners.push(listener); return { dispose: () => {} }; }; }
+  fire(data) { this._listeners.forEach(l => l(data)); }
+  dispose() { this._listeners = []; }
+}
+
+class MarkdownString {
+  constructor(value) { this.value = value || ''; }
+  appendMarkdown(s) { this.value += s; return this; }
+  appendText(s) { this.value += s; return this; }
+}
+
 class Position {
   constructor(line, character) { this.line = line; this.character = character; }
 }
@@ -54,12 +67,16 @@ class WebviewPanel {
 }
 
 module.exports = {
+  EventEmitter,
+  MarkdownString,
+  RelativePattern: class { constructor(base, pattern) { this.base = base; this.pattern = pattern; } },
   Position,
   Range,
   Selection,
   Uri,
   ViewColumn: { One: 1, Two: 2, Beside: -2 },
   TextEditorRevealType: { InCenter: 2 },
+  StatusBarAlignment: { Left: 1, Right: 2 },
   window: {
     createOutputChannel: (name) => ({
       appendLine: () => {},
@@ -67,9 +84,14 @@ module.exports = {
       show: () => {},
       dispose: () => {},
     }),
+    createStatusBarItem: (alignment, priority) => ({
+      text: "", tooltip: "", command: "", alignment, priority,
+      show: () => {}, hide: () => {}, dispose: () => {},
+    }),
     showInformationMessage: () => Promise.resolve(undefined),
     showWarningMessage: () => Promise.resolve(undefined),
     showErrorMessage: () => Promise.resolve(undefined),
+    showQuickPick: () => Promise.resolve(undefined),
     createTextEditorDecorationType: (options) => {
       const dt = { options, disposed: false, dispose: () => { dt.disposed = true; } };
       decorationTypes.push(dt);
@@ -87,10 +109,11 @@ module.exports = {
       get: (key, defaultValue) => defaultValue,
       update: () => Promise.resolve(),
     }),
-    createFileSystemWatcher: () => ({ dispose: () => {} }),
+    createFileSystemWatcher: () => ({ onDidChange: () => ({dispose:()=>{}}), onDidCreate: () => ({dispose:()=>{}}), onDidDelete: () => ({dispose:()=>{}}), dispose: () => {} }),
     openTextDocument: () => Promise.resolve({ uri: new Uri('/tmp/test.rs') }),
     onDidOpenTextDocument: () => ({ dispose: () => {} }),
     onDidChangeTextDocument: () => ({ dispose: () => {} }),
+    onDidChangeConfiguration: () => ({ dispose: () => {} }),
   },
   commands: {
     registerCommand: (id, handler) => ({ dispose: () => {} }),
