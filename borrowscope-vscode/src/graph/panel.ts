@@ -1148,6 +1148,14 @@ export class GraphPanel {
         const container = document.getElementById('memory-container');
         container.innerHTML = '';
         const layout = rawGraph._memoryLayout;
+        const rtMem = rawGraph._memoryRuntime;
+
+        // Runtime mode: show actual addresses
+        if (rtMem && rtMem.variables && rtMem.variables.length > 0) {
+          renderMemoryRuntime(container, rtMem);
+          return;
+        }
+
         if (!layout || !layout.stack_frame) {
           container.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5;"><p>No memory layout data.</p><p style="font-size:11px;">Click a function CodeLens to load memory layout.</p></div>';
           return;
@@ -1275,6 +1283,96 @@ export class GraphPanel {
           '<span style="color:' + color + ';font-size:10px;">[' + v.ownership_category + ']</span> ' +
           '<span style="color:#6c7086;font-size:10px;">line ' + v.line + '</span>' +
           '</div>';
+      }
+
+      // === Memory Runtime Mode: Actual Addresses ===
+      function renderMemoryRuntime(container, rtMem) {
+        var vars = rtMem.variables || [];
+        var heapAllocs = rtMem.heap_allocations || [];
+        var padding = rtMem.padding || [];
+        var sp = rtMem.stack_pointer || '0x????';
+
+        var html = '<div style="display:flex;gap:12px;padding:12px;height:calc(100% - 10px);font-family:monospace;">';
+
+        // Stack column
+        html += '<div style="flex:1;border:1px solid #58a6ff;border-radius:6px;padding:8px;overflow-y:auto;">';
+        html += '<div style="font-size:11px;color:#58a6ff;font-weight:bold;margin-bottom:8px;">STACK <span style="font-size:9px;opacity:0.7;">(SP: '+sp+')</span></div>';
+
+        for (var i = 0; i < vars.length; i++) {
+          var v = vars[i];
+          var shortAddr = v.addr.length > 10 ? '..'+v.addr.slice(-4) : v.addr;
+
+          html += '<div style="border-left:3px solid #58a6ff;margin:4px 0;border-radius:3px;background:rgba(88,166,255,0.05);">';
+          // Address + name header
+          html += '<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid rgba(88,166,255,0.1);">';
+          html += '<span style="font-size:9px;color:#58a6ff;">'+v.addr+'</span>';
+          html += '<span style="font-size:10px;font-weight:bold;">'+v.name+': '+v.type+'</span>';
+          html += '<span style="font-size:9px;color:var(--vscode-descriptionForeground,#8b949e);">'+v.size+'B</span>';
+          html += '</div>';
+
+          // Fields
+          if (v.fields && v.fields.length > 0) {
+            for (var f of v.fields) {
+              var isPtr = f.name === 'ptr' && f.value.startsWith('0x');
+              html += '<div style="padding:2px 8px 2px 16px;font-size:10px;display:flex;justify-content:space-between;">';
+              html += '<span style="color:var(--vscode-descriptionForeground,#8b949e);">'+f.name+':</span>';
+              if (isPtr) {
+                html += '<span style="color:#3fb950;cursor:pointer;" title="Points to heap allocation">'+f.value+' →</span>';
+              } else {
+                html += '<span>'+f.value+'</span>';
+              }
+              html += '</div>';
+            }
+          }
+          html += '</div>';
+
+          // Padding after this variable
+          var pad = padding.find(function(p){return p.after === v.name;});
+          if (pad) {
+            html += '<div style="margin:2px 0;padding:2px 8px;font-size:9px;color:#f85149;opacity:0.6;border-left:3px dashed #f85149;">';
+            html += pad.addr + ' [padding: '+pad.bytes+'B]';
+            html += '</div>';
+          }
+        }
+        html += '</div>';
+
+        // Heap column
+        html += '<div style="flex:1;border:1px solid #3fb950;border-radius:6px;padding:8px;overflow-y:auto;">';
+        html += '<div style="font-size:11px;color:#3fb950;font-weight:bold;margin-bottom:8px;">HEAP</div>';
+
+        for (var h of heapAllocs) {
+          var usedPct = h.capacity > 0 ? Math.round((h.used / h.capacity) * 100) : 100;
+          html += '<div style="border-left:3px solid #3fb950;margin:4px 0;border-radius:3px;background:rgba(63,185,80,0.05);">';
+          // Address header
+          html += '<div style="display:flex;justify-content:space-between;padding:4px 8px;border-bottom:1px solid rgba(63,185,80,0.1);">';
+          html += '<span style="font-size:9px;color:#3fb950;">'+h.addr+'</span>';
+          html += '<span style="font-size:10px;font-weight:bold;">'+h.content+'</span>';
+          html += '<span style="font-size:9px;color:var(--vscode-descriptionForeground,#8b949e);">'+h.size+'B</span>';
+          html += '</div>';
+          // Details
+          html += '<div style="padding:3px 8px;font-size:10px;">';
+          html += '<span style="color:var(--vscode-descriptionForeground,#8b949e);">owner: </span><span>'+h.owner+'</span>';
+          html += '<span style="margin-left:12px;color:var(--vscode-descriptionForeground,#8b949e);">used: </span><span>'+h.used+'/'+h.capacity+'</span>';
+          html += '</div>';
+          // Capacity bar
+          html += '<div style="margin:3px 8px 4px;height:4px;background:rgba(63,185,80,0.15);border-radius:2px;overflow:hidden;">';
+          html += '<div style="width:'+usedPct+'%;height:100%;background:#3fb950;border-radius:2px;"></div>';
+          html += '</div>';
+          html += '</div>';
+        }
+
+        if (heapAllocs.length === 0) html += '<div style="opacity:0.5;font-size:11px;">No heap allocations</div>';
+        html += '</div>';
+
+        html += '</div>';
+
+        // Mode indicator
+        html = '<div style="padding:4px 12px;border-bottom:1px solid var(--vscode-panel-border);font-size:10px;display:flex;align-items:center;gap:8px;">' +
+          '<span style="color:#3fb950;">● Runtime Mode</span>' +
+          '<span style="color:var(--vscode-descriptionForeground,#8b949e);">Showing actual addresses from program execution</span>' +
+          '</div>' + html;
+
+        container.innerHTML = html;
       }
 
       // === Runtime View (Timeline + Drop Order + Ref Count + Divergences + Events) ===

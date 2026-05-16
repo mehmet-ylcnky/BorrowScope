@@ -92,6 +92,22 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
       }
     } catch { /* ignore */ }
 
+    // Attach runtime memory data if available
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      const wsRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (wsRoot) {
+        const memFile = path.join(wsRoot, ".borrowscope", "memory-events.json");
+        if (fs.existsSync(memFile)) {
+          const memData = JSON.parse(fs.readFileSync(memFile, "utf8"));
+          if (memData.function === graph.function_name || !memData.function) {
+            graph._memoryRuntime = memData;
+          }
+        }
+      }
+    } catch { /* ignore */ }
+
     GraphPanel.getPanel()?.updateGraph(graph, fnList);
 
 
