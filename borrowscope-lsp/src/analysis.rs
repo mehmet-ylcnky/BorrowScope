@@ -1929,6 +1929,15 @@ pub struct StackVariable {
     pub line: u32,
     pub end_line: u32,
     pub category: MemoryCategory,
+    pub fields: Vec<MemoryFieldInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryFieldInfo {
+    pub name: String,
+    pub type_display: String,
+    pub offset: u64,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2061,6 +2070,9 @@ pub fn analyze_memory_layout(
         let end_offset = find_last_use(sema, &pat, &body);
         let (end_line, _) = line_index(end_offset);
 
+        // Extract internal fields for the type
+        let fields = extract_type_fields(db, display_target, &ty);
+
         stack_vars.push(StackVariable {
             name,
             type_display,
@@ -2070,6 +2082,7 @@ pub fn analyze_memory_layout(
             line,
             end_line,
             category,
+            fields,
         });
 
         current_offset += size;
@@ -2090,4 +2103,125 @@ fn estimate_heap_size_for_type(type_display: &str) -> u64 {
     else if type_display.contains("HashMap") { 64 }
     else if type_display.contains("Box<") { 8 }
     else { 16 }
+}
+
+/// Extract internal field layout for a type.
+/// Returns field names, types, offsets, and sizes for struct-like types.
+fn extract_type_fields(
+    db: &RootDatabase,
+    display_target: &hir::DisplayTarget,
+    ty: &hir::Type,
+) -> Vec<MemoryFieldInfo> {
+    let type_str = ty.display(db, *display_target).to_string();
+
+    // Known standard library types with fixed layouts
+    if type_str == "String" || type_str == "alloc::string::String" {
+        return vec![
+            MemoryFieldInfo { name: "ptr".into(), type_display: "*const u8".into(), offset: 0, size: 8 },
+            MemoryFieldInfo { name: "len".into(), type_display: "usize".into(), offset: 8, size: 8 },
+            MemoryFieldInfo { name: "cap".into(), type_display: "usize".into(), offset: 16, size: 8 },
+        ];
+    }
+    if type_str.starts_with("Vec<") || type_str.starts_with("alloc::vec::Vec<") {
+        return vec![
+            MemoryFieldInfo { name: "ptr".into(), type_display: "*const T".into(), offset: 0, size: 8 },
+            MemoryFieldInfo { name: "len".into(), type_display: "usize".into(), offset: 8, size: 8 },
+            MemoryFieldInfo { name: "cap".into(), type_display: "usize".into(), offset: 16, size: 8 },
+        ];
+    }
+    if type_str.starts_with("Box<") {
+        return vec![
+            MemoryFieldInfo { name: "ptr".into(), type_display: "NonNull<T>".into(), offset: 0, size: 8 },
+        ];
+    }
+    if type_str.starts_with("Rc<") || type_str.starts_with("alloc::rc::Rc<") {
+        return vec![
+            MemoryFieldInfo { name: "ptr".into(), type_display: "NonNull<RcBox<T>>".into(), offset: 0, size: 8 },
+        ];
+    }
+    if type_str.starts_with("Arc<") || type_str.starts_with("alloc::sync::Arc<") {
+        return vec![
+            MemoryFieldInfo { name: "ptr".into(), type_display: "NonNull<ArcInner<T>>".into(), offset: 0, size: 8 },
+        ];
+    }
+    if type_str.starts_with("&") || type_str.starts_with("&mut") {
+        return vec![
+            MemoryFieldInfo { name: "ptr".into(), type_display: format!("*const {}", type_str.trim_start_matches("&mut ").trim_start_matches('&')), offset: 0, size: 8 },
+        ];
+    }
+    if type_str.starts_with("Option<") {
+        // Option<T> = discriminant + T
+        return vec![
+            MemoryFieldInfo { name: "discriminant".into(), type_display: "u8/u32".into(), offset: 0, size: 1 },
+            MemoryFieldInfo { name: "value".into(), type_display: "T".into(), offset: 8, size: 0 }, // size unknown without inner type
+        ];
+    }
+    if type_str.starts_with("Result<") {
+        return vec![
+            MemoryFieldInfo { name: "discriminant".into(), type_display: "u8/u32".into(), offset: 0, size: 1 },
+            MemoryFieldInfo { name: "value".into(), type_display: "T | E".into(), offset: 8, size: 0 },
+        ];
+    }
+    if type_str.starts_with("RefCell<") {
+        return vec![
+            MemoryFieldInfo { name: "borrow_flag".into(), type_display: "Cell<isize>".into(), offset: 0, size: 8 },
+            MemoryFieldInfo { name: "value".into(), type_display: "UnsafeCell<T>".into(), offset: 8, size: 0 },
+        ];
+    }
+    if type_str.starts_with("Cell<") {
+        return vec![
+            MemoryFieldInfo { name: "value".into(), type_display: "UnsafeCell<T>".into(), offset: 0, size: 0 },
+        ];
+    }
+    if type_str.starts_with("HashMap<") || type_str.starts_with("std::collections::HashMap<") {
+        return vec![
+            MemoryFieldInfo { name: "ctrl".into(), type_display: "*const u8".into(), offset: 0, size: 8 },
+            MemoryFieldInfo { name: "bucket_mask".into(), type_display: "usize".into(), offset: 8, size: 8 },
+            MemoryFieldInfo { name: "items".into(), type_display: "usize".into(), offset: 16, size: 8 },
+            MemoryFieldInfo { name: "growth_left".into(), type_display: "usize".into(), offset: 24, size: 8 },
+        ];
+    }
+
+    // For user-defined structs, enumerate fields via ADT
+    if let Some(adt) = ty.as_adt() {
+        match adt {
+            hir::Adt::Struct(_) => {
+                let mut fields = Vec::new();
+                let mut field_offset = 0u64;
+                for (field, field_ty) in ty.fields(db) {
+                    let field_name = field.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                    let field_type_display = field_ty.display(db, *display_target).to_string();
+                    let field_size = field_ty.layout(db)
+                        .ok().map(|l| l.size())
+                        .unwrap_or(0);
+                    let field_align = field_ty.layout(db)
+                        .ok().map(|l| l.align())
+                        .unwrap_or(1);
+
+                    // Align the offset
+                    if field_align > 0 {
+                        field_offset = (field_offset + field_align - 1) / field_align * field_align;
+                    }
+
+                    fields.push(MemoryFieldInfo {
+                        name: field_name,
+                        type_display: field_type_display,
+                        offset: field_offset,
+                        size: field_size,
+                    });
+                    field_offset += field_size;
+                }
+                return fields;
+            }
+            _ => {}
+        }
+    }
+
+    // Tuples
+    if type_str.starts_with('(') && type_str.ends_with(')') {
+        // Can't easily enumerate tuple fields without more type info
+        // Return empty for now
+    }
+
+    vec![]
 }

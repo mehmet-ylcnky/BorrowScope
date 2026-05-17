@@ -1197,6 +1197,18 @@ export class GraphPanel {
             html += '<span style="color:' + color + ';">' + v.category + '</span>';
             html += '</div>';
             if (isNew) html += '<div style="color:#3fb950;font-size:9px;margin-top:2px;">● allocated this line</div>';
+            // Show internal fields if available
+            if (v.fields && v.fields.length > 0) {
+              html += '<div style="margin-top:3px;padding-top:3px;border-top:1px dashed rgba(88,166,255,0.2);">';
+              for (var f of v.fields) {
+                var isPtr = f.type_display && f.type_display.indexOf('*') >= 0;
+                html += '<div style="display:flex;justify-content:space-between;font-size:9px;padding:1px 0;">';
+                html += '<span style="color:var(--vscode-descriptionForeground,#8b949e);">.' + f.name + '</span>';
+                html += '<span style="' + (isPtr ? 'color:#3fb950;' : '') + '">' + f.type_display + ' <span style="opacity:0.6;">(' + f.size + 'B @+' + f.offset + ')</span></span>';
+                html += '</div>';
+              }
+              html += '</div>';
+            }
             html += '</div>';
           }
           if (stackVars.length === 0 && droppedVars.length === 0) html += '<div style="opacity:0.5;font-size:11px;">Empty stack frame</div>';
