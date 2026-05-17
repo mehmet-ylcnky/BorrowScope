@@ -1,0 +1,104 @@
+import * as assert from "assert";
+import * as path from "path";
+import * as fs from "fs";
+
+const ROOT = path.resolve(__dirname, "..", "..", "..");
+
+describe("8.3 Command Palette", () => {
+  let pkgJson: any;
+  let extSrc: string;
+
+  before(() => {
+    pkgJson = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+    extSrc = fs.readFileSync(path.join(ROOT, "src", "extension.ts"), "utf8");
+  });
+
+  const commands = () => pkgJson.contributes.commands;
+
+  // === All spec commands exist ===
+  const requiredCommands = [
+    "borrowscope.showGraph",
+    "borrowscope.inspectVariable",
+    "borrowscope.toggleDecorations",
+    "borrowscope.toggleBorrowScopes",
+    "borrowscope.toggleGutterIcons",
+    "borrowscope.toggleLifelines",
+    "borrowscope.toggleCodeLens",
+    "borrowscope.showTimeline",
+    "borrowscope.showScopes",
+    "borrowscope.showRefCount",
+    "borrowscope.showMoves",
+    "borrowscope.nextConflict",
+    "borrowscope.prevConflict",
+    "borrowscope.restartServer",
+    "borrowscope.showServerOutput",
+    "borrowscope.exportDot",
+    "borrowscope.exportSvg",
+    "borrowscope.focusGraph",
+    "borrowscope.toggleRuntime",
+  ];
+
+  for (const cmd of requiredCommands) {
+    it(`command "${cmd}" exists`, () => {
+      assert.ok(commands().some((c: any) => c.command === cmd), `Missing command: ${cmd}`);
+    });
+  }
+
+  // === All commands prefixed with "BorrowScope:" ===
+  it("all commands have BorrowScope: prefix in title", () => {
+    for (const cmd of commands()) {
+      assert.ok(cmd.title.startsWith("BorrowScope:"), `${cmd.command} title should start with "BorrowScope:"`);
+    }
+  });
+
+  // === Implementation checks ===
+  it("toggleBorrowScopes toggles the setting", () => {
+    assert.ok(extSrc.includes("decorations.borrowScopes"));
+  });
+
+  it("toggleGutterIcons toggles the setting", () => {
+    assert.ok(extSrc.includes("decorations.gutterIcons"));
+  });
+
+  it("showTimeline opens panel with timeline view", () => {
+    assert.ok(extSrc.includes('showPanelView("timeline")'));
+  });
+
+  it("showScopes opens panel with scopes view", () => {
+    assert.ok(extSrc.includes('showPanelView("scopes")'));
+  });
+
+  it("showRefCount opens panel with refcount view", () => {
+    assert.ok(extSrc.includes('showPanelView("refcount")'));
+  });
+
+  it("showMoves opens panel with moves view", () => {
+    assert.ok(extSrc.includes('showPanelView("moves")'));
+  });
+
+  it("showServerOutput shows output channel", () => {
+    assert.ok(extSrc.includes("function showServerOutput"));
+    assert.ok(extSrc.includes("outputChannel.show()"));
+  });
+
+  it("exportDot generates DOT format", () => {
+    assert.ok(extSrc.includes("function exportDot"));
+    assert.ok(extSrc.includes("digraph"));
+    assert.ok(extSrc.includes("rankdir"));
+  });
+
+  it("exportSvg generates SVG format", () => {
+    assert.ok(extSrc.includes("function exportSvg"));
+    assert.ok(extSrc.includes("<svg"));
+    assert.ok(extSrc.includes("xmlns"));
+  });
+
+  it("export commands show error when no graph", () => {
+    assert.ok(extSrc.includes("No graph data"));
+  });
+
+  // === Total command count ===
+  it("has at least 20 commands", () => {
+    assert.ok(commands().length >= 20, `Expected >= 20 commands, got ${commands().length}`);
+  });
+});

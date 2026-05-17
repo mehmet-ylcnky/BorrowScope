@@ -36,6 +36,17 @@ export async function activate(
     vscode.commands.registerCommand("borrowscope.nextConflict", nextConflict),
     vscode.commands.registerCommand("borrowscope.prevConflict", prevConflict),
     vscode.commands.registerCommand("borrowscope.focusGraph", focusGraph),
+    vscode.commands.registerCommand("borrowscope.toggleBorrowScopes", () => toggleSetting("decorations.borrowScopes")),
+    vscode.commands.registerCommand("borrowscope.toggleGutterIcons", () => toggleSetting("decorations.gutterIcons")),
+    vscode.commands.registerCommand("borrowscope.toggleLifelines", () => toggleSetting("decorations.lifelines")),
+    vscode.commands.registerCommand("borrowscope.toggleCodeLens", () => toggleSetting("decorations.codeLens")),
+    vscode.commands.registerCommand("borrowscope.showTimeline", () => showPanelView("timeline")),
+    vscode.commands.registerCommand("borrowscope.showScopes", () => showPanelView("scopes")),
+    vscode.commands.registerCommand("borrowscope.showRefCount", () => showPanelView("refcount")),
+    vscode.commands.registerCommand("borrowscope.showMoves", () => showPanelView("moves")),
+    vscode.commands.registerCommand("borrowscope.showServerOutput", showServerOutput),
+    vscode.commands.registerCommand("borrowscope.exportDot", exportDot),
+    vscode.commands.registerCommand("borrowscope.exportSvg", exportSvg),
   );
 
   // Start language client
@@ -211,4 +222,83 @@ function focusGraph(): void {
   } else {
     vscode.window.showInformationMessage("BorrowScope: No graph panel open. Click a CodeLens first.");
   }
+}
+
+async function toggleSetting(key: string): Promise<void> {
+  const config = vscode.workspace.getConfiguration("borrowscope");
+  const current = config.get<boolean>(key, true);
+  await config.update(key, !current, vscode.ConfigurationTarget.Global);
+  vscode.window.showInformationMessage(`BorrowScope: ${key} ${!current ? "enabled" : "disabled"}`);
+}
+
+function showPanelView(view: string): void {
+  const { GraphPanel } = require("./graph/panel");
+  const panel = GraphPanel.getPanel();
+  if (panel) {
+    panel.reveal();
+    // The panel will switch to the requested view via lastView
+    GraphPanel._lastView = view;
+  } else {
+    vscode.window.showInformationMessage("BorrowScope: Open a graph first (click a CodeLens), then switch views.");
+  }
+}
+
+function showServerOutput(): void {
+  if (outputChannel) {
+    outputChannel.show();
+  }
+}
+
+async function exportDot(): Promise<void> {
+  const { GraphPanel } = require("./graph/panel");
+  const panel = GraphPanel.getPanel();
+  const graph = panel?.getGraph();
+  if (!graph) {
+    vscode.window.showErrorMessage("BorrowScope: No graph data. Click a CodeLens first.");
+    return;
+  }
+
+  // Generate DOT format
+  let dot = `digraph "${graph.function_name}" {\n  rankdir=LR;\n  node [shape=box, style=rounded];\n\n`;
+  for (const v of graph.variables || []) {
+    const color = v.ownership_category === "SharedRef" ? "#3498db" : v.ownership_category === "MutRef" ? "#e74c3c" : "#2ecc71";
+    dot += `  "${v.name}" [label="${v.name}\\n${v.type_display}", color="${color}"];\n`;
+  }
+  for (const b of graph.borrow_scopes || []) {
+    dot += `  "${b.borrower}" -> "${b.owner}" [label="${b.kind}", style=dashed];\n`;
+  }
+  for (const m of graph.moves || []) {
+    dot += `  "${m.source_name}" -> "${m.destination}" [label="move", color="#e67e22"];\n`;
+  }
+  dot += "}\n";
+
+  const doc = await vscode.workspace.openTextDocument({ content: dot, language: "dot" });
+  await vscode.window.showTextDocument(doc);
+}
+
+async function exportSvg(): Promise<void> {
+  const { GraphPanel } = require("./graph/panel");
+  const panel = GraphPanel.getPanel();
+  const graph = panel?.getGraph();
+  if (!graph) {
+    vscode.window.showErrorMessage("BorrowScope: No graph data. Click a CodeLens first.");
+    return;
+  }
+
+  // Generate simple SVG
+  const vars = graph.variables || [];
+  const width = Math.max(400, vars.length * 120);
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="300">\n`;
+  svg += `  <text x="10" y="20" font-size="14" fill="#333">${graph.function_name}</text>\n`;
+  vars.forEach((v: any, i: number) => {
+    const x = 20 + i * 110;
+    const color = v.ownership_category === "SharedRef" ? "#3498db" : v.ownership_category === "MutRef" ? "#e74c3c" : "#2ecc71";
+    svg += `  <rect x="${x}" y="40" width="100" height="60" rx="6" fill="none" stroke="${color}" stroke-width="2"/>\n`;
+    svg += `  <text x="${x + 50}" y="65" text-anchor="middle" font-size="11" fill="#333">${v.name}</text>\n`;
+    svg += `  <text x="${x + 50}" y="85" text-anchor="middle" font-size="9" fill="#666">${v.type_display}</text>\n`;
+  });
+  svg += "</svg>\n";
+
+  const doc = await vscode.workspace.openTextDocument({ content: svg, language: "xml" });
+  await vscode.window.showTextDocument(doc);
 }

@@ -31,7 +31,18 @@
       { "command": "borrowscope.runtime.setSource", "title": "BorrowScope: Set Runtime Event Source" },
       { "command": "borrowscope.nextConflict", "title": "BorrowScope: Next Borrow Conflict" },
       { "command": "borrowscope.prevConflict", "title": "BorrowScope: Previous Borrow Conflict" },
-      { "command": "borrowscope.focusGraph", "title": "BorrowScope: Focus Graph Panel" }
+      { "command": "borrowscope.focusGraph", "title": "BorrowScope: Focus Graph Panel" },
+      { "command": "borrowscope.toggleBorrowScopes", "title": "BorrowScope: Toggle Borrow Scope Highlighting" },
+      { "command": "borrowscope.toggleGutterIcons", "title": "BorrowScope: Toggle Gutter Icons" },
+      { "command": "borrowscope.toggleLifelines", "title": "BorrowScope: Toggle Lifeline Decorations" },
+      { "command": "borrowscope.toggleCodeLens", "title": "BorrowScope: Toggle CodeLens" },
+      { "command": "borrowscope.showTimeline", "title": "BorrowScope: Show Timeline View" },
+      { "command": "borrowscope.showScopes", "title": "BorrowScope: Show Scope Nesting View" },
+      { "command": "borrowscope.showRefCount", "title": "BorrowScope: Show Reference Count Chart" },
+      { "command": "borrowscope.showMoves", "title": "BorrowScope: Show Move Chains" },
+      { "command": "borrowscope.showServerOutput", "title": "BorrowScope: Show Server Output" },
+      { "command": "borrowscope.exportDot", "title": "BorrowScope: Export Graph as DOT" },
+      { "command": "borrowscope.exportSvg", "title": "BorrowScope: Export Graph as SVG" }
     ],
     "keybindings": [
       { "command": "borrowscope.showGraph", "key": "ctrl+shift+o", "when": "editorLangId == rust" },
