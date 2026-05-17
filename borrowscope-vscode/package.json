@@ -55,7 +55,7 @@
         },
         "borrowscope.graph.layout": {
           "type": "string",
-          "enum": ["force", "hierarchical"],
+          "enum": ["force", "hierarchical", "radial"],
           "default": "hierarchical",
           "description": "Graph layout algorithm."
         },
@@ -133,6 +133,90 @@
           "type": "boolean",
           "default": true,
           "description": "Highlight where static and runtime analysis disagree."
+        },
+        "borrowscope.server.extraArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional arguments passed to the server binary."
+        },
+        "borrowscope.analysis.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "maximum": 2000,
+          "description": "Milliseconds to wait after last keystroke before re-analyzing."
+        },
+        "borrowscope.decorations.gutterIcons": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show borrow/move/drop icons in the gutter."
+        },
+        "borrowscope.decorations.inlayHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show ownership category hints inline (e.g., [Rc], [&mut])."
+        },
+        "borrowscope.decorations.codeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show ownership statistics above functions."
+        },
+        "borrowscope.decorations.lifelines": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show lifeline flow decorations (├─, │, ╰─)."
+        },
+        "borrowscope.graph.showTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show type names on graph nodes."
+        },
+        "borrowscope.graph.animateUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Animate graph transitions on updates."
+        },
+        "borrowscope.colors.sharedBorrow": {
+          "type": "string",
+          "default": "#3498db",
+          "description": "Color for shared borrow (&T) elements."
+        },
+        "borrowscope.colors.mutableBorrow": {
+          "type": "string",
+          "default": "#e74c3c",
+          "description": "Color for mutable borrow (&mut T) elements."
+        },
+        "borrowscope.colors.move": {
+          "type": "string",
+          "default": "#e67e22",
+          "description": "Color for move/ownership transfer elements."
+        },
+        "borrowscope.colors.rcArc": {
+          "type": "string",
+          "default": "#9b59b6",
+          "description": "Color for Rc/Arc shared ownership elements."
+        },
+        "borrowscope.colors.owned": {
+          "type": "string",
+          "default": "#2ecc71",
+          "description": "Color for owned variable elements."
+        },
+        "borrowscope.colors.drop": {
+          "type": "string",
+          "default": "#95a5a6",
+          "description": "Color for drop/end-of-life elements."
+        },
+        "borrowscope.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show borrow conflict diagnostics in Problems panel."
+        },
+        "borrowscope.diagnostics.severity": {
+          "type": "string",
+          "enum": ["information", "hint", "warning"],
+          "default": "information",
+          "description": "Severity level for BorrowScope diagnostics."
         }
       }
     }
