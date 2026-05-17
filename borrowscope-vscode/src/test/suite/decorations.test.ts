@@ -46,7 +46,7 @@ describe("4.4 Inline Decorations from Inlay Hints", () => {
   // 4. Arc gets dark purple
   it("Arc hints get dark purple color", () => {
     const color = decorations.getColorForLabel("[Arc]");
-    assert.strictEqual(color, "#8e44ad");
+    assert.strictEqual(color, "#9b59b6");
   });
 
   // 5. Cell gets orange
@@ -58,7 +58,7 @@ describe("4.4 Inline Decorations from Inlay Hints", () => {
   // 6. Raw pointer gets gray
   it("raw pointer hints get gray color", () => {
     const color = decorations.getColorForLabel("[*ptr]");
-    assert.strictEqual(color, "#7f8c8d");
+    assert.strictEqual(color, "#95a5a6");
   });
 
   // 7. applyDecorations applies hints to editor

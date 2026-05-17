@@ -265,6 +265,17 @@ export class GraphPanel {
     #filter-bar .filter-label { font-size:11px; opacity:0.6; margin-right:4px; }
     #filter-bar button { border:none; border-radius:3px; padding:2px 8px; font-size:11px; cursor:pointer; color:#fff; opacity:0.9; }
     #filter-bar button.hidden { opacity:0.3; text-decoration:line-through; }
+    /* Light theme adaptations */
+    .vscode-light .node circle { opacity:0.85; }
+    .vscode-light .edge path { opacity:0.7; }
+    .vscode-light #filter-bar button { color:#fff; }
+    .vscode-light .landing-btn { border-color:#3fb950 !important; }
+    /* High contrast mode */
+    .vscode-high-contrast .node circle { stroke-width:3px; }
+    .vscode-high-contrast .edge path { stroke-width:3px; }
+    .vscode-high-contrast #view-toggle .view-btn { border-width:2px; }
+    .vscode-high-contrast .landing-btn { border-width:2px !important; }
+    .vscode-high-contrast #tooltip { border-width:2px; }
   </style>
 </head>
 <body>

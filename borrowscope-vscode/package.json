@@ -52,6 +52,18 @@
       { "command": "borrowscope.prevConflict", "key": "alt+shift+p", "when": "editorLangId == rust" },
       { "command": "borrowscope.focusGraph", "key": "ctrl+shift+g", "when": "editorLangId == rust" }
     ],
+    "colors": [
+      { "id": "borrowscope.sharedBorrowBackground", "description": "Background for shared borrow scope regions", "defaults": { "dark": "#3498db15", "light": "#3498db10", "highContrast": "#3498db30" } },
+      { "id": "borrowscope.sharedBorrowBorder", "description": "Border for shared borrow scope", "defaults": { "dark": "#3498db60", "light": "#3498db40", "highContrast": "#3498dbff" } },
+      { "id": "borrowscope.mutBorrowBackground", "description": "Background for mutable borrow scope regions", "defaults": { "dark": "#e74c3c15", "light": "#e74c3c10", "highContrast": "#e74c3c30" } },
+      { "id": "borrowscope.mutBorrowBorder", "description": "Border for mutable borrow scope", "defaults": { "dark": "#e74c3c60", "light": "#e74c3c40", "highContrast": "#e74c3cff" } },
+      { "id": "borrowscope.moveHighlight", "description": "Highlight for move operations", "defaults": { "dark": "#e67e2220", "light": "#e67e2215", "highContrast": "#e67e2240" } },
+      { "id": "borrowscope.rcArcHighlight", "description": "Highlight for Rc/Arc operations", "defaults": { "dark": "#9b59b620", "light": "#9b59b615", "highContrast": "#9b59b640" } },
+      { "id": "borrowscope.conflictBackground", "description": "Background for borrow conflict regions", "defaults": { "dark": "#e74c3c20", "light": "#e74c3c15", "highContrast": "#e74c3c50" } },
+      { "id": "borrowscope.dropIndicator", "description": "Color for drop/end-of-life indicators", "defaults": { "dark": "#95a5a680", "light": "#95a5a660", "highContrast": "#95a5a6ff" } },
+      { "id": "borrowscope.runtimeTiming", "description": "Color for runtime timing annotations", "defaults": { "dark": "#2ecc7199", "light": "#27ae6099", "highContrast": "#2ecc71ff" } },
+      { "id": "borrowscope.divergenceHighlight", "description": "Background for static/runtime divergences", "defaults": { "dark": "#e74c3c10", "light": "#e74c3c08", "highContrast": "#e74c3c30" } }
+    ],
     "configuration": {
       "title": "BorrowScope",
       "properties": {

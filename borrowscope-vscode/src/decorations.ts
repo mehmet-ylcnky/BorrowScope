@@ -28,23 +28,24 @@ function getOrCreateDecorationType(
 }
 
 export function getColorForLabel(label: string): string {
+  const cfg = vscode.workspace.getConfiguration("borrowscope.colors");
   switch (label) {
     case "[&]":
-      return "#3498db"; // blue
+      return cfg.get("sharedBorrow", "#3498db");
     case "[&mut]":
-      return "#e74c3c"; // red
+      return cfg.get("mutableBorrow", "#e74c3c");
     case "[Rc]":
-      return "#9b59b6"; // purple
+      return cfg.get("rcArc", "#9b59b6");
     case "[Arc]":
-      return "#8e44ad"; // dark purple
+      return cfg.get("rcArc", "#9b59b6");
     case "[Cell]":
-      return "#e67e22"; // orange
+      return cfg.get("move", "#e67e22");
     case "[*ptr]":
-      return "#7f8c8d"; // gray
+      return cfg.get("drop", "#95a5a6");
     case "[closure]":
-      return "#27ae60"; // green
+      return cfg.get("owned", "#2ecc71");
     default:
-      return "#95a5a6"; // light gray
+      return cfg.get("drop", "#95a5a6");
   }
 }
 
