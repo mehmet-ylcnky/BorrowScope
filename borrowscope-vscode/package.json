@@ -28,7 +28,18 @@
       { "command": "borrowscope.runtime.toggleDropOrder", "title": "BorrowScope: Toggle Drop Order" },
       { "command": "borrowscope.runtime.toggleRefCounts", "title": "BorrowScope: Toggle Ref Count Display" },
       { "command": "borrowscope.runtime.toggleDivergences", "title": "BorrowScope: Toggle Divergence Highlights" },
-      { "command": "borrowscope.runtime.setSource", "title": "BorrowScope: Set Runtime Event Source" }
+      { "command": "borrowscope.runtime.setSource", "title": "BorrowScope: Set Runtime Event Source" },
+      { "command": "borrowscope.nextConflict", "title": "BorrowScope: Next Borrow Conflict" },
+      { "command": "borrowscope.prevConflict", "title": "BorrowScope: Previous Borrow Conflict" },
+      { "command": "borrowscope.focusGraph", "title": "BorrowScope: Focus Graph Panel" }
+    ],
+    "keybindings": [
+      { "command": "borrowscope.showGraph", "key": "ctrl+shift+o", "when": "editorLangId == rust" },
+      { "command": "borrowscope.inspectVariable", "key": "ctrl+shift+i", "when": "editorLangId == rust" },
+      { "command": "borrowscope.toggleDecorations", "key": "ctrl+shift+d", "when": "editorLangId == rust" },
+      { "command": "borrowscope.nextConflict", "key": "alt+shift+n", "when": "editorLangId == rust" },
+      { "command": "borrowscope.prevConflict", "key": "alt+shift+p", "when": "editorLangId == rust" },
+      { "command": "borrowscope.focusGraph", "key": "ctrl+shift+g", "when": "editorLangId == rust" }
     ],
     "configuration": {
       "title": "BorrowScope",

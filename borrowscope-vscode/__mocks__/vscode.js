@@ -118,6 +118,9 @@ module.exports = {
   commands: {
     registerCommand: (id, handler) => ({ dispose: () => {} }),
   },
+  languages: {
+    getDiagnostics: () => [],
+  },
   env: {
     clipboard: { writeText: () => Promise.resolve() },
   },

@@ -32,7 +32,10 @@ export async function activate(
     ),
     vscode.commands.registerCommand("borrowscope.restartServer", () =>
       restartServer(context)
-    )
+    ),
+    vscode.commands.registerCommand("borrowscope.nextConflict", nextConflict),
+    vscode.commands.registerCommand("borrowscope.prevConflict", prevConflict),
+    vscode.commands.registerCommand("borrowscope.focusGraph", focusGraph),
   );
 
   // Start language client
@@ -146,4 +149,66 @@ function applyRuntimeOverlayToActiveEditor(events: any[]): void {
   // Merge and apply
   const merged = mergeViews(staticVars, fileEvents, fileName);
   applyRuntimeDecorations(editor, merged, runtimeDecorationTypes);
+}
+
+function nextConflict(): void {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+
+  const diagnostics = vscode.languages.getDiagnostics(editor.document.uri)
+    .filter((d) => d.source === "BorrowScope");
+
+  if (diagnostics.length === 0) {
+    vscode.window.showInformationMessage("BorrowScope: No conflicts in this file");
+    return;
+  }
+
+  const currentLine = editor.selection.active.line;
+  const next = diagnostics.find((d) => d.range.start.line > currentLine);
+
+  if (next) {
+    editor.selection = new vscode.Selection(next.range.start, next.range.start);
+    editor.revealRange(next.range, vscode.TextEditorRevealType.InCenter);
+  } else {
+    // Wrap around to first
+    const first = diagnostics[0];
+    editor.selection = new vscode.Selection(first.range.start, first.range.start);
+    editor.revealRange(first.range, vscode.TextEditorRevealType.InCenter);
+  }
+}
+
+function prevConflict(): void {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return;
+
+  const diagnostics = vscode.languages.getDiagnostics(editor.document.uri)
+    .filter((d) => d.source === "BorrowScope");
+
+  if (diagnostics.length === 0) {
+    vscode.window.showInformationMessage("BorrowScope: No conflicts in this file");
+    return;
+  }
+
+  const currentLine = editor.selection.active.line;
+  const prev = [...diagnostics].reverse().find((d) => d.range.start.line < currentLine);
+
+  if (prev) {
+    editor.selection = new vscode.Selection(prev.range.start, prev.range.start);
+    editor.revealRange(prev.range, vscode.TextEditorRevealType.InCenter);
+  } else {
+    // Wrap around to last
+    const last = diagnostics[diagnostics.length - 1];
+    editor.selection = new vscode.Selection(last.range.start, last.range.start);
+    editor.revealRange(last.range, vscode.TextEditorRevealType.InCenter);
+  }
+}
+
+function focusGraph(): void {
+  const { GraphPanel } = require("./graph/panel");
+  const panel = GraphPanel.getPanel();
+  if (panel) {
+    panel.reveal();
+  } else {
+    vscode.window.showInformationMessage("BorrowScope: No graph panel open. Click a CodeLens first.");
+  }
 }
