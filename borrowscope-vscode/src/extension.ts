@@ -6,6 +6,7 @@ import { RuntimeStatusBar, registerRuntimeCommands } from "./runtime-status";
 import { parseEvents, filterByFile, filterOwnershipEvents } from "./runtime-parser";
 import { mergeViews } from "./merge-views";
 import { createRuntimeDecorationTypes, applyRuntimeDecorations, clearRuntimeDecorations } from "./runtime-decorations";
+import { showWelcomeIfNeeded, showWelcomePanel } from "./welcome";
 
 let outputChannel: vscode.OutputChannel;
 let runtimeWatcher: RuntimeWatcher | undefined;
@@ -18,6 +19,9 @@ export async function activate(
   outputChannel = vscode.window.createOutputChannel("BorrowScope");
   outputChannel.appendLine("BorrowScope activated");
   context.subscriptions.push(outputChannel);
+
+  // Show welcome on first activation
+  showWelcomeIfNeeded(context);
 
   // Register commands
   registerCommands(context);
@@ -47,6 +51,7 @@ export async function activate(
     vscode.commands.registerCommand("borrowscope.showServerOutput", showServerOutput),
     vscode.commands.registerCommand("borrowscope.exportDot", exportDot),
     vscode.commands.registerCommand("borrowscope.exportSvg", exportSvg),
+    vscode.commands.registerCommand("borrowscope.showWelcome", () => showWelcomePanel(context)),
   );
 
   // Start language client

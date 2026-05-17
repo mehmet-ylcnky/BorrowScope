@@ -123,6 +123,7 @@ module.exports = {
   },
   env: {
     clipboard: { writeText: () => Promise.resolve() },
+    openExternal: () => Promise.resolve(true),
   },
   ConfigurationTarget: { Global: 1, Workspace: 2 },
   ProgressLocation: { Notification: 15 },
