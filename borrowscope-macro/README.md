@@ -1,135 +1,14 @@
-# BorrowScope Macro
+# borrowscope-macro
 
-> Procedural macros for automatic instrumentation of Rust ownership and borrowing
+> `#[trace_borrow]` — automatic instrumentation of Rust code for ownership tracking
 
-[![Crates.io](https://img.shields.io/crates/v/borrowscope-macro.svg)](https://crates.io/crates/borrowscope-macro)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+## Overview
 
-## Introduction
+`borrowscope-macro` is a procedural macro that automatically transforms Rust functions to emit runtime tracking calls. It reads semantic type information from `borrowscope-analyzer` and generates precise `borrowscope-runtime` calls for every ownership operation — variable creation, borrows, moves, drops, smart pointer operations, control flow, and more.
 
-BorrowScope Macro is a procedural macro crate that automatically instruments Rust code to track ownership transfers, borrows, and memory operations at runtime. It works in conjunction with [borrowscope-runtime](../borrowscope-runtime) to provide visibility into Rust's ownership system without requiring manual instrumentation.
+**133 instrumentation points** covering the full Rust ownership model.
 
-The `#[trace_borrow]` attribute macro transforms your functions by injecting tracking calls at key points: variable creation, borrowing, moves, drops, and smart pointer operations. This enables runtime analysis of ownership flow, which is invaluable for learning Rust, debugging complex ownership scenarios, and understanding how your code interacts with Rust's memory model.
-
-## Purpose and Motivation
-
-Rust's ownership and borrowing system is powerful but operates entirely at compile time, making it invisible during execution. While the borrow checker prevents memory errors, developers often struggle to understand *why* certain patterns work or fail, especially when dealing with:
-
-- Complex ownership chains across function boundaries
-- Smart pointer interactions (`Rc`, `Arc`, `RefCell`, `Cell`)
-- Interior mutability patterns
-- Unsafe code blocks and raw pointer operations
-
-BorrowScope Macro addresses this by making ownership operations observable. Instead of manually adding tracking calls throughout your code, you simply annotate functions with `#[trace_borrow]`, and the macro handles the instrumentation automatically. This approach:
-
-1. **Reduces boilerplate** - No need to wrap every variable creation or borrow manually
-2. **Ensures consistency** - All trackable operations are instrumented uniformly
-3. **Preserves semantics** - The transformed code behaves identically to the original
-4. **Enables tooling** - The generated events can be visualized, analyzed, or exported
-
-## Features
-
-### Basic Ownership Tracking
-
-| Operation | Description |
-|-----------|-------------|
-| Variable creation | Tracks `let x = value` statements |
-| Immutable borrows | Tracks `&x` references |
-| Mutable borrows | Tracks `&mut x` references |
-| Moves | Tracks ownership transfers |
-| Drops | Tracks variables going out of scope (LIFO order) |
-
-### Smart Pointer Support
-
-| Type | Operations Tracked |
-|------|-------------------|
-| `Rc<T>` | Creation (`Rc::new`), cloning (`Rc::clone`) |
-| `Arc<T>` | Creation (`Arc::new`), cloning (`Arc::clone`) |
-| `Box<T>` | Creation (`Box::new`), `Box::pin`, `Box::into_raw`, `Box::from_raw` |
-| `RefCell<T>` | Creation, `borrow()`, `borrow_mut()` |
-| `Cell<T>` | Creation, `get()`, `set()` |
-| `Weak<T>` | `Rc::downgrade`, `Arc::downgrade`, `upgrade()`, `clone()` |
-| `Pin<T>` | `Pin::new`, `Pin::into_inner` |
-| `Cow<T>` | `Cow::Borrowed`, `Cow::Owned`, `to_mut()` |
-| `OnceCell<T>` | `new()`, `set()`, `get()`, `get_or_init()` |
-| `OnceLock<T>` | `new()`, `set()`, `get()`, `get_or_init()` |
-| `MaybeUninit<T>` | `uninit()`, `new()`, `write()`, `assume_init()`, `assume_init_read()`, `assume_init_drop()` |
-
-### Concurrency Tracking
-
-| Operation | Description |
-|-----------|-------------|
-| `thread::spawn` | Tracks thread creation with handle ID |
-| `JoinHandle::join` | Tracks thread join operations |
-| `mpsc::channel` | Tracks channel creation (sender and receiver) |
-| `Sender::send` | Tracks messages sent through channels |
-| `Receiver::recv` | Tracks blocking receive operations |
-| `Receiver::try_recv` | Tracks non-blocking receive attempts |
-
-### Expression Tracking
-
-| Expression | Description |
-|------------|-------------|
-| Struct creation | Tracks `Point { x, y }` with type name |
-| Tuple creation | Tracks `(a, b, c)` with arity |
-| Array creation | Tracks `[1, 2, 3]` with length |
-| Range expressions | Tracks `0..10` and `0..=10` with range type |
-| Type casts | Tracks `x as i64` with target type |
-
-### Closure Tracking
-
-| Operation | Description |
-|-----------|-------------|
-| Closure creation | Tracks closure with capture mode (`move` or `ref`) |
-| Variable capture | Tracks each captured variable and how it's captured |
-
-### Unsafe Code Tracking
-
-| Operation | Description |
-|-----------|-------------|
-| Unsafe blocks | Entry and exit tracking with unique block IDs |
-| Raw pointer casts | Tracks `as *const T` and `as *mut T` conversions |
-| `transmute` calls | Detects `std::mem::transmute` usage |
-
-### Additional Features
-
-- **Accurate source locations** - Uses `file!()` and `line!()` macros for precise location reporting
-- **Scope-aware drop ordering** - Maintains correct LIFO drop order across nested scopes
-- **Closure support** - Tracks captured variables in closures
-- **Generic function support** - Works with generic type parameters and lifetimes
-- **Async tracking** - Tracks async blocks and await expressions
-
-### Control Flow Tracking
-
-| Operation | Description |
-|-----------|-------------|
-| Loops | Tracks `for`, `while`, `loop` entry, iterations, and exit |
-| Match expressions | Tracks match entry, which arm was taken, and exit |
-| If/else branches | Tracks which branch was taken |
-| Return statements | Tracks early returns |
-| Try operator (`?`) | Tracks error propagation points |
-
-### Method Call Tracking
-
-| Method | Description |
-|--------|-------------|
-| `.clone()` | Tracks clone operations |
-| `.lock()`, `.try_lock()` | Tracks Mutex lock acquisition |
-| `.read()`, `.write()` | Tracks RwLock operations |
-| `.unwrap()`, `.expect()` | Tracks Option/Result unwrapping |
-
-## Usage
-
-Add both crates to your `Cargo.toml`:
-
-```toml
-[dependencies]
-# Check crates.io for the most recent version numbers
-borrowscope-runtime = { version = "0.1", features = ["track"] }
-borrowscope-macro = "0.1"
-```
-
-Annotate functions you want to trace:
+## Quick Start
 
 ```rust
 use borrowscope_macro::trace_borrow;
@@ -137,157 +16,15 @@ use borrowscope_runtime::*;
 
 #[trace_borrow]
 fn example() {
-    let data = vec![1, 2, 3];      // track_new called
-    let reference = &data;          // track_borrow called
-    println!("{:?}", reference);
-}                                   // track_drop called for data
+    let data = vec![1, 2, 3];   // → track_new("data", vec![...])
+    let r = &data;               // → track_borrow("r", &data)
+    let moved = data;            // → track_move("data", "moved", data)
+}                                // → track_drop("moved"), track_drop("r")
 
 fn main() {
-    reset();  // Clear previous tracking data
+    reset();
     example();
-    
-    // Export events as JSON
-    let events = get_events();
-    println!("{}", serde_json::to_string_pretty(&events).unwrap());
-}
-```
-
-### Smart Pointer Example
-
-```rust
-use borrowscope_macro::trace_borrow;
-use std::rc::Rc;
-use std::cell::RefCell;
-
-#[trace_borrow]
-fn smart_pointer_example() {
-    // Rc tracking
-    let shared = Rc::new(42);           // track_rc_new
-    let clone1 = Rc::clone(&shared);    // track_rc_clone
-    
-    // RefCell tracking
-    let cell = RefCell::new(100);       // track_refcell_new
-    let guard = cell.borrow();          // track_refcell_borrow
-    let mut_guard = cell.borrow_mut();  // track_refcell_borrow_mut
-}
-```
-
-### Unsafe Code Example
-
-```rust
-use borrowscope_macro::trace_borrow;
-
-#[trace_borrow]
-fn unsafe_example() {
-    let x = 42;
-    let ptr = &x as *const i32;  // track_raw_ptr
-    
-    unsafe {                      // track_unsafe_block_enter
-        let _val = *ptr;
-    }                             // track_unsafe_block_exit
-}
-```
-
-### Control Flow Example
-
-```rust
-use borrowscope_macro::trace_borrow;
-
-#[trace_borrow]
-fn control_flow_example() -> Result<i32, &'static str> {
-    // Loop tracking
-    for i in 0..3 {              // track_loop_enter, track_loop_iteration (x3), track_loop_exit
-        println!("{}", i);
-    }
-    
-    // Match tracking
-    let x = 42;
-    let result = match x {       // track_match_enter
-        0 => "zero",             // track_match_arm if taken
-        _ => "other",            // track_match_arm if taken
-    };                           // track_match_exit
-    
-    // Branch tracking
-    if x > 0 {                   // track_branch("then")
-        println!("positive");
-    } else {                     // track_branch("else")
-        println!("non-positive");
-    }
-    
-    // Try operator tracking
-    let value = some_fallible_fn()?;  // track_try
-    
-    Ok(value)
-}
-```
-
-### Method Call Example
-
-```rust
-use borrowscope_macro::trace_borrow;
-use std::sync::Mutex;
-
-#[trace_borrow]
-fn method_call_example() {
-    let data = vec![1, 2, 3];
-    let cloned = data.clone();        // track_clone
-    
-    let mutex = Mutex::new(42);
-    let guard = mutex.lock().unwrap(); // track_lock, track_unwrap
-    
-    let option: Option<i32> = Some(42);
-    let value = option.unwrap();       // track_unwrap
-}
-```
-
-### Advanced Smart Pointer Example
-
-```rust
-use borrowscope_macro::trace_borrow;
-use std::rc::{Rc, Weak};
-use std::borrow::Cow;
-use std::cell::OnceCell;
-
-#[trace_borrow]
-fn advanced_smart_pointers() {
-    // Weak reference tracking
-    let strong = Rc::new(42);
-    let weak: Weak<i32> = Rc::downgrade(&strong);  // track_weak_new
-    let weak2 = weak.clone();                       // track_weak_clone
-    if let Some(val) = weak.upgrade() {             // track_weak_upgrade
-        println!("{}", val);
-    }
-    
-    // Cow tracking
-    let cow: Cow<str> = Cow::Borrowed("hello");     // track_cow_borrowed
-    let owned: Cow<str> = Cow::Owned(String::new()); // track_cow_owned
-    
-    // OnceCell tracking
-    let cell: OnceCell<i32> = OnceCell::new();      // track_once_cell_new
-    cell.set(42).ok();                               // track_once_cell_set
-    let val = cell.get();                            // track_once_cell_get
-}
-```
-
-### Concurrency Example
-
-```rust
-use borrowscope_macro::trace_borrow;
-use std::sync::mpsc;
-use std::thread;
-
-#[trace_borrow]
-fn concurrency_example() {
-    // Channel tracking
-    let (tx, rx) = mpsc::channel();  // track_channel
-    
-    // Thread tracking
-    let handle = thread::spawn(move || {  // track_thread_spawn
-        tx.send(42).unwrap();              // track_channel_send
-    });
-    
-    let received = rx.recv().unwrap();     // track_channel_recv
-    handle.join().unwrap();                // track_thread_join
+    println!("{} events", get_events().len());
 }
 ```
 
@@ -297,282 +34,218 @@ fn concurrency_example() {
 
 | Attribute | Description |
 |-----------|-------------|
-| `#[trace_borrow]` | Standard tracking (all features except function entry/exit) |
+| `#[trace_borrow]` | Standard tracking (recommended) |
 | `#[trace_borrow(quiet)]` | Ownership only (new, move, drop, borrow) |
-| `#[trace_borrow(verbose)]` | All tracking features enabled |
+| `#[trace_borrow(verbose)]` | All tracking including control flow |
 
 ### Feature Selection
 
-| Attribute | Description |
-|-----------|-------------|
-| `#[trace_borrow(skip = "loops,branches")]` | Disable specific feature groups |
-| `#[trace_borrow(only = "ownership")]` | Enable only specified groups (disable all others) |
-
-### Feature Groups
-
-| Group | Aliases | Description |
-|-------|---------|-------------|
-| `ownership` | - | Variable creation, moves, drops, borrows |
-| `smart_pointers` | `pointers` | Rc, Arc, RefCell, Cell, Weak, Pin, Cow, OnceCell, MaybeUninit |
-| `loops` | - | for, while, loop tracking |
-| `branches` | - | if/else, match tracking |
-| `control_flow` | `control` | break, continue, return |
-| `try` | - | `?` operator |
-| `methods` | - | clone, lock, unwrap |
-| `async` | - | async blocks, await |
-| `unsafe` | - | unsafe blocks, raw pointers, transmute |
-| `expressions` | `exprs` | struct, tuple, array, range, cast |
-| `functions` | `fn` | Function entry/exit (disabled by default) |
-
-### Filtering
-
-Track only variables matching a glob pattern:
-
 ```rust
-#[trace_borrow(filter = "data*")]      // Track vars starting with "data"
-#[trace_borrow(filter = "*_count")]    // Track vars ending with "_count"
-#[trace_borrow(filter = "user_?")]     // Track user_1, user_2, etc.
+#[trace_borrow(skip = "loops,branches")]   // Skip specific groups
+#[trace_borrow(only = "ownership")]        // Only specific groups
 ```
 
-Pattern syntax:
-- `*` matches zero or more characters
-- `?` matches exactly one character
-
-Filtering is applied at compile-time—no tracking code is generated for non-matching variables.
-
-### Sampling
-
-Reduce overhead by tracking only a percentage of operations:
+### Filtering & Sampling
 
 ```rust
-#[trace_borrow(sample = 0.1)]   // Track ~10% of operations
-#[trace_borrow(sample = 0.5)]   // Track ~50% of operations
+#[trace_borrow(filter = "data*")]   // Only track vars matching glob
+#[trace_borrow(sample = 0.1)]       // Track ~10% of operations
 ```
 
 ### Conditional Compilation
 
-| Attribute | Description |
-|-----------|-------------|
-| `#[trace_borrow(debug_only)]` | Only track in debug builds |
-| `#[trace_borrow(release_only)]` | Only track in release builds |
-| `#[trace_borrow(feature = "tracing")]` | Only track when cargo feature enabled |
-
-### Diagnostic Options
-
-| Attribute | Description |
-|-----------|-------------|
-| `#[trace_borrow(warn)]` | Emit warnings for ambiguous patterns |
-| `#[trace_borrow(ffi = ["malloc", "free"])]` | Declare known FFI functions (suppresses warnings) |
-| `#[trace_borrow(unions = ["MyUnion"])]` | Declare known union types (suppresses warnings) |
-| `#[trace_borrow(statics = ["GLOBAL"])]` | Declare known static variables (suppresses warnings) |
-
-### Combining Options
-
 ```rust
-#[trace_borrow(debug_only, quiet)]
-#[trace_borrow(filter = "user*", sample = 0.1)]
-#[trace_borrow(feature = "trace", only = "ownership,smart_pointers")]
-#[trace_borrow(debug_only, skip = "loops,branches,expressions")]
+#[trace_borrow(debug_only)]           // Only in debug builds
+#[trace_borrow(release_only)]         // Only in release builds
+#[trace_borrow(feature = "tracing")]  // Only when feature enabled
 ```
+
+## Feature Groups
+
+| Group | Config Fields | What It Tracks |
+|-------|--------------|----------------|
+| `ownership` | track_new, track_move, track_drop, track_borrow | Variable creation, moves, drops, borrows |
+| `smart_pointers` | track_smart_pointers | Rc/Arc new/clone, RefCell borrow/borrow_mut, Cell get/set, Weak |
+| `loops` | track_loops | for/while/loop enter, iteration count, exit |
+| `branches` | track_branches | if/else, match arm selection |
+| `control_flow` | track_control_flow | break, continue, return |
+| `try` | track_try | ? operator |
+| `methods` | track_methods | clone, lock, unwrap |
+| `async` | track_async | async blocks, await with live variables |
+| `unsafe` | track_unsafe | unsafe blocks, raw pointer ops, transmute, FFI |
+| `expressions` | track_expressions | struct/tuple/array/range creation, type casts |
+| `functions` | track_functions | Function entry/exit (disabled by default) |
+
+## What Gets Instrumented (133 points)
+
+### Ownership (core)
+| Source Code | Generated Tracking |
+|---|---|
+| `let x = value;` | `track_new_with_id(id, "x", location, value)` |
+| `let y = x;` (move) | `track_move_with_id(src_id, dst_id, "y", location, x)` |
+| `let y = x;` (copy) | `track_new_with_id(id, "y", location, x)` |
+| `let r = &x;` | `track_borrow_with_id(id, owner_id, "borrow", location, false, &x)` |
+| `let m = &mut x;` | `track_borrow_mut_with_id(id, owner_id, "borrow", location, &mut x)` |
+| `}` (scope end) | `track_drop("x")` (LIFO order) |
+
+### Smart Pointers
+| Source Code | Generated Tracking |
+|---|---|
+| `Rc::new(v)` | `track_rc_new_with_id(id, "rc", "Rc<T>", location, Rc::new(v))` |
+| `rc.clone()` | `track_rc_clone_with_id(id, src_id, "rc2", location, rc.clone())` |
+| `Arc::new(v)` | `track_arc_new_with_id(...)` |
+| `RefCell::new(v)` | `track_refcell_new("cell", RefCell::new(v))` |
+| `Cell::new(v)` | `track_cell_new("cell", Cell::new(v))` |
+| `Weak::downgrade(&rc)` | `track_weak_new(...)` |
+| `weak.upgrade()` | `track_weak_upgrade(...)` |
+
+### Control Flow
+| Source Code | Generated Tracking |
+|---|---|
+| `for x in iter { }` | `track_loop_enter/iteration/exit` |
+| `while cond { }` | `track_loop_enter/iteration/exit` |
+| `if cond { } else { }` | `track_branch(id, "then"/"else", location)` |
+| `match x { arm => }` | `track_match_enter/arm/exit` |
+| `break` | `track_break(id, label, location)` |
+| `continue` | `track_continue(id, label, location)` |
+| `return val` | `track_return(id, has_value, location)` |
+| `expr?` | `track_try(id, location)` |
+
+### Async
+| Source Code | Generated Tracking |
+|---|---|
+| `async { }` | `track_async_block_enter/exit` |
+| `future.await` | `track_await_start_with_live_vars/track_await_end` |
+
+### Unsafe
+| Source Code | Generated Tracking |
+|---|---|
+| `unsafe { }` | `track_unsafe_block_enter_enriched/exit` |
+| `*raw_ptr` | (tracked via unsafe block context) |
+| `transmute(x)` | (tracked via expression analysis) |
+
+### Expressions
+| Source Code | Generated Tracking |
+|---|---|
+| `MyStruct { field }` | `track_struct_create(id, "MyStruct", location)` |
+| `(a, b, c)` | `track_tuple_create(id, 3, location)` |
+| `[1, 2, 3]` | `track_array_create(id, 3, location)` |
+| `0..10` | `track_range(id, "Range", location)` |
+| `x as u64` | `track_type_cast(id, "u64", location)` |
+| `closure` | `track_closure_create + track_closure_capture` |
+
+### Functions & Methods
+| Source Code | Generated Tracking |
+|---|---|
+| `fn foo() { }` | `track_fn_enter/exit` (when enabled) |
+| `x.clone()` | `track_clone(id, "x", location)` |
+| `mutex.lock()` | `track_lock(id, "Mutex", "m", location)` |
+| `opt.unwrap()` | `track_unwrap(id, "unwrap", "opt", location)` |
+| `*deref_expr` | `track_deref(id, "x", location)` |
+| `arr[i]` | `track_index_access(id, "arr", location)` |
+| `obj.field` | `track_field_access(id, "obj", "field", location)` |
+
+### Channels
+| Source Code | Generated Tracking |
+|---|---|
+| `mpsc::channel()` | `track_channel(id, location, tx, rx)` |
 
 ## How It Works
 
-The macro transforms your function by:
-
-1. **Parsing** the function into an Abstract Syntax Tree (AST)
-2. **Walking** the AST with an `OwnershipVisitor` that tracks:
-   - Variable IDs for correlation
-   - Scope stack for LIFO drop ordering
-   - Variable types (Weak, Cow, OnceCell, etc.) for context-aware tracking
-3. **Injecting** tracking calls at appropriate points
-4. **Generating** drop calls at scope exits in reverse declaration order
-
-Each variable gets a unique ID, enabling correlation between events (e.g., linking a borrow to its owner).
-
-### Example Transformation
-
-Input:
-```rust
-#[trace_borrow]
-fn example() {
-    let data = vec![1, 2, 3];
-    let r = &data;
-}
+```
+1. borrowscope-analyzer runs → generates .borrowscope/type-info.json
+2. #[trace_borrow] reads type-info.json at compile time (via OnceLock cache)
+3. For each variable, looks up: is_copy? is_rc? is_move? initializer_kind?
+4. Transforms the AST to wrap expressions with appropriate track_*() calls
+5. Emits the transformed function with tracking code
 ```
 
-Output (simplified):
-```rust
-fn example() {
-    let data = borrowscope_runtime::track_new_with_id(1, "data", "file.rs:2", vec![1, 2, 3]);
-    let r = borrowscope_runtime::track_borrow_with_id(2, 1, "borrow", "file.rs:3", false, &data);
-    borrowscope_runtime::track_drop("r");
-    borrowscope_runtime::track_drop("data");
-}
+### Type Info Lookup
+
+The macro uses `type-info.json` to make semantic decisions:
+
+- **Copy vs Move:** If `is_copy == true`, emit `track_new` instead of `track_move`
+- **Rc/Arc detection:** If `is_rc == true`, emit `track_rc_new` instead of `track_new`
+- **Initializer classification:** Uses `initializer_kind` to choose the right tracking call
+- **Drop points:** Uses `drop_line` from analyzer for accurate scope-end drops
+- **Closure captures:** Uses `closure_captures` for `track_closure_capture` calls
+
+### Stable Rust Compatibility
+
+On stable Rust, `proc_macro::Span` doesn't expose file/line info. The macro uses variable name lookup (`by_name` index) instead of span-based lookup. When names are ambiguous, it falls back to `by_function` index.
+
+## Code Structure
+
+```
+src/
+├── lib.rs                  (724 lines)   Macro entry point, attribute parsing
+├── transform_visitor.rs    (4104 lines)  Core AST transformation (133 instrumentation points)
+├── type_info.rs            (1185 lines)  Type info loading from JSON, lookup API
+├── config.rs               (754 lines)   TraceConfig, presets, feature groups
+├── visitor.rs              (262 lines)   Syn VisitMut implementation
+├── diagnostics.rs          (221 lines)   Compile-time warnings for ambiguous patterns
+├── generic_handler.rs      (218 lines)   Generic function handling
+├── parser.rs               (156 lines)   Attribute argument parsing
+├── optimized_transform.rs  (148 lines)   Optimized code generation paths
+├── best_practices.rs       (142 lines)   Best practice suggestions
+├── examples.rs             (140 lines)   Example code generation
+├── borrow_detection.rs     (140 lines)   Borrow expression detection
+├── validation.rs           (123 lines)   Input validation
+├── pattern.rs              (107 lines)   Pattern analysis (tuple, struct, etc.)
+├── codegen.rs              (106 lines)   Code generation utilities
+├── span_utils.rs           (83 lines)    Span manipulation
+├── formatting.rs           (72 lines)    Output formatting
+└── hygiene.rs              (70 lines)    Macro hygiene utilities
+
+tests/
+├── 30 test files (89 .rs files total)
+├── 533 tests covering all instrumentation points
+└── compile/ (trybuild compile-fail tests)
 ```
 
-## Limitations
+**Total: ~8,800 lines**
 
-### Const Functions Cannot Be Traced
+## Dependencies
 
-Const functions are evaluated at compile time by the Rust compiler, which fundamentally conflicts with runtime tracking. When a function is marked `const`, the compiler may evaluate it during compilation rather than at runtime, meaning any tracking calls we inject would never execute. Furthermore, const contexts have strict restrictions on what operations are permitted—they cannot call non-const functions, and our tracking functions are inherently non-const as they modify global state.
+| Crate | Purpose |
+|-------|---------|
+| `syn` | Rust AST parsing and manipulation |
+| `quote` | Code generation (TokenStream construction) |
+| `proc-macro2` | Proc macro token types |
+| `proc-macro-error` | Better error reporting in proc macros |
+| `proc-macro-warning` | Compile-time warnings |
+| `serde` / `serde_json` | Reading type-info.json |
 
-The macro will emit a compile-time error if you attempt to use `#[trace_borrow]` on a const function, with a helpful message explaining that tracking requires runtime operations.
+## Testing
 
-### Extern Functions Cannot Be Traced
+```bash
+# Run all 533 tests
+cargo test -p borrowscope-macro
 
-Functions with non-Rust ABIs (such as `extern "C"`) cannot be traced because they must conform to foreign calling conventions. Injecting tracking calls would alter the function's behavior and potentially break FFI compatibility. These functions are often called from C code or other languages that expect specific memory layouts and calling semantics that our instrumentation would violate.
-
-### Raw Pointer Dereference Tracking
-
-While the macro can track raw pointer *creation* (the `as *const T` and `as *mut T` cast operations), it cannot track raw pointer *dereferences* (`*ptr`). This limitation exists because Rust's dereference operator (`*`) is syntactically identical for raw pointers and types implementing the `Deref` trait. At macro expansion time, we only have access to the Abstract Syntax Tree (AST), not type information. When we see `*x`, we cannot determine whether `x` is a raw pointer requiring unsafe dereference tracking, or a smart pointer like `Box<T>` or `Rc<T>` that safely implements `Deref`.
-
-Distinguishing between these cases would require type information from the compiler, which is not available to procedural macros. This is a fundamental limitation of Rust's macro system, which operates purely on syntax before type checking occurs.
-
-### FFI Call Tracking
-
-The macro cannot automatically detect and track calls to foreign functions (FFI). When you call a function like `libc::malloc()` or any other extern function, the macro sees only a path expression followed by arguments—syntactically identical to any other function call. Determining whether a function is declared as `extern "C"` requires access to the function's declaration, which may be in a different crate, a system library, or generated by a build script.
-
-Procedural macros operate on a single item at a time (in our case, a function body) and have no mechanism to query declarations from other modules or crates. This information is only available during later compilation stages when the compiler has resolved all names and types.
-
-### Union Field Access Tracking
-
-Accessing fields of a union type is an unsafe operation in Rust because the compiler cannot guarantee which variant is currently valid. However, the macro cannot detect union field access because the syntax `value.field` is identical for structs and unions. Without type information, we cannot distinguish between a safe struct field access and an unsafe union field access.
-
-This limitation means that while we track entry and exit from `unsafe` blocks (where union access must occur), we cannot specifically identify which operations within those blocks are union field accesses versus other unsafe operations.
-
-### Unsafe Function Call Tracking
-
-Similar to FFI calls, the macro cannot detect calls to functions declared as `unsafe fn`. The call syntax `some_function(args)` is identical whether the function is safe or unsafe. Determining the safety requirement of a function requires access to its signature, which may be defined anywhere in the dependency graph.
-
-While all calls to unsafe functions must occur within `unsafe` blocks (which we do track), we cannot distinguish an unsafe function call from a safe function call that happens to be inside an unsafe block for other reasons.
-
-### Static and Const Variable Tracking
-
-Static variables (`static` and `static mut`) and const items (`const`) cannot be tracked for two distinct reasons:
-
-**Declaration tracking is impossible:** Static and const declarations are module-level items, not local variables within function bodies. The `#[trace_borrow]` attribute is designed for function instrumentation and does not have visibility into module-level declarations. Tracking static initialization would require a separate macro approach, such as a `#[trace_static]` attribute for static declarations or a module-level `#[trace_module]` macro.
-
-**Access tracking is impossible:** Even when code inside a traced function accesses a static variable, the macro cannot detect this. When we see an expression like `SOME_STATIC`, it is syntactically identical to accessing a local variable, a const, or even calling a function. Without type information, we cannot determine that `SOME_STATIC` refers to a static variable rather than any other kind of binding.
-
-The runtime library provides `track_static_init`, `track_static_access`, and `track_const_eval` functions, but these cannot be automatically invoked by the macro. Users who need static tracking must manually instrument their code using these runtime functions directly.
-
-### Async Tracking
-
-The macro tracks async blocks and await expressions:
-
-```rust
-#[trace_borrow]
-async fn fetch_data() {
-    let data = async { compute() }.await;  // async block tracked
-    let result = some_future.await;         // await point tracked
-}
+# Run specific test category
+cargo test -p borrowscope-macro --test rc_arc_tests
+cargo test -p borrowscope-macro --test async_tests
+cargo test -p borrowscope-macro --test closure_tests
 ```
 
-What the macro tracks:
-- `async { ... }` blocks - entry and exit with unique block IDs
-- `.await` expressions - start and end with future name extraction
-- Variable creation and drops within async function bodies
-- Borrows and moves
+Test categories:
+- `track_new_tests` / `track_move_tests` / `track_borrow_tests` — core ownership
+- `rc_arc_tests` / `box_tests` — smart pointers
+- `closure_tests` — closure captures and traits
+- `async_tests` — async/await instrumentation
+- `control_flow_tests` — loops, branches, break/continue
+- `pattern_tests` — destructuring, match bindings
+- `config_tests` — presets, skip/only, sampling
+- `semantic_integration` / `semantic_lookup_tests` — type info integration
+- `compile/` — trybuild compile-fail tests
 
-What the macro cannot track (compiler-generated):
-- Future creation (the implicit `impl Future` generated by the compiler)
-- Poll invocations (handled by the async runtime, not user code)
-- State transitions across await points
-- Waker and context interactions
+## Performance Impact
 
-Note: Async functions are transformed by the compiler into state machines after macro expansion. The macro sees the original syntax but cannot observe the generated `Poll` implementation or state machine transitions.
-
-### Type-Dependent Behavior Detection
-
-Several Rust patterns have behavior that depends on types rather than syntax:
-
-- **Drop order for struct fields** - The order fields are dropped depends on declaration order, not usage
-- **Implicit dereferencing** - Method calls may auto-deref through multiple layers
-- **Deref coercions** - `&String` automatically coerces to `&str` in many contexts
-- **Move vs Copy semantics** - Whether assignment moves or copies depends on whether the type implements `Copy`
-
-The macro cannot detect or track these behaviors because they are determined by the type system after macro expansion. We track explicit operations visible in the syntax, but implicit compiler-inserted operations remain invisible to our instrumentation.
-
-## Technical Background
-
-### Analyzer Integration (Semantic Type Resolution)
-
-The `borrowscope-macro` currently uses syntactic pattern matching (heuristics) to detect smart pointer types and ownership operations. While effective for common patterns like `Rc::new(...)` or `Arc::clone(&x)`, this approach cannot detect type aliases, factory functions, or method-syntax clones because procedural macros execute before type resolution in Rust's compilation pipeline.
-
-The `borrowscope-analyzer` is a companion static analysis tool (currently under development, not yet published to crates.io) that leverages rust-analyzer's semantic analysis to extract complete type information. By running the analyzer as a pre-build step, it generates a `.borrowscope/type-info.json` file containing resolved types for every variable in your project. The macro then consumes this data at compile time, enabling accurate semantic classification instead of relying on heuristics.
-
-This two-phase approach bridges the fundamental gap between macro expansion (no type info) and type checking (full type info), allowing BorrowScope to correctly track ownership even for complex patterns that syntactic detection cannot handle.
-
-**How it works:**
-
-1. Run `cargo run -p borrowscope-analyzer -- /path/to/project` to generate `.borrowscope/type-info.json`
-2. The macro automatically loads this file at compile time
-3. For each variable, it checks the analyzer's `initializer_kind` classification first
-4. Falls back to syntactic detection if no analyzer data is available
-
-**Benefits of analyzer integration:**
-
-| Scenario | Syntactic Only | With Analyzer |
-|----------|----------------|---------------|
-| `type MyRc<T> = Rc<T>; let x = MyRc::new(1);` | ❌ Not detected | ✅ `rc_new` |
-| `fn make_rc() -> Rc<i32>; let x = make_rc();` | ❌ Not detected | ✅ `rc_new` |
-| `let x = some_rc.clone();` (method syntax) | ❌ Not detected | ✅ `rc_clone` |
-| `let x: Rc<_> = other.into();` | ❌ Not detected | ✅ `rc_new` |
-
-**Supported initializer kinds (78 semantic categories):**
-
-- Smart pointers: `rc_new`, `rc_clone`, `arc_new`, `arc_clone`, `box_new`, `weak_new`, `weak_downgrade`
-- Interior mutability: `refcell_new`, `cell_new`, `mutex_new`, `rwlock_new`, `once_cell_new`
-- Guards: `mutex_lock`, `rwlock_read`, `rwlock_write`, `refcell_borrow`, `refcell_borrow_mut`
-- Collections: `vec_new`, `vec_macro`, `string_new`, `hashmap_new`, etc.
-- User types: `user_struct`, `user_enum`, `user_union`
-- And many more...
-
-**Disambiguation:**
-
-The analyzer tracks function context and declaration index, enabling accurate lookup even when:
-- Multiple variables share the same name (shadowing)
-- The same name appears in different functions
-- Variables are reassigned within a function
-
-```rust
-fn example() {
-    let x = Rc::new(1);  // decl_index=0, function="example"
-    let x = Rc::new(2);  // decl_index=1, function="example" (shadowed)
-}
-```
-
-Procedural macros in Rust operate during an early phase of compilation, after parsing but before type checking. At this stage, the compiler has constructed an Abstract Syntax Tree (AST) representing the syntactic structure of the code, but has not yet:
-
-1. Resolved names to their definitions
-2. Inferred or checked types
-3. Determined trait implementations
-4. Validated borrow checker rules
-
-This means procedural macros can see *what* code looks like syntactically, but not *what it means* semantically. A macro sees that you wrote `x.foo()`, but cannot know whether `foo` is a method on `x`'s type, a method from a trait, or will fail to compile entirely.
-
-BorrowScope Macro works within these constraints by focusing on syntactic patterns that reliably indicate ownership operations:
-
-- `let` bindings always create new variables
-- `&` and `&mut` always create references
-- `unsafe { }` blocks are syntactically distinct
-- `as *const T` casts are syntactically identifiable
-- Known function names like `Rc::new` or `transmute` can be pattern-matched
-
-For operations that require type information, the only solutions would be:
-- **Compiler plugins** (unstable, nightly-only)
-- **External analysis tools** (like rust-analyzer integration)
-- **Explicit user annotations** (additional attributes marking specific operations)
-
-The current design prioritizes stability and usability on stable Rust, accepting these limitations in exchange for a tool that works reliably across the Rust ecosystem.
-
-### Manual Instrumentation for Undetectable Patterns
-
-For patterns that the macro cannot auto-detect (FFI calls, union field access, static variables), you can use the tracking functions from `borrowscope-runtime` directly. See:
-
-- **[Limitations Guide](docs/LIMITATIONS.md)** - Detailed documentation with code examples
-- **[Manual Tracking Example](examples/manual_tracking.rs)** - Complete runnable example demonstrating manual instrumentation
+- **Compile time:** +5-15% (type info loading is cached via OnceLock)
+- **Runtime overhead:** ~75-80ns per tracking call (when `track` feature enabled)
+- **Zero cost without feature:** All tracking calls are no-ops without `features = ["track"]`
+- **Sampling mode:** Reduces overhead proportionally (10% sample = ~8ns average)
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](../LICENSE) for details.
+Apache-2.0
