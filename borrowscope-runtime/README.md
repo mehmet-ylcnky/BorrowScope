@@ -1,459 +1,277 @@
-# BorrowScope Runtime
+# borrowscope-runtime
 
-A comprehensive runtime tracking library for visualizing Rust's ownership and borrowing system. BorrowScope Runtime captures ownership transfers, borrows, smart pointer operations, and unsafe code patterns as they happen, generating structured event data for analysis and visualization.
+> Runtime tracking library for Rust ownership visualization — 93 event types, zero-cost when disabled
 
-## Why BorrowScope Runtime?
+[![Crates.io](https://img.shields.io/crates/v/borrowscope-runtime.svg)](https://crates.io/crates/borrowscope-runtime)
 
-Rust's ownership system operates at compile time, making it invisible during execution. BorrowScope Runtime bridges this gap by instrumenting your code to capture every ownership operation at runtime. Whether you're learning Rust, debugging complex ownership issues, or analyzing memory patterns, this library makes the invisible mechanics of Rust's memory model visible.
+## Overview
 
-## Features
+`borrowscope-runtime` captures ownership transfers, borrows, smart pointer operations, concurrency primitives, and unsafe code as they happen at runtime. It generates structured event data that can be exported to JSON for analysis, visualization in VS Code, or debugging.
 
-- **Comprehensive Coverage**: 41+ tracking functions covering all Rust ownership patterns
-- **Zero-Cost Abstraction**: Complete compile-time elimination when `track` feature is disabled
-- **Thread Safety**: All operations are thread-safe with efficient synchronization
-- **RAII Guards**: Automatic drop tracking with guard types
-- **Event Sourcing**: Store events and build ownership graphs on demand
-- **Rich Analysis**: Lifetime analysis, timeline construction, and graph statistics
-- **JSON Export**: Export tracking data for visualization tools
-- **Performance**: ~75-80ns per tracking call, ~80 bytes per event
+**93 event types** covering the full Rust ownership model. Zero overhead without the `track` feature.
 
-## Quick Start
-
-Add to your `Cargo.toml`:
+## Installation
 
 ```toml
 [dependencies]
 borrowscope-runtime = { version = "0.1", features = ["track"] }
 ```
 
-Basic usage:
+Without `features = ["track"]`, all tracking functions compile to no-ops.
+
+## Quick Start
 
 ```rust
 use borrowscope_runtime::*;
 
 fn main() {
-    reset(); // Clear any previous tracking data
-    
-    // Track variable creation
+    reset();
+
     let data = track_new("data", vec![1, 2, 3]);
-    
-    // Track borrowing
-    let r1 = track_borrow("r1", &data);
-    let r2 = track_borrow("r2", &data);
-    println!("Borrowed: {:?}, {:?}", r1, r2);
-    
-    // Track drops
-    track_drop("r2");
-    track_drop("r1");
-    track_drop("data");
-    
-    // Export events as JSON
+    let r = track_borrow("r", &data);
+    println!("{:?}", r);
+    track_drop("r");
+
+    let moved = track_move("data", "moved", data);
+    track_drop("moved");
+
+    // Export
     let events = get_events();
-    println!("{}", serde_json::to_string_pretty(&events).unwrap());
-    
-    // Build ownership graph
-    let graph = get_graph();
-    println!("Graph: {} variables, {} relationships", 
-             graph.nodes.len(), graph.edges.len());
+    println!("{} events captured", events.len());
+    export_json(".borrowscope/events.json").unwrap();
 }
 ```
 
-## Comprehensive API
+## Tracking Functions (88+ functions)
 
-### Basic Ownership Tracking
+### Basic Ownership
 
-Track fundamental ownership operations:
+| Function | Description |
+|----------|-------------|
+| `track_new(name, value)` | Track variable creation, returns value |
+| `track_borrow(name, &value)` | Track shared borrow |
+| `track_borrow_mut(name, &mut value)` | Track mutable borrow |
+| `track_move(from, to, value)` | Track ownership transfer |
+| `track_drop(name)` | Track variable going out of scope |
+| `track_drop_batch(&[names])` | Track multiple drops efficiently |
 
-```rust
-// Variable creation and destruction
-let x = track_new("x", 42);                    // Track variable creation
-let y = track_move("y", x);                    // Track ownership transfer
-track_drop("y");                               // Track variable drop
+### Smart Pointers
 
-// Borrowing operations
-let data = track_new("data", vec![1, 2, 3]);
-let r = track_borrow("r", &data);              // Track immutable borrow
-let r_mut = track_borrow_mut("r_mut", &mut data); // Track mutable borrow
+| Function | Description |
+|----------|-------------|
+| `track_rc_new(name, Rc::new(v))` | Track Rc creation |
+| `track_rc_clone(name, source, rc.clone())` | Track Rc clone |
+| `track_arc_new(name, Arc::new(v))` | Track Arc creation |
+| `track_arc_clone(name, source, arc.clone())` | Track Arc clone |
+| `track_weak_new(name, Rc::downgrade(&rc))` | Track Weak creation |
+| `track_weak_upgrade(weak_id, loc, weak.upgrade())` | Track Weak upgrade |
+| `track_box_new(name, Box::new(v))` | Track Box allocation |
+| `track_box_into_raw(box_id, loc)` | Track Box::into_raw |
+| `track_box_from_raw(name, id, loc)` | Track Box::from_raw |
+| `track_pin_new(name, Pin::new(v))` | Track Pin creation |
+| `track_cow_borrowed/owned/to_mut` | Track Cow operations |
+
+### Interior Mutability
+
+| Function | Description |
+|----------|-------------|
+| `track_refcell_new(name, RefCell::new(v))` | Track RefCell creation |
+| `track_refcell_borrow(name, &refcell)` | Track RefCell::borrow |
+| `track_refcell_borrow_mut(name, &refcell)` | Track RefCell::borrow_mut |
+| `track_refcell_drop(borrow_id, loc)` | Track guard drop |
+| `track_cell_new(name, Cell::new(v))` | Track Cell creation |
+| `track_cell_get/set(cell_id, loc)` | Track Cell access |
+| `track_once_cell_new/set/get/get_or_init` | Track OnceCell |
+| `track_maybe_uninit_new/write/assume_init` | Track MaybeUninit |
+
+### Unsafe Code
+
+| Function | Description |
+|----------|-------------|
+| `track_raw_ptr(name, ptr)` | Track raw pointer creation |
+| `track_raw_ptr_deref(ptr_id, loc)` | Track pointer dereference |
+| `track_unsafe_block_enter/exit(id, loc)` | Track unsafe blocks |
+| `track_unsafe_fn_call(name, loc)` | Track unsafe function calls |
+| `track_ffi_call(name, loc)` | Track FFI calls |
+| `track_transmute(from, to, loc)` | Track transmute |
+
+### Concurrency
+
+| Function | Description |
+|----------|-------------|
+| `track_thread_spawn/join(id, loc)` | Track thread lifecycle |
+| `track_channel(id, loc, tx, rx)` | Track channel creation |
+| `track_channel_send/recv(id, loc)` | Track channel operations |
+| `track_lock(id, type, name, loc)` | Track lock acquisition |
+| `track_lock_guard_acquire/drop(id, loc)` | Track guard lifecycle |
+
+### Async/Await
+
+| Function | Description |
+|----------|-------------|
+| `track_async_block_enter/exit(id, loc)` | Track async blocks |
+| `track_await_start(id, future, loc)` | Track await start |
+| `track_await_start_with_live_vars(...)` | Track with captured vars |
+| `track_await_end(id, loc)` | Track await completion |
+
+### Control Flow
+
+| Function | Description |
+|----------|-------------|
+| `track_fn_enter/exit(id, name, loc)` | Track function boundaries |
+| `track_loop_enter/iteration/exit` | Track loops |
+| `track_match_enter/arm/exit` | Track match expressions |
+| `track_branch(id, type, loc)` | Track if/else |
+| `track_return/break/continue` | Track control flow |
+| `track_try(id, loc)` | Track ? operator |
+| `track_region_enter/exit(id, name, loc)` | Track scopes |
+
+### Expressions
+
+| Function | Description |
+|----------|-------------|
+| `track_struct_create(id, type, loc)` | Track struct instantiation |
+| `track_tuple_create(id, len, loc)` | Track tuple creation |
+| `track_array_create(id, len, loc)` | Track array creation |
+| `track_closure_create/capture` | Track closures |
+| `track_clone/deref/unwrap` | Track common operations |
+| `track_index_access/field_access` | Track access patterns |
+| `track_range/binary_op/type_cast` | Track expressions |
+
+### Memory Layout
+
+| Function | Description |
+|----------|-------------|
+| `track_stack_addr(name, &value)` | Record stack address |
+| `track_string_layout(name, &string)` | Record String ptr/len/cap + heap |
+| `track_vec_layout(name, &vec)` | Record Vec ptr/len/cap + heap |
+| `track_heap_addr(owner, addr, size, cap, content)` | Record heap allocation |
+| `track_heap_realloc(id, old, new, old_size, new_size)` | Record reallocation |
+| `track_stack_padding(after, addr, bytes)` | Record alignment padding |
+| `export_memory_json(path, fn_name)` | Export memory layout JSON |
+
+### Sampling (Performance)
+
+| Function | Description |
+|----------|-------------|
+| `should_sample(rate)` | Check if call should be tracked |
+| `track_new_sampled(name, value, rate)` | Track with probability |
+| `track_borrow_sampled(name, &v, rate)` | Borrow with probability |
+| `track_move_sampled(from, to, v, rate)` | Move with probability |
+| `track_drop_sampled(name, rate)` | Drop with probability |
+
+### Query & Export
+
+| Function | Description |
+|----------|-------------|
+| `get_events()` | Get all recorded events |
+| `get_events_filtered(predicate)` | Filter events |
+| `get_events_for_var(name)` | Events for one variable |
+| `get_new_events/borrow_events/drop_events/move_events` | By category |
+| `get_event_counts()` | (new, borrow, move, drop) tuple |
+| `get_summary()` | Full TrackingSummary |
+| `print_summary()` | Print to stdout |
+| `reset()` | Clear all events |
+| `export_json(path)` | Export graph + events to JSON |
+| `export_memory_json(path, fn)` | Export memory layout |
+
+## Event Types (93 total)
+
+| Category | Count | Events |
+|----------|-------|--------|
+| Ownership | 4 | New, Borrow, Move, Drop |
+| Smart Pointers | 11 | RcNew, RcClone, ArcNew, ArcClone, WeakNew, WeakClone, WeakUpgrade, BoxNew, BoxIntoRaw, BoxFromRaw, PinNew/IntoInner |
+| Interior Mutability | 13 | RefCellNew/Borrow/Drop, CellNew/Get/Set, OnceCellNew/Set/Get/GetOrInit, MaybeUninit×5 |
+| Unsafe | 7 | RawPtrCreated, RawPtrDeref, UnsafeBlockEnter/Exit, UnsafeFnCall, FfiCall, Transmute, UnionFieldAccess |
+| Async | 4 | AsyncBlockEnter/Exit, AwaitStart, AwaitEnd |
+| Control Flow | 15 | FnEnter/Exit, LoopEnter/Iteration/Exit, MatchEnter/Arm/Exit, Branch, Return, Try, Break, Continue, RegionEnter/Exit |
+| Concurrency | 8 | ThreadSpawn/Join, ChannelSenderNew/ReceiverNew/Send/Recv, LockGuardAcquire/Drop |
+| Expressions | 14 | Call, Clone, Deref, IndexAccess, FieldAccess, ClosureCreate/Capture, StructCreate, TupleCreate, ArrayCreate, LetElse, Range, BinaryOp, TypeCast |
+| Memory | 5 | StackAddr, StackField, HeapAddr, HeapRealloc, StackPadding |
+| Static | 3 | StaticInit, StaticAccess, ConstEval |
+| Other | 9 | Lock, Unwrap, CowBorrowed/Owned/ToMut, OnceLockNew, PinIntoInner, Ordering, FmtArguments |
+
+## Modules
+
+```
+src/
+├── lib.rs              (573 lines)   Public API, re-exports, documentation
+├── event.rs            (1343 lines)  Event enum (93 variants) + helper methods
+├── tracker/
+│   ├── mod.rs          (2106 lines)  Tracker struct, event recording, main API
+│   ├── core.rs         (526 lines)   Core tracking (new, borrow, move, drop)
+│   ├── smart_pointers.rs (543 lines) Rc, Arc, Weak, Box, Pin, Cow
+│   ├── interior_mut.rs (348 lines)   RefCell, Cell, OnceCell, MaybeUninit
+│   ├── control_flow.rs (242 lines)   Loops, match, branch, return, break
+│   ├── expressions.rs  (243 lines)   Struct, tuple, array, closure, deref
+│   ├── unsafe_code.rs  (226 lines)   Raw pointers, unsafe blocks, FFI
+│   ├── memory.rs       (165 lines)   Stack/heap address tracking
+│   ├── sampling.rs     (149 lines)   Probabilistic tracking (xorshift64)
+│   ├── concurrency.rs  (95 lines)    Threads, channels, locks
+│   ├── async_tracking.rs (91 lines)  Async blocks, await points
+│   ├── maybe_uninit.rs (89 lines)    MaybeUninit operations
+│   ├── statics.rs      (73 lines)    Static/const tracking
+│   └── query.rs        (274 lines)   Event filtering and summary
+├── graph.rs            (487 lines)   Ownership graph construction (petgraph)
+├── lifetime.rs         (532 lines)   Lifetime analysis and timeline
+├── export.rs           (278 lines)   JSON export (events + graph)
+├── guard.rs            (306 lines)   RAII guards for automatic drop tracking
+└── error.rs            (94 lines)    Error types
 ```
 
-### RAII Guards (Automatic Drop Tracking)
-
-Eliminate manual drop tracking with RAII guards:
-
-```rust
-{
-    let data = track_new_guard("data", vec![1, 2, 3]);
-    let r = track_borrow_guard("r", &*data);
-    let r_mut = track_borrow_mut_guard("r_mut", &mut *data);
-    // track_drop called automatically when guards go out of scope
-}
-
-// Guards support transparent access via Deref/DerefMut
-let guard = track_new_guard("x", 42);
-println!("{}", *guard); // Access inner value
-```
-
-### Smart Pointer Tracking
-
-Track reference-counted smart pointers with precise count monitoring:
-
-```rust
-use std::rc::Rc;
-use std::sync::Arc;
-
-// Rc<T> tracking
-let rc1 = track_rc_new("rc1", Rc::new(42));
-let rc2 = track_rc_clone("rc2", "rc1", rc1.clone());
-// Automatically tracks strong_count and weak_count
-
-// Arc<T> tracking (thread-safe)
-let arc1 = track_arc_new("arc1", Arc::new(vec![1, 2, 3]));
-let arc2 = track_arc_clone("arc2", "arc1", arc1.clone());
-```
-
-### Interior Mutability Tracking
-
-Monitor `RefCell` and `Cell` operations with runtime borrow checking:
-
-```rust
-use std::cell::{RefCell, Cell};
-
-// RefCell tracking
-let cell = track_refcell_new("cell", RefCell::new(42));
-let borrow = refcell_borrow!("borrow", "cell", cell.borrow());
-let borrow_mut = refcell_borrow_mut!("borrow_mut", "cell", cell.borrow_mut());
-refcell_drop!("cell");
-
-// Cell tracking
-let cell = track_cell_new("cell", Cell::new(10));
-let value = track_cell_get("cell", cell.get());
-track_cell_set("cell");
-```
-
-### Unsafe Code Tracking
-
-Comprehensive tracking for unsafe operations:
-
-```rust
-// Raw pointer operations
-let x = 42;
-let ptr = track_raw_ptr("ptr", &x as *const i32);
-let ptr_mut = track_raw_ptr_mut("ptr_mut", &mut x as *mut i32);
-unsafe {
-    track_raw_ptr_deref("ptr");
-    let value = *ptr;
-}
-
-// Unsafe block tracking
-unsafe {
-    track_unsafe_block_enter("block1");
-    // unsafe operations
-    track_unsafe_block_exit("block1");
-}
-
-// FFI and transmute tracking
-track_ffi_call("libc_malloc");
-track_transmute("u32_to_f32", "u32", "f32");
-track_unsafe_fn_call("dangerous_function");
-track_union_field_access("MyUnion", "field1");
-```
-
-### Static and Const Tracking
-
-Monitor global variable access patterns:
-
-```rust
-// Static variable tracking
-static mut COUNTER: i32 = 0;
-track_static_init("COUNTER", "COUNTER_id", "i32", true);
-track_static_access("COUNTER_id", "COUNTER", true, "main.rs:10");
-
-// Const evaluation tracking
-const PI: f64 = 3.14159;
-track_const_eval("PI", "PI_id", "f64", "main.rs:5");
-```
-
-### Async Tracking
-
-Track async blocks and await expressions:
-
-```rust
-// Async block tracking
-track_async_block_enter(1, "main.rs:10:5");
-// ... async block body ...
-track_async_block_exit(1, "main.rs:15:5");
-
-// Await expression tracking
-track_await_start(1, "fetch_data", "main.rs:12:9");
-// ... await completes ...
-track_await_end(1, "main.rs:12:9");
-```
-
-### Control Flow Tracking
-
-Track loops, branches, and control flow:
-
-```rust
-// Loop tracking
-track_loop_enter(1, "for", "main.rs:10:5");
-track_loop_iteration(1, 0, "main.rs:10:5");
-track_loop_iteration(1, 1, "main.rs:10:5");
-track_loop_exit(1, "main.rs:15:5");
-
-// Match tracking
-track_match_enter(1, "main.rs:20:5");
-track_match_arm(1, 0, "Some(x)", "main.rs:21:9");
-track_match_exit(1, "main.rs:25:5");
-
-// Branch tracking
-track_branch(1, "then", "main.rs:30:5");
-
-// Return tracking
-track_return(1, true, "main.rs:35:5");
-
-// Try operator tracking
-track_try(1, "main.rs:40:5");
-```
-
-### Method Call Tracking
-
-Track common method calls:
-
-```rust
-// Clone tracking
-track_clone(1, "data", "main.rs:10:5");
-
-// Lock tracking (Mutex/RwLock)
-track_lock(1, "mutex", "guard", "main.rs:15:5");
-track_lock(2, "rwlock_read", "reader", "main.rs:20:5");
-
-// Unwrap tracking
-track_unwrap(1, "unwrap", "option", "main.rs:25:5");
-track_unwrap(2, "expect", "result", "main.rs:30:5");
-```
-
-### Advanced API Features
-
-#### Custom ID Correlation
-
-All tracking functions have `_with_id` variants for custom correlation:
-
-```rust
-let custom_id = "user_defined_123";
-let x = track_new_with_id("x", custom_id, 42);
-let r = track_borrow_with_id("r", "r_id", custom_id, &x);
-```
-
-#### Event Querying and Filtering
-
-Rich querying capabilities for event analysis:
-
-```rust
-// Get all events or filtered subsets
-let all_events = get_events();
-let new_events = get_new_events();
-let borrow_events = get_borrow_events();
-let move_events = get_move_events();
-let drop_events = get_drop_events();
-
-// Filter events by variable or criteria
-let var_events = get_events_for_var("data");
-let filtered = get_events_filtered(|event| event.is_unsafe());
-
-// Get event statistics
-let counts = get_event_counts();
-let summary = get_summary();
-print_summary();
-```
-
-#### Batch Operations
-
-Efficient batch processing for performance:
-
-```rust
-let var_names = vec!["x", "y", "z"];
-track_drop_batch(&var_names);
-```
-
-### Ownership Graph Analysis
-
-Build and analyze ownership relationships:
-
-```rust
-let graph = get_graph();
-
-// Graph statistics
-let stats = graph.stats();
-println!("Variables: {}, Relationships: {}", 
-         stats.total_variables, stats.total_relationships);
-
-// Find specific variables and relationships
-let var = graph.find_variable("data");
-let borrows = graph.find_borrows("data");
-
-// Analyze ownership patterns
-for relationship in &graph.edges {
-    match relationship {
-        Relationship::BorrowsImmut { from, to, start, end } => {
-            println!("{} borrows {} from {} to {}", from, to, start, end);
-        }
-        Relationship::BorrowsMut { from, to, start, end } => {
-            println!("{} mutably borrows {} from {} to {}", from, to, start, end);
-        }
-        Relationship::Owns { from, to } => {
-            println!("{} owns {}", from, to);
-        }
-    }
-}
-```
-
-### Lifetime Analysis
-
-Advanced lifetime relationship analysis:
-
-```rust
-// Build timeline from events
-let timeline = Timeline::from_events(&get_events());
-
-// Analyze lifetime relationships
-let relations = timeline.analyze_lifetimes();
-for relation in relations {
-    match relation {
-        LifetimeRelation::Contains { outer, inner } => {
-            println!("Lifetime {} contains {}", outer, inner);
-        }
-        LifetimeRelation::Overlaps { first, second } => {
-            println!("Lifetimes {} and {} overlap", first, second);
-        }
-    }
-}
-
-// Detect elision rules
-let elision_rules = timeline.detect_elision_rules();
-```
-
-### Export and Visualization
-
-Export tracking data for external analysis:
-
-```rust
-// Export to JSON file
-export_json("ownership_analysis.json").unwrap();
-
-// Manual export with custom data
-let events = get_events();
-let graph = get_graph();
-let export_data = ExportData::new(graph, events);
-export_data.to_file("custom_export.json").unwrap();
-```
-
-## Event Types
-
-BorrowScope Runtime tracks 40+ event types covering all ownership patterns:
-
-| Category | Events |
-|----------|--------|
-| **Basic Ownership** | `New`, `Borrow`, `Move`, `Drop` |
-| **Smart Pointers** | `RcNew`, `RcClone`, `ArcNew`, `ArcClone` |
-| **Interior Mutability** | `RefCellNew`, `RefCellBorrow`, `RefCellDrop`, `CellNew`, `CellGet`, `CellSet` |
-| **Static/Const** | `StaticInit`, `StaticAccess`, `ConstEval` |
-| **Unsafe Operations** | `RawPtrCreated`, `RawPtrDeref`, `UnsafeBlockEnter`, `UnsafeBlockExit`, `UnsafeFnCall` |
-| **FFI/Transmute** | `FfiCall`, `Transmute`, `UnionFieldAccess` |
-| **Async** | `AsyncBlockEnter`, `AsyncBlockExit`, `AwaitStart`, `AwaitEnd` |
-| **Loops** | `LoopEnter`, `LoopIteration`, `LoopExit` |
-| **Control Flow** | `MatchEnter`, `MatchArm`, `MatchExit`, `Branch`, `Return`, `Try` |
-| **Method Calls** | `Clone`, `Lock`, `Unwrap` |
-| **Access** | `IndexAccess`, `FieldAccess`, `Call`, `Deref` |
-
-All events include timestamps and are serializable to JSON for analysis.
-
-## Architecture
-
-BorrowScope Runtime uses an event sourcing architecture:
-
-1. **Event Recording**: Track operations as timestamped events
-2. **Thread-Safe Storage**: Store events in a global, thread-safe tracker
-3. **On-Demand Analysis**: Build ownership graphs and timelines from event streams
-4. **Export Pipeline**: Serialize data to JSON for visualization tools
-
-Key components:
-- **Tracker**: Global event recorder with atomic timestamp generation
-- **Event System**: Comprehensive event types with JSON serialization
-- **Graph Builder**: Constructs ownership graphs from event streams
-- **RAII Guards**: Automatic resource tracking with scope-based cleanup
-- **Lifetime Analyzer**: Timeline construction and relationship analysis
+**Total: ~8,800 lines**
 
 ## Performance
 
-Optimized for minimal runtime overhead:
+| Metric | Value |
+|--------|-------|
+| Per-call overhead (with `track`) | ~75-80ns |
+| Per-event memory | ~80 bytes |
+| Without `track` feature | Zero (compiled away) |
+| Sampling at 10% | ~8ns average |
+| Thread safety | `parking_lot::Mutex` (fast) |
 
-- **Single tracking call**: ~75-80ns
-- **1000 operations**: ~150μs
-- **JSON export (1000 events)**: ~1ms
-- **Memory per event**: ~80 bytes
-- **Zero cost when disabled**: Complete compile-time elimination
+### Benchmarks
 
-Thread safety achieved through:
-- `parking_lot::Mutex` for efficient locking (40-60% faster than std)
-- `AtomicU64` for lock-free timestamp generation
-- Event sourcing to avoid complex concurrent graph updates
-
-## Feature Flags
-
-- `track` - Enables runtime tracking. Without this feature, all tracking functions compile to no-ops with zero overhead.
-
-```toml
-# Development/debugging (with tracking)
-[dependencies]
-borrowscope-runtime = { version = "0.1", features = ["track"] }
-
-# Production (zero overhead)
-[dependencies]
-borrowscope-runtime = "0.1"
+```bash
+cargo bench -p borrowscope-runtime
 ```
+
+Three benchmark suites:
+- `performance` — core tracking call overhead
+- `optimization` — sampling and batch operations
+- `overhead_analysis` — real-world scenario overhead
 
 ## Testing
 
-Comprehensive test suite with 555+ tests:
-
 ```bash
-# Run all tests
-cargo test --package borrowscope-runtime --features track
+# Run all 775 tests
+cargo test -p borrowscope-runtime --features track
 
-# Run specific test categories
-cargo test --package borrowscope-runtime --features track --test integration_tests
-cargo test --package borrowscope-runtime --features track --test performance_tests
-cargo test --package borrowscope-runtime --features track --test unsafe_code_tests
-
-# Run benchmarks
-cargo bench --package borrowscope-runtime
+# Run specific category
+cargo test -p borrowscope-runtime --test rc_arc_integration_tests
+cargo test -p borrowscope-runtime --test async_tracking_tests
+cargo test -p borrowscope-runtime --test property_based_tests
 ```
 
-## Error Handling
+32 test files covering:
+- Core ownership (new, borrow, move, drop)
+- Smart pointers (Rc, Arc, Weak, Box, Pin, Cow)
+- Interior mutability (RefCell, Cell, OnceCell, MaybeUninit)
+- Unsafe code, concurrency, async
+- Performance edge cases
+- Property-based testing (proptest + quickcheck)
+- Sampling correctness
 
-Robust error handling with comprehensive error types:
+## Integration with VS Code
 
-```rust
-use borrowscope_runtime::{Result, Error};
+The extension reads events via two mechanisms:
 
-match export_json("output.json") {
-    Ok(()) => println!("Export successful"),
-    Err(Error::SerializationError(e)) => eprintln!("JSON error: {}", e),
-    Err(Error::IoError(e)) => eprintln!("File error: {}", e),
-    Err(Error::ExportError(msg)) => eprintln!("Export failed: {}", msg),
-    Err(Error::InvalidEventSequence(msg)) => eprintln!("Invalid events: {}", msg),
-    Err(Error::LockError(msg)) => eprintln!("Lock error: {}", msg),
-}
-```
+1. **File-based:** `export_json(".borrowscope/events.json")` → extension watches file
+2. **Memory layout:** `export_memory_json(".borrowscope/memory-events.json", "fn_name")` → Memory tab
 
-## Documentation
-
-Generate and view complete API documentation:
-
-```bash
-cargo doc --package borrowscope-runtime --features track --open
-```
+Events use serde's internally-tagged format: `{"type": "New", "var_name": "x", ...}`
 
 ## License
 
-Licensed under the Apache License, Version 2.0. See the main BorrowScope repository for full license information.
+Apache-2.0
