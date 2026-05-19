@@ -1,14 +1,14 @@
 <div align="center">
   <img src="logo.png" alt="BorrowScope Logo" width="400"/>
   
-  > Visualize Rust's ownership and borrowing at runtime
+  > Real-time ownership visualization for Rust — static analysis + runtime tracking + VS Code integration
 
   [![Crates.io](https://img.shields.io/crates/v/borrowscope-runtime.svg)](https://crates.io/crates/borrowscope-runtime)
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
-  [![Tests](https://img.shields.io/badge/tests-524%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
+  [![Tests](https://img.shields.io/badge/tests-2100%2B%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
   
   📄 [Read the Technical Whitepaper](https://mehmet-ylcnky.github.io/BorrowScope/)
   
@@ -17,57 +17,150 @@
 
 ---
 
-BorrowScope is a runtime tracking library for Rust that captures ownership transfers, borrows, and smart pointer operations as they happen. It generates structured event data that can be exported to JSON for analysis, visualization, or debugging.
+## What is BorrowScope?
 
-## Why BorrowScope?
+BorrowScope is a comprehensive Rust ownership visualization platform that combines **static analysis**, **runtime tracking**, and a **VS Code extension** to make Rust's ownership and borrowing system visible. It provides:
 
-Rust's ownership and borrowing system is one of its most powerful features, but also one of the hardest to learn. The borrow checker operates at compile time, rejecting invalid code with error messages that can be cryptic for newcomers. Even experienced developers sometimes struggle to visualize how ownership flows through complex code paths involving smart pointers, interior mutability, or async boundaries.
+- **Real-time inline annotations** in your editor showing ownership categories (`[&]`, `[&mut]`, `[Rc]`, `[Arc]`)
+- **Interactive visualization panel** with 11 different views (Graph, Timeline, Memory, Runtime, etc.)
+- **Cross-function borrow tracking** across call boundaries and files
+- **Memory layout visualization** with field-level detail (ptr/len/cap for String/Vec)
+- **Runtime event overlay** showing actual execution behavior alongside static analysis
+- **Reference count timeline** for Rc/Arc with leak detection
 
-BorrowScope was created to bridge this gap. By instrumenting your code with lightweight tracking calls, you can capture every ownership transfer, borrow, and drop as it happens at runtime. The resulting event stream can be exported to JSON for analysis, fed into visualization tools, or simply printed to understand what your code is actually doing. Whether you're learning Rust, teaching others, or debugging a tricky ownership issue in production code, BorrowScope makes the invisible mechanics of Rust's memory model visible.
+## Architecture
 
-## Installation
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        VS Code Extension (borrowscope-vscode)            │
+│                                                                          │
+│  ┌──────────────────────┐    ┌──────────────────────────────────────┐   │
+│  │   Editor Decorations  │    │   WebView Panel (11 views)            │   │
+│  │   • Inline hints      │    │   • Force-directed graph              │   │
+│  │   • Lifeline flows    │    │   • Timeline, Scopes, RefCount        │   │
+│  │   • CodeLens stats    │    │   • Moves, Conflicts, Compare         │   │
+│  │   • Borrow highlights │    │   • CrossRefs, Memory, Runtime        │   │
+│  └──────────┬────────────┘    └──────────────┬────────────────────────┘   │
+│             │                                 │                           │
+├─────────────┼─────────────────────────────────┼───────────────────────────┤
+│             ▼                                 ▼                           │
+│  ┌─────────────────────┐    ┌────────────────────────────────────────┐   │
+│  │  borrowscope-lsp     │    │  borrowscope-runtime (optional)         │   │
+│  │  (Language Server)   │    │  (Runtime Event Tracking)               │   │
+│  │                      │    │                                         │   │
+│  │  • Ownership graph   │    │  • 88 event types                       │   │
+│  │  • Borrow scopes     │    │  • Timing & drop order                  │   │
+│  │  • Memory layout     │    │  • Ref count tracking                   │   │
+│  │  • Cross-function    │    │  • Memory addresses                     │   │
+│  │  • Conflict detect   │    │  • Async borrow tracking                │   │
+│  └─────────────────────┘    └────────────────────────────────────────┘   │
+│         ▲                              ▲                                  │
+│         │ ra_ap_* (rust-analyzer)      │ #[trace_borrow] macro            │
+└─────────┼──────────────────────────────┼──────────────────────────────────┘
+          │                              │
+    ┌─────┴──────────┐           ┌──────┴───────────┐
+    │ borrowscope-   │           │ borrowscope-      │
+    │ analyzer       │           │ macro             │
+    │ (Static types) │           │ (Auto-instrument) │
+    └────────────────┘           └───────────────────┘
+```
 
-Available on [crates.io](https://crates.io/crates/borrowscope-runtime). Add to your `Cargo.toml`:
+## Components
 
+| Component | Description | Lines | Tests |
+|-----------|-------------|-------|-------|
+| **borrowscope-runtime** | Runtime tracking library (88 event types, JSON export) | ~8,800 | 775 |
+| **borrowscope-macro** | `#[trace_borrow]` proc macro for automatic instrumentation | ~8,800 | 533 |
+| **borrowscope-analyzer** | Static analysis tool (type extraction for macro) | ~2,000 | — |
+| **borrowscope-lsp** | Language server (ownership analysis via ra_ap_* APIs) | ~2,800 | 107 |
+| **borrowscope-vscode** | VS Code extension (decorations, panel, runtime overlay) | ~6,900 | 689 |
+
+**Total: ~29,000 lines of code, 2,100+ tests**
+
+## VS Code Extension Features
+
+### Editor Decorations
+- Colored inline annotations: `[&]` `[&mut]` `[Rc]` `[Arc]` `[Cell]`
+- Lifeline flow lines: `├─` `│` `╰─` with emoji labels (👁 🔒 💧 ❄ ↦ ─┘)
+- Background highlights for borrow regions (blue/red tint)
+- Hover tooltips with ownership details
+- CodeLens stats above functions: `▸ 5 vars, 2 borrows, 1 move`
+- Memory CodeLens: `🧠 Stack: 72B | Heap: ~28B | 3 ptrs`
+- Cross-function annotations: `──→ 👁 &var enters fn(param)`
+
+### Visualization Panel (11 Views)
+| View | Icon | Description |
+|------|------|-------------|
+| Graph | 🕸️ | Force-directed ownership graph (D3.js) |
+| Table | ▦ | Tabular view of all variables |
+| Timeline | ⏱️ | Chronological ownership events |
+| Scopes | 🔍 | Nested borrow scope visualization |
+| RefCount | 🔗 | Rc/Arc reference count over time |
+| Moves | ↦ | Ownership transfer chains |
+| Conflicts | ⚠️ | Borrow conflict detection |
+| Compare | 🪞 | Side-by-side function comparison |
+| CrossRefs | 🔀 | Cross-function borrow tracking |
+| Memory | 🧠 | Stack/heap layout with field details |
+| Runtime | 🔬 | Runtime events, drop order, divergences |
+
+### Runtime Integration (Optional)
+When `borrowscope-runtime` is used, the extension shows:
+- Green timing annotations: `⏱ 1.2ms (3×&)`
+- Red divergence highlights: `⚡ Rc never dropped`
+- Drop order visualization: `💀 #1, #2, #3` (LIFO)
+- Ref count chart with leak detection
+- Async borrow tracking across await points
+- Actual hex addresses in Memory tab
+
+## Quick Start
+
+### 1. VS Code Extension (Static Analysis Only)
+
+No instrumentation needed — works immediately on any Rust project:
+
+```bash
+# Build the language server
+cd borrowscope-lsp
+cargo build --release
+
+# Open VS Code, set the server path in settings:
+# "borrowscope.server.path": "/path/to/target/release/borrowscope-lsp"
+```
+
+Open any `.rs` file → see inline annotations, CodeLens, and the visualization panel.
+
+### 2. With Runtime Tracking (Optional)
+
+Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 borrowscope-runtime = { version = "0.1", features = ["track"] }
 borrowscope-macro = "0.1"  # Optional: for automatic instrumentation
 ```
 
-The `track` feature enables runtime tracking. Without it, all tracking functions compile to no-ops with zero overhead.
-
-## Quick Start
-
-### Manual Tracking
-
+#### Manual Tracking
 ```rust
 use borrowscope_runtime::*;
 
 fn main() {
-    reset(); // Clear any previous tracking data
-    
-    // Track variable creation
+    reset();
     let data = track_new("data", vec![1, 2, 3]);
+    let r = track_borrow("r", &data);
+    println!("{:?}", r);
+    track_drop("r");
+    track_drop("data");
     
-    // Track borrows
-    let r1 = track_borrow("r1", &data);
-    let r2 = track_borrow("r2", &data);
-    println!("Borrowed: {:?}, {:?}", r1, r2);
-    
-    // Export events as JSON
+    // Export events for VS Code
+    std::fs::create_dir_all(".borrowscope").ok();
     let events = get_events();
-    println!("{}", serde_json::to_string_pretty(&events).unwrap());
+    std::fs::write(".borrowscope/events.json",
+        serde_json::to_string_pretty(&events).unwrap()).unwrap();
 }
 ```
 
-### Automatic Instrumentation (Macro)
-
-> **Prerequisite:** Run `cargo run -p borrowscope-analyzer -- .` before building. See [Static Analysis](#static-analysis-borrowscope-analyzer--required).
-
+#### Automatic Instrumentation
 ```rust
 use borrowscope_macro::trace_borrow;
-use borrowscope_runtime::*;
 
 #[trace_borrow]
 fn example() {
@@ -75,233 +168,178 @@ fn example() {
     let r = &data;              // Borrow tracked
     println!("{:?}", r);
 }                               // Drops tracked
+```
 
-fn main() {
-    reset();
-    example();
-    print_summary();
+> **Note:** The macro requires running `borrowscope-analyzer` first. See [Static Analysis](#static-analysis) section.
+
+### 3. Enable Runtime Overlay in VS Code
+
+In `.vscode/settings.json`:
+```json
+{
+  "borrowscope.runtime.enabled": true,
+  "borrowscope.runtime.source": "file",
+  "borrowscope.runtime.filePath": ".borrowscope/events.json"
 }
 ```
 
-Output:
+Run your program → VS Code detects the events file → runtime overlay appears.
+
+## Runtime Event Types (88 total)
+
+| Category | Events |
+|----------|--------|
+| **Ownership** | New, Drop, Borrow, Move, Clone |
+| **Smart Pointers** | RcNew, RcClone, ArcNew, ArcClone, WeakNew, WeakClone, WeakUpgrade, BoxNew, BoxIntoRaw, BoxFromRaw |
+| **Interior Mutability** | RefCellNew, RefCellBorrow, RefCellDrop, CellNew, CellGet, CellSet |
+| **Unsafe** | RawPtrCreated, RawPtrDeref, UnsafeBlockEnter/Exit, UnsafeFnCall, FfiCall, Transmute |
+| **Async** | AsyncBlockEnter/Exit, AwaitStart/End, FutureCreate, FuturePoll |
+| **Control Flow** | FnEnter/Exit, LoopEnter/Iteration/Exit, MatchEnter/Arm/Exit, Branch, Return, Break, Continue |
+| **Concurrency** | ThreadSpawn/Join, ChannelSend/Recv, LockGuardAcquire/Drop, PinNew/IntoInner |
+| **Memory** | StackAddr, StackField, HeapAddr, HeapRealloc, StackPadding |
+| **Other** | StructCreate, TupleCreate, ArrayCreate, ClosureCreate/Capture, Deref, IndexAccess, FieldAccess |
+
+## Memory Layout Visualization
+
+The Memory tab shows field-level detail for all types — no runtime needed:
+
 ```
-=== BorrowScope Summary ===
-Variables: 1 created, 1 dropped
-Borrows: 1 immutable, 0 mutable
-```
-
-## Tracking Functions
-
-### Basic Ownership
-
-| Function | Description |
-|----------|-------------|
-| `track_new(name, value)` | Track variable creation |
-| `track_borrow(name, ref)` | Track immutable borrow |
-| `track_borrow_mut(name, ref)` | Track mutable borrow |
-| `track_move(name, value)` | Track ownership transfer |
-| `track_drop(name)` | Track variable going out of scope |
-
-### Smart Pointers
-
-| Function | Description |
-|----------|-------------|
-| `track_rc_new(name, rc)` | Track `Rc<T>` creation |
-| `track_rc_clone(name, source, rc)` | Track `Rc<T>` clone |
-| `track_arc_new(name, arc)` | Track `Arc<T>` creation |
-| `track_arc_clone(name, source, arc)` | Track `Arc<T>` clone |
-
-### Interior Mutability
-
-| Function | Description |
-|----------|-------------|
-| `track_refcell_new(name, refcell)` | Track `RefCell<T>` creation |
-| `track_refcell_borrow(name, guard)` | Track `RefCell::borrow()` |
-| `track_refcell_borrow_mut(name, guard)` | Track `RefCell::borrow_mut()` |
-| `track_cell_new(name, cell)` | Track `Cell<T>` creation |
-| `track_cell_get(name, value)` | Track `Cell::get()` |
-| `track_cell_set(name)` | Track `Cell::set()` |
-
-### Unsafe & Advanced
-
-| Function | Description |
-|----------|-------------|
-| `track_raw_ptr_create(name, ptr)` | Track raw pointer creation |
-| `track_raw_ptr_deref(name)` | Track raw pointer dereference |
-| `track_unsafe_block_enter(name)` | Track entering unsafe block |
-| `track_unsafe_block_exit(name)` | Track exiting unsafe block |
-| `track_transmute(name, from, to)` | Track `std::mem::transmute` |
-| `track_ffi_call(name, fn_name)` | Track FFI function calls |
-
-### Async
-
-| Function | Description |
-|----------|-------------|
-| `track_future_create(name)` | Track future creation |
-| `track_future_poll(name, state)` | Track future poll |
-| `track_async_block_enter(name)` | Track async block entry |
-| `track_async_block_exit(name)` | Track async block exit |
-
-All functions have `_with_id` variants that accept a custom identifier for correlation.
-
-## Automatic Instrumentation (borrowscope-macro)
-
-The `#[trace_borrow]` attribute macro automatically instruments functions:
-
-```rust
-use borrowscope_macro::trace_borrow;
-
-#[trace_borrow]                              // Standard tracking
-#[trace_borrow(quiet)]                       // Ownership only
-#[trace_borrow(skip = "loops,branches")]     // Skip noisy features
-#[trace_borrow(debug_only)]                  // Only in debug builds
+STACK (72B)                          HEAP
+┌─────────────────────────┐
+│ name: String      24B    │         ┌──────────────┐
+│  .ptr  *const u8  (8B)  │────────▶│ "Alice" (5B) │
+│  .len  usize     (8B)   │         │ cap: 8       │
+│  .cap  usize     (8B)   │         └──────────────┘
+├─────────────────────────┤
+│ scores: Vec<f64>  24B    │         ┌──────────────┐
+│  .ptr  *const T   (8B)  │────────▶│ [9.5, 8.7]   │
+│  .len  usize     (8B)   │         │ cap: 4       │
+│  .cap  usize     (8B)   │         └──────────────┘
+└─────────────────────────┘
 ```
 
-### Filtering & Sampling
+Supports: String, Vec, Box, Rc, Arc, Option, Result, RefCell, Cell, HashMap, user structs (via `ty.fields(db)`).
 
-For performance-sensitive code, use filtering and sampling:
+## Static Analysis (borrowscope-analyzer)
 
-```rust
-// Only track variables matching pattern (* = any chars, ? = single char)
-#[trace_borrow(filter = "user_*")]
-fn track_specific_vars() {
-    let user_data = vec![1, 2, 3];  // Tracked
-    let temp = 42;                   // NOT tracked (doesn't match)
-}
-
-// Probabilistic sampling - track ~10% of operations
-#[trace_borrow(sample = 0.1)]
-fn high_frequency_function() {
-    // Reduces overhead in hot paths
-}
-
-// Combine for maximum control
-#[trace_borrow(debug_only, filter = "important_*", sample = 0.5)]
-fn production_ready() { }
-```
-
-See [borrowscope-macro examples](borrowscope-macro/examples/) for more.
-
-## Example Projects
-
-The `examples/` directory contains standalone projects demonstrating different aspects of BorrowScope:
-
-| Example | Description |
-|---------|-------------|
-| [ownership-patterns](examples/ownership-patterns/) | Basic ownership, moves, and borrows |
-| [smart-pointers](examples/smart-pointers/) | `Rc`, `Arc`, `RefCell`, and `Cell` tracking |
-| [borrow-conflicts](examples/borrow-conflicts/) | Scenarios that would trigger borrow checker errors |
-| [async-ownership](examples/async-ownership/) | Ownership across async boundaries |
-| [graph-visualization](examples/graph-visualization/) | Exporting tracking data to DOT format |
-| [allocator-sim](examples/allocator-sim/) | Advanced patterns: raw pointers, FFI, unions, transmute |
-
-Run any example:
-```bash
-cd examples/ownership-patterns
-cargo run
-```
-
-## Static Analysis (borrowscope-analyzer) — Required
-
-The `#[trace_borrow]` macro requires static analysis data from `borrowscope-analyzer`. Run the analyzer before building:
+Required for the `#[trace_borrow]` macro:
 
 ```bash
-# Step 1: Analyze your project (generates .borrowscope/type-info.json)
 cargo run -p borrowscope-analyzer -- /path/to/your/project
-
-# Step 2: Build with macro instrumentation
-cargo build
 ```
 
-> **Note:** The macro will fail with a clear error message if the analyzer has not been run. This ensures 100% semantic accuracy — no heuristic fallbacks.
+Generates `.borrowscope/type-info.json` with semantic type data that the macro uses for accurate instrumentation.
 
-The analyzer extracts type information that procedural macros cannot access, enabling:
-- Correct tracking of type aliases (`type MyRc<T> = Rc<T>`)
-- Factory function return type detection
-- Precise disambiguation of shadowed variables
-- 78 semantic initializer categories (fully semantic, no heuristics)
+## Keyboard Shortcuts
 
-Output is written to `.borrowscope/type-info.json` in your project directory.
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Shift+O` | Show Ownership Graph |
+| `Ctrl+Shift+I` | Inspect Variable at Cursor |
+| `Ctrl+Shift+D` | Toggle Decorations |
+| `Alt+Shift+N` | Next Borrow Conflict |
+| `Alt+Shift+P` | Previous Borrow Conflict |
+| `Ctrl+Shift+G` | Focus Graph Panel |
+
+## Configuration
+
+33 settings organized into groups:
+
+| Group | Key Settings |
+|-------|-------------|
+| **Server** | `server.path`, `server.extraArgs` |
+| **Analysis** | `analysis.debounceMs` (0-2000ms) |
+| **Decorations** | `enabled`, `borrowScopes`, `gutterIcons`, `inlayHints`, `codeLens`, `lifelines` |
+| **Graph** | `layout` (force/hierarchical/radial), `showTypes`, `animateUpdates` |
+| **Colors** | `sharedBorrow`, `mutableBorrow`, `move`, `rcArc`, `owned`, `drop` |
+| **Cross-Function** | `enabled`, `maxDepth`, `showInline` |
+| **Memory** | `enabled`, `showAlignment`, `animationSpeed` |
+| **Runtime** | `enabled`, `source` (file/websocket), `showTimings`, `showDropOrder`, `showRefCounts`, `highlightDivergences` |
+| **Diagnostics** | `enabled`, `severity` (information/hint/warning) |
 
 ## Project Structure
 
 ```
 BorrowScope/
-├── borrowscope-runtime/     # Core tracking library
-│   ├── src/
-│   │   ├── tracker.rs      # 125+ tracking functions
-│   │   ├── event.rs        # Event types and serialization
-│   │   ├── graph.rs        # Graph data structures
-│   │   └── export.rs       # JSON export utilities
-│   └── tests/              # 290+ tests
+├── borrowscope-runtime/     # Core tracking library (88 event types)
+│   └── src/tracker/         # Modules: core, smart_pointers, async, unsafe, memory...
 │
-├── borrowscope-macro/       # Procedural macro for automatic instrumentation
-│   ├── src/
-│   │   ├── lib.rs          # #[trace_borrow] attribute macro
-│   │   ├── config.rs       # Configuration parsing
-│   │   └── transform_visitor.rs  # AST transformation
-│   └── tests/              # 300+ tests
+├── borrowscope-macro/       # #[trace_borrow] proc macro (133 instrumentation points)
+│   └── src/                 # transform_visitor.rs, config.rs, type_info.rs
 │
-├── borrowscope-analyzer/    # Static analysis tool (rust-analyzer based)
-│   ├── src/
-│   │   ├── main.rs         # CLI entry point
-│   │   ├── analysis.rs     # Type extraction and pattern classification
-│   │   └── output.rs       # JSON schema (v2.2)
-│   └── README.md           # Comprehensive documentation
+├── borrowscope-analyzer/    # Static analysis tool (type extraction)
+│   └── src/                 # main.rs, analysis.rs, output.rs
 │
-└── examples/               # Standalone example projects
-    ├── ownership-patterns/
-    ├── smart-pointers/
-    ├── borrow-conflicts/
-    ├── async-ownership/
-    ├── graph-visualization/
-    ├── allocator-sim/
-    └── type-coverage/      # Comprehensive analyzer test (255 variables)
+├── borrowscope-lsp/         # Language server (ra_ap_* based)
+│   ├── src/
+│   │   ├── analysis.rs      # Ownership analysis, memory layout, cross-function
+│   │   ├── handlers/        # LSP request/notification handlers
+│   │   ├── server.rs        # Main loop, debounce, dispatch
+│   │   └── state.rs         # Global state, caching
+│   └── tests/               # 107 protocol tests
+│
+├── borrowscope-vscode/      # VS Code extension
+│   ├── src/
+│   │   ├── extension.ts     # Activation, commands, runtime wiring
+│   │   ├── client.ts        # LSP client, decorations, lifelines
+│   │   ├── graph/panel.ts   # WebView panel (11 views, D3.js)
+│   │   ├── config.ts        # Typed configuration accessor
+│   │   ├── runtime-*.ts     # Runtime integration (watcher, parser, mapper, socket)
+│   │   ├── merge-views.ts   # Static + runtime merge with divergence detection
+│   │   ├── performance.ts   # Performance monitoring
+│   │   └── welcome.ts       # Onboarding flow
+│   └── src/test/suite/      # 689 tests
+│
+├── examples/                # Standalone example projects
+│   ├── ownership-patterns/
+│   ├── smart-pointers/
+│   ├── borrow-conflicts/
+│   ├── async-ownership/
+│   ├── graph-visualization/
+│   └── allocator-sim/
+│
+└── logo.png                 # Project logo
 ```
 
 ## Performance
 
-With `track` feature enabled:
+**Runtime library:**
 - ~75-80ns per tracking call
 - ~80 bytes per event
-- Linear memory scaling O(n)
+- Zero overhead without `track` feature
 
-Without `track` feature:
-- Zero overhead - all tracking compiles away
+**VS Code extension:**
+- < 5ms per ownership graph request (typical)
+- < 100ms for cross-function analysis
+- Debounced updates (configurable, default 300ms)
+- Performance report via Command Palette
 
 ## Testing
 
 ```bash
-# Run all tests
+# Runtime library
 cargo test -p borrowscope-runtime --features track
 
-# Run specific test file
-cargo test -p borrowscope-runtime --features track --test integration_tests
+# Macro
+cargo test -p borrowscope-macro
+
+# Language server
+cargo test -p borrowscope-lsp
+
+# VS Code extension
+cd borrowscope-vscode && npm run build && npx tsc --noEmit false && npx mocha --require ./test-setup.js
 ```
-
-## Roadmap
-
-Future development will add:
-
-- **borrowscope-graph** - Graph algorithms for ownership analysis
-- **borrowscope-cli** - Command-line tool for analyzing Rust projects
-- **borrowscope-ui** - Interactive visualization application
 
 ## Related Work
 
-BorrowScope joins a growing ecosystem of tools and resources aimed at making Rust's ownership system more understandable. Here are some notable projects and articles in this space:
-
 | Project | Description |
 |---------|-------------|
-| [Aquascope](https://github.com/cognitive-engineering-lab/aquascope) | Interactive visualizations of Rust at compile-time and runtime. Developed by Brown University's Cognitive Engineering Lab, it shows permission changes (read/write/own) on variables and visualizes how the borrow checker reasons about code. Powers the visualizations in "The Rust Book Experiment." |
-| [Boris](https://github.com/ChristianSchott/boris) | A standalone ownership and borrowing visualizer that renders interactive diagrams showing memory layout, ownership transfers, and borrow scopes. Designed to help beginners understand Rust's memory model through visual exploration. |
-| [Flowistry](https://github.com/willcrichton/flowistry) | A VSCode extension using information flow analysis to help developers understand Rust programs. Highlights which code can affect other code, providing a "focus mode" to filter out irrelevant parts when debugging or comprehending complex codebases. |
-| [REVIS](https://github.com/weirane/vscode-revis) | A VSCode extension that visualizes lifetime-related Rust compiler errors. Draws lifetime spans directly in the editor to help developers understand and fix borrow checker errors, particularly useful for learning lifetime concepts. |
-| [Graphical Depiction of Ownership](https://rufflewind.com/2017-02-15/rust-move-copy-borrow) | A visual guide by Phil Ruffwind depicting move, copy, and borrow semantics through annotated diagrams. Shows how values flow between variables and how borrows create temporary access without transferring ownership. |
-| [Think Spatially to Grok Lifetimes](https://www.justanotherdot.com/posts/think-spatially-to-grok-lifetimes.html) | An article presenting a mental model for understanding lifetimes by thinking of programs as nested spaces. Values exist within scopes, and borrows create "bridges" between spaces that must not outlive their source. |
-| [Rust Lifetime Visualization Ideas](https://blog.adamant-lang.org/2019/rust-lifetime-visualization-ideas/) | A design exploration of how IDEs could visualize lifetimes inline with code. Proposes compact notations and color-coding schemes that could be integrated into editors without disrupting the coding experience. |
+| [Aquascope](https://github.com/cognitive-engineering-lab/aquascope) | Compile-time and runtime visualizations for Rust |
+| [Boris](https://github.com/ChristianSchott/boris) | Standalone ownership and borrowing visualizer |
+| [Flowistry](https://github.com/willcrichton/flowistry) | Information flow analysis for Rust in VS Code |
+| [REVIS](https://github.com/weirane/vscode-revis) | Lifetime-related error visualization |
 
-BorrowScope differs from these tools by focusing on runtime event capture rather than static analysis or compile-time visualization. This makes it useful for understanding actual execution behavior, especially in complex scenarios involving smart pointers, interior mutability, or async code.
+BorrowScope differs by combining **static analysis** (LSP-based, no instrumentation needed) with **runtime tracking** (actual execution data) in a unified VS Code experience.
 
 ## License
 
@@ -314,6 +352,5 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ---
 
 <div align="center">
-  <strong>Making Rust's ownership system visible, one event at a time.</strong>
+  <strong>Making Rust's ownership system visible — from source to execution.</strong>
 </div>
-
