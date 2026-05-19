@@ -158,6 +158,7 @@ For re-exported types where ADT identity differs from the type resolver's ADT, a
 ```json
 {
   "version": "3.0",
+  "analyzer_version": "0.1.0",
   "files": {
     "src/main.rs": [
       {
@@ -166,15 +167,26 @@ For re-exported types where ADT identity differs from the type resolver's ADT, a
         "file": "src/main.rs",
         "line": 5,
         "column": 8,
+        "span_start": 42,
+        "span_end": 46,
+        "function_name": "main",
+        "decl_index": 0,
         "is_vec": true,
         "is_copy": false,
         "is_clone": true,
         "is_drop": true,
+        "is_send": true,
+        "is_sync": true,
+        "is_sized": true,
         "initializer_kind": "vec_macro",
+        "is_mut_binding": true,
         "drop_line": 20,
+        "drop_column": 1,
         "scope_id": 3,
+        "layout": { "size": 24, "align": 8 },
+        "type_arguments": ["i32"],
         "method_calls": [
-          { "method": "push", "line": 8, "self_borrow": "mutable", "operation": "vec_push" }
+          { "method": "push", "line": 8, "column": 4, "operation": "vec_push", "self_borrow": "mutable", "receiver_type": "Vec<i32>", "result_type": "()" }
         ],
         "usages": [
           { "line": 8, "column": 4, "kind": "write" },
@@ -183,11 +195,26 @@ For re-exported types where ADT identity differs from the type resolver's ADT, a
       }
     ]
   },
-  "expressions": { ... },
-  "trait_impls": { ... },
-  "closure_traits": { ... },
-  "unsafe_operations": { ... },
-  "borrow_spans": { ... }
+  "expressions": { "src/main.rs": [...] },
+  "await_points": { "src/async.rs": [...] },
+  "unsafe_operations": { "src/ffi.rs": [...] },
+  "borrow_spans": { "src/main.rs": [...] },
+  "destructuring": { "src/main.rs": [...] },
+  "match_bindings": { "src/main.rs": [...] },
+  "field_accesses": { "src/main.rs": [...] },
+  "method_borrows": { "src/main.rs": [...] },
+  "function_calls": { "src/main.rs": [...] },
+  "trait_impls": { "Vec<i32>": { "implements_deref": true, "implements_index": true, ... } },
+  "closure_traits": { "src/main.rs": [...] },
+  "variants": { "src/main.rs": [...] },
+  "lifetimes": { "src/lib.rs": [...] },
+  "labels": { "src/main.rs": [...] },
+  "const_patterns": { "src/main.rs": [...] },
+  "callables": { "src/main.rs": [...] },
+  "record_field_exprs": { "src/main.rs": [...] },
+  "record_field_pats": { "src/main.rs": [...] },
+  "by_name": { "data": [...] },
+  "by_function": { "main": { "data": [...] } }
 }
 ```
 
