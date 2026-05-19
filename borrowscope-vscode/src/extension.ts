@@ -7,11 +7,13 @@ import { parseEvents, filterByFile, filterOwnershipEvents } from "./runtime-pars
 import { mergeViews } from "./merge-views";
 import { createRuntimeDecorationTypes, applyRuntimeDecorations, clearRuntimeDecorations } from "./runtime-decorations";
 import { showWelcomeIfNeeded, showWelcomePanel } from "./welcome";
+import { PerformanceMonitor, registerPerformanceCommand } from "./performance";
 
 let outputChannel: vscode.OutputChannel;
 let runtimeWatcher: RuntimeWatcher | undefined;
 let runtimeStatusBar: RuntimeStatusBar | undefined;
 let runtimeDecorationTypes: ReturnType<typeof createRuntimeDecorationTypes> | undefined;
+let perfMonitor: PerformanceMonitor;
 
 export async function activate(
   context: vscode.ExtensionContext
@@ -19,6 +21,10 @@ export async function activate(
   outputChannel = vscode.window.createOutputChannel("BorrowScope");
   outputChannel.appendLine("BorrowScope activated");
   context.subscriptions.push(outputChannel);
+
+  // Performance monitoring
+  perfMonitor = new PerformanceMonitor(outputChannel);
+  registerPerformanceCommand(context, perfMonitor);
 
   // Show welcome on first activation
   showWelcomeIfNeeded(context);
@@ -52,6 +58,7 @@ export async function activate(
     vscode.commands.registerCommand("borrowscope.exportDot", exportDot),
     vscode.commands.registerCommand("borrowscope.exportSvg", exportSvg),
     vscode.commands.registerCommand("borrowscope.showWelcome", () => showWelcomePanel(context)),
+    vscode.commands.registerCommand("borrowscope.describeGraph", describeGraph),
   );
 
   // Start language client
@@ -109,6 +116,10 @@ export async function deactivate(): Promise<void> {
 
 export function getRuntimeWatcher(): RuntimeWatcher | undefined {
   return runtimeWatcher;
+}
+
+export function getPerfMonitor(): PerformanceMonitor {
+  return perfMonitor;
 }
 
 function inspectVariable(): void {
@@ -306,4 +317,44 @@ async function exportSvg(): Promise<void> {
 
   const doc = await vscode.workspace.openTextDocument({ content: svg, language: "xml" });
   await vscode.window.showTextDocument(doc);
+}
+
+function describeGraph(): void {
+  const { GraphPanel } = require("./graph/panel");
+  const panel = GraphPanel.getPanel();
+  const graph = panel?.getGraph();
+  if (!graph) {
+    vscode.window.showInformationMessage("BorrowScope: No graph data. Click a CodeLens first.");
+    return;
+  }
+
+  const vars = graph.variables || [];
+  const borrows = graph.borrow_scopes || [];
+  const moves = graph.moves || [];
+  const lines: string[] = [];
+
+  lines.push(`Function: ${graph.function_name}`);
+  lines.push(`${vars.length} variables, ${borrows.length} borrows, ${moves.length} moves\n`);
+
+  lines.push("Variables:");
+  for (const v of vars) {
+    lines.push(`  ${v.name}: ${v.type_display} (${v.ownership_category}, line ${v.line})`);
+  }
+
+  if (borrows.length > 0) {
+    lines.push("\nBorrows:");
+    for (const b of borrows) {
+      lines.push(`  ${b.borrower} borrows ${b.owner} (${b.kind}, lines ${b.start_line}-${b.end_line})`);
+    }
+  }
+
+  if (moves.length > 0) {
+    lines.push("\nMoves:");
+    for (const m of moves) {
+      lines.push(`  ${m.source_name} → ${m.destination} (line ${m.line})`);
+    }
+  }
+
+  const description = lines.join("\n");
+  vscode.window.showInformationMessage("BorrowScope Graph Description", { modal: true, detail: description });
 }

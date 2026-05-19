@@ -42,12 +42,16 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
 
   try {
     console.log(`[BorrowScope] showGraph: uri=${targetUri}, line=${line}, fn=${functionName}`);
+    const start = performance.now();
     const graph = await client.sendRequest("borrowscope/ownershipGraph", {
       textDocument: { uri: targetUri },
       position: { line, character: 4 },
     }) as any;
+    const elapsed = performance.now() - start;
 
-    console.log(`[BorrowScope] showGraph response:`, graph ? `${graph.function_name} (${(graph.variables||[]).length} vars)` : "null");
+    try { const { getPerfMonitor } = require("./extension"); getPerfMonitor()?.record("ownershipGraph", elapsed); } catch {}
+
+    console.log(`[BorrowScope] showGraph response:`, graph ? `${graph.function_name} (${(graph.variables||[]).length} vars) [${elapsed.toFixed(0)}ms]` : "null");
 
     if (!graph) {
       vscode.window.showInformationMessage("BorrowScope: No function at cursor position");
@@ -64,9 +68,11 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
 
     // Fetch cross-function borrows for this function and attach to graph
     try {
+      const t0 = performance.now();
       const crossResponse = await client.sendRequest("borrowscope/crossFunctionBorrows", {
         textDocument: { uri: targetUri },
       }) as any;
+      try { const { getPerfMonitor } = require("./extension"); getPerfMonitor()?.record("crossFunctionBorrows", performance.now() - t0); } catch {}
       const allCross = crossResponse?.cross_borrows || [];
       const fnCross = allCross.filter((b: any) => b.path.length > 0 && b.path[0].function_name === (functionName || graph.function_name));
       if (fnCross.length > 0) {
@@ -76,10 +82,12 @@ async function showGraphCommand(uri?: string, functionName?: string): Promise<vo
 
     // Fetch memory layout for this function
     try {
+      const t1 = performance.now();
       const memLayout = await client.sendRequest("borrowscope/memoryLayout", {
         textDocument: { uri: targetUri },
         position: { line, character: 4 },
       });
+      try { const { getPerfMonitor } = require("./extension"); getPerfMonitor()?.record("memoryLayout", performance.now() - t1); } catch {}
       if (memLayout) graph._memoryLayout = memLayout;
     } catch { /* ignore */ }
 

@@ -318,7 +318,8 @@ export class GraphPanel {
     </div>
   </div>
   <div id="filter-bar"><span class="filter-label">Filter:</span></div>
-  <div id="graph-container"></div>
+  <div id="graph-container" role="img" aria-label="Ownership graph visualization"></div>
+  <div id="graph-description" aria-live="polite" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;"></div>
   <div id="timeline-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;box-sizing:border-box;"></div>
   <div id="scopes-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;padding:12px;box-sizing:border-box;"></div>
   <div id="refcount-container" style="display:none;width:100%;height:calc(100vh - 90px);overflow:auto;box-sizing:border-box;"></div>
@@ -451,6 +452,12 @@ export class GraphPanel {
         .data(data.nodes)
         .join('g')
         .attr('class', 'node')
+        .attr('role', 'button')
+        .attr('tabindex', '0')
+        .attr('aria-label', d => 'Variable ' + d.name + ', type ' + d.type + ', category ' + d.category)
+        .on('keydown', (event, d) => {
+          if (event.key === 'Enter' && vscodeApi && d.line > 0) vscodeApi.postMessage({ type: 'nodeClicked', line: d.line });
+        })
         .call(d3.drag()
           .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
           .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
@@ -602,6 +609,21 @@ export class GraphPanel {
       // === View toggle: Graph / Timeline ===
       const rawGraph = ${rawGraphJson};
       const lastView = ${JSON.stringify(GraphPanel._lastView || '')};
+
+      // === Accessibility: graph description for screen readers ===
+      (function() {
+        var desc = 'Ownership graph for function ' + rawGraph.function_name + '. ';
+        var vars = rawGraph.variables || [];
+        var borrows = rawGraph.borrow_scopes || [];
+        var moves = rawGraph.moves || [];
+        desc += vars.length + ' variables, ' + borrows.length + ' borrows, ' + moves.length + ' moves. ';
+        vars.forEach(function(v) { desc += v.name + ' is ' + v.ownership_category + ' ' + v.type_display + '. '; });
+        borrows.forEach(function(b) { desc += b.borrower + ' borrows ' + b.owner + ' (' + b.kind + '). '; });
+        moves.forEach(function(m) { desc += m.source_name + ' moved to ' + m.destination + '. '; });
+        var el = document.getElementById('graph-description');
+        if (el) el.textContent = desc;
+      })();
+
       // === Landing page handlers ===
       function showView(view) {
         document.getElementById('landing').style.display = 'none';

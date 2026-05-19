@@ -43,7 +43,9 @@
       { "command": "borrowscope.showServerOutput", "title": "BorrowScope: Show Server Output" },
       { "command": "borrowscope.exportDot", "title": "BorrowScope: Export Graph as DOT" },
       { "command": "borrowscope.exportSvg", "title": "BorrowScope: Export Graph as SVG" },
-      { "command": "borrowscope.showWelcome", "title": "BorrowScope: Show Welcome" }
+      { "command": "borrowscope.showWelcome", "title": "BorrowScope: Show Welcome" },
+      { "command": "borrowscope.showPerformanceReport", "title": "BorrowScope: Show Performance Report" },
+      { "command": "borrowscope.describeGraph", "title": "BorrowScope: Describe Graph (Accessibility)" }
     ],
     "keybindings": [
       { "command": "borrowscope.showGraph", "key": "ctrl+shift+o", "when": "editorLangId == rust" },
