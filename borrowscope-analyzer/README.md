@@ -153,11 +153,11 @@ Types without lang items are found via `import_map::Query`:
 ### Fallback: (name, crate) Map
 For re-exported types where ADT identity differs from the type resolver's ADT, a `(TypeName, CrateName)` map provides classification.
 
-## Output Format (type-info.json v2.1)
+## Output Format (type-info.json v3.0)
 
 ```json
 {
-  "version": "2.1",
+  "version": "3.0",
   "files": {
     "src/main.rs": [
       {
