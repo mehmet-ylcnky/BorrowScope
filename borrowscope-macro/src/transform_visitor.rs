@@ -70,6 +70,8 @@ pub struct OwnershipVisitor {
     decl_counts: HashMap<String, u32>,
     /// When true, skip region tracking (inside closure bodies or function call arguments)
     in_nested_expr: bool,
+    /// When true, skip all transformations (type-info not available)
+    skip_transform: bool,
 }
 
 /// Check if an expression contains constructs that cause rustc parsing issues
@@ -109,33 +111,13 @@ impl OwnershipVisitor {
 
     /// Create a new visitor with custom config
     pub fn with_config(config: TraceConfig) -> Self {
-        // Analyzer is now REQUIRED - fail if type-info.json is missing
-        // (Skip check in test mode to allow unit tests to run)
-        #[cfg(not(test))]
-        if type_info::get_type_info().is_none() {
-            panic!(
-                "\n\n\
-                ╔════════════════════════════════════════════════════════════╗\n\
-                ║  ERROR: BorrowScope analyzer output not found             ║\n\
-                ╠════════════════════════════════════════════════════════════╣\n\
-                ║                                                            ║\n\
-                ║  The #[trace_borrow] macro requires semantic analysis     ║\n\
-                ║  data from borrowscope-analyzer.                           ║\n\
-                ║                                                            ║\n\
-                ║  Please run the analyzer first:                           ║\n\
-                ║                                                            ║\n\
-                ║    cargo run -p borrowscope-analyzer -- .                 ║\n\
-                ║                                                            ║\n\
-                ║  This will generate .borrowscope/type-info.json           ║\n\
-                ║                                                            ║\n\
-                ║  Then rebuild your project:                               ║\n\
-                ║                                                            ║\n\
-                ║    cargo build                                            ║\n\
-                ║                                                            ║\n\
-                ╚════════════════════════════════════════════════════════════╝\n\
-                "
-            );
-        }
+        // Check if analyzer data is available
+        let skip_transform = {
+            #[cfg(not(test))]
+            { type_info::get_type_info().is_none() }
+            #[cfg(test)]
+            { false }
+        };
 
         Self {
             scope_depth: 0,
@@ -157,6 +139,7 @@ impl OwnershipVisitor {
             current_let_binding: None,
             decl_counts: HashMap::new(),
             in_nested_expr: false,
+            skip_transform,
         }
     }
 
@@ -2315,6 +2298,11 @@ impl Default for OwnershipVisitor {
 
 impl VisitMut for OwnershipVisitor {
     fn visit_item_fn_mut(&mut self, func: &mut ItemFn) {
+        // If type-info is not available, leave function unchanged
+        if self.skip_transform {
+            return;
+        }
+
         let fn_name = func.sig.ident.to_string();
         let fn_id = self.gen_id();
 

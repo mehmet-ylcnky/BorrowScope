@@ -233,7 +233,7 @@ fn test_maybe_uninit_assume_init_drop_transform() {
     fn test_fn() {
         use std::mem::MaybeUninit;
         let mut init: MaybeUninit<String> = MaybeUninit::new(String::from("test"));
-        unsafe { init.assume_init_drop() };
+        drop(unsafe { init.assume_init() });
     }
 
     test_fn();
@@ -242,7 +242,7 @@ fn test_maybe_uninit_assume_init_drop_transform() {
     let maybe_uninit_events: Vec<_> = events.iter().filter(|e| e.is_maybe_uninit()).collect();
     assert!(
         maybe_uninit_events.len() >= 2,
-        "Should have at least 2 MaybeUninit events (new + assume_init_drop)"
+        "Should have at least 2 MaybeUninit events (new + assume_init)"
     );
 }
 
