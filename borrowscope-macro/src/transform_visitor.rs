@@ -2298,11 +2298,6 @@ impl Default for OwnershipVisitor {
 
 impl VisitMut for OwnershipVisitor {
     fn visit_item_fn_mut(&mut self, func: &mut ItemFn) {
-        // If type-info is not available, leave function unchanged
-        if self.skip_transform {
-            return;
-        }
-
         let fn_name = func.sig.ident.to_string();
         let fn_id = self.gen_id();
 

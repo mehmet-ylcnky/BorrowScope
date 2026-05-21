@@ -3,6 +3,7 @@ use borrowscope_runtime::*;
 
 mod copy_vs_move;
 mod comprehensive_types;
+mod all_test_patterns;
 
 #[trace_borrow]
 fn test_method_borrows() {
