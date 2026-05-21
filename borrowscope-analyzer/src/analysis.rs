@@ -862,6 +862,7 @@ impl KnownTypes {
         var_info.is_weak =
             self.weak_rc.as_ref() == Some(adt) || self.weak_arc.as_ref() == Some(adt);
 
+        var_info.is_sync_weak = self.weak_arc.as_ref() == Some(adt);
         var_info.is_cell = self.cell.as_ref() == Some(adt);
         var_info.is_refcell = self.refcell.as_ref() == Some(adt);
         var_info.is_mutex = self.mutex.as_ref() == Some(adt);
@@ -912,6 +913,7 @@ impl KnownTypes {
         var_info.is_weak |=
             self.weak_rc.as_ref() == Some(adt) || self.weak_arc.as_ref() == Some(adt);
         var_info.is_cell |= self.cell.as_ref() == Some(adt);
+        var_info.is_sync_weak |= self.weak_arc.as_ref() == Some(adt);
         var_info.is_refcell |= self.refcell.as_ref() == Some(adt);
         var_info.is_mutex |= self.mutex.as_ref() == Some(adt);
         var_info.is_rwlock |= self.rwlock.as_ref() == Some(adt);

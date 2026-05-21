@@ -472,6 +472,7 @@ pub struct VariableTypeInfo {
     pub is_box: bool,
     pub is_weak: bool,
 
+    pub is_sync_weak: bool,
     // Interior mutability (semantic via ADT canonical path)
     pub is_refcell: bool,
     pub is_cell: bool,
@@ -654,6 +655,7 @@ impl VariableTypeInfo {
             is_arc: false,
             is_box: false,
             is_weak: false,
+            is_sync_weak: false,
             is_refcell: false,
             is_cell: false,
             is_mutex: false,

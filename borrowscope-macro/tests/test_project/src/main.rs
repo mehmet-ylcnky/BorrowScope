@@ -2,6 +2,7 @@ use borrowscope_macro::trace_borrow;
 use borrowscope_runtime::*;
 
 mod copy_vs_move;
+mod comprehensive_types;
 
 #[trace_borrow]
 fn test_method_borrows() {

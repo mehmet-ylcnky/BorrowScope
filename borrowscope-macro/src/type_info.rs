@@ -62,6 +62,7 @@ pub struct VariableTypeInfo {
     pub is_arc: bool,
     pub is_box: bool,
     pub is_weak: bool,
+    pub is_sync_weak: bool,
     pub is_refcell: bool,
     pub is_cell: bool,
     pub is_mutex: bool,

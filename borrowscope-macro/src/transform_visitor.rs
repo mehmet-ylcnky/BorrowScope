@@ -1241,17 +1241,30 @@ impl OwnershipVisitor {
 
             // Weak references
             "weak_new" => {
-                // Track as weak variable
-                if type_info.is_arc {
+                // Determine if this is sync (Arc) or rc (Rc) Weak
+                // Check type_info first, then fall back to expression path analysis
+                let is_sync = type_info.is_sync_weak || type_info.is_arc || {
+                    // Check if the expression is Arc::downgrade(...)
+                    if let Expr::Call(call) = original_expr {
+                        if let Expr::Path(p) = call.func.as_ref() {
+                            let path_str = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::");
+                            path_str.contains("Arc")
+                        } else { false }
+                    } else { false }
+                };
+                if is_sync {
                     self.weak_vars
                         .insert(var_name.to_string(), "weak_arc".to_string());
+                    Some(safe_parse_quote!((*original_expr).clone(),
+                        borrowscope_runtime::track_weak_new_sync(#var_name, "", #location, #original_expr)
+                    ))
                 } else {
                     self.weak_vars
                         .insert(var_name.to_string(), "weak_rc".to_string());
+                    Some(safe_parse_quote!((*original_expr).clone(),
+                        borrowscope_runtime::track_weak_new(#var_name, "", #location, #original_expr)
+                    ))
                 }
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    borrowscope_runtime::track_weak_new(#var_name, "", #location, #original_expr)
-                ))
             }
 
             // OnceCell/OnceLock
@@ -2975,12 +2988,8 @@ impl VisitMut for OwnershipVisitor {
                                 return;
                             }
                             "assume_init_drop" => {
-                                *expr = syn::parse_quote! {
-                                    {
-                                        #receiver.assume_init_drop();
-                                        borrowscope_runtime::track_maybe_uninit_assume_init_drop(#uninit_id, #location)
-                                    }
-                                };
+                                // assume_init_drop is unsafe and returns ().
+                                // Leave unchanged — MaybeUninit creation is already tracked.
                                 return;
                             }
                             _ => {}
