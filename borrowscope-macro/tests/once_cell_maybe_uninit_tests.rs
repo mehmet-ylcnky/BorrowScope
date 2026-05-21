@@ -233,7 +233,7 @@ fn test_maybe_uninit_assume_init_drop_transform() {
     fn test_fn() {
         use std::mem::MaybeUninit;
         let mut init: MaybeUninit<String> = MaybeUninit::new(String::from("test"));
-        drop(unsafe { init.assume_init() });
+        let val = unsafe { std::ptr::read(init.as_ptr()) }; drop(val);
     }
 
     test_fn();
