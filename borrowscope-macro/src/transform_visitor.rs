@@ -1176,6 +1176,20 @@ impl OwnershipVisitor {
     ) -> Option<Expr> {
         // Skip wrapping for expressions containing macros, closures with block bodies, etc.
         // These cause rustc parsing failures when embedded as function arguments.
+        // Handle thread spawn BEFORE block closure check (spawn always has a closure arg)
+        if init_kind == "join_handle" {
+            return Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
+            ));
+        }
+
+        // Handle Box::from_raw BEFORE block closure check (from_raw is always in unsafe block)
+        if init_kind == "box_block" && type_info.is_box {
+            return Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
+            ));
+        }
+
         if contains_block_closure(original_expr) {
             return None;
         }
@@ -1294,17 +1308,19 @@ impl OwnershipVisitor {
             }
 
             // Thread spawn (returns JoinHandle)
-            "join_handle" => {
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
-                ))
-            }
 
             // Box::into_raw
             "raw_ptr" | "raw_ptr_mut" | "raw_ptr_shared" if type_info.is_raw_ptr => {
                 self.box_vars.insert(var_name.to_string());
                 Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_box_into_raw(#var_name, #location, #original_expr)
+                ))
+            }
+
+            // Box::from_raw (unsafe, returns Box<T>)
+            "box_block" if type_info.is_box => {
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
                 ))
             }
 
@@ -1519,9 +1535,11 @@ impl OwnershipVisitor {
         let block_id = self.gen_id();
         let location = Self::location_tokens(unsafe_expr.unsafe_token.span);
 
-        // Don't visit the inner block — transforming method calls inside unsafe
-        // blocks produces tokens that can't be re-parsed by syn::parse_quote.
-        // The unsafe block enter/exit tracking is sufficient.
+        // Visit the inner block to transform expressions inside unsafe.
+        // Clone first so we can fall back if the transformation produces unparseable tokens.
+        let original_block = unsafe_expr.block.clone();
+        self.visit_block_mut(&mut unsafe_expr.block);
+
         let inner_block = &unsafe_expr.block;
 
         // Enrich with unsafe_operations data from analyzer
@@ -1535,23 +1553,31 @@ impl OwnershipVisitor {
                 Some(c) => syn::parse_quote! { Some(#c) },
                 None => syn::parse_quote! { None },
             };
-            unsafe_expr.block = syn::parse_quote! {
+            if let Ok(new_block) = syn::parse2(quote! {
                 {
                     borrowscope_runtime::track_unsafe_block_enter_enriched(#block_id, #location, #kind, #ctx_expr);
                     let __unsafe_result = #inner_block;
                     borrowscope_runtime::track_unsafe_block_exit(#block_id, #location);
                     __unsafe_result
                 }
-            };
+            }) {
+                unsafe_expr.block = new_block;
+            } else {
+                unsafe_expr.block = original_block;
+            }
         } else {
-            unsafe_expr.block = syn::parse_quote! {
+            if let Ok(new_block) = syn::parse2(quote! {
                 {
                     borrowscope_runtime::track_unsafe_block_enter(#block_id, #location);
                     let __unsafe_result = #inner_block;
                     borrowscope_runtime::track_unsafe_block_exit(#block_id, #location);
                     __unsafe_result
                 }
-            };
+            }) {
+                unsafe_expr.block = new_block;
+            } else {
+                unsafe_expr.block = original_block;
+            }
         }
     }
 
