@@ -1,402 +1,190 @@
-# borrowscope-graph: Publication Plan
+# BorrowScope: Publication Plan
 
-## Overview
+## Published Papers
 
-Five technical whitepapers documenting the design, implementation, and evaluation of `borrowscope-graph`. Each paper is self-contained but references the others. Published in sequence as development milestones complete.
-
-All papers published at: `https://mehmet-ylcnky.github.io/BorrowScope/`
-
----
-
-## Paper 1: Ownership Graph Construction from Runtime Event Streams
-
-### Scope
-Milestones 1 (Core Data Structures) + 7 (Runtime Integration)
-
-### Abstract
-Presents a graph construction system that transforms flat ownership event streams into structured, queryable graphs. Defines a type system of 11 edge kinds covering all Rust ownership relationships, and demonstrates both batch and streaming construction modes with feature-gated integration.
-
-### Sections
-
-1. **Introduction**
-   - The gap between event streams and structural understanding
-   - Why a flat event list is insufficient for ownership reasoning
-   - Contributions: node/edge type system, construction algorithm, streaming protocol
-
-2. **Background**
-   - BorrowScope runtime event architecture (88 event types, 14 categories)
-   - Existing graph.rs limitations (only 3 edge types, no smart pointer support)
-   - Requirements for a complete ownership graph
-
-3. **Node Type System**
-   - VariableNode: ownership-relevant metadata (name, type, lifetime, mutability)
-   - ScopeNode: containment hierarchy (function, block, loop)
-   - NodeId design: newtype usize, Copy semantics, O(1) lookup
-   - Why two node types are sufficient (variables are the primary entity)
-
-4. **Edge Type System**
-   - 11 EdgeKind variants and their semantic meaning
-   - Temporal edges: start/end timestamps for lifetime-aware queries
-   - Mapping from Rust ownership concepts to edge kinds
-   - CaptureMode for closure edges (ByRef, ByMutRef, ByMove)
-
-5. **Graph Construction Algorithm**
-   - Event-to-graph mapping: which events create nodes, which create edges
-   - Active borrow tracking: HashMap for edge termination on drop
-   - Handling shadowed variables (name + function + decl_index disambiguation)
-   - Complexity analysis: O(n) single-pass construction
-
-6. **Streaming Construction**
-   - GraphStream: incremental event processing
-   - Callback-based updates for real-time visualization
-   - Equivalence proof: streaming produces same graph as batch
-   - Delta export for efficient client synchronization
-
-7. **Runtime Integration**
-   - Feature-gated design: zero cost when disabled
-   - Re-export API: single import for tracking + graph
-   - Feature matrix: track, graph, track+graph
-
-8. **Evaluation**
-   - Construction performance: 1K/10K/100K events benchmarks
-   - Memory usage: bytes per node, bytes per edge
-   - Battle test: ripgrep event stream produces valid graph
-   - Streaming vs batch: latency and throughput comparison
-
-9. **Conclusion**
-
-### Key Diagrams
-- Event-to-graph mapping table (event type -> node/edge operation)
-- Architecture diagram: runtime -> events -> graph -> queries
-- Performance chart: construction time vs event count
-
-### Prerequisites
-- Milestone 1 complete (all data structures implemented and tested)
-- Milestone 7 complete (runtime integration working)
-- Battle test event streams available as fixtures
+| # | Title | Component | Date | Link |
+|---|-------|-----------|------|------|
+| 1 | Technical White Paper: Architecture & Design | borrowscope-runtime | Dec 2025 | [Link](borrowscope-runtime/) |
+| 2 | Automating Instrumentation with a Procedural Macro | borrowscope-macro | Jan 2026 | [Link](borrowscope-macro-intro/) |
+| 3 | Rust's Type Information Barrier | borrowscope-macro | Feb 2026 | [Link](borrowscope-macro-whitepaper/) |
+| 4 | Bridging the Type Information Gap | borrowscope-analyzer | Mar 2026 | [Link](borrowscope-analyzer-whitepaper/) |
+| 5 | Eliminating Heuristics from Rust Procedural Macros | borrowscope-analyzer + macro | May 2026 | [Link](eliminating-heuristics-from-rust-proc-macros/) |
+| 6 | Ownership Graph Construction from Runtime Event Streams | borrowscope-graph | May 2026 | [Link](ownership-graph-construction/) |
+| 7 | Battle-Testing BorrowScope on Real-World Crates | All | May 2026 | [Link](battle-test-whitepaper/) |
 
 ---
 
-## Paper 2: Graph Algorithms for Ownership Analysis
+## Planned Papers
 
-### Scope
-Milestones 2 (Traversal) + 3 (Conflict Detection)
+### Paper 8: Real-Time Ownership Visualization via Language Server Protocol
 
-### Abstract
-Adapts classical graph algorithms to the domain of Rust ownership analysis. Presents traversal algorithms (DFS, BFS, topological sort) with ownership-specific semantics, and introduces conflict detection algorithms that encode Rust's borrowing rules as graph invariants.
+**Component:** `borrowscope-lsp`
 
-### Sections
+**Abstract:** Presents a Language Server Protocol implementation that provides real-time ownership analysis for Rust code using rust-analyzer's semantic engine (ra_ap_* crates). The server computes ownership graphs, NLL-aware borrow scopes, cross-function borrow tracking, and field-level memory layouts — all without requiring code instrumentation.
 
-1. **Introduction**
-   - From ownership graphs to actionable insights
-   - Classical algorithms need adaptation for temporal, directed ownership graphs
-   - Contributions: ownership-aware traversal, conflict detection, cycle detection, validation
+**Key Contributions:**
+- 5 custom LSP request types for ownership visualization
+- NLL borrow scope computation via `Definition::usages()`
+- Cross-function borrow resolution with `HasSource` for file navigation
+- Memory layout with field decomposition for all types via `ty.layout(db)` + `ty.fields(db)`
+- Background workspace loading with debounced incremental analysis
+- LRU analysis cache with stale detection
+- 107 protocol tests + integration tests
 
-2. **Traversal Algorithms**
-   - DFS with direction control (outgoing, incoming, both)
-   - BFS with distance tracking
-   - Shortest path: "how is variable X related to Y?"
-   - Early termination for targeted queries
+**Sections:**
+1. Introduction — Why a dedicated LSP for ownership?
+2. Background — LSP protocol, rust-analyzer APIs, existing tools
+3. Architecture — Server loop, state management, workspace loading
+4. Ownership Graph Computation — Variable extraction, borrow scopes, move detection
+5. Cross-Function Analysis — Call graph resolution, borrow path tracking
+6. Memory Layout — Field-level decomposition, padding, pointer relationships
+7. Performance — <5ms per request, debounce, caching strategy
+8. Evaluation — 107 tests, real-world projects
+9. Related Work — rust-analyzer, Flowistry, Aquascope
+10. Conclusion
 
-3. **Topological Ordering and Drop Order**
-   - Kahn's algorithm adapted for ownership constraints
-   - Borrow edges as ordering constraints (borrower before owner)
-   - Handling cycles: CycleError with participant identification
-   - Verification against Rust's actual drop semantics
-
-4. **Reachability and Connected Components**
-   - Reachability queries for ownership chain verification
-   - Union-find for efficient component detection
-   - Ownership clusters: independent variable groups
-   - Borrow chain and depth computation
-
-5. **Borrow Conflict Detection**
-   - Interval overlap algorithm (sweep-line)
-   - ConflictKind: MutableAndShared, MultipleMutable
-   - Conflict timeline generation for visualization
-   - Relationship to Rust's borrow checker rules
-
-6. **Reference Cycle Detection**
-   - DFS coloring (white/gray/black) for back-edge detection
-   - Extracting cycle participants from DFS stack
-   - Distinguishing Rc cycles (memory leaks) from Arc cycles (deadlock risk)
-
-7. **Graph Validation**
-   - Encoding ownership invariants as checkable properties
-   - BorrowOutlivesOwner, MoveWhileBorrowed, DanglingEdgeReference
-   - Use-after-move detection
-   - Dangling pointer detection for unsafe code
-
-8. **Evaluation**
-   - Algorithm correctness: property-based tests on random graphs
-   - Performance: traversal and conflict detection benchmarks
-   - Real-world: conflicts detected in battle test graphs
-   - False positive analysis: valid patterns not flagged
-
-9. **Conclusion**
-
-### Key Diagrams
-- Conflict detection sweep-line visualization
-- DFS coloring for cycle detection (step-by-step)
-- Topological order example with borrow constraints
-- Validation error taxonomy
-
-### Prerequisites
-- Paper 1 published (graph construction is the foundation)
-- Milestones 2 and 3 complete with full test coverage
-- Property-based tests passing (invariant verification)
+**Target Venue:** ICSE 2027 Tool Demo Track, or VSCode Extension Ecosystem Workshop
 
 ---
 
-## Paper 3: Temporal Ownership Analysis and Lifetime Visualization
+### Paper 9: Interactive Multi-View Ownership Visualization for Rust
 
-### Scope
-Milestones 4 (Temporal Queries) + 5 (Statistics)
+**Component:** `borrowscope-vscode`
 
-### Abstract
-Introduces temporal query capabilities that treat the ownership graph as a time-varying structure. Presents lifetime span computation, NLL-aware borrow scopes, ownership transfer timelines, and reference count history tracking. Complements temporal analysis with statistical metrics for identifying ownership complexity hotspots.
+**Abstract:** Presents an interactive VS Code extension with 11 complementary visualization views for understanding Rust's ownership system. The extension combines inline editor decorations (lifeline flows, colored annotations, CodeLens) with a WebView panel offering force-directed graphs, timelines, scope nesting, reference count charts, and memory layout visualization — all updated in real-time as the developer edits code.
 
-### Sections
+**Key Contributions:**
+- 11 visualization views: Graph, Table, Timeline, Scopes, RefCount, Moves, Conflicts, Compare, CrossRefs, Memory, Runtime
+- Inline editor decorations: lifeline flow lines (├─ │ ╰─), colored ownership hints, CodeLens stats
+- Landing page with icon grid navigation
+- Memory timeline with play/scrub slider showing variable lifecycle
+- D3.js force-directed graph with linked highlighting
+- Vertical icon sidebar for view switching
+- Accessibility: ARIA labels, keyboard navigation, screen reader descriptions
+- 33 configuration settings, 10 theme colors (dark/light/high-contrast)
+- 689 extension tests
 
-1. **Introduction**
-   - Ownership is inherently temporal: borrows start and end, values move
-   - Static graphs lose temporal information; temporal graphs preserve it
-   - Contributions: lifetime analysis, ownership timelines, ref-count history, hotspot detection
+**Sections:**
+1. Introduction — The need for ownership visualization in IDEs
+2. Design Principles — Multiple views, progressive disclosure, linked highlighting
+3. Editor Decorations — Lifelines, annotations, CodeLens, highlights
+4. Visualization Panel — 11 views with interaction design
+5. Memory Layout View — Stack/heap columns, field detail, timeline slider
+6. User Experience — Landing page, keyboard shortcuts, accessibility
+7. Theme Integration — Dark/light/high-contrast adaptation
+8. Performance — <100ms render, debounced updates
+9. User Study (if conducted) — Developer comprehension improvement
+10. Related Work — Aquascope, Boris, Flowistry, REVIS
 
-2. **Lifetime Span Computation**
-   - LifetimeSpan: start, end, duration, is_alive_at
-   - Open-ended lifetimes (never dropped)
-   - Overlap detection via sweep-line
-   - Contemporaries: all variables alive during a given variable's lifetime
-
-3. **Ownership Snapshots**
-   - "Time travel" debugging: inspect state at any timestamp
-   - OwnershipSnapshot: alive variables, active borrows, active locks
-   - Range queries: variables alive throughout an interval
-   - Snapshot diff: what changed between two timestamps
-
-4. **NLL-Aware Borrow Scopes**
-   - Lexical vs non-lexical lifetimes
-   - Effective scope: last usage, not drop point
-   - Integration with analyzer's usage data
-   - Visualization: borrow scope highlighting in source
-
-5. **Ownership Transfer Timelines**
-   - Move chain reconstruction (origin -> ... -> current owner)
-   - find_origin and find_current_owner queries
-   - Timeline visualization for value lifecycle
-   - Multi-move patterns in real code
-
-6. **Reference Count History**
-   - Tracking Rc/Arc counts over time
-   - Clone increments, drop decrements
-   - Peak count and leak detection (final count > 0)
-   - Visualization: ref-count time series chart
-
-7. **Statistical Analysis**
-   - GraphStatistics: comprehensive counts and derived metrics
-   - Hotspot detection: variables with disproportionate edge counts
-   - Borrow frequency analysis with burst detection
-   - Smart pointer usage patterns (Rc families, RefCell ratios, Mutex contention)
-
-8. **Evaluation**
-   - Temporal query performance on large graphs
-   - Leak detection accuracy on known-leaky programs
-   - Hotspot identification on battle test codebases
-   - Comparison: temporal graph vs flat event stream for debugging
-
-9. **Conclusion**
-
-### Key Diagrams
-- Lifetime span visualization (Gantt-chart style)
-- Ownership transfer timeline (value moving between variables)
-- Reference count time series (clone/drop events)
-- Hotspot heatmap (variables colored by edge count)
-
-### Prerequisites
-- Papers 1-2 published (graph construction and algorithms)
-- Milestones 4 and 5 complete
-- Benchmark suite running with performance targets met
+**Target Venue:** VL/HCC 2027, CHI 2027 (with user study), or UIST 2027
 
 ---
 
-## Paper 4: Static-Dynamic Ownership Graph Fusion
+### Paper 10: Merging Static and Runtime Analysis for Ownership Visualization
 
-### Scope
-Milestone 8 (Analyzer Integration)
+**Component:** `borrowscope-vscode` (runtime integration, Milestone 12)
 
-### Abstract
-Presents a technique for combining static analysis data (from borrowscope-analyzer) with runtime observation (from borrowscope-runtime) into a unified ownership graph. Introduces static graph construction without program execution, node enrichment with type metadata, and scope hierarchy reconstruction. Demonstrates that the fusion of static and dynamic analysis produces richer insights than either alone.
+**Abstract:** Presents a system that merges compile-time ownership analysis (from an LSP) with runtime execution data (from instrumented code) into a unified visualization. The system detects divergences between what the compiler predicts and what actually happens at runtime — including Rc/Arc leaks, conditional moves, async borrows held across await points, and unsafe code hiding ownership information.
 
-### Sections
+**Key Contributions:**
+- 88 runtime event types consumed from file or WebSocket
+- 4-tier variable mapping: runtime events → static analysis variables
+- 16 divergence detection kinds with severity levels and suggestions
+- Rc/Arc reference count timeline with leak and cycle detection
+- Drop order analysis with LIFO verification
+- Async borrow tracking across await points
+- Merged view: green (agreement), red (divergence), with hover details
+- Status bar indicator: `Static ✓ | Runtime ✓ (103 events, 2s ago)`
+- File watcher + WebSocket live connection modes
 
-1. **Introduction**
-   - Static analysis knows what is possible; dynamic analysis knows what happened
-   - Neither alone is complete: static over-approximates, dynamic under-approximates
-   - Contributions: static graph mode, enrichment protocol, scope hierarchy, source mapping
+**Sections:**
+1. Introduction — Why combine static and runtime analysis?
+2. Background — Static analysis limitations, runtime tracking capabilities
+3. Architecture — Two data sources, one unified renderer
+4. Event Ingestion — File-based and WebSocket modes
+5. Variable Mapping — Name + line + type matching with confidence levels
+6. Merge Algorithm — Combining static graph with runtime events
+7. Divergence Detection — 16 kinds, severity classification, suggestions
+8. Reference Count Timeline — Leak detection, cycle detection
+9. Async Borrow Tracking — Borrows held across await points
+10. Evaluation — Real-world divergence examples
+11. Related Work — Miri, Valgrind, sanitizers
 
-2. **Background: The Analyzer's Output**
-   - Schema v3.0: 105 fields per variable, 22 top-level maps
-   - Type classification, trait detection, method call analysis
-   - Relationship to Papers 1-3 (runtime graph construction)
-
-3. **Static Graph Construction**
-   - Building ownership graphs from type-info.json alone
-   - Inferring edges from initializer_kind (rc_clone -> RcClone edge)
-   - Inferring borrows from method_calls (self_borrow: "mutable" -> BorrowMut edge)
-   - Closure captures as edges (from closure_captures array)
-   - Limitations: static graph shows potential, not actual execution
-
-4. **Node Enrichment**
-   - Matching runtime nodes to analyzer entries (function + name + decl_index)
-   - Attaching type flags: is_copy, is_smart_pointer, is_interior_mutable
-   - Attaching trait information: Send, Sync, Clone, Drop
-   - Impact on statistics and visualization (smarter grouping)
-
-5. **Scope Hierarchy Reconstruction**
-   - Building containment tree from function_name and scope_id
-   - ScopeContains edges for nesting visualization
-   - Source-location-based ordering when scope_id is flat
-   - Visualization: nested boxes in DOT export
-
-6. **Source Location Mapping**
-   - Attaching file/line/column to graph nodes
-   - node_at_location: click-to-source for IDE integration
-   - Drop location from analyzer (precise without runtime Drop event)
-   - Source-level lifetime: declaration line to drop line
-
-7. **Static vs Dynamic Comparison**
-   - Static graph: all potential relationships (over-approximation)
-   - Dynamic graph: only observed relationships (under-approximation)
-   - Fusion: dynamic graph enriched with static metadata
-   - Use cases: static for code review, dynamic for debugging, fusion for complete picture
-
-8. **Evaluation**
-   - Enrichment coverage: % of runtime nodes matched to analyzer entries
-   - Static graph accuracy: edges that match runtime observations
-   - Source mapping precision: correct file/line for all nodes
-   - Performance: enrichment overhead on large graphs
-
-9. **Conclusion**
-
-### Key Diagrams
-- Static vs dynamic graph comparison (same code, different edges)
-- Enrichment flow: analyzer JSON -> graph nodes gain metadata
-- Scope hierarchy tree visualization
-- Venn diagram: static-only edges, dynamic-only edges, both
-
-### Prerequisites
-- Papers 1-3 published (full runtime graph pipeline)
-- Milestone 8 complete
-- Analyzer producing v3.0 schema (already done)
-- Enrichment tested on battle test codebases
+**Target Venue:** OOPSLA 2027, DLS 2027, or Runtime Verification Workshop
 
 ---
 
-## Paper 5: Multi-Format Graph Export for Ownership Visualization
+### Paper 11: End-to-End Ownership Instrumentation — From Source to Visualization
 
-### Scope
-Milestone 6 (Serialization and Export)
+**Component:** All (analyzer → macro → runtime → LSP → VS Code)
 
-### Abstract
-Presents a multi-format export system for ownership graphs, enabling integration with diverse visualization tools. Covers JSON (full and compact), Graphviz DOT, MessagePack, D3.js force-directed format, and a delta protocol for real-time streaming. Evaluates format trade-offs in size, speed, and tool compatibility.
+**Abstract:** Presents the complete BorrowScope pipeline: a static analyzer extracts type information, a proc macro uses it to instrument code with zero-cost tracking calls, the instrumented program generates runtime events, and a VS Code extension merges static and runtime data into interactive visualizations. The paper evaluates the full pipeline on real Rust projects, measuring instrumentation accuracy, runtime overhead, and developer comprehension.
 
-### Sections
+**Key Contributions:**
+- Complete pipeline: analyzer (207 variables) → macro (133 instrumentation points) → runtime (88 event types) → LSP (5 endpoints) → VS Code (11 views)
+- The circular dependency problem and its solution (test_project pattern)
+- Semantic variant resolution feeding into runtime event classification
+- Performance budget: analyzer 15-30s, macro 0ns without feature, runtime 75ns/call, LSP <5ms/request
+- 2,100+ tests across all components
+- Zero heuristics throughout the entire pipeline
 
-1. **Introduction**
-   - Ownership graphs are only useful if they can be visualized and shared
-   - Different tools require different formats (Graphviz, D3.js, custom UIs)
-   - Contributions: 5 export formats, delta protocol, import with validation
+**Sections:**
+1. Introduction — The vision: making ownership visible
+2. The Pipeline — 5 components, data flow diagram
+3. Static Analysis Phase — Analyzer + type-info.json
+4. Instrumentation Phase — Macro + 133 transformation points
+5. Runtime Phase — Event generation + export
+6. Visualization Phase — LSP + VS Code panel
+7. Integration Challenges — Circular dependencies, name collisions, unsafe blocks
+8. Evaluation — Real projects, test coverage, performance
+9. Limitations — Generic monomorphization, doc tests, unsafe inner blocks
+10. Future Work — borrowscope-memory, borrowscope-cli, borrowscope-web
 
-2. **JSON Export**
-   - Full format: all metadata, human-readable, pretty-printed
-   - Compact format: abbreviated keys, omitted defaults, 40-60% smaller
-   - Schema design: self-describing with version header
-   - Import with validation and version checking
+**Target Venue:** ICSE 2027 (main track), or RustConf 2027 (industry talk)
 
-3. **Graphviz DOT Export**
-   - Mapping ownership concepts to DOT visual elements
-   - Node shapes by type (box = variable, ellipse = scope)
-   - Edge colors by kind (blue = shared borrow, red = mutable, green = clone)
-   - Configurable options: types, timestamps, direction, color scheme
-   - Subgraphs for scope containment
+---
 
-4. **MessagePack Binary Format**
-   - 30-50% smaller than JSON, 2x faster deserialization
-   - Version header for forward compatibility
-   - Use cases: large graph storage, network transmission, caching
+### Paper 12 (Update): Eliminating Heuristics v3.0
 
-5. **D3.js Force-Directed Format**
-   - Nodes with id, name, group (for color coding), size (by edge count)
-   - Links with source, target, value (for edge length), kind, color
-   - Direct consumption by d3.forceSimulation()
-   - Group assignment strategy for meaningful clustering
+**Component:** borrowscope-analyzer + macro
 
-6. **Delta Export Protocol**
-   - Tracking mutations since last export
-   - GraphDelta: added nodes, added edges, dropped nodes, ended edges
-   - Sequence numbers for ordering and gap detection
-   - apply_delta for client-side graph reconstruction
-   - Use case: real-time streaming to web visualization
-
-7. **Format Comparison**
-   - Size comparison table (same graph in all formats)
-   - Parse/serialize speed benchmarks
-   - Tool compatibility matrix
-   - When to use which format
-
-8. **Evaluation**
-   - Round-trip correctness: export -> import produces identical graph
-   - Size reduction: compact JSON vs full, MessagePack vs JSON
-   - DOT rendering: valid output for graphs up to 500 nodes
-   - Delta efficiency: update size vs full export for incremental changes
-   - D3.js integration: renders correctly in browser
-
-9. **Conclusion**
-
-### Key Diagrams
-- Format size comparison bar chart
-- DOT rendering example (small ownership graph as SVG)
-- Delta protocol sequence diagram (server -> client updates)
-- D3.js force-directed layout screenshot
-
-### Prerequisites
-- Papers 1-4 published (complete graph pipeline)
-- Milestone 6 complete with all formats implemented
-- D3.js demo page working (for screenshots)
-- Benchmark results collected
+**New content for existing paper:**
+- Enum variant resolution via `sema.resolve_path()` → `PathResolution::Def(Variant)` (Cow::Borrowed vs Cow::Owned)
+- Removal of `by_name` fallback (cross-function collision fix)
+- `contains_block_closure` bypass for Rc/Arc/thread/unsafe patterns
+- Unsafe block visitor with `syn::parse2` fallback
+- 563 tests (up from 364)
+- `is_sync_weak` field for Arc::downgrade distinction
 
 ---
 
 ## Publication Timeline
 
-| Paper | Title | Publish After | Estimated Date |
-|-------|-------|---------------|----------------|
-| 1 | Ownership Graph Construction | Milestones 1 + 7 complete | TBD |
-| 2 | Graph Algorithms for Ownership Analysis | Milestones 2 + 3 complete | TBD |
-| 3 | Temporal Analysis and Lifetime Visualization | Milestones 4 + 5 complete | TBD |
-| 4 | Static-Dynamic Ownership Graph Fusion | Milestone 8 complete | TBD |
-| 5 | Multi-Format Graph Export | Milestone 6 complete | TBD |
+| Month | Paper | Status |
+|-------|-------|--------|
+| Jun 2026 | Paper 12: Analyzer v3.0 update | Ready to write |
+| Jul 2026 | Paper 8: LSP Server | Ready to write |
+| Aug 2026 | Paper 9: VS Code Visualization | Ready to write |
+| Sep 2026 | Paper 10: Runtime + Static Merge | Ready to write |
+| Oct 2026 | Paper 11: End-to-End Pipeline | Ready to write |
 
 ---
 
-## Cross-References
+## Venue Strategy
 
-Each paper references the others and the existing BorrowScope publications:
-
-| From | References |
-|------|-----------|
-| Paper 1 | Previous whitepaper (analyzer), "Eliminating Heuristics" paper |
-| Paper 2 | Paper 1 (graph construction), Rust Reference (borrow rules) |
-| Paper 3 | Papers 1-2 (graph + algorithms), NLL RFC |
-| Paper 4 | Papers 1-3 (runtime pipeline), analyzer whitepaper, PR #21835 |
-| Paper 5 | Papers 1-4 (complete system), D3.js docs, Graphviz docs |
+| Venue | Deadline | Paper(s) | Type |
+|-------|----------|----------|------|
+| ICSE 2027 | Sep 2026 | Paper 11 (main) or Paper 8 (tool demo) | Conference |
+| OOPSLA 2027 | Oct 2026 | Paper 10 | Conference |
+| VL/HCC 2027 | May 2026 | Paper 9 | Conference |
+| RustConf 2027 | Mar 2027 | Paper 11 | Industry talk |
+| EuroRust 2027 | Jun 2027 | Paper 8 or 9 | Talk |
+| Rust Verification Workshop | TBD | Paper 10 | Workshop |
 
 ---
 
-## Format and Hosting
+## Total Publication Count
 
-- Same HTML/CSS/JS format as existing papers
-- Published on gh-pages branch under `/borrowscope-graph-paper-{N}/`
-- Listed on main landing page under `borrowscope-graph` section
-- Each paper: 8-10 sections, code examples, diagrams, evaluation tables
+- **Published:** 7 papers
+- **Planned:** 5 papers (4 new + 1 update)
+- **Grand total:** 12 papers covering the complete BorrowScope ecosystem
