@@ -170,8 +170,8 @@ impl OwnershipVisitor {
             }
         }
 
-        // Fall back to name-only lookup
-        type_info::lookup_by_name(var_name)
+        // Don't fall back to by_name — it matches variables from unrelated functions
+        None
     }
 
     /// Peek at type info without incrementing decl counter (for post-declaration lookups like drops)
@@ -186,7 +186,8 @@ impl OwnershipVisitor {
                 return Some(info);
             }
         }
-        type_info::lookup_by_name(var_name)
+        // Don't fall back to by_name — it matches variables from unrelated functions
+        None
     }
 
     /// Generate next unique ID
@@ -1191,12 +1192,12 @@ impl OwnershipVisitor {
         }
 
         // Handle Rc/Arc new BEFORE block closure check (often wraps vec![] or other macros)
-        if init_kind == "rc_new" {
+        if init_kind == "rc_new" && type_info.is_rc {
             return Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_rc_new(#var_name, #original_expr)
             ));
         }
-        if init_kind == "arc_new" {
+        if init_kind == "arc_new" && type_info.is_arc {
             return Some(safe_parse_quote!((*original_expr).clone(),
                 borrowscope_runtime::track_arc_new(#var_name, #original_expr)
             ));
