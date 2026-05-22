@@ -1190,6 +1190,18 @@ impl OwnershipVisitor {
             ));
         }
 
+        // Handle Rc/Arc new BEFORE block closure check (often wraps vec![] or other macros)
+        if init_kind == "rc_new" {
+            return Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::track_rc_new(#var_name, #original_expr)
+            ));
+        }
+        if init_kind == "arc_new" {
+            return Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::track_arc_new(#var_name, #original_expr)
+            ));
+        }
+
         if contains_block_closure(original_expr) {
             return None;
         }

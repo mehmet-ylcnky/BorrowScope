@@ -17,11 +17,11 @@ fn test_rc_new_transformation() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_1() {
         let _x = Rc::new(42);
     }
 
-    test_fn();
+    rc_test_1();
 
     let events = get_events();
     assert!(!events.is_empty(), "Should have tracked Rc::new");
@@ -38,12 +38,12 @@ fn test_rc_clone_transformation() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_2() {
         let x = Rc::new(42);
         let _y = Rc::clone(&x);
     }
 
-    test_fn();
+    rc_test_2();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -61,13 +61,13 @@ fn test_rc_multiple_clones_transformation() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_3() {
         let x = Rc::new(100);
         let _y = Rc::clone(&x);
         let _z = Rc::clone(&x);
     }
 
-    test_fn();
+    rc_test_3();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -85,11 +85,11 @@ fn test_arc_new_transformation() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_4() {
         let _x = Arc::new(42);
     }
 
-    test_fn();
+    rc_test_4();
 
     let events = get_events();
     let arc_events: Vec<_> = events.iter().filter(|e| e.is_arc()).collect();
@@ -103,12 +103,12 @@ fn test_arc_clone_transformation() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_5() {
         let x = Arc::new(42);
         let _y = Arc::clone(&x);
     }
 
-    test_fn();
+    rc_test_5();
 
     let events = get_events();
     let arc_events: Vec<_> = events.iter().filter(|e| e.is_arc()).collect();
@@ -126,12 +126,12 @@ fn test_rc_value_correctness() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> i32 {
+    fn rc_test_6() -> i32 {
         let x = Rc::new(42);
         *x
     }
 
-    let result = test_fn();
+    let result = rc_test_6();
     assert_eq!(result, 42, "Rc value should be preserved");
 }
 
@@ -142,12 +142,12 @@ fn test_arc_value_correctness() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> i32 {
+    fn rc_test_7() -> i32 {
         let x = Arc::new(99);
         *x
     }
 
-    let result = test_fn();
+    let result = rc_test_7();
     assert_eq!(result, 99, "Arc value should be preserved");
 }
 
@@ -158,13 +158,13 @@ fn test_rc_clone_value_correctness() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> (i32, i32) {
+    fn rc_test_8() -> (i32, i32) {
         let x = Rc::new(42);
         let y = Rc::clone(&x);
         (*x, *y)
     }
 
-    let (val1, val2) = test_fn();
+    let (val1, val2) = rc_test_8();
     assert_eq!(val1, 42);
     assert_eq!(val2, 42);
 }
@@ -176,12 +176,12 @@ fn test_rc_with_string() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> String {
+    fn rc_test_9() -> String {
         let x = Rc::new(String::from("hello"));
         (*x).clone()
     }
 
-    let result = test_fn();
+    let result = rc_test_9();
     assert_eq!(result, "hello");
 
     let events = get_events();
@@ -196,12 +196,12 @@ fn test_arc_with_string() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> String {
+    fn rc_test_10() -> String {
         let x = Arc::new(String::from("world"));
         (*x).clone()
     }
 
-    let result = test_fn();
+    let result = rc_test_10();
     assert_eq!(result, "world");
 
     let events = get_events();
@@ -216,14 +216,14 @@ fn test_rc_in_nested_scope() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_11() {
         let x = Rc::new(42);
         {
             let _y = Rc::clone(&x);
         }
     }
 
-    test_fn();
+    rc_test_11();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -237,12 +237,12 @@ fn test_mixed_rc_arc() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_12() {
         let _rc = Rc::new(1);
         let _arc = Arc::new(2);
     }
 
-    test_fn();
+    rc_test_12();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -265,12 +265,12 @@ fn test_rc_with_struct() {
     }
 
     #[trace_borrow]
-    fn test_fn() -> i32 {
+    fn rc_test_13() -> i32 {
         let p = Rc::new(Point { x: 10, y: 20 });
         p.x + p.y
     }
 
-    let result = test_fn();
+    let result = rc_test_13();
     assert_eq!(result, 30);
 
     let events = get_events();
@@ -285,12 +285,12 @@ fn test_arc_with_vec() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> usize {
+    fn rc_test_14() -> usize {
         let v = Arc::new(vec![1, 2, 3, 4, 5]);
         v.len()
     }
 
-    let result = test_fn();
+    let result = rc_test_14();
     assert_eq!(result, 5);
 
     let events = get_events();
@@ -305,13 +305,13 @@ fn test_rc_clone_chain() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_15() {
         let x = Rc::new(42);
         let y = Rc::clone(&x);
         let _z = Rc::clone(&y);
     }
 
-    test_fn();
+    rc_test_15();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -366,13 +366,13 @@ fn test_rc_strong_count_tracking() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_16() {
         let x = Rc::new(42);
         let _y = Rc::clone(&x);
         let _z = Rc::clone(&x);
     }
 
-    test_fn();
+    rc_test_16();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -390,12 +390,12 @@ fn test_arc_strong_count_tracking() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_17() {
         let x = Arc::new(42);
         let _y = Arc::clone(&x);
     }
 
-    test_fn();
+    rc_test_17();
 
     let events = get_events();
     let arc_events: Vec<_> = events.iter().filter(|e| e.is_arc()).collect();
@@ -412,12 +412,12 @@ fn test_rc_with_option() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> Option<i32> {
+    fn rc_test_18() -> Option<i32> {
         let x = Rc::new(Some(42));
         *x
     }
 
-    let result = test_fn();
+    let result = rc_test_18();
     assert_eq!(result, Some(42));
 }
 
@@ -428,12 +428,12 @@ fn test_rc_with_result() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() -> std::result::Result<i32, String> {
+    fn rc_test_19() -> std::result::Result<i32, String> {
         let x = Rc::new(Ok::<i32, String>(42));
         (*x).clone()
     }
 
-    let result = test_fn();
+    let result = rc_test_19();
     assert_eq!(result, Ok(42));
 }
 
@@ -444,11 +444,11 @@ fn test_rc_full_path() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_20() {
         let _x = std::rc::Rc::new(42);
     }
 
-    test_fn();
+    rc_test_20();
 
     let events = get_events();
     let rc_events: Vec<_> = events.iter().filter(|e| e.is_rc()).collect();
@@ -462,11 +462,11 @@ fn test_arc_full_path() {
     reset();
 
     #[trace_borrow]
-    fn test_fn() {
+    fn rc_test_21() {
         let _x = std::sync::Arc::new(42);
     }
 
-    test_fn();
+    rc_test_21();
 
     let events = get_events();
     let arc_events: Vec<_> = events.iter().filter(|e| e.is_arc()).collect();

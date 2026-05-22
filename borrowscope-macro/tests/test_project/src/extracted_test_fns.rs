@@ -293,33 +293,96 @@ pub fn test_fn_13() {
     }
 
 #[trace_borrow]
-pub fn test_fn() {
+pub fn rc_test_1() {
         let _x = Rc::new(42);
     }
 
 #[trace_borrow]
-pub fn test_fn_x2() -> i32 {
+pub fn rc_test_2() {
+        let x = Rc::new(42);
+        let _y = Rc::clone(&x);
+    }
+
+#[trace_borrow]
+pub fn rc_test_3() {
+        let x = Rc::new(100);
+        let _y = Rc::clone(&x);
+        let _z = Rc::clone(&x);
+    }
+
+#[trace_borrow]
+pub fn rc_test_4() {
+        let _x = Arc::new(42);
+    }
+
+#[trace_borrow]
+pub fn rc_test_5() {
+        let x = Arc::new(42);
+        let _y = Arc::clone(&x);
+    }
+
+#[trace_borrow]
+pub fn rc_test_6() -> i32 {
         let x = Rc::new(42);
         *x
     }
 
 #[trace_borrow]
-pub fn test_fn_x3() -> (i32, i32) {
+pub fn rc_test_7() -> i32 {
+        let x = Arc::new(99);
+        *x
+    }
+
+#[trace_borrow]
+pub fn rc_test_8() -> (i32, i32) {
         let x = Rc::new(42);
         let y = Rc::clone(&x);
         (*x, *y)
     }
 
 #[trace_borrow]
-pub fn test_fn_x4() -> String {
+pub fn rc_test_9() -> String {
         let x = Rc::new(String::from("hello"));
         (*x).clone()
     }
 
 #[trace_borrow]
-pub fn test_fn_x5() -> usize {
+pub fn rc_test_10() -> String {
+        let x = Arc::new(String::from("world"));
+        (*x).clone()
+    }
+
+#[trace_borrow]
+pub fn rc_test_11() {
+        let x = Rc::new(42);
+        {
+            let _y = Rc::clone(&x);
+        }
+    }
+
+#[trace_borrow]
+pub fn rc_test_12() {
+        let _rc = Rc::new(1);
+        let _arc = Arc::new(2);
+    }
+
+#[trace_borrow]
+pub fn rc_test_13() -> i32 {
+        let p = Rc::new(Point { x: 10, y: 20 });
+        p.x + p.y
+    }
+
+#[trace_borrow]
+pub fn rc_test_14() -> usize {
         let v = Arc::new(vec![1, 2, 3, 4, 5]);
         v.len()
+    }
+
+#[trace_borrow]
+pub fn rc_test_15() {
+        let x = Rc::new(42);
+        let y = Rc::clone(&x);
+        let _z = Rc::clone(&y);
     }
 
 #[trace_borrow]
@@ -330,15 +393,38 @@ pub fn create_and_clone_arc() -> (Arc<i32>, Arc<i32>) {
     }
 
 #[trace_borrow]
-pub fn test_fn_x6() -> Option<i32> {
+pub fn rc_test_16() {
+        let x = Rc::new(42);
+        let _y = Rc::clone(&x);
+        let _z = Rc::clone(&x);
+    }
+
+#[trace_borrow]
+pub fn rc_test_17() {
+        let x = Arc::new(42);
+        let _y = Arc::clone(&x);
+    }
+
+#[trace_borrow]
+pub fn rc_test_18() -> Option<i32> {
         let x = Rc::new(Some(42));
         *x
     }
 
 #[trace_borrow]
-pub fn test_fn_x7() -> std::result::Result<i32, String> {
+pub fn rc_test_19() -> std::result::Result<i32, String> {
         let x = Rc::new(Ok::<i32, String>(42));
         (*x).clone()
+    }
+
+#[trace_borrow]
+pub fn rc_test_20() {
+        let _x = std::rc::Rc::new(42);
+    }
+
+#[trace_borrow]
+pub fn rc_test_21() {
+        let _x = std::sync::Arc::new(42);
     }
 
 #[trace_borrow]
@@ -527,38 +613,38 @@ pub fn example_17<T>(value: &T) -> &T {
     }
 
 #[trace_borrow]
-pub fn example_18<T: Clone>(value: T) -> T {
+pub fn generic_type_test<T: Clone>(value: T) -> T {
         // Use clone to create a new value (New event)
         let x = value.clone();
         x
     }
 
 #[trace_borrow]
-pub fn example_x2() {
+pub fn tn_ex_1() {
         let x = 42;
         assert_eq!(x, 42);
     }
 
 #[trace_borrow]
-pub fn example_2_x2() {
+pub fn tn_ex_2() {
         let x: i32 = 42;
         assert_eq!(x, 42);
     }
 
 #[trace_borrow]
-pub fn example_3_x2() {
+pub fn tn_ex_3() {
         let s = String::from("hello");
         assert_eq!(s, "hello");
     }
 
 #[trace_borrow]
-pub fn example_4_x2() {
+pub fn tn_ex_4() {
         let v = vec![1, 2, 3];
         assert_eq!(v.len(), 3);
     }
 
 #[trace_borrow]
-pub fn example_5_x2() {
+pub fn tn_ex_5() {
         let x = 42;
         let y = 100;
         let z = x + y;
@@ -566,26 +652,26 @@ pub fn example_5_x2() {
     }
 
 #[trace_borrow]
-pub fn example_6_x2() {
+pub fn tn_ex_6() {
         let x = 1 + 2 * 3;
         assert_eq!(x, 7);
     }
 
 #[trace_borrow]
-pub fn example_7_x2() {
+pub fn tn_ex_7() {
         let x = get_value_helper();
         assert_eq!(x, 42);
     }
 
 #[trace_borrow]
-pub fn example_8_x2() {
+pub fn tn_ex_8() {
         let mut x = 42;
         x += 1;
         assert_eq!(x, 43);
     }
 
 #[trace_borrow]
-pub fn example_9_x2() {
+pub fn tn_ex_9() {
         let x = 1;
         {
             let y = 2;
@@ -595,7 +681,7 @@ pub fn example_9_x2() {
     }
 
 #[trace_borrow]
-pub fn example_10_x2() -> i32 {
+pub fn tn_ex_10() -> i32 {
         let x = 42;
         x
     }
