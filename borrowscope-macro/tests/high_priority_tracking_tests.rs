@@ -364,7 +364,9 @@ fn test_thread_with_channel() {
 
     #[trace_borrow]
     fn thread_channel_combo() {
-        let (tx, rx) = mpsc::channel();
+        let channel = mpsc::channel();
+        let tx = channel.0;
+        let rx = channel.1;
 
         let handle = thread::spawn(move || {
             tx.send(42).unwrap();
