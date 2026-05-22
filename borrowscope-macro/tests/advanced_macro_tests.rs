@@ -6,19 +6,18 @@ lazy_static::lazy_static! {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_generates_unique_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_adv1() {
         let _x = 1;
         let _y = 2;
         let _z = 3;
     }
 
-    example_2();
+    example_adv1();
 
     let events = get_events();
     assert!(
@@ -33,18 +32,17 @@ fn test_macro_generates_unique_ids() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_tracks_move_with_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_2() {
+    fn example_adv2() {
         let x = String::from("hello");
         let _y = x; // Move
     }
 
-    example_3();
+    example_adv2();
 
     let events = get_events();
     assert!(events.len() >= 2);
@@ -55,18 +53,17 @@ fn test_macro_tracks_move_with_ids() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_tracks_borrow_with_owner_id() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_3() {
+    fn example_adv3() {
         let x = 42;
         let _r = &x;
     }
 
-    example_4();
+    example_adv3();
 
     let events = get_events();
     assert!(events.len() >= 2);
@@ -85,18 +82,17 @@ fn test_macro_tracks_borrow_with_owner_id() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_tracks_mut_borrow_with_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_4() {
+    fn example_adv4() {
         let mut x = vec![1, 2, 3];
         let _r = &mut x;
     }
 
-    example_5();
+    example_adv4();
 
     let events = get_events();
     assert!(events.len() >= 2);
@@ -113,17 +109,16 @@ fn test_macro_tracks_mut_borrow_with_ids() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_location_tracking() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_5() {
+    fn example_adv5() {
         let _x = 42;
     }
 
-    example_6();
+    example_adv5();
 
     let events = get_events();
     assert!(!events.is_empty());
@@ -134,19 +129,18 @@ fn test_macro_location_tracking() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_complex_ownership_chain() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_6() {
+    fn example_adv6() {
         let x = String::from("hello");
         let r1 = &x;
         let _r2 = &r1;
     }
 
-    example_7();
+    example_adv6();
 
     let events = get_events();
     assert!(events.len() >= 3);
@@ -157,13 +151,12 @@ fn test_macro_complex_ownership_chain() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_multiple_variables_unique_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_7() {
+    fn example_adv7() {
         let _a = 1;
         let _b = 2;
         let _c = 3;
@@ -171,7 +164,7 @@ fn test_macro_multiple_variables_unique_ids() {
         let _e = 5;
     }
 
-    example_8();
+    example_adv7();
 
     let events = get_events();
 
@@ -200,19 +193,18 @@ fn test_macro_multiple_variables_unique_ids() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_move_preserves_source_id() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_8() {
+    fn example_adv8() {
         let x = 42;
         let y = x;
         let _z = y;
     }
 
-    example_9();
+    example_adv8();
 
     let events = get_events();
 
@@ -225,19 +217,18 @@ fn test_macro_move_preserves_source_id() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_borrow_and_move() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_9() {
+    fn example_adv9() {
         let x = String::from("test");
         let _r = &x;
         let _y = x;
     }
 
-    example_10();
+    example_adv9();
 
     let events = get_events();
 
@@ -248,17 +239,16 @@ fn test_macro_borrow_and_move() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_with_box() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_10() {
+    fn example_adv10() {
         let _x = Box::new(42);
     }
 
-    example_11();
+    example_adv10();
 
     let events = get_events();
     assert!(!events.is_empty());
@@ -268,19 +258,18 @@ fn test_macro_with_box() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_timestamp_ordering() {
     let _lock = TEST_LOCK.lock();
     reset();
 
     #[trace_borrow]
-    fn example_11() {
+    fn example_adv11() {
         let _x = 1;
         let _y = 2;
         let _z = 3;
     }
 
-    example_12();
+    example_adv11();
 
     let events = get_events();
 

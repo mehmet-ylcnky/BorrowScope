@@ -1296,11 +1296,7 @@ impl OwnershipVisitor {
             // Thread spawn (returns JoinHandle)
             "join_handle" => {
                 Some(safe_parse_quote!((*original_expr).clone(),
-                    {
-                        let __handle = #original_expr;
-                        borrowscope_runtime::track_thread_spawn(#var_name, #location);
-                        __handle
-                    }
+                    borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
                 ))
             }
 
@@ -1308,11 +1304,7 @@ impl OwnershipVisitor {
             "raw_ptr" | "raw_ptr_mut" | "raw_ptr_shared" if type_info.is_raw_ptr => {
                 self.box_vars.insert(var_name.to_string());
                 Some(safe_parse_quote!((*original_expr).clone(),
-                    {
-                        let __ptr = #original_expr;
-                        borrowscope_runtime::track_box_into_raw(#var_name, #location);
-                        __ptr
-                    }
+                    borrowscope_runtime::track_box_into_raw(#var_name, #location, #original_expr)
                 ))
             }
 
