@@ -8,7 +8,6 @@ lazy_static::lazy_static! {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_simple_generic_function() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -40,7 +39,6 @@ fn test_simple_generic_function() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_string() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -62,7 +60,6 @@ fn test_generic_with_string() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_vec() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -84,7 +81,6 @@ fn test_generic_with_vec() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_multiple_type_parameters() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -129,7 +125,6 @@ fn test_multiple_type_parameters() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_trait_bound() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -153,7 +148,6 @@ fn test_generic_with_trait_bound() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_where_clause() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -177,7 +171,6 @@ fn test_generic_with_where_clause() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_lifetime() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -200,7 +193,6 @@ fn test_generic_with_lifetime() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_multiple_lifetimes() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -231,7 +223,6 @@ fn test_generic_with_multiple_lifetimes() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_const_param() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -251,7 +242,6 @@ fn test_generic_with_const_param() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_option() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -272,7 +262,6 @@ fn test_generic_with_option() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_result() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -292,7 +281,6 @@ fn test_generic_with_result() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_nested_types() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -312,7 +300,6 @@ fn test_generic_nested_types() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_tuple() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -332,7 +319,6 @@ fn test_generic_with_tuple() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_return_type() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -352,7 +338,6 @@ fn test_generic_return_type() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_multiple_variables() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -381,7 +366,6 @@ fn test_generic_with_multiple_variables() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_preserves_functionality() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -401,7 +385,6 @@ fn test_generic_preserves_functionality() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_box() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -421,7 +404,6 @@ fn test_generic_with_box() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_with_reference() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -442,7 +424,6 @@ fn test_generic_with_reference() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_generic_type_name_runtime() {
     let _lock = TEST_LOCK.lock();
     reset();

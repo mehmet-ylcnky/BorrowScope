@@ -36,7 +36,6 @@ fn count_event_type(events: &[Event], type_name: &str) -> usize {
 // ============================================================================
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 #[serial]
 fn test_cow_borrowed_creation() {
@@ -57,7 +56,6 @@ fn test_cow_borrowed_creation() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_cow_owned_creation() {
     reset();
@@ -77,7 +75,6 @@ fn test_cow_owned_creation() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_cow_to_mut_tracking() {
     reset();
@@ -106,7 +103,6 @@ fn test_cow_to_mut_tracking() {
 // ============================================================================
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_weak_new_from_rc_downgrade() {
     reset();
@@ -127,7 +123,6 @@ fn test_weak_new_from_rc_downgrade() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_weak_new_from_arc_downgrade() {
     reset();
@@ -148,7 +143,6 @@ fn test_weak_new_from_arc_downgrade() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_weak_clone_tracking() {
     reset();
@@ -174,7 +168,6 @@ fn test_weak_clone_tracking() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_weak_upgrade_tracking() {
     reset();
@@ -200,7 +193,6 @@ fn test_weak_upgrade_tracking() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_weak_upgrade_after_drop() {
     reset();
@@ -227,7 +219,6 @@ fn test_weak_upgrade_after_drop() {
 // ============================================================================
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_thread_spawn_tracking() {
     reset();
@@ -248,7 +239,6 @@ fn test_thread_spawn_tracking() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_thread_join_tracking() {
     reset();
@@ -280,7 +270,6 @@ fn test_thread_join_tracking() {
 // ============================================================================
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_channel_creation_tracking() {
     reset();
@@ -300,7 +289,6 @@ fn test_channel_creation_tracking() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_channel_tuple_destructuring() {
     reset();
@@ -332,7 +320,6 @@ fn test_channel_tuple_destructuring() {
 // ============================================================================
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_combined_smart_pointer_operations() {
     reset();
@@ -371,7 +358,6 @@ fn test_combined_smart_pointer_operations() {
 }
 
 #[test]
-    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_thread_with_channel() {
     reset();

@@ -719,7 +719,15 @@ impl TypeInfoCache {
 
 fn find_project_root() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        return Some(PathBuf::from(dir));
+        let path = PathBuf::from(&dir);
+        if path.join(".borrowscope/type-info.json").exists() {
+            return Some(path);
+        }
+    }
+    // Fallback: try the macro crate's own directory (for doc tests)
+    let macro_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if macro_dir.join(".borrowscope/type-info.json").exists() {
+        return Some(macro_dir);
     }
     let mut current = std::env::current_dir().ok()?;
     loop {
