@@ -225,8 +225,77 @@ pub fn combined_test() {
 
 // === Track new edge cases ===
 #[trace_borrow]
-pub fn example() {
+pub fn example_basic() {
     let x = 42;
     let _y = x;
     let _s = String::from("hello");
+}
+
+// Generic example variants used by generic_tests
+#[trace_borrow]
+pub fn example_identity<T>(value: T) -> T { value }
+
+#[trace_borrow]
+pub fn example_ref<T>(value: &T) -> &T { value }
+
+#[trace_borrow]
+pub fn example_box<T>(value: Box<T>) -> Box<T> { value }
+
+#[trace_borrow]
+pub fn example_option<T>(value: Option<T>) -> Option<T> { value }
+
+#[trace_borrow]
+pub fn example_result<T, E>(value: std::result::Result<T, E>) -> std::result::Result<T, E> { value }
+
+#[trace_borrow]
+pub fn example_tuple<T, U>(t: T, u: U) -> (T, U) { (t, u) }
+
+#[trace_borrow]
+pub fn example_nested_vec<T>(value: Vec<Vec<T>>) -> Vec<Vec<T>> { value }
+
+#[trace_borrow]
+pub fn example_const_generic<const N: usize>(arr: [i32; N]) -> [i32; N] { arr }
+
+#[trace_borrow]
+pub fn example_lifetime<'a>(x: &'a str) -> &'a str { x }
+
+#[trace_borrow]
+pub fn example_two_lifetimes<'a, 'b>(x: &'a str, _y: &'b str) -> &'a str { x }
+
+// test_fn variants used by once_cell/maybe_uninit/track_new tests
+#[trace_borrow]
+pub fn test_fn_returns_i32() -> i32 { 42 }
+
+#[trace_borrow]
+pub fn test_fn_returns_string() -> String { String::from("hello") }
+
+#[trace_borrow]
+pub fn test_fn_returns_option() -> Option<i32> { Some(42) }
+
+#[trace_borrow]
+pub fn test_fn_returns_result() -> std::result::Result<i32, String> { Ok(42) }
+
+#[trace_borrow]
+pub fn test_fn_returns_tuple() -> (i32, i32) { (1, 2) }
+
+#[trace_borrow]
+pub fn test_fn_returns_usize() -> usize { 42 }
+
+// Functions with exact names used by test files
+#[trace_borrow]
+pub fn example() {
+    let x = 42;
+    let _s = String::from("hello");
+    let _v = vec![1, 2, 3];
+    let _r = &x;
+}
+
+#[trace_borrow]
+pub fn test_fn() {
+    let _x = 42;
+    let _s = String::from("test");
+    let cell: OnceCell<i32> = OnceCell::new();
+    let _ = cell.set(42);
+    let _val = cell.get();
+    let _mu: MaybeUninit<i32> = MaybeUninit::new(100);
 }

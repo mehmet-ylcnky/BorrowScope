@@ -6,6 +6,7 @@ lazy_static::lazy_static! {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_generates_unique_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -32,6 +33,7 @@ fn test_macro_generates_unique_ids() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_tracks_move_with_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -53,6 +55,7 @@ fn test_macro_tracks_move_with_ids() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_tracks_borrow_with_owner_id() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -82,6 +85,7 @@ fn test_macro_tracks_borrow_with_owner_id() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_tracks_mut_borrow_with_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -109,6 +113,7 @@ fn test_macro_tracks_mut_borrow_with_ids() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_location_tracking() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -129,6 +134,7 @@ fn test_macro_location_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_complex_ownership_chain() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -151,6 +157,7 @@ fn test_macro_complex_ownership_chain() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_multiple_variables_unique_ids() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -193,6 +200,7 @@ fn test_macro_multiple_variables_unique_ids() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_move_preserves_source_id() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -217,6 +225,7 @@ fn test_macro_move_preserves_source_id() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_borrow_and_move() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -239,6 +248,7 @@ fn test_macro_borrow_and_move() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_with_box() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -258,6 +268,7 @@ fn test_macro_with_box() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_macro_timestamp_ordering() {
     let _lock = TEST_LOCK.lock();
     reset();

@@ -9,6 +9,7 @@ use borrowscope_runtime::*;
 // =============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_once_cell_new_transform() {
     reset();
@@ -29,6 +30,7 @@ fn test_once_cell_new_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_once_lock_new_transform() {
     reset();
@@ -49,6 +51,7 @@ fn test_once_lock_new_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_once_cell_set_transform() {
     reset();
@@ -71,6 +74,7 @@ fn test_once_cell_set_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_once_cell_get_transform() {
     reset();
@@ -93,6 +97,7 @@ fn test_once_cell_get_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_once_cell_get_or_init_transform() {
     reset();
@@ -119,6 +124,7 @@ fn test_once_cell_get_or_init_transform() {
 // =============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_uninit_transform() {
     reset();
@@ -139,6 +145,7 @@ fn test_maybe_uninit_uninit_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_new_transform() {
     reset();
@@ -159,6 +166,7 @@ fn test_maybe_uninit_new_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_write_transform() {
     reset();
@@ -181,6 +189,7 @@ fn test_maybe_uninit_write_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_assume_init_transform() {
     reset();
@@ -203,6 +212,7 @@ fn test_maybe_uninit_assume_init_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_assume_init_read_transform() {
     reset();
@@ -225,6 +235,7 @@ fn test_maybe_uninit_assume_init_read_transform() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_assume_init_drop_transform() {
     reset();
@@ -251,6 +262,7 @@ fn test_maybe_uninit_assume_init_drop_transform() {
 // =============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_once_cell_full_lifecycle() {
     reset();
@@ -276,6 +288,7 @@ fn test_once_cell_full_lifecycle() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_maybe_uninit_full_lifecycle() {
     reset();

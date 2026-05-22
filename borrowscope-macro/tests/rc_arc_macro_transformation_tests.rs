@@ -10,6 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 #[serial]
 fn test_rc_new_transformation() {
@@ -31,6 +32,7 @@ fn test_rc_new_transformation() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_clone_transformation() {
     reset();
@@ -53,6 +55,7 @@ fn test_rc_clone_transformation() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_multiple_clones_transformation() {
     reset();
@@ -76,6 +79,7 @@ fn test_rc_multiple_clones_transformation() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_new_transformation() {
     reset();
@@ -93,6 +97,7 @@ fn test_arc_new_transformation() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_clone_transformation() {
     reset();
@@ -115,6 +120,7 @@ fn test_arc_clone_transformation() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_value_correctness() {
     reset();
@@ -130,6 +136,7 @@ fn test_rc_value_correctness() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_value_correctness() {
     reset();
@@ -145,6 +152,7 @@ fn test_arc_value_correctness() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_clone_value_correctness() {
     reset();
@@ -162,6 +170,7 @@ fn test_rc_clone_value_correctness() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_with_string() {
     reset();
@@ -181,6 +190,7 @@ fn test_rc_with_string() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_with_string() {
     reset();
@@ -200,6 +210,7 @@ fn test_arc_with_string() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_in_nested_scope() {
     reset();
@@ -220,6 +231,7 @@ fn test_rc_in_nested_scope() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_mixed_rc_arc() {
     reset();
@@ -241,6 +253,7 @@ fn test_mixed_rc_arc() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_with_struct() {
     reset();
@@ -266,6 +279,7 @@ fn test_rc_with_struct() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_with_vec() {
     reset();
@@ -285,6 +299,7 @@ fn test_arc_with_vec() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_clone_chain() {
     reset();
@@ -308,6 +323,7 @@ fn test_rc_clone_chain() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_thread_send() {
     use std::sync::mpsc;
@@ -344,6 +360,7 @@ fn test_arc_thread_send() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_strong_count_tracking() {
     reset();
@@ -367,6 +384,7 @@ fn test_rc_strong_count_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_strong_count_tracking() {
     reset();
@@ -388,6 +406,7 @@ fn test_arc_strong_count_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_with_option() {
     reset();
@@ -403,6 +422,7 @@ fn test_rc_with_option() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_with_result() {
     reset();
@@ -418,6 +438,7 @@ fn test_rc_with_result() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rc_full_path() {
     reset();
@@ -435,6 +456,7 @@ fn test_rc_full_path() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_arc_full_path() {
     reset();

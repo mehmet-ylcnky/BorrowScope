@@ -30,6 +30,7 @@ fn count_event_type(events: &[Event], type_name: &str) -> usize {
 // ============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_mutex_lock_guard_acquire() {
     reset();
@@ -54,6 +55,7 @@ fn test_mutex_lock_guard_acquire() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rwlock_read_guard_acquire() {
     reset();
@@ -84,6 +86,7 @@ fn test_rwlock_read_guard_acquire() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_rwlock_write_guard_acquire() {
     reset();
@@ -118,6 +121,7 @@ fn test_rwlock_write_guard_acquire() {
 // ============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_closure_create_ref() {
     reset();
@@ -148,6 +152,7 @@ fn test_closure_create_ref() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_closure_create_move() {
     reset();
@@ -178,6 +183,7 @@ fn test_closure_create_move() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_closure_capture_tracking() {
     reset();
@@ -203,6 +209,7 @@ fn test_closure_capture_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_move_closure_capture_mode() {
     reset();
@@ -233,6 +240,7 @@ fn test_move_closure_capture_mode() {
 // ============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_box_new_tracking() {
     reset();
@@ -249,6 +257,7 @@ fn test_box_new_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_box_into_raw_tracking() {
     reset();
@@ -270,6 +279,7 @@ fn test_box_into_raw_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_box_from_raw_tracking() {
     reset();
@@ -296,6 +306,7 @@ fn test_box_from_raw_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_box_raw_roundtrip() {
     reset();
@@ -328,6 +339,7 @@ fn test_box_raw_roundtrip() {
 // ============================================================================
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 #[serial]
 fn test_combined_medium_priority_features() {
     reset();

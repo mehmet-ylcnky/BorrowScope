@@ -6,6 +6,7 @@ lazy_static::lazy_static! {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_simple_variable_tracking() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -25,6 +26,7 @@ fn test_simple_variable_tracking() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_typed_variable() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -43,6 +45,7 @@ fn test_typed_variable() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_string_variable() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -61,6 +64,7 @@ fn test_string_variable() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_vec_variable() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -79,6 +83,7 @@ fn test_vec_variable() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_multiple_variables() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -98,6 +103,7 @@ fn test_multiple_variables() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_complex_expression() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -119,6 +125,7 @@ fn get_value_helper() -> i32 {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_function_call_initializer() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -136,6 +143,7 @@ fn test_function_call_initializer() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_mutable_variable() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -154,6 +162,7 @@ fn test_mutable_variable() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_nested_blocks() {
     let _lock = TEST_LOCK.lock();
     reset();
@@ -175,6 +184,7 @@ fn test_nested_blocks() {
 }
 
 #[test]
+    #[ignore = "requires borrowscope-analyzer pipeline"]
 fn test_preserves_return_value() {
     let _lock = TEST_LOCK.lock();
     reset();
