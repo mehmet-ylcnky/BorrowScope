@@ -1255,7 +1255,7 @@ impl OwnershipVisitor {
                 borrowscope_runtime::track_once_cell_new(#var_name, #location, #original_expr)
             )),
             "once_lock_new" => Some(safe_parse_quote!((*original_expr).clone(),
-                borrowscope_runtime::__track_new_with_id_helper(#var_id, #var_name, #location, #original_expr)
+                borrowscope_runtime::track_once_lock_new(#var_name, #location, #original_expr)
             )),
 
             // MaybeUninit
@@ -1266,10 +1266,17 @@ impl OwnershipVisitor {
             }
 
             // Cow
-            "cow_new" | "cow_variant" => {
+            "cow_new" | "cow_variant" | "cow_owned" => {
                 self.cow_vars.insert(var_name.to_string());
                 Some(safe_parse_quote!((*original_expr).clone(),
                     borrowscope_runtime::track_cow_owned(#var_name, #location, #original_expr)
+                ))
+            }
+
+            "cow_borrowed" => {
+                self.cow_vars.insert(var_name.to_string());
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    borrowscope_runtime::track_cow_borrowed(#var_name, #location, #original_expr)
                 ))
             }
 
@@ -1284,6 +1291,29 @@ impl OwnershipVisitor {
             "channel_new" | "sync_channel_new" => {
                 // This is typically a tuple (sender, receiver)
                 None // Let default handling work
+            }
+
+            // Thread spawn (returns JoinHandle)
+            "join_handle" => {
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    {
+                        let __handle = #original_expr;
+                        borrowscope_runtime::track_thread_spawn(#var_name, #location);
+                        __handle
+                    }
+                ))
+            }
+
+            // Box::into_raw
+            "raw_ptr" | "raw_ptr_mut" | "raw_ptr_shared" if type_info.is_raw_ptr => {
+                self.box_vars.insert(var_name.to_string());
+                Some(safe_parse_quote!((*original_expr).clone(),
+                    {
+                        let __ptr = #original_expr;
+                        borrowscope_runtime::track_box_into_raw(#var_name, #location);
+                        __ptr
+                    }
+                ))
             }
 
             // Guards - mark for drop tracking, let track_new/transform_unwrap handle the rest
@@ -1497,9 +1527,9 @@ impl OwnershipVisitor {
         let block_id = self.gen_id();
         let location = Self::location_tokens(unsafe_expr.unsafe_token.span);
 
-        // Visit the inner block first to transform any expressions inside
-        self.visit_block_mut(&mut unsafe_expr.block);
-
+        // Don't visit the inner block — transforming method calls inside unsafe
+        // blocks produces tokens that can't be re-parsed by syn::parse_quote.
+        // The unsafe block enter/exit tracking is sufficient.
         let inner_block = &unsafe_expr.block;
 
         // Enrich with unsafe_operations data from analyzer

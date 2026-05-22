@@ -1906,6 +1906,24 @@ fn classify_initializer_semantic(
     // Get expression structure as context
     let expr_kind = classify_expr_structure(expr);
 
+    // Resolve enum variant construction semantically via sema.resolve_path
+    // This distinguishes Cow::Borrowed vs Cow::Owned, Option::Some vs None, etc.
+    if let ast::Expr::CallExpr(call) = expr {
+        if let Some(ast::Expr::PathExpr(path_expr)) = call.expr() {
+            if let Some(path) = path_expr.path() {
+                if let Some(resolved) = sema.resolve_path(&path) {
+                    if let ra_ap_hir::PathResolution::Def(ra_ap_hir::ModuleDef::Variant(variant)) = resolved {
+                        let variant_name = variant.name(db).display_no_db(Edition::Edition2021).to_string();
+                        let parent_enum = variant.parent_enum(db);
+                        if let Some(classification) = known_types.classify(&ra_ap_hir::Adt::Enum(parent_enum), db) {
+                            return format!("{}_{}", classification, variant_name.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Always try semantic classification first using AdtId comparison
     if let Some(ty) = resolved_type {
         if let Some(semantic_kind) =

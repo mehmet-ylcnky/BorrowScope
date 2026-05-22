@@ -18,7 +18,7 @@ fn test_macro_generates_unique_ids() {
         let _z = 3;
     }
 
-    example();
+    example_2();
 
     let events = get_events();
     assert!(
@@ -39,12 +39,12 @@ fn test_macro_tracks_move_with_ids() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_2() {
         let x = String::from("hello");
         let _y = x; // Move
     }
 
-    example();
+    example_3();
 
     let events = get_events();
     assert!(events.len() >= 2);
@@ -61,12 +61,12 @@ fn test_macro_tracks_borrow_with_owner_id() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_3() {
         let x = 42;
         let _r = &x;
     }
 
-    example();
+    example_4();
 
     let events = get_events();
     assert!(events.len() >= 2);
@@ -91,12 +91,12 @@ fn test_macro_tracks_mut_borrow_with_ids() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_4() {
         let mut x = vec![1, 2, 3];
         let _r = &mut x;
     }
 
-    example();
+    example_5();
 
     let events = get_events();
     assert!(events.len() >= 2);
@@ -119,11 +119,11 @@ fn test_macro_location_tracking() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_5() {
         let _x = 42;
     }
 
-    example();
+    example_6();
 
     let events = get_events();
     assert!(!events.is_empty());
@@ -140,13 +140,13 @@ fn test_macro_complex_ownership_chain() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_6() {
         let x = String::from("hello");
         let r1 = &x;
         let _r2 = &r1;
     }
 
-    example();
+    example_7();
 
     let events = get_events();
     assert!(events.len() >= 3);
@@ -163,7 +163,7 @@ fn test_macro_multiple_variables_unique_ids() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_7() {
         let _a = 1;
         let _b = 2;
         let _c = 3;
@@ -171,7 +171,7 @@ fn test_macro_multiple_variables_unique_ids() {
         let _e = 5;
     }
 
-    example();
+    example_8();
 
     let events = get_events();
 
@@ -206,13 +206,13 @@ fn test_macro_move_preserves_source_id() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_8() {
         let x = 42;
         let y = x;
         let _z = y;
     }
 
-    example();
+    example_9();
 
     let events = get_events();
 
@@ -231,13 +231,13 @@ fn test_macro_borrow_and_move() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_9() {
         let x = String::from("test");
         let _r = &x;
         let _y = x;
     }
 
-    example();
+    example_10();
 
     let events = get_events();
 
@@ -254,11 +254,11 @@ fn test_macro_with_box() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_10() {
         let _x = Box::new(42);
     }
 
-    example();
+    example_11();
 
     let events = get_events();
     assert!(!events.is_empty());
@@ -274,13 +274,13 @@ fn test_macro_timestamp_ordering() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_11() {
         let _x = 1;
         let _y = 2;
         let _z = 3;
     }
 
-    example();
+    example_12();
 
     let events = get_events();
 

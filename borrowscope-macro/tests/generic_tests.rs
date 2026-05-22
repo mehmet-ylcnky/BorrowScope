@@ -46,12 +46,12 @@ fn test_generic_with_string() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: T) -> T {
+    fn example_2<T>(value: T) -> T {
         let x = value;
         x
     }
 
-    let result = example(String::from("hello"));
+    let result = example_2(String::from("hello"));
     assert_eq!(result, "hello");
 
     let events = get_events();
@@ -68,12 +68,12 @@ fn test_generic_with_vec() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: T) -> T {
+    fn example_3<T>(value: T) -> T {
         let x = value;
         x
     }
 
-    let result = example(vec![1, 2, 3]);
+    let result = example_3(vec![1, 2, 3]);
     assert_eq!(result, vec![1, 2, 3]);
 
     let events = get_events();
@@ -90,13 +90,13 @@ fn test_multiple_type_parameters() {
     reset();
 
     #[trace_borrow]
-    fn example<T, U>(t: T, u: U) -> (T, U) {
+    fn example_4<T, U>(t: T, u: U) -> (T, U) {
         let x = t;
         let y = u;
         (x, y)
     }
 
-    let result = example(42, "hello");
+    let result = example_4(42, "hello");
     assert_eq!(result, (42, "hello"));
 
     let events = get_events();
@@ -135,12 +135,12 @@ fn test_generic_with_trait_bound() {
     reset();
 
     #[trace_borrow]
-    fn example<T: Clone>(value: T) -> T {
+    fn example_5<T: Clone>(value: T) -> T {
         let x = value.clone();
         x
     }
 
-    let result = example(42);
+    let result = example_5(42);
     assert_eq!(result, 42);
 
     let events = get_events();
@@ -159,7 +159,7 @@ fn test_generic_with_where_clause() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: T) -> T
+    fn example_6<T>(value: T) -> T
     where
         T: Clone + std::fmt::Debug,
     {
@@ -167,7 +167,7 @@ fn test_generic_with_where_clause() {
         x
     }
 
-    let result = example(42);
+    let result = example_6(42);
     assert_eq!(result, 42);
 
     let events = get_events();
@@ -183,13 +183,13 @@ fn test_generic_with_lifetime() {
     reset();
 
     #[trace_borrow]
-    fn example<'a>(x: &'a str) -> &'a str {
+    fn example_7<'a>(x: &'a str) -> &'a str {
         let y = x;
         y
     }
 
     let s = String::from("hello");
-    let result = example(&s);
+    let result = example_7(&s);
     assert_eq!(result, "hello");
 
     let events = get_events();
@@ -213,14 +213,14 @@ fn test_generic_with_multiple_lifetimes() {
     reset();
 
     #[trace_borrow]
-    fn example<'a, 'b>(x: &'a str, _y: &'b str) -> &'a str {
+    fn example_8<'a, 'b>(x: &'a str, _y: &'b str) -> &'a str {
         let z = x;
         z
     }
 
     let s1 = String::from("hello");
     let s2 = String::from("world");
-    let result = example(&s1, &s2);
+    let result = example_8(&s1, &s2);
     assert_eq!(result, "hello");
 
     let events = get_events();
@@ -243,12 +243,12 @@ fn test_generic_with_const_param() {
     reset();
 
     #[trace_borrow]
-    fn example<const N: usize>(arr: [i32; N]) -> [i32; N] {
+    fn example_9<const N: usize>(arr: [i32; N]) -> [i32; N] {
         let x = arr;
         x
     }
 
-    let result = example([1, 2, 3]);
+    let result = example_9([1, 2, 3]);
     assert_eq!(result, [1, 2, 3]);
 
     let events = get_events();
@@ -263,12 +263,12 @@ fn test_generic_with_option() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: Option<T>) -> Option<T> {
+    fn example_10<T>(value: Option<T>) -> Option<T> {
         let x = value;
         x
     }
 
-    let result = example(Some(42));
+    let result = example_10(Some(42));
     assert_eq!(result, Some(42));
 
     let events = get_events();
@@ -284,12 +284,12 @@ fn test_generic_with_result() {
     reset();
 
     #[trace_borrow]
-    fn example<T, E>(value: std::result::Result<T, E>) -> std::result::Result<T, E> {
+    fn example_11<T, E>(value: std::result::Result<T, E>) -> std::result::Result<T, E> {
         let x = value;
         x
     }
 
-    let result: std::result::Result<i32, String> = example(Ok(42));
+    let result: std::result::Result<i32, String> = example_11(Ok(42));
     assert_eq!(result, Ok(42));
 
     let events = get_events();
@@ -304,12 +304,12 @@ fn test_generic_nested_types() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: Vec<Vec<T>>) -> Vec<Vec<T>> {
+    fn example_12<T>(value: Vec<Vec<T>>) -> Vec<Vec<T>> {
         let x = value;
         x
     }
 
-    let result = example(vec![vec![1, 2], vec![3, 4]]);
+    let result = example_12(vec![vec![1, 2], vec![3, 4]]);
     assert_eq!(result, vec![vec![1, 2], vec![3, 4]]);
 
     let events = get_events();
@@ -324,12 +324,12 @@ fn test_generic_with_tuple() {
     reset();
 
     #[trace_borrow]
-    fn example<T, U>(value: (T, U)) -> (T, U) {
+    fn example_13<T, U>(value: (T, U)) -> (T, U) {
         let x = value;
         x
     }
 
-    let result = example((42, "hello"));
+    let result = example_13((42, "hello"));
     assert_eq!(result, (42, "hello"));
 
     let events = get_events();
@@ -344,12 +344,12 @@ fn test_generic_return_type() {
     reset();
 
     #[trace_borrow]
-    fn example<T: Default>() -> T {
+    fn example_14<T: Default>() -> T {
         let x = T::default();
         x
     }
 
-    let result: i32 = example();
+    let result: i32 = example_14();
     assert_eq!(result, 0);
 
     let events = get_events();
@@ -364,13 +364,13 @@ fn test_generic_with_multiple_variables() {
     reset();
 
     #[trace_borrow]
-    fn example<T: Clone>(value: T) -> T {
+    fn example_15<T: Clone>(value: T) -> T {
         let x = value.clone();
         let y = x.clone();
         y
     }
 
-    let result = example(42);
+    let result = example_15(42);
     assert_eq!(result, 42);
 
     let events = get_events();
@@ -413,12 +413,12 @@ fn test_generic_with_box() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: Box<T>) -> Box<T> {
+    fn example_16<T>(value: Box<T>) -> Box<T> {
         let x = value;
         x
     }
 
-    let result = example(Box::new(42));
+    let result = example_16(Box::new(42));
     assert_eq!(*result, 42);
 
     let events = get_events();
@@ -433,13 +433,13 @@ fn test_generic_with_reference() {
     reset();
 
     #[trace_borrow]
-    fn example<T>(value: &T) -> &T {
+    fn example_17<T>(value: &T) -> &T {
         let x = value;
         x
     }
 
     let val = 42;
-    let result = example(&val);
+    let result = example_17(&val);
     assert_eq!(*result, 42);
 
     let events = get_events();
@@ -454,18 +454,18 @@ fn test_generic_type_name_runtime() {
     reset();
 
     #[trace_borrow]
-    fn example<T: Clone>(value: T) -> T {
+    fn example_18<T: Clone>(value: T) -> T {
         // Use clone to create a new value (New event)
         let x = value.clone();
         x
     }
 
     // Test with different types to ensure type_name works at runtime
-    let _ = example(42i32);
+    let _ = example_18(42i32);
     let events1 = get_events();
 
     reset();
-    let _ = example(42u64);
+    let _ = example_19(42u64);
     let events2 = get_events();
 
     // Both should have events

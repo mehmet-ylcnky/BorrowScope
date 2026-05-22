@@ -17,7 +17,7 @@ fn test_simple_variable_tracking() {
         assert_eq!(x, 42);
     }
 
-    example();
+    example_2();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -32,12 +32,12 @@ fn test_typed_variable() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_2() {
         let x: i32 = 42;
         assert_eq!(x, 42);
     }
 
-    example();
+    example_3();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -51,12 +51,12 @@ fn test_string_variable() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_3() {
         let s = String::from("hello");
         assert_eq!(s, "hello");
     }
 
-    example();
+    example_4();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -70,12 +70,12 @@ fn test_vec_variable() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_4() {
         let v = vec![1, 2, 3];
         assert_eq!(v.len(), 3);
     }
 
-    example();
+    example_5();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -89,14 +89,14 @@ fn test_multiple_variables() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_5() {
         let x = 42;
         let y = 100;
         let z = x + y;
         assert_eq!(z, 142);
     }
 
-    example();
+    example_6();
 
     let events = get_events();
     assert_eq!(events.len(), 6); // 3 New + 3 Drop
@@ -109,12 +109,12 @@ fn test_complex_expression() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_6() {
         let x = 1 + 2 * 3;
         assert_eq!(x, 7);
     }
 
-    example();
+    example_7();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -131,12 +131,12 @@ fn test_function_call_initializer() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_7() {
         let x = get_value_helper();
         assert_eq!(x, 42);
     }
 
-    example();
+    example_8();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -149,13 +149,13 @@ fn test_mutable_variable() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_8() {
         let mut x = 42;
         x += 1;
         assert_eq!(x, 43);
     }
 
-    example();
+    example_9();
 
     let events = get_events();
     assert_eq!(events.len(), 2); // New + Drop
@@ -168,7 +168,7 @@ fn test_nested_blocks() {
     reset();
 
     #[trace_borrow]
-    fn example() {
+    fn example_9() {
         let x = 1;
         {
             let y = 2;
@@ -177,7 +177,7 @@ fn test_nested_blocks() {
         assert_eq!(x, 1);
     }
 
-    example();
+    example_10();
 
     let events = get_events();
     assert_eq!(events.len(), 4); // 2 New + 2 Drop
@@ -190,12 +190,12 @@ fn test_preserves_return_value() {
     reset();
 
     #[trace_borrow]
-    fn example() -> i32 {
+    fn example_10() -> i32 {
         let x = 42;
         x
     }
 
-    let result = example();
+    let result = example_11();
     assert_eq!(result, 42);
 
     let events = get_events();
