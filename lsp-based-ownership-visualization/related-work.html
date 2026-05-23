@@ -1,0 +1,149 @@
+<div class="section">
+    <h1>2. Related Work</h1>
+    <p>
+        Several tools have attempted to make Rust's ownership system more visible to developers. Each addresses a subset of the problem but leaves significant gaps that motivated the design of <code>borrowscope-lsp</code>.
+    </p>
+
+    <h2>2.1 <a href="https://github.com/cognitive-engineering-lab/aquascope" target="_blank">Aquascope</a> (Brown University)</h2>
+    <p>
+        Aquascope visualizes permissions (read, write, own) on a per-statement basis, showing how permissions flow through a function body. It operates on MIR (Mid-level Intermediate Representation) and generates static diagrams that annotate each line with the permissions held by each variable at that point. The tool is pedagogically effective for teaching ownership concepts and has been integrated into the official Rust Book's interactive edition.
+    </p>
+    <p>
+        Limitations relevant to our work: Aquascope operates in batch mode (the developer submits code and receives a rendered image), provides no editor integration, does not track borrows across function boundaries, and does not visualize memory layout. It focuses on permissions rather than structural relationships (who borrows from whom, where moves happen, which Rc clones share ownership).
+    </p>
+
+    <h2>2.2 <a href="https://github.com/rustviz/rustviz" target="_blank">RustViz</a> (University of Michigan)</h2>
+    <p>
+        RustViz generates SVG timeline diagrams showing ownership events (creation, borrow, move, drop) along a time axis. The output is visually clear and suitable for educational materials. However, RustViz requires manual annotation: the developer must insert special comments in the source code to mark which variables and events to visualize. This manual effort makes it impractical for day-to-day development and limits its use to prepared examples.
+    </p>
+    <p>
+        In contrast, <code>borrowscope-lsp</code> requires no source code modification. Analysis is fully automatic, driven by the semantic database.
+    </p>
+
+    <h2>2.3 <a href="https://github.com/willcrichton/flowistry" target="_blank">Flowistry</a> (Stanford)</h2>
+    <p>
+        Flowistry tracks information flow in Rust programs: given an output, it identifies which inputs influenced it. Built on MIR analysis, it provides a VS Code extension that highlights relevant code slices. Flowistry answers the question "what affects this value?" rather than "who owns this value?" or "which borrows are active here?"
+    </p>
+    <p>
+        While information flow and ownership are related concepts, they serve different purposes. A developer debugging a borrow checker error needs to see borrow scopes and conflicts, not data dependencies. Flowistry does not provide ownership graphs, borrow scope visualization, conflict detection, or memory layout information.
+    </p>
+
+    <h2>2.4 <a href="https://github.com/nicmr/revis" target="_blank">REVIS</a></h2>
+    <p>
+        REVIS (Runtime Execution VISualizer) provides dynamic visualization of Rust program execution, showing how values move through memory during runtime. Like <code>borrowscope-runtime</code>, it requires program execution and traces one path per run. It does not integrate with the editor and provides no static analysis capabilities.
+    </p>
+
+    <h2>2.5 <a href="https://github.com/rust-lang/rust-analyzer" target="_blank">rust-analyzer</a> Built-in Features</h2>
+    <p>
+        rust-analyzer, the de facto Rust language server, provides type inference, go-to-definition, find-references, inlay hints for types and parameter names, and basic hover information. It uses the same <code>ra_ap_*</code> semantic engine that <code>borrowscope-lsp</code> builds upon. However, rust-analyzer does not provide ownership-specific analysis: no ownership graph, no borrow scope visualization, no conflict detection, no move tracking, no Rc/Arc clone tracking, no cross-function borrow paths, and no memory layout visualization.
+    </p>
+    <p>
+        <code>borrowscope-lsp</code> is not a replacement for rust-analyzer but a complement. It uses the same underlying database (Salsa + VFS) and the same type resolution APIs, adding an ownership-focused analysis layer on top.
+    </p>
+
+    <h2>2.6 Positioning of borrowscope-lsp</h2>
+    <p>
+        The following table summarizes the feature coverage of each tool. <code>borrowscope-lsp</code> is the only system that provides real-time, editor-native, fully automated ownership analysis with cross-function tracking and memory layout visualization.
+    </p>
+    <table>
+        <tr>
+            <th>Feature</th>
+            <th>Aquascope</th>
+            <th>RustViz</th>
+            <th>Flowistry</th>
+            <th>REVIS</th>
+            <th>rust-analyzer</th>
+            <th>borrowscope-lsp</th>
+        </tr>
+        <tr>
+            <td>Real-time (as you type)</td>
+            <td>No</td>
+            <td>No</td>
+            <td>Yes</td>
+            <td>No</td>
+            <td>Yes</td>
+            <td><strong>Yes</strong></td>
+        </tr>
+        <tr>
+            <td>Editor integration</td>
+            <td>No</td>
+            <td>No</td>
+            <td>VS Code</td>
+            <td>No</td>
+            <td>VS Code + others</td>
+            <td><strong>LSP (any editor)</strong></td>
+        </tr>
+        <tr>
+            <td>No manual annotation</td>
+            <td>Yes</td>
+            <td>No</td>
+            <td>Yes</td>
+            <td>Yes</td>
+            <td>Yes</td>
+            <td><strong>Yes</strong></td>
+        </tr>
+        <tr>
+            <td>Ownership graph</td>
+            <td>No</td>
+            <td>Partial</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td><strong>Yes</strong></td>
+        </tr>
+        <tr>
+            <td>Borrow scope visualization</td>
+            <td>Permissions</td>
+            <td>Timeline</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td><strong>Yes (line ranges)</strong></td>
+        </tr>
+        <tr>
+            <td>Conflict detection</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td><strong>Yes</strong></td>
+        </tr>
+        <tr>
+            <td>Cross-function tracking</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td><strong>Yes</strong></td>
+        </tr>
+        <tr>
+            <td>Memory layout</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>Partial</td>
+            <td>No</td>
+            <td><strong>Yes (field-level)</strong></td>
+        </tr>
+        <tr>
+            <td>Move detection</td>
+            <td>Yes</td>
+            <td>Yes</td>
+            <td>No</td>
+            <td>Yes</td>
+            <td>No</td>
+            <td><strong>Yes (4 patterns)</strong></td>
+        </tr>
+        <tr>
+            <td>Rc/Arc clone tracking</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td>No</td>
+            <td><strong>Yes</strong></td>
+        </tr>
+    </table>
+</div>

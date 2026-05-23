@@ -1,0 +1,714 @@
+<div class="section">
+    <h1>4. Ownership Analysis Engine</h1>
+    <p>
+        The analysis engine is the core of <code>borrowscope-lsp</code>. It takes a parsed function AST and the Salsa semantic database as input, and produces a complete <code>FunctionOwnershipSummary</code> containing every ownership relationship in that function. The engine performs 7 distinct analyses in sequence: type extraction, borrow scope computation, move detection, closure capture analysis, Rc/Arc clone tracking, conflict detection, and method call resolution. Each analysis uses only semantic APIs (no string matching on source text, no heuristics based on naming conventions). If the semantic database cannot resolve a type or reference, the analysis skips that item rather than guessing.
+    </p>
+
+    <h2>4.1 Full Type Extraction (40+ Properties)</h2>
+    <p>
+        For every <code>let</code> binding in a function body, the engine extracts exhaustive type information by calling methods on <code>hir::Type</code>. The result is a <code>VariableOwnershipInfo</code> struct with over 40 fields covering every aspect of the type that is relevant to ownership analysis. This is the same information that the <code>borrowscope-analyzer</code> writes to <code>type-info.json</code>, but computed on-demand from the live Salsa database rather than read from a static file.
+    </p>
+    <p>
+        The extraction is organized into categories. First, 17 boolean properties that require no database access: <code>is_reference</code>, <code>is_mutable_reference</code>, <code>is_copy</code>, <code>is_closure</code>, <code>is_raw_ptr</code>, <code>is_tuple</code>, <code>is_array</code>, <code>is_fn</code>, <code>is_scalar</code>, and others. Second, properties that require the database: <code>is_copy(db)</code>, <code>is_packed(db)</code>, <code>contains_reference(db)</code>, <code>impls_fnonce(db)</code>, <code>impls_iterator(db)</code>. Third, decomposition queries: reference inner type, ADT info (struct/enum/union with canonical path), type arguments, future output, iterator item, tuple fields, struct fields, array element type. Fourth, layout information: <code>ty.layout(db)</code> returns size and alignment in bytes. Fifth, drop glue detection via <code>ty.drop_glue(db)</code>.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub struct</span> <span class="rust-type">VariableOwnershipInfo</span> {
+    <span class="rust-comment">// Identity</span>
+    <span class="rust-keyword">pub</span> name: String,
+    <span class="rust-keyword">pub</span> type_display: String,
+    <span class="rust-keyword">pub</span> file: String,
+    <span class="rust-keyword">pub</span> line: u32,
+    <span class="rust-keyword">pub</span> column: u32,
+
+    <span class="rust-comment">// Boolean type properties (no db needed)</span>
+    <span class="rust-keyword">pub</span> is_reference: <span class="rust-type">bool</span>,
+    <span class="rust-keyword">pub</span> is_mutable_reference: <span class="rust-type">bool</span>,
+    <span class="rust-keyword">pub</span> is_closure: <span class="rust-type">bool</span>,
+    <span class="rust-keyword">pub</span> is_raw_ptr: <span class="rust-type">bool</span>,
+    <span class="rust-keyword">pub</span> is_copy: <span class="rust-type">bool</span>,
+    <span class="rust-comment">// ... 12 more boolean fields</span>
+
+    <span class="rust-comment">// Decomposition</span>
+    <span class="rust-keyword">pub</span> adt_info: Option&lt;<span class="rust-type">AdtInfo</span>&gt;,
+    <span class="rust-keyword">pub</span> struct_fields: Vec&lt;<span class="rust-type">FieldInfo</span>&gt;,
+    <span class="rust-keyword">pub</span> type_arguments: Vec&lt;String&gt;,
+
+    <span class="rust-comment">// Layout</span>
+    <span class="rust-keyword">pub</span> layout_size: Option&lt;u64&gt;,
+    <span class="rust-keyword">pub</span> layout_align: Option&lt;u64&gt;,
+    <span class="rust-keyword">pub</span> has_drop_glue: <span class="rust-type">bool</span>,
+
+    <span class="rust-comment">// Classification</span>
+    <span class="rust-keyword">pub</span> ownership_category: <span class="rust-type">OwnershipCategory</span>,
+    <span class="rust-keyword">pub</span> trait_impls: <span class="rust-type">TraitImplInfo</span>,
+}</pre>
+    </div>
+
+    <h2>4.2 Ownership Classification Algorithm</h2>
+    <p>
+        Every extracted variable is classified into one of 8 ownership categories. The classification uses a priority chain that checks the most specific conditions first and falls through to more general ones. This ordering ensures that a <code>&amp;Rc&lt;T&gt;</code> is classified as <code>SharedRef</code> (not <code>Rc</code>), and that a <code>Copy</code> type behind a raw pointer is classified as <code>RawPointer</code> (not <code>Copy</code>). The algorithm never guesses: if the type is unknown (unresolved generic, inference failure), it returns <code>OwnershipCategory::Unknown</code>.
+    </p>
+    <p>
+        The ADT path check for smart pointers uses the fully resolved module path from <code>hir::Adt::module().path_to_root()</code>, not the display name. This means <code>use std::rc::Rc as MyRc; let x: MyRc&lt;i32&gt;</code> is correctly classified as <code>Rc</code> because the canonical path resolves to <code>alloc::rc::Rc</code> regardless of the local alias. This is the same semantic resolution that the <code>borrowscope-analyzer</code> uses for <code>type-info.json</code>, ensuring consistency between the static file and the live LSP analysis.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">classify_ownership</span>(db: &amp;RootDatabase, ty: &amp;hir::Type, info: &amp;VariableOwnershipInfo) -> OwnershipCategory {
+    <span class="rust-keyword">if</span> info.is_unknown       { <span class="rust-keyword">return</span> OwnershipCategory::Unknown; }
+    <span class="rust-keyword">if</span> info.is_raw_ptr       { <span class="rust-keyword">return</span> OwnershipCategory::RawPointer; }
+    <span class="rust-keyword">if</span> info.is_mutable_reference { <span class="rust-keyword">return</span> OwnershipCategory::MutableRef; }
+    <span class="rust-keyword">if</span> info.is_reference      { <span class="rust-keyword">return</span> OwnershipCategory::SharedRef; }
+    <span class="rust-keyword">if</span> info.is_copy           { <span class="rust-keyword">return</span> OwnershipCategory::Copy; }
+
+    <span class="rust-comment">// Check ADT canonical path for smart pointers</span>
+    <span class="rust-keyword">if let</span> Some(<span class="rust-keyword">ref</span> path) = info.adt_canonical_path {
+        <span class="rust-keyword">if</span> path.contains(<span class="rust-string">"rc::rc"</span>)       { <span class="rust-keyword">return</span> OwnershipCategory::Rc; }
+        <span class="rust-keyword">if</span> path.contains(<span class="rust-string">"sync::arc"</span>)    { <span class="rust-keyword">return</span> OwnershipCategory::Arc; }
+        <span class="rust-keyword">if</span> path.contains(<span class="rust-string">"cell::refcell"</span>) { <span class="rust-keyword">return</span> OwnershipCategory::InteriorMut; }
+    }
+    OwnershipCategory::Owned
+}</pre>
+    </div>
+
+    <h2>4.3 Borrow Scope Computation via Definition::usages</h2>
+    <p>
+        For each reference binding in a function (<code>let r = &amp;x</code> or <code>let guard = cell.borrow()</code>), the engine computes the active scope: the range of lines where the borrow is alive. The start is the declaration line. The end is determined by finding the last use of the borrower variable anywhere in the function body. This matches Rust's Non-Lexical Lifetimes (NLL) semantics, where a borrow ends at its last use rather than at the end of the enclosing scope.
+    </p>
+    <p>
+        Finding the last use is done via <code>Definition::Local(local).usages(sema).all()</code>, which returns every reference to the binding across the file. The engine takes the maximum <code>TextRange::end()</code> among all usages as the borrow's end point. This approach is semantically precise: it accounts for uses inside nested blocks, match arms, and loop bodies. If the variable is never used after declaration (e.g., <code>let _r = &amp;x;</code>), the scope collapses to the declaration line itself.
+    </p>
+    <p>
+        The engine also recognizes guard types as implicit borrows. When it encounters <code>let guard = cell.borrow()</code>, it checks the return type's ADT path for patterns like <code>cell::Ref</code>, <code>sync::MutexGuard</code>, or <code>sync::RwLockWriteGuard</code>. If matched, the expression is treated as a borrow of the receiver (<code>cell</code>), with mutability determined by the guard type name (e.g., <code>RefMut</code> implies mutable). The target variable is extracted by walking the method call chain backwards through <code>.unwrap()</code> and <code>.expect()</code> calls to find the original receiver.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="scope-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceScope()">
+            <text id="scope-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to step through borrow scope computation</text>
+
+            <!-- Code lines -->
+            <text x="40" y="55" font-size="9" fill="#999" font-family="monospace">5</text>
+            <text x="60" y="55" font-size="10" fill="#333" font-family="monospace">let data = vec![1, 2, 3];</text>
+            <text x="40" y="75" font-size="9" fill="#999" font-family="monospace">6</text>
+            <text x="60" y="75" font-size="10" fill="#333" font-family="monospace">let r = &amp;data;</text>
+            <text x="40" y="95" font-size="9" fill="#999" font-family="monospace">7</text>
+            <text x="60" y="95" font-size="10" fill="#333" font-family="monospace">println!("{}", r.len());</text>
+            <text x="40" y="115" font-size="9" fill="#999" font-family="monospace">8</text>
+            <text x="60" y="115" font-size="10" fill="#333" font-family="monospace">validate(r);</text>
+            <text x="40" y="135" font-size="9" fill="#999" font-family="monospace">9</text>
+            <text x="60" y="135" font-size="10" fill="#555" font-family="monospace">// r not used after this</text>
+            <text x="40" y="155" font-size="9" fill="#999" font-family="monospace">10</text>
+            <text x="60" y="155" font-size="10" fill="#333" font-family="monospace">data.push(4); // OK: borrow ended</text>
+
+            <!-- Scope bar (appears on step) -->
+            <rect id="scope-bar" x="30" y="65" width="8" height="0" rx="3" fill="#3498db" opacity="0"/>
+
+            <!-- Last use marker -->
+            <circle id="scope-marker" cx="25" cy="115" r="0" fill="#e74c3c"/>
+
+            <!-- Annotations -->
+            <text id="scope-start-label" x="400" y="75" font-size="9" fill="#3498db" opacity="0">start: line 6 (declaration)</text>
+            <text id="scope-search-label" x="400" y="95" font-size="9" fill="#f39c12" opacity="0">Definition::usages(sema).all()</text>
+            <text id="scope-end-label" x="400" y="115" font-size="9" fill="#e74c3c" opacity="0">last use: line 8 (validate(r))</text>
+            <text id="scope-result-label" x="400" y="135" font-size="9" fill="#27ae60" opacity="0">Scope: lines 6-8. push() on line 10 is safe.</text>
+
+            <!-- Description -->
+            <rect x="30" y="220" width="690" height="35" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="scope-desc" x="375" y="242" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to compute the borrow scope of `r`</text>
+            <text id="scope-step" x="375" y="268" text-anchor="middle" font-size="9" fill="#999">Step 0/4</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var scopeStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('scope-bar').setAttribute('opacity','0.3');
+                document.getElementById('scope-bar').setAttribute('height','10');
+                document.getElementById('scope-start-label').setAttribute('opacity','1');
+                return 'Step 1: Identify declaration of `r` at line 6 (borrow start)';
+            },
+            function() {
+                document.getElementById('scope-search-label').setAttribute('opacity','1');
+                return 'Step 2: Query Definition::usages(sema) to find all uses of `r`';
+            },
+            function() {
+                document.getElementById('scope-bar').setAttribute('height','55');
+                document.getElementById('scope-bar').setAttribute('opacity','0.4');
+                document.getElementById('scope-marker').setAttribute('r','5');
+                document.getElementById('scope-end-label').setAttribute('opacity','1');
+                return 'Step 3: Last use found at line 8 (validate(r)). Borrow scope = lines 6-8';
+            },
+            function() {
+                document.getElementById('scope-bar').setAttribute('opacity','0.6');
+                document.getElementById('scope-result-label').setAttribute('opacity','1');
+                return 'Step 4: data.push(4) on line 10 is outside the scope. No conflict.';
+            }
+        ];
+        window.advanceScope = function() {
+            if (scopeStep >= steps.length) { scopeStep = 0; resetScope(); return; }
+            var desc = steps[scopeStep]();
+            document.getElementById('scope-desc').textContent = desc;
+            scopeStep++;
+            document.getElementById('scope-step').textContent = 'Step ' + scopeStep + '/' + steps.length;
+            document.getElementById('scope-title').textContent = 'Click to continue';
+        };
+        function resetScope() {
+            document.getElementById('scope-bar').setAttribute('opacity','0');
+            document.getElementById('scope-bar').setAttribute('height','0');
+            document.getElementById('scope-marker').setAttribute('r','0');
+            ['scope-start-label','scope-search-label','scope-end-label','scope-result-label'].forEach(function(id) {
+                document.getElementById(id).setAttribute('opacity','0');
+            });
+            document.getElementById('scope-desc').textContent = '// click to compute the borrow scope of `r`';
+            document.getElementById('scope-title').textContent = 'Click to step through borrow scope computation';
+            document.getElementById('scope-step').textContent = 'Step 0/4';
+        }
+    })();
+    </script>
+
+    <h2>4.4 Move Detection (4 Patterns)</h2>
+    <p>
+        The engine detects ownership transfers (moves) by identifying four syntactic patterns where a non-Copy, non-reference value is consumed. Each pattern is checked semantically: the engine resolves the type of the moved expression via <code>sema.type_of_expr()</code> and verifies that <code>ty.is_copy(db)</code> is false and <code>ty.is_reference()</code> is false before reporting a move. This eliminates false positives from Copy types like integers or from reference passing.
+    </p>
+    <p>
+        The four patterns are: (1) assignment move (<code>let b = a</code> where <code>a</code> is a path expression with non-Copy type), (2) function argument move (<code>foo(a)</code> where <code>a</code> is passed by value), (3) return move (<code>return a</code>), and (4) closure capture move (<code>move || { a }</code>, detected via <code>closure_hir.captured_items(db)</code> which returns each captured variable with its <code>CaptureKind</code>). Only path expressions (direct variable references) are considered as move sources; complex expressions like <code>foo(bar())</code> are not moves because the temporary is consumed in place.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">detect_let_move</span>(db, sema, let_stmt, line_index) -> Option&lt;MoveInfo&gt; {
+    <span class="rust-keyword">let</span> init = let_stmt.initializer()?;
+    <span class="rust-keyword">let</span> pat = let_stmt.pat()?;
+
+    <span class="rust-comment">// Only path expressions (variable references) can be moves</span>
+    <span class="rust-keyword">let</span> path_expr = <span class="rust-keyword">match</span> &amp;init {
+        ast::Expr::PathExpr(p) => p,
+        _ => <span class="rust-keyword">return</span> None,
+    };
+
+    <span class="rust-keyword">let</span> ty = sema.type_of_expr(&amp;init)?.original;
+
+    <span class="rust-comment">// Copy types don't move, references don't move</span>
+    <span class="rust-keyword">if</span> ty.is_copy(db) || ty.is_reference() { <span class="rust-keyword">return</span> None; }
+
+    Some(MoveInfo {
+        source_name: path_expr.syntax().text().to_string(),
+        destination: MoveDestination::Variable(pat.syntax().text().to_string()),
+        source_type: ty.display(db, display_target).to_string(),
+        ..
+    })
+}</pre>
+    </div>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="move-svg" viewBox="0 0 750 320" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceMove()">
+            <text id="move-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to explore the 4 move detection patterns</text>
+
+            <!-- Pattern boxes (all start dimmed) -->
+            <g id="move-p1" opacity="0.3">
+                <rect x="30" y="40" width="330" height="55" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+                <text x="45" y="58" font-size="10" fill="#2980b9" font-weight="bold">Pattern 1: Assignment Move</text>
+                <text x="45" y="75" font-size="9" fill="#555" font-family="monospace">let b = a;  // a is String (non-Copy)</text>
+                <text x="45" y="89" font-size="8" fill="#7f8c8d">Check: is_copy(db)=false, is_reference()=false, is PathExpr</text>
+            </g>
+
+            <g id="move-p2" opacity="0.3">
+                <rect x="390" y="40" width="330" height="55" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+                <text x="405" y="58" font-size="10" fill="#b7950b" font-weight="bold">Pattern 2: Function Argument Move</text>
+                <text x="405" y="75" font-size="9" fill="#555" font-family="monospace">consume(data);  // data: Vec&lt;i32&gt;</text>
+                <text x="405" y="89" font-size="8" fill="#7f8c8d">Check: each arg is PathExpr, non-Copy, non-reference</text>
+            </g>
+
+            <g id="move-p3" opacity="0.3">
+                <rect x="30" y="110" width="330" height="55" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+                <text x="45" y="128" font-size="10" fill="#1e8449" font-weight="bold">Pattern 3: Return Move</text>
+                <text x="45" y="145" font-size="9" fill="#555" font-family="monospace">return result;  // result: HashMap</text>
+                <text x="45" y="159" font-size="8" fill="#7f8c8d">Check: return expr is PathExpr, non-Copy, non-reference</text>
+            </g>
+
+            <g id="move-p4" opacity="0.3">
+                <rect x="390" y="110" width="330" height="55" rx="6" fill="#f4ecf7" stroke="#8e44ad" stroke-width="2"/>
+                <text x="405" y="128" font-size="10" fill="#6c3483" font-weight="bold">Pattern 4: Closure Capture Move</text>
+                <text x="405" y="145" font-size="9" fill="#555" font-family="monospace">move || { drop(data); }</text>
+                <text x="405" y="159" font-size="8" fill="#7f8c8d">Check: closure_hir.captured_items(), CaptureKind::Move</text>
+            </g>
+
+            <!-- Move arrow animation area -->
+            <g id="move-demo" opacity="0">
+                <rect x="30" y="180" width="690" height="80" rx="6" fill="white" stroke="#bdc3c7"/>
+                <!-- Source variable -->
+                <rect id="move-src" x="80" y="200" width="100" height="35" rx="5" fill="#3498db" opacity="0.8"/>
+                <text id="move-src-label" x="130" y="222" text-anchor="middle" font-size="10" fill="white" font-weight="bold">a: String</text>
+                <!-- Arrow -->
+                <line id="move-arrow" x1="180" y1="217" x2="350" y2="217" stroke="#e74c3c" stroke-width="3" stroke-dasharray="8,4" marker-end="url(#move-arr)"/>
+                <text id="move-arrow-label" x="265" y="208" text-anchor="middle" font-size="9" fill="#e74c3c" font-weight="bold">MOVE</text>
+                <!-- Destination -->
+                <rect id="move-dst" x="350" y="200" width="100" height="35" rx="5" fill="#27ae60" opacity="0.8"/>
+                <text id="move-dst-label" x="400" y="222" text-anchor="middle" font-size="10" fill="white" font-weight="bold">b: String</text>
+                <!-- Source crossed out -->
+                <line id="move-cross1" x1="80" y1="200" x2="180" y2="235" stroke="#e74c3c" stroke-width="0" opacity="0"/>
+                <line id="move-cross2" x1="180" y1="200" x2="80" y2="235" stroke="#e74c3c" stroke-width="0" opacity="0"/>
+            </g>
+
+            <defs><marker id="move-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e74c3c"/></marker></defs>
+
+            <!-- Description -->
+            <rect x="30" y="272" width="690" height="30" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="move-desc" x="375" y="291" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to cycle through the 4 move patterns</text>
+            <text id="move-step" x="375" y="312" text-anchor="middle" font-size="9" fill="#999">Step 0/5</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var moveStep = 0;
+        var patterns = ['move-p1','move-p2','move-p3','move-p4'];
+        var demos = [
+            { src: 'a: String', dst: 'b: String', label: 'Assignment: ownership transfers from a to b. a is no longer usable.' },
+            { src: 'data: Vec', dst: 'consume()', label: 'Argument: data is moved into the function parameter. Caller loses access.' },
+            { src: 'result: Map', dst: 'caller', label: 'Return: result is moved out of the function to the caller.' },
+            { src: 'data: Vec', dst: '|| closure', label: 'Capture: data is moved into the closure. Outer scope loses access.' }
+        ];
+        var steps = [
+            function() { highlightPattern(0); showDemo(0); return demos[0].label; },
+            function() { highlightPattern(1); showDemo(1); return demos[1].label; },
+            function() { highlightPattern(2); showDemo(2); return demos[2].label; },
+            function() { highlightPattern(3); showDemo(3); return demos[3].label; },
+            function() {
+                patterns.forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                document.getElementById('move-demo').setAttribute('opacity','0');
+                return 'All 4 patterns use the same guard: ty.is_copy(db)==false && ty.is_reference()==false';
+            }
+        ];
+        function highlightPattern(idx) {
+            patterns.forEach(function(id, i) {
+                document.getElementById(id).setAttribute('opacity', i === idx ? '1' : '0.2');
+            });
+        }
+        function showDemo(idx) {
+            document.getElementById('move-demo').setAttribute('opacity','1');
+            document.getElementById('move-src-label').textContent = demos[idx].src;
+            document.getElementById('move-dst-label').textContent = demos[idx].dst;
+            document.getElementById('move-cross1').setAttribute('stroke-width','2');
+            document.getElementById('move-cross2').setAttribute('stroke-width','2');
+            document.getElementById('move-cross1').setAttribute('opacity','0.6');
+            document.getElementById('move-cross2').setAttribute('opacity','0.6');
+        }
+        window.advanceMove = function() {
+            if (moveStep >= steps.length) { moveStep = 0; resetMove(); return; }
+            var desc = steps[moveStep]();
+            document.getElementById('move-desc').textContent = desc;
+            moveStep++;
+            document.getElementById('move-step').textContent = 'Step ' + moveStep + '/' + steps.length;
+            document.getElementById('move-title').textContent = 'Click to continue';
+        };
+        function resetMove() {
+            patterns.forEach(function(id) { document.getElementById(id).setAttribute('opacity','0.3'); });
+            document.getElementById('move-demo').setAttribute('opacity','0');
+            document.getElementById('move-cross1').setAttribute('stroke-width','0');
+            document.getElementById('move-cross2').setAttribute('stroke-width','0');
+            document.getElementById('move-desc').textContent = '// click to cycle through the 4 move patterns';
+            document.getElementById('move-title').textContent = 'Click to explore the 4 move detection patterns';
+            document.getElementById('move-step').textContent = 'Step 0/5';
+        }
+    })();
+    </script>
+
+    <h2>4.5 Closure Capture Analysis via CaptureKind</h2>
+    <p>
+        For each closure expression in a function body, the engine resolves its <code>hir::ClosureId</code> via <code>sema.type_of_expr()</code> and then queries <code>closure_hir.captured_items(db)</code>. This returns a list of captured variables, each with a <code>CaptureKind</code> indicating how the variable is captured: <code>SharedRef</code> (closure borrows it immutably), <code>UniqueSharedRef</code> (unique shared access for interior mutability), <code>MutableRef</code> (closure borrows it mutably), or <code>Move</code> (closure takes ownership). The engine also determines which <code>Fn</code> trait the closure implements (<code>Fn</code>, <code>FnMut</code>, or <code>FnOnce</code>) via <code>closure_hir.fn_trait(db)</code>.
+    </p>
+    <p>
+        This analysis is fully semantic. It does not rely on the presence of the <code>move</code> keyword to determine capture mode: even without <code>move</code>, a closure may capture by move if the captured variable is consumed inside the closure body. The compiler determines the minimal capture mode for each variable independently, and the <code>ra_ap_hir</code> API exposes this decision directly. The result is a <code>ClosureCaptureInfo</code> struct listing every captured variable with its mode, type, and the closure's position in the source.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">for</span> capture <span class="rust-keyword">in</span> closure_hir.captured_items(db) {
+    <span class="rust-keyword">let</span> local = capture.local();
+    <span class="rust-keyword">let</span> name = local.name(db).display_no_db(Edition2021).to_string();
+    <span class="rust-keyword">let</span> capture_mode = <span class="rust-keyword">match</span> capture.kind() {
+        CaptureKind::SharedRef     => CaptureMode::BySharedRef,
+        CaptureKind::UniqueSharedRef => CaptureMode::BySharedRef,
+        CaptureKind::MutableRef    => CaptureMode::ByMutRef,
+        CaptureKind::Move          => CaptureMode::ByMove,
+    };
+    captures.push(CapturedVariable { name, capture_mode, variable_type: ... });
+}</pre>
+    </div>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="capture-svg" viewBox="0 0 750 300" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceCapture()">
+            <text id="cap-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see how closure captures are resolved</text>
+
+            <!-- Source code -->
+            <text x="40" y="50" font-size="9" fill="#999" font-family="monospace">1</text>
+            <text x="60" y="50" font-size="10" fill="#333" font-family="monospace">let name = String::from("hello");</text>
+            <text x="40" y="68" font-size="9" fill="#999" font-family="monospace">2</text>
+            <text x="60" y="68" font-size="10" fill="#333" font-family="monospace">let count = 0u32;</text>
+            <text x="40" y="86" font-size="9" fill="#999" font-family="monospace">3</text>
+            <text x="60" y="86" font-size="10" fill="#333" font-family="monospace">let data = vec![1, 2, 3];</text>
+            <text x="40" y="110" font-size="9" fill="#999" font-family="monospace">5</text>
+            <text x="60" y="110" font-size="10" fill="#333" font-family="monospace">let closure = |x| {</text>
+            <text x="40" y="128" font-size="9" fill="#999" font-family="monospace">6</text>
+            <text x="60" y="128" font-size="10" fill="#555" font-family="monospace">    println!("{} {}", name, count + x);</text>
+            <text x="40" y="146" font-size="9" fill="#999" font-family="monospace">7</text>
+            <text x="60" y="146" font-size="10" fill="#555" font-family="monospace">    data.push(x);</text>
+            <text x="40" y="164" font-size="9" fill="#999" font-family="monospace">8</text>
+            <text x="60" y="164" font-size="10" fill="#333" font-family="monospace">};</text>
+
+            <!-- Capture analysis results (appear on click) -->
+            <g id="cap-results" opacity="0">
+                <rect x="420" y="40" width="300" height="135" rx="6" fill="white" stroke="#8e44ad" stroke-width="2"/>
+                <text x="435" y="60" font-size="10" fill="#6c3483" font-weight="bold">Closure Capture Analysis:</text>
+                <text x="435" y="78" font-size="9" fill="#6c3483">fn_trait: FnMut</text>
+
+                <rect id="cap-name" x="435" y="85" width="270" height="22" rx="3" fill="#ebf5fb" stroke="#3498db" opacity="0"/>
+                <text id="cap-name-t" x="445" y="100" font-size="9" fill="#2980b9" opacity="0">name: String -> BySharedRef (&amp;name)</text>
+
+                <rect id="cap-count" x="435" y="110" width="270" height="22" rx="3" fill="#d5f5e3" stroke="#27ae60" opacity="0"/>
+                <text id="cap-count-t" x="445" y="125" font-size="9" fill="#1e8449" opacity="0">count: u32 -> Copy (no capture needed)</text>
+
+                <rect id="cap-data" x="435" y="135" width="270" height="22" rx="3" fill="#fdedec" stroke="#e74c3c" opacity="0"/>
+                <text id="cap-data-t" x="445" y="150" font-size="9" fill="#c0392b" opacity="0">data: Vec&lt;i32&gt; -> ByMutRef (&amp;mut data)</text>
+            </g>
+
+            <!-- Arrows from variables to closure -->
+            <line id="cap-arr1" x1="290" y1="50" x2="433" y2="92" stroke="#3498db" stroke-width="2" stroke-dasharray="4,3" opacity="0"/>
+            <line id="cap-arr2" x1="290" y1="86" x2="433" y2="142" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4,3" opacity="0"/>
+
+            <!-- Description -->
+            <rect x="30" y="250" width="690" height="30" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="cap-desc" x="375" y="269" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to resolve capture modes via closure_hir.captured_items(db)</text>
+            <text id="cap-step" x="375" y="290" text-anchor="middle" font-size="9" fill="#999">Step 0/4</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var capStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('cap-results').setAttribute('opacity','1');
+                return 'Step 1: Resolve closure type via sema.type_of_expr() -> get ClosureId';
+            },
+            function() {
+                document.getElementById('cap-name').setAttribute('opacity','1');
+                document.getElementById('cap-name-t').setAttribute('opacity','1');
+                document.getElementById('cap-arr1').setAttribute('opacity','0.7');
+                return 'Step 2: name is only read (println!) -> CaptureKind::SharedRef';
+            },
+            function() {
+                document.getElementById('cap-count').setAttribute('opacity','1');
+                document.getElementById('cap-count-t').setAttribute('opacity','1');
+                return 'Step 3: count is Copy (u32) -> captured by copy, not listed as borrow';
+            },
+            function() {
+                document.getElementById('cap-data').setAttribute('opacity','1');
+                document.getElementById('cap-data-t').setAttribute('opacity','1');
+                document.getElementById('cap-arr2').setAttribute('opacity','0.7');
+                return 'Step 4: data.push() requires &mut self -> CaptureKind::MutableRef. Closure is FnMut.';
+            }
+        ];
+        window.advanceCapture = function() {
+            if (capStep >= steps.length) { capStep = 0; resetCapture(); return; }
+            var desc = steps[capStep]();
+            document.getElementById('cap-desc').textContent = desc;
+            capStep++;
+            document.getElementById('cap-step').textContent = 'Step ' + capStep + '/' + steps.length;
+            document.getElementById('cap-title').textContent = 'Click to continue';
+        };
+        function resetCapture() {
+            document.getElementById('cap-results').setAttribute('opacity','0');
+            ['cap-name','cap-count','cap-data'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            ['cap-name-t','cap-count-t','cap-data-t'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            ['cap-arr1','cap-arr2'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('cap-desc').textContent = '// click to resolve capture modes via closure_hir.captured_items(db)';
+            document.getElementById('cap-title').textContent = 'Click to see how closure captures are resolved';
+            document.getElementById('cap-step').textContent = 'Step 0/4';
+        }
+    })();
+    </script>
+
+    <h2>4.6 Rc/Arc Clone Tracking</h2>
+    <p>
+        Shared ownership via <code>Rc</code> and <code>Arc</code> is one of the most important ownership patterns to visualize, because each clone creates a new owner that shares the same heap allocation. The engine detects two clone patterns: method-style (<code>let b = a.clone()</code> where <code>a</code> is <code>Rc&lt;T&gt;</code> or <code>Arc&lt;T&gt;</code>) and explicit-style (<code>let b = Rc::clone(&amp;a)</code>).
+    </p>
+    <p>
+        For method-style clones, the engine resolves the receiver type via <code>sema.type_of_expr(&amp;receiver)</code> and checks if it is Rc or Arc using the <code>classify_rc_arc</code> function, which inspects the ADT's canonical module path. For explicit-style clones, the engine parses the path segments of the callee (<code>Rc::clone</code>) and checks if the qualifier is "Rc" or "Arc". In both cases, the source variable (the original Rc/Arc being cloned) and the destination variable (the new clone) are recorded with their line positions. This information is used by the visualization to draw shared-ownership edges in the ownership graph.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="rc-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceRc()">
+            <text id="rc-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see Rc/Arc clone tracking</text>
+
+            <!-- Heap allocation (shared inner) -->
+            <rect id="rc-heap" x="280" y="45" width="190" height="50" rx="8" fill="#f4ecf7" stroke="#8e44ad" stroke-width="2" opacity="0.3"/>
+            <text id="rc-heap-label" x="375" y="65" text-anchor="middle" font-size="10" fill="#6c3483" font-weight="bold" opacity="0.3">Heap: RcBox&lt;Vec&lt;i32&gt;&gt;</text>
+            <text id="rc-heap-counts" x="375" y="82" text-anchor="middle" font-size="9" fill="#6c3483" opacity="0.3">strong: 1 | weak: 0</text>
+
+            <!-- Owner 1: original -->
+            <rect id="rc-owner1" x="60" y="130" width="150" height="40" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="2" opacity="0.3"/>
+            <text id="rc-owner1-t" x="135" y="155" text-anchor="middle" font-size="10" fill="#2980b9" opacity="0.3">a: Rc&lt;Vec&lt;i32&gt;&gt;</text>
+
+            <!-- Owner 2: method clone -->
+            <rect id="rc-owner2" x="300" y="130" width="150" height="40" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="2" opacity="0"/>
+            <text id="rc-owner2-t" x="375" y="155" text-anchor="middle" font-size="10" fill="#1e8449" opacity="0">b = a.clone()</text>
+
+            <!-- Owner 3: explicit clone -->
+            <rect id="rc-owner3" x="540" y="130" width="170" height="40" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="2" opacity="0"/>
+            <text id="rc-owner3-t" x="625" y="155" text-anchor="middle" font-size="10" fill="#b7950b" opacity="0">c = Rc::clone(&amp;a)</text>
+
+            <!-- Arrows to heap -->
+            <defs><marker id="rc-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#8e44ad"/></marker></defs>
+            <line id="rc-line1" x1="135" y1="130" x2="320" y2="95" stroke="#8e44ad" stroke-width="2" opacity="0" marker-end="url(#rc-arr)"/>
+            <line id="rc-line2" x1="375" y1="130" x2="375" y2="95" stroke="#8e44ad" stroke-width="2" opacity="0" marker-end="url(#rc-arr)"/>
+            <line id="rc-line3" x1="625" y1="130" x2="430" y2="95" stroke="#8e44ad" stroke-width="2" opacity="0" marker-end="url(#rc-arr)"/>
+
+            <!-- Description -->
+            <rect x="30" y="230" width="690" height="30" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="rc-desc" x="375" y="249" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to see shared ownership via Rc cloning</text>
+            <text id="rc-step" x="375" y="270" text-anchor="middle" font-size="9" fill="#999">Step 0/4</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var rcStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('rc-owner1').setAttribute('opacity','1');
+                document.getElementById('rc-owner1-t').setAttribute('opacity','1');
+                document.getElementById('rc-heap').setAttribute('opacity','1');
+                document.getElementById('rc-heap-label').setAttribute('opacity','1');
+                document.getElementById('rc-heap-counts').setAttribute('opacity','1');
+                document.getElementById('rc-line1').setAttribute('opacity','0.7');
+                return 'Step 1: let a = Rc::new(vec![1,2,3]) -> strong_count=1, one owner points to heap';
+            },
+            function() {
+                document.getElementById('rc-owner2').setAttribute('opacity','1');
+                document.getElementById('rc-owner2-t').setAttribute('opacity','1');
+                document.getElementById('rc-line2').setAttribute('opacity','0.7');
+                document.getElementById('rc-heap-counts').textContent = 'strong: 2 | weak: 0';
+                return 'Step 2: let b = a.clone() -> method-style clone detected (receiver is Rc). strong_count=2';
+            },
+            function() {
+                document.getElementById('rc-owner3').setAttribute('opacity','1');
+                document.getElementById('rc-owner3-t').setAttribute('opacity','1');
+                document.getElementById('rc-line3').setAttribute('opacity','0.7');
+                document.getElementById('rc-heap-counts').textContent = 'strong: 3 | weak: 0';
+                return 'Step 3: let c = Rc::clone(&a) -> explicit-style clone (path qualifier="Rc"). strong_count=3';
+            },
+            function() {
+                return 'Step 4: All 3 variables share ownership of the same heap allocation. No moves occurred.';
+            }
+        ];
+        window.advanceRc = function() {
+            if (rcStep >= steps.length) { rcStep = 0; resetRc(); return; }
+            var desc = steps[rcStep]();
+            document.getElementById('rc-desc').textContent = desc;
+            rcStep++;
+            document.getElementById('rc-step').textContent = 'Step ' + rcStep + '/' + steps.length;
+            document.getElementById('rc-title').textContent = 'Click to continue';
+        };
+        function resetRc() {
+            ['rc-owner1','rc-owner1-t','rc-heap','rc-heap-label','rc-heap-counts'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0.3'); });
+            ['rc-owner2','rc-owner2-t','rc-owner3','rc-owner3-t'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            ['rc-line1','rc-line2','rc-line3'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('rc-heap-counts').textContent = 'strong: 1 | weak: 0';
+            document.getElementById('rc-desc').textContent = '// click to see shared ownership via Rc cloning';
+            document.getElementById('rc-title').textContent = 'Click to see Rc/Arc clone tracking';
+            document.getElementById('rc-step').textContent = 'Step 0/4';
+        }
+    })();
+    </script>
+
+    <h2>4.7 Conflict Detection (Overlap Algorithm)</h2>
+    <p>
+        Borrow conflicts occur when two borrows of the same variable have overlapping active scopes and at least one is mutable. The engine detects these by performing an O(n^2) pairwise comparison of all computed borrow scopes. For each pair (a, b), it checks three conditions: (1) both target the same variable (<code>a.target_name == b.target_name</code>), (2) at least one is mutable (<code>a.is_mutable || b.is_mutable</code>), and (3) their line ranges overlap (<code>max(a.start, b.start) &lt;= min(a.end, b.end)</code>).
+    </p>
+    <p>
+        When a conflict is detected, the engine records the overlap region (the lines where both borrows are simultaneously active), the names of both borrowers, the target variable, and the conflict kind (<code>MutableAndShared</code> or <code>MultipleMutable</code>). These conflicts are surfaced to the editor as LSP diagnostics (informational severity) and as entries in the ownership graph response. The O(n^2) complexity is acceptable because the number of borrow scopes per function is typically small (under 20 in practice).
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="conflict-svg" viewBox="0 0 750 220" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceConflict()">
+            <text id="conflict-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see conflict detection in action</text>
+
+            <!-- Borrow scope bars -->
+            <rect id="conf-bar-r" x="110" y="45" width="20" height="70" rx="4" fill="#3498db" opacity="0.5"/>
+            <text id="conf-label-r" x="140" y="80" font-size="9" fill="#2980b9">r: &amp;data (lines 5-10)</text>
+
+            <rect id="conf-bar-m" x="250" y="65" width="20" height="70" rx="4" fill="#e74c3c" opacity="0"/>
+            <text id="conf-label-m" x="280" y="100" font-size="9" fill="#c0392b" opacity="0">m: &amp;mut data (lines 7-12)</text>
+
+            <!-- Overlap highlight -->
+            <rect id="conf-overlap" x="100" y="65" width="200" height="30" rx="4" fill="#e74c3c" opacity="0"/>
+            <text id="conf-overlap-label" x="200" y="82" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0">CONFLICT: lines 7-10</text>
+
+            <!-- Description -->
+            <rect x="30" y="165" width="690" height="35" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="conflict-desc" x="375" y="187" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to detect overlap between shared and mutable borrows</text>
+            <text id="conflict-step" x="375" y="210" text-anchor="middle" font-size="9" fill="#999">Step 0/3</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var confStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('conf-bar-r').setAttribute('opacity','0.7');
+                return 'Step 1: Shared borrow `r = &data` active on lines 5-10';
+            },
+            function() {
+                document.getElementById('conf-bar-m').setAttribute('opacity','0.7');
+                document.getElementById('conf-label-m').setAttribute('opacity','1');
+                return 'Step 2: Mutable borrow `m = &mut data` starts at line 7 (overlaps with r)';
+            },
+            function() {
+                document.getElementById('conf-overlap').setAttribute('opacity','0.3');
+                document.getElementById('conf-overlap-label').setAttribute('opacity','1');
+                return 'Step 3: Overlap detected on lines 7-10. ConflictKind::MutableAndShared reported.';
+            }
+        ];
+        window.advanceConflict = function() {
+            if (confStep >= steps.length) { confStep = 0; resetConflict(); return; }
+            var desc = steps[confStep]();
+            document.getElementById('conflict-desc').textContent = desc;
+            confStep++;
+            document.getElementById('conflict-step').textContent = 'Step ' + confStep + '/' + steps.length;
+            document.getElementById('conflict-title').textContent = 'Click to continue';
+        };
+        function resetConflict() {
+            document.getElementById('conf-bar-r').setAttribute('opacity','0.5');
+            document.getElementById('conf-bar-m').setAttribute('opacity','0');
+            document.getElementById('conf-label-m').setAttribute('opacity','0');
+            document.getElementById('conf-overlap').setAttribute('opacity','0');
+            document.getElementById('conf-overlap-label').setAttribute('opacity','0');
+            document.getElementById('conflict-desc').textContent = '// click to detect overlap between shared and mutable borrows';
+            document.getElementById('conflict-title').textContent = 'Click to see conflict detection in action';
+            document.getElementById('conflict-step').textContent = 'Step 0/3';
+        }
+    })();
+    </script>
+
+    <h2>4.8 Method Call Resolution (Self Borrow Detection)</h2>
+    <p>
+        Every method call in a function body creates an implicit borrow of the receiver. Calling <code>data.len()</code> borrows <code>data</code> as <code>&amp;self</code>; calling <code>data.push(4)</code> borrows it as <code>&amp;mut self</code>; calling <code>data.into_iter()</code> consumes it as <code>self</code>. The engine resolves each method call via <code>sema.resolve_method_call(&amp;method_call)</code> to obtain the <code>hir::Function</code>, then queries <code>func.self_param(db).access(db)</code> to determine the self borrow mode: <code>Access::Shared</code>, <code>Access::Exclusive</code>, or <code>Access::Owned</code>.
+    </p>
+    <p>
+        Beyond the self borrow mode, the engine extracts the method's canonical path (via module traversal), return type, whether it is a trait method (by checking <code>AssocItem::container(db)</code>), and whether it is unsafe. This information is included in the <code>FunctionOwnershipSummary</code> and can be used by visualization tools to show which method calls create borrows and of what kind. For example, a visualization could highlight all <code>&amp;mut self</code> method calls in red to draw attention to exclusive access points.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let</span> func = sema.resolve_method_call(&amp;method_call)?;
+
+<span class="rust-keyword">let</span> self_borrow = <span class="rust-keyword">match</span> func.self_param(db)?.access(db) {
+    hir::Access::Shared    => SelfBorrow::Shared,     <span class="rust-comment">// &amp;self</span>
+    hir::Access::Exclusive => SelfBorrow::Exclusive,  <span class="rust-comment">// &amp;mut self</span>
+    hir::Access::Owned     => SelfBorrow::Owned,      <span class="rust-comment">// self (consuming)</span>
+};
+
+<span class="rust-keyword">let</span> (is_trait_method, trait_name) = <span class="rust-keyword">match</span> AssocItem::Function(func).container(db) {
+    AssocItemContainer::Trait(t) => (<span class="rust-keyword">true</span>, Some(t.name(db).to_string())),
+    AssocItemContainer::Impl(i)  => (i.trait_(db).is_some(), i.trait_(db).map(..)),
+};</pre>
+    </div>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="method-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceMethod()">
+            <text id="method-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see how method calls create implicit borrows</text>
+
+            <!-- Variable box -->
+            <rect x="30" y="60" width="140" height="45" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+            <text x="100" y="80" text-anchor="middle" font-size="11" fill="#2980b9" font-weight="bold">data: Vec&lt;i32&gt;</text>
+            <text x="100" y="96" text-anchor="middle" font-size="9" fill="#555">Owned, heap-backed</text>
+
+            <!-- Method calls -->
+            <g id="meth-len" opacity="0.3">
+                <rect x="240" y="40" width="220" height="30" rx="5" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+                <text x="260" y="60" font-size="9" fill="#333" font-family="monospace">data.len()</text>
+                <text id="meth-len-badge" x="420" y="60" font-size="9" fill="#27ae60" font-weight="bold" opacity="0">&amp;self</text>
+            </g>
+
+            <g id="meth-push" opacity="0.3">
+                <rect x="240" y="80" width="220" height="30" rx="5" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5"/>
+                <text x="260" y="100" font-size="9" fill="#333" font-family="monospace">data.push(4)</text>
+                <text id="meth-push-badge" x="420" y="100" font-size="9" fill="#e67e22" font-weight="bold" opacity="0">&amp;mut self</text>
+            </g>
+
+            <g id="meth-into" opacity="0.3">
+                <rect x="240" y="120" width="220" height="30" rx="5" fill="#fdedec" stroke="#e74c3c" stroke-width="1.5"/>
+                <text x="260" y="140" font-size="9" fill="#333" font-family="monospace">data.into_iter()</text>
+                <text id="meth-into-badge" x="420" y="140" font-size="9" fill="#c0392b" font-weight="bold" opacity="0">self (consuming)</text>
+            </g>
+
+            <!-- Resolution detail box -->
+            <rect id="meth-detail-bg" x="30" y="170" width="690" height="60" rx="6" fill="white" stroke="#bdc3c7" opacity="0"/>
+            <text id="meth-detail-1" x="45" y="190" font-size="9" fill="#555" font-family="monospace" opacity="0">sema.resolve_method_call(&amp;method_call) -> hir::Function</text>
+            <text id="meth-detail-2" x="45" y="206" font-size="9" fill="#555" font-family="monospace" opacity="0">func.self_param(db).access(db) -> Access::???</text>
+            <text id="meth-detail-3" x="45" y="222" font-size="9" fill="#8e44ad" font-family="monospace" opacity="0"></text>
+
+            <!-- Arrows from data to methods -->
+            <defs><marker id="meth-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#7f8c8d"/></marker></defs>
+            <line id="meth-arrow" x1="170" y1="82" x2="238" y2="82" stroke="#7f8c8d" stroke-width="0" marker-end="url(#meth-arr)"/>
+
+            <!-- Description -->
+            <rect x="30" y="240" width="690" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="method-desc" x="375" y="257" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to resolve self borrow mode for each method call</text>
+            <text id="method-step" x="375" y="275" text-anchor="middle" font-size="9" fill="#999">Step 0/4</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var methStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('meth-len').setAttribute('opacity','1');
+                document.getElementById('meth-len-badge').setAttribute('opacity','1');
+                document.getElementById('meth-arrow').setAttribute('stroke-width','2');
+                document.getElementById('meth-arrow').setAttribute('stroke','#27ae60');
+                document.getElementById('meth-arrow').setAttribute('y2','55');
+                document.getElementById('meth-detail-bg').setAttribute('opacity','1');
+                document.getElementById('meth-detail-1').setAttribute('opacity','1');
+                document.getElementById('meth-detail-2').setAttribute('opacity','1');
+                document.getElementById('meth-detail-3').setAttribute('opacity','1');
+                document.getElementById('meth-detail-3').textContent = 'Result: Access::Shared -> data is borrowed as &self (read-only, non-exclusive)';
+                return 'data.len(): resolves to Vec::len(&self). Shared borrow of data.';
+            },
+            function() {
+                document.getElementById('meth-len').setAttribute('opacity','0.3');
+                document.getElementById('meth-push').setAttribute('opacity','1');
+                document.getElementById('meth-push-badge').setAttribute('opacity','1');
+                document.getElementById('meth-arrow').setAttribute('stroke','#f39c12');
+                document.getElementById('meth-arrow').setAttribute('y2','95');
+                document.getElementById('meth-detail-3').textContent = 'Result: Access::Exclusive -> data is borrowed as &mut self (exclusive write access)';
+                return 'data.push(4): resolves to Vec::push(&mut self, T). Exclusive borrow of data.';
+            },
+            function() {
+                document.getElementById('meth-push').setAttribute('opacity','0.3');
+                document.getElementById('meth-into').setAttribute('opacity','1');
+                document.getElementById('meth-into-badge').setAttribute('opacity','1');
+                document.getElementById('meth-arrow').setAttribute('stroke','#e74c3c');
+                document.getElementById('meth-arrow').setAttribute('y2','135');
+                document.getElementById('meth-detail-3').textContent = 'Result: Access::Owned -> data is CONSUMED. Variable is moved into the method.';
+                return 'data.into_iter(): resolves to IntoIterator::into_iter(self). data is moved!';
+            },
+            function() {
+                ['meth-len','meth-push','meth-into'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                document.getElementById('meth-detail-3').textContent = 'Each method call implicitly borrows/consumes the receiver. The engine detects all three modes.';
+                document.getElementById('meth-arrow').setAttribute('stroke-width','0');
+                return 'Summary: &self (safe), &mut self (exclusive), self (consuming). All resolved semantically.';
+            }
+        ];
+        window.advanceMethod = function() {
+            if (methStep >= steps.length) { methStep = 0; resetMethod(); return; }
+            var desc = steps[methStep]();
+            document.getElementById('method-desc').textContent = desc;
+            methStep++;
+            document.getElementById('method-step').textContent = 'Step ' + methStep + '/' + steps.length;
+            document.getElementById('method-title').textContent = 'Click to continue';
+        };
+        function resetMethod() {
+            ['meth-len','meth-push','meth-into'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0.3'); });
+            ['meth-len-badge','meth-push-badge','meth-into-badge'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            ['meth-detail-bg','meth-detail-1','meth-detail-2','meth-detail-3'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('meth-arrow').setAttribute('stroke-width','0');
+            document.getElementById('method-desc').textContent = '// click to resolve self borrow mode for each method call';
+            document.getElementById('method-title').textContent = 'Click to see how method calls create implicit borrows';
+            document.getElementById('method-step').textContent = 'Step 0/4';
+        }
+    })();
+    </script>
+</div>

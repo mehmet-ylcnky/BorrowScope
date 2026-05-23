@@ -1,0 +1,274 @@
+<div class="section">
+    <h1>1. Introduction</h1>
+
+    <h2>1.1 The Invisible Ownership Problem</h2>
+    <p>
+        Rust's ownership system is the language's defining feature: it guarantees memory safety without a garbage collector by enforcing strict rules about who owns a value, who borrows it, and when it is dropped. These rules are checked at compile time by the borrow checker, which rejects programs that violate them. However, the borrow checker operates as a gatekeeper: it reports violations but never shows the positive case. A developer working on a function with five variables, three borrows, and two moves must mentally reconstruct the ownership graph to understand why the code compiles, or why a proposed change would break it.
+    </p>
+    <p>
+        Consider a function that creates a <code>Vec</code>, takes a shared reference to it, passes that reference to a helper function, then later attempts to push into the vector. The developer must reason about: when does the shared borrow start, when does it end (last use of the reference), does the helper function extend the borrow's lifetime, and does the push happen after the borrow is no longer active. None of this reasoning is visible in the editor. The developer works from memory and intuition.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">process_data</span>() {
+    <span class="rust-keyword">let mut</span> data = <span class="rust-keyword">vec!</span>[1, 2, 3];  <span class="rust-comment">// owned, heap-backed, 24B stack + heap</span>
+    <span class="rust-keyword">let</span> snapshot = &amp;data;            <span class="rust-comment">// shared borrow starts here</span>
+    validate(snapshot);              <span class="rust-comment">// borrow crosses into validate()</span>
+    <span class="rust-comment">// snapshot's last use was line above, borrow ends here</span>
+    data.push(4);                    <span class="rust-comment">// &amp;mut self - safe because borrow ended</span>
+}</pre>
+    </div>
+    <p>
+        In this example, the developer must know that Rust uses Non-Lexical Lifetimes (NLL), meaning the borrow of <code>data</code> ends at the last use of <code>snapshot</code> (the call to <code>validate</code>), not at the end of the enclosing scope. This is not visible in the source code. A tool that shows borrow scopes, ownership categories, and conflict zones would eliminate this mental overhead entirely.
+    </p>
+
+    <h2>1.2 From Runtime Instrumentation to Static Analysis</h2>
+    <p>
+        The development of <code>borrowscope-analyzer</code>, <code>borrowscope-macro</code>, and <code>borrowscope-runtime</code> taught us three things: that the <code>ra_ap_*</code> compiler APIs provide sufficient information to classify every variable's ownership category without heuristics, that a structured type-info schema can drive automated code instrumentation across 82 initializer categories, and that recording ownership events at runtime produces a complete picture of dynamics along a given execution path. These findings established that semantic ownership visualization is achievable. The question became: can we deliver it without requiring the developer to leave the editor?
+    </p>
+    <p>
+        The existing pipeline works as follows. The <code>borrowscope-analyzer</code> loads the workspace via <code>ra_ap_load_cargo</code>, resolves types for every variable, and writes a <code>type-info.json</code> file containing per-variable metadata: whether a variable is <code>Rc</code>, <code>Arc</code>, <code>RefCell</code>, a closure, a raw pointer, or a plain owned value. The <code>borrowscope-macro</code> (<code>#[track_ownership]</code>) reads this file at compile time to decide which <code>track_*</code> function to emit for each variable. Without it, the macro cannot distinguish <code>Rc::clone(&amp;x)</code> (shared ownership) from <code>x.clone()</code> (deep copy). Finally, <code>borrowscope-runtime</code> records 88 event types during execution and exports them as JSON for post-hoc analysis.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="pipeline-svg" viewBox="0 0 750 380" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advancePipeline()">
+            <text id="pl-title" x="375" y="22" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to step through the runtime instrumentation pipeline</text>
+
+            <!-- Step 1: Source Code -->
+            <g id="pl-step1" opacity="0.3">
+                <rect x="30" y="45" width="160" height="70" rx="8" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+                <text x="110" y="70" text-anchor="middle" font-size="11" fill="#2980b9" font-weight="bold">Source Code</text>
+                <text x="110" y="88" text-anchor="middle" font-size="9" fill="#555" font-family="monospace">fn process() {</text>
+                <text x="110" y="100" text-anchor="middle" font-size="9" fill="#555" font-family="monospace">  let rc = Rc::new(5);</text>
+                <text x="110" y="112" text-anchor="middle" font-size="9" fill="#555" font-family="monospace">}</text>
+            </g>
+
+            <!-- Step 2: Analyzer -->
+            <g id="pl-step2" opacity="0.3">
+                <rect x="30" y="140" width="160" height="70" rx="8" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+                <text x="110" y="165" text-anchor="middle" font-size="11" fill="#b7950b" font-weight="bold">borrowscope-analyzer</text>
+                <text x="110" y="183" text-anchor="middle" font-size="9" fill="#555">Resolves types via ra_ap_*</text>
+                <text x="110" y="197" text-anchor="middle" font-size="9" fill="#555">Produces type-info.json</text>
+            </g>
+
+            <!-- Arrow 1->2 -->
+            <g id="pl-arrow1" opacity="0.3">
+                <line x1="110" y1="115" x2="110" y2="138" stroke="#7f8c8d" stroke-width="2" marker-end="url(#pl-arrowhead)"/>
+            </g>
+
+            <!-- Step 3: type-info.json -->
+            <g id="pl-step3" opacity="0.3">
+                <rect x="250" y="140" width="160" height="70" rx="8" fill="#fdedec" stroke="#e74c3c" stroke-width="2"/>
+                <text x="330" y="162" text-anchor="middle" font-size="11" fill="#c0392b" font-weight="bold">type-info.json</text>
+                <text x="330" y="180" text-anchor="middle" font-size="9" fill="#555" font-family="monospace">"rc": { "is_rc": true,</text>
+                <text x="330" y="192" text-anchor="middle" font-size="9" fill="#555" font-family="monospace">  "init_kind": "rc_new" }</text>
+                <text x="330" y="204" text-anchor="middle" font-size="8" fill="#e74c3c" font-style="italic">Becomes stale on edit!</text>
+            </g>
+
+            <!-- Arrow 2->3 -->
+            <g id="pl-arrow2" opacity="0.3">
+                <line x1="190" y1="175" x2="248" y2="175" stroke="#7f8c8d" stroke-width="2" marker-end="url(#pl-arrowhead)"/>
+            </g>
+
+            <!-- Step 4: Macro -->
+            <g id="pl-step4" opacity="0.3">
+                <rect x="250" y="45" width="160" height="70" rx="8" fill="#e8f8f5" stroke="#1abc9c" stroke-width="2"/>
+                <text x="330" y="68" text-anchor="middle" font-size="11" fill="#148f77" font-weight="bold">borrowscope-macro</text>
+                <text x="330" y="86" text-anchor="middle" font-size="9" fill="#555">Reads type-info.json</text>
+                <text x="330" y="98" text-anchor="middle" font-size="9" fill="#555">Emits track_rc_new()</text>
+                <text x="330" y="110" text-anchor="middle" font-size="9" fill="#555">instead of track_new()</text>
+            </g>
+
+            <!-- Arrow 3->4 -->
+            <g id="pl-arrow3" opacity="0.3">
+                <line x1="330" y1="140" x2="330" y2="117" stroke="#7f8c8d" stroke-width="2" marker-end="url(#pl-arrowhead)"/>
+            </g>
+
+            <!-- Arrow 1->4 -->
+            <g id="pl-arrow1to4" opacity="0.3">
+                <line x1="190" y1="80" x2="248" y2="80" stroke="#7f8c8d" stroke-width="2" marker-end="url(#pl-arrowhead)"/>
+            </g>
+
+            <!-- Step 5: Compile + Run -->
+            <g id="pl-step5" opacity="0.3">
+                <rect x="470" y="45" width="160" height="70" rx="8" fill="#f4ecf7" stroke="#8e44ad" stroke-width="2"/>
+                <text x="550" y="68" text-anchor="middle" font-size="11" fill="#6c3483" font-weight="bold">Compile + Execute</text>
+                <text x="550" y="86" text-anchor="middle" font-size="9" fill="#555">cargo run</text>
+                <text x="550" y="98" text-anchor="middle" font-size="9" fill="#555">Traces one path</text>
+                <text x="550" y="110" text-anchor="middle" font-size="9" fill="#555">Takes seconds/minutes</text>
+            </g>
+
+            <!-- Arrow 4->5 -->
+            <g id="pl-arrow4" opacity="0.3">
+                <line x1="410" y1="80" x2="468" y2="80" stroke="#7f8c8d" stroke-width="2" marker-end="url(#pl-arrowhead)"/>
+            </g>
+
+            <!-- Step 6: Runtime Events -->
+            <g id="pl-step6" opacity="0.3">
+                <rect x="470" y="140" width="160" height="70" rx="8" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+                <text x="550" y="162" text-anchor="middle" font-size="11" fill="#1e8449" font-weight="bold">borrowscope-runtime</text>
+                <text x="550" y="180" text-anchor="middle" font-size="9" fill="#555">88 event types recorded</text>
+                <text x="550" y="192" text-anchor="middle" font-size="9" fill="#555">RcNew, RcClone, Drop...</text>
+                <text x="550" y="204" text-anchor="middle" font-size="9" fill="#555">Exported to JSON</text>
+            </g>
+
+            <!-- Arrow 5->6 -->
+            <g id="pl-arrow5" opacity="0.3">
+                <line x1="550" y1="115" x2="550" y2="138" stroke="#7f8c8d" stroke-width="2" marker-end="url(#pl-arrowhead)"/>
+            </g>
+
+            <!-- The Gap (bottom section) -->
+            <g id="pl-gap" opacity="0">
+                <rect x="30" y="240" width="690" height="55" rx="8" fill="#fdedec" stroke="#e74c3c" stroke-width="2" stroke-dasharray="5,5"/>
+                <text x="375" y="262" text-anchor="middle" font-size="12" fill="#c0392b" font-weight="bold">THE GAP</text>
+                <text x="375" y="280" text-anchor="middle" font-size="10" fill="#922b21">No editor feedback | One path only | Stale type-info | Requires full compile+run cycle</text>
+            </g>
+
+            <!-- The Solution (LSP) -->
+            <g id="pl-lsp" opacity="0">
+                <rect x="30" y="310" width="690" height="55" rx="8" fill="#d4efdf" stroke="#27ae60" stroke-width="2"/>
+                <text x="375" y="332" text-anchor="middle" font-size="12" fill="#1e8449" font-weight="bold">borrowscope-lsp FILLS THE GAP</text>
+                <text x="375" y="350" text-anchor="middle" font-size="10" fill="#1e8449">Real-time in editor | All paths | Always-fresh Salsa DB | No compilation needed</text>
+            </g>
+
+            <!-- Arrowhead marker -->
+            <defs>
+                <marker id="pl-arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="#7f8c8d"/>
+                </marker>
+            </defs>
+
+            <!-- Step counter -->
+            <text id="pl-step" x="375" y="375" text-anchor="middle" font-size="10" fill="#999">Step 0/7</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var plStep = 0;
+        var steps = [
+            { show: ['pl-step1'], title: 'Developer writes Rust source code' },
+            { show: ['pl-step1','pl-arrow1','pl-step2'], title: 'Analyzer resolves types using ra_ap_* APIs' },
+            { show: ['pl-step1','pl-arrow1','pl-step2','pl-arrow2','pl-step3'], title: 'Analyzer outputs type-info.json (static snapshot)' },
+            { show: ['pl-step1','pl-arrow1','pl-step2','pl-arrow2','pl-step3','pl-arrow3','pl-arrow1to4','pl-step4'], title: 'Macro reads type-info.json to decide which track_* to emit' },
+            { show: ['pl-step1','pl-arrow1','pl-step2','pl-arrow2','pl-step3','pl-arrow3','pl-arrow1to4','pl-step4','pl-arrow4','pl-step5'], title: 'Code must be compiled and executed (seconds to minutes)' },
+            { show: ['pl-step1','pl-arrow1','pl-step2','pl-arrow2','pl-step3','pl-arrow3','pl-arrow1to4','pl-step4','pl-arrow4','pl-step5','pl-arrow5','pl-step6'], title: 'Runtime records events along one execution path' },
+            { show: ['pl-step1','pl-arrow1','pl-step2','pl-arrow2','pl-step3','pl-arrow3','pl-arrow1to4','pl-step4','pl-arrow4','pl-step5','pl-arrow5','pl-step6','pl-gap','pl-lsp'], title: 'borrowscope-lsp eliminates the entire pipeline for editor feedback' }
+        ];
+        var allIds = ['pl-step1','pl-arrow1','pl-step2','pl-arrow2','pl-step3','pl-arrow3','pl-arrow1to4','pl-step4','pl-arrow4','pl-step5','pl-arrow5','pl-step6','pl-gap','pl-lsp'];
+
+        window.advancePipeline = function() {
+            if (plStep >= steps.length) { plStep = 0; resetPL(); return; }
+            var s = steps[plStep];
+            allIds.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.setAttribute('opacity', s.show.indexOf(id) >= 0 ? '1' : '0.15');
+            });
+            document.getElementById('pl-title').textContent = s.title;
+            plStep++;
+            document.getElementById('pl-step').textContent = 'Step ' + plStep + '/' + steps.length;
+        };
+        function resetPL() {
+            allIds.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.setAttribute('opacity', '0.3');
+            });
+            document.getElementById('pl-gap').setAttribute('opacity', '0');
+            document.getElementById('pl-lsp').setAttribute('opacity', '0');
+            document.getElementById('pl-title').textContent = 'Click to step through the runtime instrumentation pipeline';
+            document.getElementById('pl-step').textContent = 'Step 0/' + steps.length;
+        }
+    })();
+    </script>
+    <p>
+        This architecture works but has four fundamental limitations:
+    </p>
+    <ul>
+        <li><strong>Requires compilation and execution:</strong> The developer must save, compile, run the program, and then inspect the output. The feedback loop is measured in seconds to minutes.</li>
+        <li><strong>Sees only one execution path:</strong> Each run traces one path through the program. Branches not taken, error paths not triggered, and concurrent interleavings not observed remain invisible.</li>
+        <li><strong>No editor feedback:</strong> Results appear in a separate JSON file or visualization tool, disconnected from the source code where the developer is working.</li>
+        <li><strong>Stale type information:</strong> The moment the developer edits the source code, the <code>type-info.json</code> file becomes outdated. A variable that was <code>Rc</code> might now be <code>Arc</code>, a function parameter might have changed type, or a new variable might not appear in the file at all. The developer must re-run the analyzer to update it.</li>
+    </ul>
+    <p>
+        These limitations motivated <code>borrowscope-lsp</code>: a system that provides the same semantic ownership analysis, using the same compiler-grade type information, but computed in real-time inside the editor as the developer types. The LSP server uses the <code>ra_ap_*</code> crate ecosystem (rust-analyzer's internal APIs) to access the Salsa incremental computation database, which maintains an always-up-to-date semantic model of the entire workspace. When a file changes, only the affected queries are recomputed, keeping response times under 100ms.
+    </p>
+    <p>
+        The three components serve complementary roles:
+    </p>
+    <table>
+        <tr>
+            <th>Property</th>
+            <th>borrowscope-runtime</th>
+            <th>borrowscope-macro</th>
+            <th>borrowscope-lsp</th>
+        </tr>
+        <tr>
+            <td>Requires compilation</td>
+            <td>Yes</td>
+            <td>Yes (expands at compile time)</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Requires execution</td>
+            <td>Yes</td>
+            <td>No (but output needs runtime)</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Sees all code paths</td>
+            <td>No (one path per run)</td>
+            <td>N/A (instruments all paths)</td>
+            <td>Yes</td>
+        </tr>
+        <tr>
+            <td>Real-time editor feedback</td>
+            <td>No</td>
+            <td>No</td>
+            <td>Yes (&lt;100ms)</td>
+        </tr>
+        <tr>
+            <td>Precision of ownership info</td>
+            <td>Exact (observed at runtime)</td>
+            <td>Exact (semantic type-info)</td>
+            <td>Static approximation (all paths)</td>
+        </tr>
+        <tr>
+            <td>Handles dynamic dispatch</td>
+            <td>Yes (sees actual types)</td>
+            <td>Partially (monomorphized)</td>
+            <td>No (static types only)</td>
+        </tr>
+        <tr>
+            <td>Type info freshness</td>
+            <td>Snapshot at compile time</td>
+            <td>Snapshot (type-info.json)</td>
+            <td>Always current (Salsa DB)</td>
+        </tr>
+    </table>
+
+    <h2>1.3 Research Questions</h2>
+    <p>
+        This work addresses four research questions. Each targets a specific technical challenge that must be solved to deliver real-time ownership visualization without sacrificing the semantic precision established by the analyzer and runtime components.
+    </p>
+    <div class="research-questions">
+        <ul>
+            <li><strong>RQ1:</strong> Can ownership relationships be extracted from the rust-analyzer semantic database in real-time, within a 100ms budget per function?</li>
+            <li><strong>RQ2:</strong> Can cross-function borrow paths be resolved without whole-program analysis, using only local call-site resolution?</li>
+            <li><strong>RQ3:</strong> Can memory layout (stack frame structure, heap allocations, pointer relationships) be reconstructed from type information alone, without runtime observation?</li>
+            <li><strong>RQ4:</strong> Can a debounced incremental analysis pipeline maintain responsiveness during rapid editing while still providing accurate results?</li>
+        </ul>
+    </div>
+
+    <h2>1.4 Contributions</h2>
+    <p>
+        This paper makes the following contributions. Together, they demonstrate that compiler-grade ownership analysis can be delivered as an interactive editor service, bridging the gap between the static type-info approach of the analyzer and the dynamic event recording of the runtime.
+    </p>
+    <div class="contributions">
+        <ol>
+            <li>An LSP server implementation with 5 custom requests and 1 custom notification for ownership-specific analysis, built entirely on <code>ra_ap_*</code> compiler APIs with zero heuristics.</li>
+            <li>An ownership analysis engine that extracts 40+ type properties per variable, classifies ownership into 8 categories, computes borrow scopes via <code>Definition::usages</code>, detects 4 move patterns, and identifies borrow conflicts through scope overlap analysis.</li>
+            <li>Cross-function borrow tracking that resolves call targets via <code>sema.resolve_path</code> and traces reference parameters into callees, with performance guards (200ms timeout, 50 result cap).</li>
+            <li>Field-level memory layout visualization that reconstructs stack frames, identifies heap allocations, and maps pointer relationships for 12+ standard library types and arbitrary user-defined structs.</li>
+            <li>A debounced incremental analysis pipeline with fresh/stale caching, smart notification filtering (only affected functions), and LRU eviction, keeping the server responsive during rapid editing.</li>
+            <li>Validation through 107 integration tests covering the full LSP protocol lifecycle, custom requests, debounce behavior, cache management, and performance budgets.</li>
+        </ol>
+    </div>
+</div>

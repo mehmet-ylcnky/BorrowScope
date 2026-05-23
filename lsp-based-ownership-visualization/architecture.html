@@ -1,0 +1,443 @@
+<div class="section">
+    <h1>3. Architecture</h1>
+
+    <h2>3.1 System Overview</h2>
+    <p>
+        <code>borrowscope-lsp</code> is a standalone binary that communicates with any LSP-compatible editor via JSON-RPC over standard input/output. The editor sends text document notifications (open, change, close) and requests (hover, codeLens, custom ownership queries). The server maintains an in-memory semantic database of the entire workspace and responds with structured ownership information derived from that database. Because it uses the standard LSP protocol, it is not tied to any specific editor: VS Code, Neovim, Emacs, Helix, and any other LSP client can connect without modification. The server process is long-lived, starting when the editor opens a Rust project and terminating on shutdown, maintaining state across multiple file edits throughout the session.
+    </p>
+    <p>
+        The architecture has three layers: the LSP protocol layer (message parsing, routing, response formatting), the state management layer (file tracking, caching, debouncing), and the analysis layer (type extraction, borrow scope computation, conflict detection). Each layer is independent: the protocol layer knows nothing about ownership, the analysis layer knows nothing about LSP, and the state layer mediates between them. This separation allows the analysis engine to be tested in isolation (as a library crate) without spawning an LSP server, and allows the protocol layer to be swapped for alternative transports (e.g., WebSocket) without touching the analysis logic. The main loop uses a 50ms polling timeout, which balances responsiveness (debounce checks, background load completion) against CPU usage when idle.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="arch-svg" viewBox="0 0 750 300" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceArch()">
+            <text id="arch-title" x="375" y="22" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to explore each architectural layer</text>
+
+            <!-- Editor -->
+            <g id="arch-editor">
+                <rect x="30" y="110" width="130" height="80" rx="8" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+                <text x="95" y="140" text-anchor="middle" font-size="12" fill="#2980b9" font-weight="bold">Editor</text>
+                <text x="95" y="158" text-anchor="middle" font-size="9" fill="#555">VS Code, Neovim,</text>
+                <text x="95" y="170" text-anchor="middle" font-size="9" fill="#555">Emacs, Helix...</text>
+            </g>
+
+            <!-- LSP Protocol -->
+            <g id="arch-protocol">
+                <rect x="200" y="60" width="150" height="50" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+                <text x="275" y="82" text-anchor="middle" font-size="10" fill="#b7950b" font-weight="bold">LSP Protocol Layer</text>
+                <text x="275" y="96" text-anchor="middle" font-size="9" fill="#555">JSON-RPC / stdio</text>
+            </g>
+
+            <!-- State -->
+            <g id="arch-state">
+                <rect x="200" y="130" width="150" height="50" rx="6" fill="#e8f8f5" stroke="#1abc9c" stroke-width="2"/>
+                <text x="275" y="152" text-anchor="middle" font-size="10" fill="#148f77" font-weight="bold">State Layer</text>
+                <text x="275" y="166" text-anchor="middle" font-size="9" fill="#555">Cache, Debounce, VFS</text>
+            </g>
+
+            <!-- Analysis -->
+            <g id="arch-analysis">
+                <rect x="200" y="200" width="150" height="50" rx="6" fill="#fdedec" stroke="#e74c3c" stroke-width="2"/>
+                <text x="275" y="222" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">Analysis Layer</text>
+                <text x="275" y="236" text-anchor="middle" font-size="9" fill="#555">Ownership engine</text>
+            </g>
+
+            <!-- Salsa DB -->
+            <g id="arch-salsa">
+                <rect x="420" y="110" width="140" height="80" rx="8" fill="#f4ecf7" stroke="#8e44ad" stroke-width="2"/>
+                <text x="490" y="138" text-anchor="middle" font-size="11" fill="#6c3483" font-weight="bold">Salsa DB</text>
+                <text x="490" y="155" text-anchor="middle" font-size="9" fill="#555">ra_ap_ide_db</text>
+                <text x="490" y="168" text-anchor="middle" font-size="9" fill="#555">Incremental queries</text>
+                <text x="490" y="181" text-anchor="middle" font-size="9" fill="#555">hir::Type, Semantics</text>
+            </g>
+
+            <!-- Source Files -->
+            <g id="arch-source">
+                <rect x="610" y="110" width="110" height="80" rx="8" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+                <text x="665" y="140" text-anchor="middle" font-size="11" fill="#1e8449" font-weight="bold">Source Files</text>
+                <text x="665" y="158" text-anchor="middle" font-size="9" fill="#555">*.rs via VFS</text>
+                <text x="665" y="170" text-anchor="middle" font-size="9" fill="#555">Cargo.toml</text>
+            </g>
+
+            <!-- Arrows -->
+            <defs><marker id="arch-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7f8c8d"/></marker></defs>
+            <line x1="160" y1="150" x2="198" y2="150" stroke="#7f8c8d" stroke-width="2" marker-end="url(#arch-arrow)"/>
+            <text x="179" y="143" text-anchor="middle" font-size="7" fill="#7f8c8d">stdio</text>
+            <line x1="350" y1="155" x2="418" y2="155" stroke="#7f8c8d" stroke-width="2" marker-end="url(#arch-arrow)"/>
+            <line x1="560" y1="150" x2="608" y2="150" stroke="#7f8c8d" stroke-width="2" marker-end="url(#arch-arrow)"/>
+            <line x1="275" y1="110" x2="275" y2="130" stroke="#bdc3c7" stroke-width="1.5"/>
+            <line x1="275" y1="180" x2="275" y2="200" stroke="#bdc3c7" stroke-width="1.5"/>
+
+            <!-- Description box -->
+            <rect x="30" y="260" width="690" height="30" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="arch-desc" x="375" y="280" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to highlight each component</text>
+
+            <!-- Step counter -->
+            <text id="arch-step" x="375" y="298" text-anchor="middle" font-size="9" fill="#999">Step 0/6</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var archStep = 0;
+        var allGroups = ['arch-editor','arch-protocol','arch-state','arch-analysis','arch-salsa','arch-source'];
+        var steps = [
+            { highlight: 'arch-editor', desc: 'Editor: sends didOpen/didChange/didClose notifications and ownership requests via stdio' },
+            { highlight: 'arch-protocol', desc: 'Protocol Layer: parses JSON-RPC, routes to handlers, formats responses (lsp-server crate)' },
+            { highlight: 'arch-state', desc: 'State Layer: tracks open files, debounces changes, manages fresh/stale analysis cache' },
+            { highlight: 'arch-analysis', desc: 'Analysis Layer: extracts types, computes borrow scopes, detects moves/conflicts (zero heuristics)' },
+            { highlight: 'arch-salsa', desc: 'Salsa DB: incremental computation, only recomputes queries affected by file changes' },
+            { highlight: 'arch-source', desc: 'Source Files: loaded into VFS on startup, updated in-memory on each didChange notification' }
+        ];
+        window.advanceArch = function() {
+            if (archStep >= steps.length) { archStep = 0; resetArch(); return; }
+            var s = steps[archStep];
+            allGroups.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (id === s.highlight) {
+                    el.style.opacity = '1';
+                    el.querySelector('rect').setAttribute('stroke-width', '4');
+                } else {
+                    el.style.opacity = '0.35';
+                    el.querySelector('rect').setAttribute('stroke-width', '2');
+                }
+            });
+            document.getElementById('arch-desc').textContent = s.desc;
+            archStep++;
+            document.getElementById('arch-step').textContent = 'Step ' + archStep + '/' + steps.length;
+            document.getElementById('arch-title').textContent = 'Click to continue';
+        };
+        function resetArch() {
+            allGroups.forEach(function(id) {
+                var el = document.getElementById(id);
+                el.style.opacity = '1';
+                el.querySelector('rect').setAttribute('stroke-width', '2');
+            });
+            document.getElementById('arch-desc').textContent = '// click to highlight each component';
+            document.getElementById('arch-title').textContent = 'Click to explore each architectural layer';
+            document.getElementById('arch-step').textContent = 'Step 0/6';
+        }
+    })();
+    </script>
+
+    <h2>3.2 The ra_ap_* Semantic Engine</h2>
+    <p>
+        The server builds on the <code>ra_ap_*</code> crate ecosystem, which is the public API surface of rust-analyzer's internal compiler. These crates provide full semantic understanding of Rust code without invoking <code>rustc</code> directly. They are versioned and published to crates.io, allowing external tools to depend on specific versions (we use 0.0.318). The same APIs that power rust-analyzer's go-to-definition, type inference, and completion are available to us for ownership analysis. This means we get the same precision as the compiler itself for type resolution, trait checking, and layout computation. The key crates used are:
+    </p>
+    <ul>
+        <li><code>ra_ap_hir</code>: High-level intermediate representation. Provides <code>hir::Type</code> (40+ query methods), <code>hir::Function</code>, <code>hir::Module</code>, <code>hir::Semantics</code> for name resolution and type inference.</li>
+        <li><code>ra_ap_ide_db</code>: The <code>RootDatabase</code> (Salsa-based) and <code>Definition::usages</code> for finding all references to a binding.</li>
+        <li><code>ra_ap_syntax</code>: Concrete syntax tree (CST). Provides <code>ast::Fn</code>, <code>ast::LetStmt</code>, <code>ast::MethodCallExpr</code>, <code>TextRange</code>, and tree traversal.</li>
+        <li><code>ra_ap_vfs</code>: Virtual file system that tracks file contents in memory, enabling incremental updates without disk I/O.</li>
+        <li><code>ra_ap_load_cargo</code>: One-shot workspace loader that resolves <code>Cargo.toml</code>, discovers the sysroot, and populates the Salsa database with all crate metadata.</li>
+        <li><code>ra_ap_hir_ty</code>: Provides <code>attach_db</code> for executing type queries within the correct database context.</li>
+    </ul>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">use</span> ra_ap_hir::{<span class="rust-keyword">self as</span> hir, HirDisplay, Semantics};
+<span class="rust-keyword">use</span> ra_ap_ide_db::RootDatabase;
+<span class="rust-keyword">use</span> ra_ap_syntax::{ast, AstNode, Edition};
+<span class="rust-keyword">use</span> ra_ap_vfs::VfsPath;
+<span class="rust-keyword">use</span> ra_ap_load_cargo::{load_workspace_at, LoadCargoConfig};
+<span class="rust-keyword">use</span> ra_ap_hir_ty::attach_db;</pre>
+    </div>
+
+    <h2>3.3 Workspace Loading via load_workspace_at</h2>
+    <p>
+        The most expensive operation in the server's lifecycle is the initial workspace load. This resolves all dependencies declared in <code>Cargo.toml</code>, discovers the Rust sysroot (standard library source), and builds the complete Salsa database containing type information for every crate in the dependency graph. For a medium-sized project (50-100 crates in the dependency tree), this takes 30-40 seconds. The result is a <code>RootDatabase</code> that can answer any semantic query about any symbol in the workspace or its dependencies, and a <code>Vfs</code> (virtual file system) that holds all file contents in memory.
+    </p>
+    <p>
+        The load is configured with two structures: <code>CargoConfig</code> (which sets sysroot discovery to automatic) and <code>LoadCargoConfig</code> (which enables output directory loading for build scripts, disables proc-macro expansion to avoid spawning a separate server, and enables cache prefilling for faster subsequent queries). Disabling proc-macro expansion is a deliberate trade-off: it means that types generated by procedural macros (such as derive macros) may not be fully resolved, but it eliminates the complexity and latency of maintaining a proc-macro server process. For ownership analysis, this trade-off is acceptable because the vast majority of ownership-relevant types are defined in user code or the standard library, not generated by macros.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub fn</span> <span class="rust-function">load_workspace</span>(root_path: &amp;Path) -> Result&lt;WorkspaceData&gt; {
+    <span class="rust-keyword">let mut</span> cargo_config = CargoConfig::default();
+    cargo_config.sysroot = Some(RustLibSource::Discover);
+
+    <span class="rust-keyword">let</span> load_config = LoadCargoConfig {
+        load_out_dirs_from_check: <span class="rust-keyword">true</span>,
+        with_proc_macro_server: ProcMacroServerChoice::None,
+        prefill_caches: <span class="rust-keyword">true</span>,
+        proc_macro_processes: 0,
+    };
+
+    <span class="rust-keyword">let</span> (db, vfs, _) = load_workspace_at(root_path, &amp;cargo_config, &amp;load_config, &amp;|msg| {
+        tracing::debug!(<span class="rust-string">"Loading: {}"</span>, msg);
+    })?;
+
+    Ok(WorkspaceData { db, vfs })
+}</pre>
+    </div>
+
+    <h2>3.4 Salsa Incremental Computation Model</h2>
+    <p>
+        After the initial load, the Salsa database enables incremental re-analysis. Salsa is a demand-driven computation framework: queries are only recomputed when their inputs change. When the developer edits a file, the server pushes the new content into the VFS, then calls <code>db.apply_change()</code> to notify Salsa that one input has changed. Subsequent queries (type resolution, name lookup, layout computation) automatically recompute only the portions of the dependency graph affected by that change. Salsa tracks dependencies at a fine granularity: if a query only reads the body of one function, changing a different function in the same file does not invalidate it. This granularity is what makes sub-100ms re-analysis possible even for files with dozens of functions.
+    </p>
+    <p>
+        This is the key architectural difference from the <code>borrowscope-analyzer</code>, which performs a full workspace analysis and writes a complete <code>type-info.json</code> on every run. The LSP server never performs a full re-analysis after the initial load. A single-character edit in a function body triggers recomputation of only that function's type information, keeping response times under 100ms. The Salsa model also means that queries for unmodified functions return instantly from cache, making it efficient to analyze an entire file (for CodeLens) even when only one function changed. This is fundamentally different from the batch model where any change requires regenerating the entire output.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="salsa-svg" viewBox="0 0 750 340" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceSalsa()">
+            <text id="salsa-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see how Salsa handles an edit incrementally</text>
+
+            <!-- Query dependency graph -->
+            <text x="375" y="45" text-anchor="middle" font-size="10" fill="#7f8c8d">Salsa Query Dependency Graph</text>
+
+            <!-- File node -->
+            <g id="salsa-file">
+                <rect x="30" y="70" width="120" height="40" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+                <text x="90" y="95" text-anchor="middle" font-size="10" fill="#1e8449" font-weight="bold">main.rs</text>
+            </g>
+
+            <!-- Parse query -->
+            <g id="salsa-parse">
+                <rect x="200" y="55" width="120" height="35" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="1.5"/>
+                <text x="260" y="77" text-anchor="middle" font-size="9" fill="#2980b9">parse(main.rs)</text>
+            </g>
+
+            <!-- Type queries for fn_a -->
+            <g id="salsa-types-a">
+                <rect x="380" y="55" width="140" height="35" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5"/>
+                <text x="450" y="77" text-anchor="middle" font-size="9" fill="#b7950b">types(fn process)</text>
+            </g>
+
+            <!-- Type queries for fn_b -->
+            <g id="salsa-types-b">
+                <rect x="380" y="100" width="140" height="35" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5"/>
+                <text x="450" y="122" text-anchor="middle" font-size="9" fill="#b7950b">types(fn validate)</text>
+            </g>
+
+            <!-- Layout queries -->
+            <g id="salsa-layout-a">
+                <rect x="570" y="55" width="140" height="35" rx="6" fill="#f4ecf7" stroke="#8e44ad" stroke-width="1.5"/>
+                <text x="640" y="77" text-anchor="middle" font-size="9" fill="#6c3483">layout(fn process)</text>
+            </g>
+            <g id="salsa-layout-b">
+                <rect x="570" y="100" width="140" height="35" rx="6" fill="#f4ecf7" stroke="#8e44ad" stroke-width="1.5"/>
+                <text x="640" y="122" text-anchor="middle" font-size="9" fill="#6c3483">layout(fn validate)</text>
+            </g>
+
+            <!-- Dependency arrows -->
+            <defs>
+                <marker id="salsa-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#bdc3c7"/></marker>
+            </defs>
+            <line x1="150" y1="90" x2="198" y2="75" stroke="#bdc3c7" stroke-width="1.5" marker-end="url(#salsa-arr)"/>
+            <line x1="150" y1="90" x2="198" y2="115" stroke="#bdc3c7" stroke-width="1.5" marker-end="url(#salsa-arr)"/>
+            <line x1="320" y1="72" x2="378" y2="72" stroke="#bdc3c7" stroke-width="1.5" marker-end="url(#salsa-arr)"/>
+            <line x1="320" y1="72" x2="378" y2="117" stroke="#bdc3c7" stroke-width="1.5" marker-end="url(#salsa-arr)"/>
+            <line x1="520" y1="72" x2="568" y2="72" stroke="#bdc3c7" stroke-width="1.5" marker-end="url(#salsa-arr)"/>
+            <line x1="520" y1="117" x2="568" y2="117" stroke="#bdc3c7" stroke-width="1.5" marker-end="url(#salsa-arr)"/>
+
+            <!-- Animated flow dots -->
+            <circle r="4" fill="#3498db" opacity="0.8">
+                <animateMotion dur="2s" repeatCount="indefinite" path="M150,90 L198,75"/>
+            </circle>
+            <circle r="4" fill="#3498db" opacity="0.8">
+                <animateMotion dur="2.3s" repeatCount="indefinite" path="M150,90 L198,115"/>
+            </circle>
+            <circle r="4" fill="#f39c12" opacity="0.8">
+                <animateMotion dur="1.8s" repeatCount="indefinite" path="M320,72 L378,72"/>
+            </circle>
+            <circle r="4" fill="#f39c12" opacity="0.8">
+                <animateMotion dur="2.1s" repeatCount="indefinite" path="M320,72 L378,117"/>
+            </circle>
+            <circle r="4" fill="#8e44ad" opacity="0.8">
+                <animateMotion dur="1.6s" repeatCount="indefinite" path="M520,72 L568,72"/>
+            </circle>
+            <circle r="4" fill="#8e44ad" opacity="0.8">
+                <animateMotion dur="1.9s" repeatCount="indefinite" path="M520,117 L568,117"/>
+            </circle>
+
+            <!-- Comparison: full re-analysis vs incremental -->
+            <rect x="30" y="160" width="330" height="100" rx="6" fill="white" stroke="#e74c3c" stroke-width="1.5"/>
+            <text x="195" y="178" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">borrowscope-analyzer (full)</text>
+            <text id="salsa-full-1" x="195" y="198" text-anchor="middle" font-size="9" fill="#555">Edit main.rs</text>
+            <text id="salsa-full-2" x="195" y="213" text-anchor="middle" font-size="9" fill="#555">Re-analyze ALL functions</text>
+            <text id="salsa-full-3" x="195" y="228" text-anchor="middle" font-size="9" fill="#555">Re-write entire type-info.json</text>
+            <text id="salsa-full-4" x="195" y="248" text-anchor="middle" font-size="9" fill="#e74c3c" font-weight="bold">Cost: seconds</text>
+
+            <rect x="390" y="160" width="330" height="100" rx="6" fill="white" stroke="#27ae60" stroke-width="1.5"/>
+            <text x="555" y="178" text-anchor="middle" font-size="10" fill="#1e8449" font-weight="bold">borrowscope-lsp (incremental)</text>
+            <text id="salsa-inc-1" x="555" y="198" text-anchor="middle" font-size="9" fill="#555">Edit fn process() body</text>
+            <text id="salsa-inc-2" x="555" y="213" text-anchor="middle" font-size="9" fill="#555">Salsa invalidates: parse, types(process), layout(process)</text>
+            <text id="salsa-inc-3" x="555" y="228" text-anchor="middle" font-size="9" fill="#555">fn validate() queries: UNCHANGED, not recomputed</text>
+            <text id="salsa-inc-4" x="555" y="248" text-anchor="middle" font-size="9" fill="#27ae60" font-weight="bold">Cost: &lt;100ms</text>
+
+            <!-- Action description -->
+            <rect x="30" y="275" width="690" height="40" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="salsa-desc" x="375" y="300" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to simulate an edit to fn process()</text>
+
+            <text id="salsa-step" x="375" y="330" text-anchor="middle" font-size="9" fill="#999">Step 0/5</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var salsaStep = 0;
+        var steps = [
+            { desc: 'Initial state: all queries are cached and fresh (green borders)', highlights: {}, invalidated: [] },
+            { desc: 'Developer edits fn process() body: file content changes in VFS', highlights: {'salsa-file': '#e74c3c'}, invalidated: [] },
+            { desc: 'Salsa marks parse(main.rs) as invalidated (input changed)', highlights: {'salsa-file': '#e74c3c', 'salsa-parse': '#e74c3c'}, invalidated: ['salsa-parse'] },
+            { desc: 'types(fn process) depends on parse -> invalidated. types(fn validate) body unchanged -> CACHED', highlights: {'salsa-file': '#e74c3c', 'salsa-parse': '#e74c3c', 'salsa-types-a': '#e74c3c'}, invalidated: ['salsa-parse','salsa-types-a'] },
+            { desc: 'Only layout(fn process) recomputes. layout(fn validate) stays cached. Total cost: <100ms', highlights: {'salsa-file': '#27ae60', 'salsa-parse': '#27ae60', 'salsa-types-a': '#27ae60', 'salsa-layout-a': '#e74c3c'}, invalidated: ['salsa-layout-a'] }
+        ];
+        var allNodes = ['salsa-file','salsa-parse','salsa-types-a','salsa-types-b','salsa-layout-a','salsa-layout-b'];
+
+        window.advanceSalsa = function() {
+            if (salsaStep >= steps.length) { salsaStep = 0; resetSalsa(); return; }
+            var s = steps[salsaStep];
+            allNodes.forEach(function(id) {
+                var el = document.getElementById(id);
+                var rect = el.querySelector('rect');
+                if (s.highlights[id]) {
+                    rect.setAttribute('stroke', s.highlights[id]);
+                    rect.setAttribute('stroke-width', '3');
+                    if (s.invalidated.indexOf(id) >= 0) {
+                        rect.setAttribute('fill', '#fdedec');
+                    } else if (s.highlights[id] === '#27ae60') {
+                        rect.setAttribute('fill', '#d5f5e3');
+                    }
+                } else {
+                    rect.setAttribute('stroke-width', '1.5');
+                    if (id === 'salsa-types-b' || id === 'salsa-layout-b') {
+                        rect.setAttribute('fill', salsaStep >= 3 ? '#d5f5e3' : rect.getAttribute('fill'));
+                        if (salsaStep >= 3) rect.setAttribute('stroke', '#27ae60');
+                    }
+                }
+            });
+            document.getElementById('salsa-desc').textContent = s.desc;
+            salsaStep++;
+            document.getElementById('salsa-step').textContent = 'Step ' + salsaStep + '/' + steps.length;
+            document.getElementById('salsa-title').textContent = 'Click to continue';
+        };
+        function resetSalsa() {
+            allNodes.forEach(function(id) {
+                var el = document.getElementById(id);
+                var rect = el.querySelector('rect');
+                rect.setAttribute('stroke-width', '1.5');
+                var defaults = {'salsa-file':'#27ae60','salsa-parse':'#2980b9','salsa-types-a':'#f39c12','salsa-types-b':'#f39c12','salsa-layout-a':'#8e44ad','salsa-layout-b':'#8e44ad'};
+                var fills = {'salsa-file':'#d5f5e3','salsa-parse':'#ebf5fb','salsa-types-a':'#fef9e7','salsa-types-b':'#fef9e7','salsa-layout-a':'#f4ecf7','salsa-layout-b':'#f4ecf7'};
+                rect.setAttribute('stroke', defaults[id]);
+                rect.setAttribute('fill', fills[id]);
+            });
+            document.getElementById('salsa-desc').textContent = '// click to simulate an edit to fn process()';
+            document.getElementById('salsa-title').textContent = 'Click to see how Salsa handles an edit incrementally';
+            document.getElementById('salsa-step').textContent = 'Step 0/5';
+        }
+    })();
+    </script>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Push edited file content into VFS</span>
+<span class="rust-keyword">let</span> vfs_path = VfsPath::new_real_path(file_path.clone());
+ws.vfs.set_file_contents(vfs_path, Some(content.as_bytes().to_vec()));
+
+<span class="rust-comment">// Apply VFS changes to Salsa database</span>
+<span class="rust-keyword">let</span> changes = ws.vfs.take_changes();
+<span class="rust-keyword">let mut</span> change = ChangeWithProcMacros::default();
+<span class="rust-keyword">for</span> (file_id, _) <span class="rust-keyword">in</span> &amp;changes {
+    change.source_change.change_file(*file_id, Some(content.clone()));
+}
+ws.db.apply_change(change);
+<span class="rust-comment">// Next query on this file will recompute only affected results</span></pre>
+    </div>
+
+    <h2>3.5 LSP Protocol Layer</h2>
+    <p>
+        The server uses the <code>lsp-server</code> crate for JSON-RPC framing over stdio. On startup, it performs the standard LSP handshake: receives <code>initialize</code>, responds with server capabilities, waits for <code>initialized</code>, then enters the main message loop. The main loop processes three message types: requests (which require a response), notifications (fire-and-forget from client), and responses (to server-initiated requests like progress token creation). If the client sends a <code>shutdown</code> request, the server responds with null and exits cleanly with code 0. If the connection drops without shutdown, the server exits with code 1, signaling an abnormal termination. The declared capabilities are:
+    </p>
+    <ul>
+        <li><strong>textDocumentSync:</strong> Full document sync (the client sends the entire file content on each change).</li>
+        <li><strong>hoverProvider:</strong> Ownership tooltips on variable declarations.</li>
+        <li><strong>codeLensProvider:</strong> Per-function ownership statistics above each function signature.</li>
+        <li><strong>inlayHintProvider:</strong> Inline ownership category annotations after variable names.</li>
+    </ul>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">pub fn</span> <span class="rust-function">server_capabilities</span>() -> ServerCapabilities {
+    ServerCapabilities {
+        text_document_sync: Some(TextDocumentSyncCapability::Options(
+            TextDocumentSyncOptions {
+                open_close: Some(<span class="rust-keyword">true</span>),
+                change: Some(TextDocumentSyncKind::FULL),
+                save: Some(TextDocumentSyncSaveOptions::SaveOptions(SaveOptions {
+                    include_text: Some(<span class="rust-keyword">false</span>),
+                })),
+                ..Default::default()
+            },
+        )),
+        hover_provider: Some(HoverProviderCapability::Simple(<span class="rust-keyword">true</span>)),
+        code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(<span class="rust-keyword">false</span>) }),
+        inlay_hint_provider: Some(OneOf::Left(<span class="rust-keyword">true</span>)),
+        ..Default::default()
+    }
+}</pre>
+    </div>
+
+    <h2>3.6 Custom Request Protocol</h2>
+    <p>
+        Beyond standard LSP features, the server exposes 5 custom requests and 1 custom notification for ownership-specific analysis. These use the standard JSON-RPC mechanism with method names prefixed by <code>borrowscope/</code>. Any LSP client can invoke them by sending a request with the appropriate method name and parameters. The custom requests follow the same error handling conventions as standard LSP: if the workspace is not yet loaded, requests that require semantic analysis return error code -32002 (ServerNotInitialized). The <code>ownershipGraph</code> request is an exception: it returns a structured loading indicator instead of an error, allowing the client to show a placeholder UI while the workspace loads. All responses include a <code>_status</code> field ("ready" or "loading") and a <code>_stale</code> boolean indicating whether the result comes from cache.
+    </p>
+    <table>
+        <tr>
+            <th>Method</th>
+            <th>Parameters</th>
+            <th>Returns</th>
+        </tr>
+        <tr>
+            <td><code>borrowscope/ownershipGraph</code></td>
+            <td>TextDocumentPosition</td>
+            <td>Full ownership summary for the function at cursor: variables, borrows, moves, clones, conflicts, stats</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope/borrowScopes</code></td>
+            <td>TextDocument</td>
+            <td>All active borrow scopes in the file with line ranges and mutability</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope/variableInfo</code></td>
+            <td>TextDocumentPosition</td>
+            <td>Detailed ownership info for the variable at cursor: type, category, borrows, traits, layout</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope/crossFunctionBorrows</code></td>
+            <td>TextDocument</td>
+            <td>All borrows that cross function boundaries with path segments</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope/memoryLayout</code></td>
+            <td>TextDocumentPosition</td>
+            <td>Stack frame, heap allocations, pointer relationships for the function at cursor</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope/analysisUpdated</code> (notification)</td>
+            <td>N/A (server-initiated)</td>
+            <td>Sent to client when analysis results change, listing affected function names</td>
+        </tr>
+    </table>
+
+    <h2>3.7 Background Loading with Progress Reporting</h2>
+    <p>
+        Since workspace loading takes 30-40 seconds, the server must remain responsive during this period. The solution is to spawn the load in a background thread and continue processing messages in the main loop. During loading, requests that require the semantic database return a structured response with <code>"_status": "loading"</code> rather than an error, allowing the client to display a loading indicator. File open and change notifications are still processed during this time: the server stores file contents in its <code>open_files</code> map so that when loading completes, it already has the latest content for all open files. This means the developer can start editing immediately after opening a project, and ownership analysis becomes available seamlessly once the background load finishes.
+    </p>
+    <p>
+        Progress is reported to the editor via the standard LSP <code>$/progress</code> mechanism. The server creates a progress token (<code>borrowscope/loading</code>), sends a <code>WorkDoneProgressBegin</code> notification, and when loading completes (or fails), sends <code>WorkDoneProgressEnd</code>. The editor displays this as a progress bar or status message. If loading fails (e.g., no valid <code>Cargo.toml</code>, missing sysroot, or dependency resolution error), the failure message is included in the progress end notification and logged to stderr. The server continues running in a degraded mode where only file tracking works but no semantic analysis is available.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Spawn loading in background thread</span>
+<span class="rust-keyword">let</span> root_path = state.root_path.clone();
+<span class="rust-keyword">let</span> (load_sender, load_receiver) = crossbeam_channel::bounded(1);
+state.loading_receiver = Some(load_receiver);
+
+thread::spawn(<span class="rust-keyword">move</span> || {
+    <span class="rust-keyword">let</span> result = workspace::load_workspace(&amp;root_path);
+    send_progress(&amp;sender, &amp;token, WorkDoneProgress::End(
+        WorkDoneProgressEnd { message: Some(<span class="rust-string">"Ready"</span>.to_string()) }
+    ));
+    load_sender.send(result).ok();
+});
+
+<span class="rust-comment">// Main loop checks non-blocking:</span>
+<span class="rust-keyword">match</span> receiver.try_recv() {
+    Ok(Ok(ws)) => { state.workspace = Some(ws); }
+    Ok(Err(e)) => { tracing::error!(<span class="rust-string">"Loading failed: {}"</span>, e); }
+    Err(TryRecvError::Empty) => { <span class="rust-comment">/* still loading */</span> }
+}</pre>
+    </div>
+</div>
