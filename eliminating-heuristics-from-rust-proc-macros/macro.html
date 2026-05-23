@@ -66,14 +66,77 @@
         <span class="rust-string">"cell_new"</span>     => Some(track_cell_new(...)),
         <span class="rust-string">"weak_new"</span>     => Some(track_weak_new(...)),
         <span class="rust-string">"pin_new"</span>      => Some(track_pin_new(...)),
-        <span class="rust-string">"cow_new"</span>      => Some(track_cow_owned(...)),
+        <span class="rust-string">"cow_borrowed"</span> => Some(track_cow_borrowed(...)), <span class="rust-comment">// v3.0: variant-resolved</span>
+        <span class="rust-string">"cow_owned"</span>    => Some(track_cow_owned(...)),    <span class="rust-comment">// v3.0: variant-resolved</span>
+        <span class="rust-string">"join_handle"</span>  => Some(track_thread_spawn(...)), <span class="rust-comment">// v3.0: pre-block-closure</span>
+        <span class="rust-string">"box_block"</span>    => Some(track_box_from_raw(...)), <span class="rust-comment">// v3.0: pre-block-closure</span>
         <span class="rust-string">"channel_new"</span>  => None, <span class="rust-comment">// Handled by tuple destructuring</span>
         <span class="rust-string">"atomic_new"</span>   => Some(track_atomic_new(...)),
         <span class="rust-string">"duration_new"</span> => Some(track_duration_new(...)),
         <span class="rust-string">"instant_new"</span>  => Some(track_instant_new(...)),
-        <span class="rust-comment">// ... 78 categories total</span>
+        <span class="rust-comment">// ... 82 categories total (v3.0)</span>
         _ => None, <span class="rust-comment">// Falls through to generic track_new</span>
     }
+}</pre>
+    </div>
+
+    <h3>5.2.1 Pre-Block-Closure Handling (v3.0)</h3>
+    <p>
+        Certain initializer kinds must be handled <em>before</em> the <code>contains_block_closure</code> safety check. This check prevents the macro from wrapping expressions that contain closures with block bodies, macros (like <code>vec![]</code>), or unsafe blocks — because embedding such expressions inside a function call argument produces unparseable token streams. However, some patterns <em>inherently</em> contain these constructs:
+    </p>
+    <ul>
+        <li><code>"join_handle"</code> — <code>thread::spawn(|| { ... })</code> always has a closure argument</li>
+        <li><code>"box_block"</code> — <code>unsafe { Box::from_raw(ptr) }</code> is always inside an unsafe block</li>
+        <li><code>"rc_new"</code> / <code>"arc_new"</code> — <code>Rc::new(vec![...])</code> often wraps a macro</li>
+    </ul>
+    <p>
+        These are dispatched before the safety check, using the same <code>safe_parse_quote!</code> macro that falls back to the original expression if parsing fails. This ensures that the tracking call is emitted even when the argument contains block-producing constructs.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Handle BEFORE contains_block_closure check</span>
+<span class="rust-keyword">if</span> init_kind == <span class="rust-string">"join_handle"</span> {
+    <span class="rust-keyword">return</span> Some(safe_parse_quote!((*original_expr).clone(),
+        borrowscope_runtime::track_thread_spawn(#var_name, #location, #original_expr)
+    ));
+}
+<span class="rust-keyword">if</span> init_kind == <span class="rust-string">"box_block"</span> && type_info.is_box {
+    <span class="rust-keyword">return</span> Some(safe_parse_quote!((*original_expr).clone(),
+        borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
+    ));
+}
+<span class="rust-keyword">if</span> init_kind == <span class="rust-string">"rc_new"</span> && type_info.is_rc {
+    <span class="rust-keyword">return</span> Some(safe_parse_quote!((*original_expr).clone(),
+        borrowscope_runtime::track_rc_new(#var_name, #original_expr)
+    ));
+}
+
+<span class="rust-keyword">if</span> contains_block_closure(original_expr) {
+    <span class="rust-keyword">return</span> None; <span class="rust-comment">// Skip wrapping for other block-containing expressions</span>
+}</pre>
+    </div>
+
+    <h3>5.2.2 Unsafe Block Transformation (v3.0)</h3>
+    <p>
+        When the macro encounters an <code>unsafe { ... }</code> block, it wraps it with enter/exit tracking calls. In v2.0, the inner block was visited first (to transform method calls inside), then re-embedded using <code>syn::parse_quote!</code>. This caused panics when the transformed inner tokens couldn't be re-parsed.
+    </p>
+    <p>
+        Version 3.0 uses <code>syn::parse2()</code> with a fallback: if the transformed block can't be re-parsed, the original (untransformed) block is restored. This ensures the macro never panics on valid Rust code, at the cost of potentially missing some tracking inside complex unsafe blocks.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let</span> original_block = unsafe_expr.block.clone();
+self.visit_block_mut(&amp;<span class="rust-keyword">mut</span> unsafe_expr.block);
+
+<span class="rust-keyword">if let</span> Ok(new_block) = syn::parse2(quote! {
+    {
+        track_unsafe_block_enter(#block_id, #location);
+        <span class="rust-keyword">let</span> __result = #inner_block;
+        track_unsafe_block_exit(#block_id, #location);
+        __result
+    }
+}) {
+    unsafe_expr.block = new_block;
+} <span class="rust-keyword">else</span> {
+    unsafe_expr.block = original_block; <span class="rust-comment">// Fallback: restore original</span>
 }</pre>
     </div>
 

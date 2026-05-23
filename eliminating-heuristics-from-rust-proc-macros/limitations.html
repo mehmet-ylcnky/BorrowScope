@@ -29,12 +29,12 @@
             <td>Macro expansion inside nested function bodies produces blocks that conflict with outer wrapping</td>
         </tr>
         <tr>
-            <td>Complex unsafe blocks</td>
-            <td>Multiple unsafe operations in a single block interact with region tracking</td>
+            <td>Complex unsafe blocks <em>(partially resolved in v3.0)</em></td>
+            <td><td>v3.0: <code>syn::parse2</code> fallback restores original block on parse failure. Some inner transformations may be skipped.</td>
         </tr>
         <tr>
-            <td>MaybeUninit <code>assume_init_drop</code></td>
-            <td>Complex unsafe + drop interaction</td>
+            <td>MaybeUninit <code>assume_init_drop</code> <em>(resolved in v3.0)</em>
+            <td><td>v3.0: Skipped gracefully — MaybeUninit creation is still tracked.</td>
         </tr>
         <tr>
             <td>Closure-returning functions</td>
@@ -117,4 +117,21 @@
             bindings without changing borrow semantics. A potential approach is to use the <code>pending_inserts</code>
             pattern more broadly, emitting tracking as separate statements rather than expression wrappers.</li>
     </ul>
+
+    <h2>8.3 The Name Collision Problem (v3.0)</h2>
+    <p>
+        During comprehensive testing, a critical bug was discovered in the macro's variable lookup strategy. The v2.0 system used a two-tier lookup: first by <code>(function_name, var_name, decl_index)</code>, then falling back to a global <code>by_name</code> index. The fallback was intended to handle cases where the function-scoped lookup failed (e.g., when the analyzer didn't process a particular function).
+    </p>
+    <p>
+        The bug: when a variable named <code>p</code> appeared in function <code>test_fn</code> (creating a <code>Point</code> struct) and the <code>by_name</code> index contained a different <code>p</code> from function <code>rc_test_13</code> (with <code>is_rc = true</code>), the macro would incorrectly wrap the <code>Point</code> construction with <code>track_rc_new</code>, causing a type mismatch compile error.
+    </p>
+    <p>
+        <strong>Root cause:</strong> The <code>by_name</code> index is inherently unsafe for cross-function lookup because common variable names (<code>x</code>, <code>data</code>, <code>result</code>, <code>p</code>) appear in many functions with different types.
+    </p>
+    <p>
+        <strong>Fix:</strong> Remove the <code>by_name</code> fallback entirely. If function-scoped lookup returns <code>None</code>, the macro uses default (non-semantic) transformation. This is correct: if the analyzer didn't see the variable, the macro cannot make semantic decisions about it and should not guess.
+    </p>
+    <div class="highlight-box">
+        <strong>Lesson learned:</strong> Global name-based indexes are fundamentally incompatible with function-scoped semantic analysis. The type-info schema retains the <code>by_name</code> index for backward compatibility, but the macro no longer uses it.
+    </div>
 </div>
