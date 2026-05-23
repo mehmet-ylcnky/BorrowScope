@@ -92,6 +92,43 @@ var_info.is_send = ty.impls_trait(db, send_trait, &amp;[]);</pre>
         The analyzer classifies types into 78 distinct initializer categories (from <code>rc_new</code> to <code>atomic_new</code> to <code>user_struct</code>) by combining the ADT identity with the expression kind (constructor call, clone, method result, etc.).
     </p>
 
+    <h3>4.4.1 Enum Variant Resolution (v3.0)</h3>
+    <p>
+        ADT classification alone is insufficient for enum types where different variants require different tracking calls. For example, <code>Cow::Borrowed("hello")</code> and <code>Cow::Owned(String::from("hello"))</code> both have type <code>Cow&lt;'_, str&gt;</code>, but the first should emit <code>track_cow_borrowed</code> while the second should emit <code>track_cow_owned</code>. Prior to v3.0, both were classified as <code>"cow_new"</code> and the macro could not distinguish them without string matching on the constructor path.
+    </p>
+    <p>
+        Version 3.0 resolves this by using <code>sema.resolve_path()</code> on the constructor expression's path. When the path resolves to <code>PathResolution::Def(ModuleDef::Variant(variant))</code>, the analyzer extracts the variant name and its parent enum's ADT classification, producing a combined tag like <code>"cow_borrowed"</code> or <code>"cow_owned"</code>.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Resolve enum variant construction semantically</span>
+<span class="rust-keyword">if let</span> ast::Expr::CallExpr(call) = expr {
+    <span class="rust-keyword">if let</span> Some(ast::Expr::PathExpr(path_expr)) = call.expr() {
+        <span class="rust-keyword">if let</span> Some(path) = path_expr.path() {
+            <span class="rust-keyword">if let</span> Some(resolved) = sema.resolve_path(&amp;path) {
+                <span class="rust-keyword">if let</span> PathResolution::Def(ModuleDef::Variant(variant)) = resolved {
+                    <span class="rust-keyword">let</span> variant_name = variant.name(db);
+                    <span class="rust-keyword">let</span> parent_enum = variant.parent_enum(db);
+                    <span class="rust-keyword">if let</span> Some(classification) = known_types.classify(
+                        &amp;Adt::Enum(parent_enum), db
+                    ) {
+                        <span class="rust-comment">// Produces: "cow_borrowed", "cow_owned", "option_some", etc.</span>
+                        <span class="rust-keyword">return</span> format!(<span class="rust-string">"{}_{}"</span>, classification, variant_name.to_lowercase());
+                    }
+                }
+            }
+        }
+    }
+}</pre>
+    </div>
+    <p>
+        This resolution runs <em>before</em> the ADT-based classification, ensuring that variant-specific tags take priority over generic type tags. The approach is fully semantic: it uses the compiler's own path resolution to identify which variant is being constructed, regardless of how the user imports or aliases the enum.
+    </p>
+
+    <h3>4.4.2 Sync vs Rc Weak Distinction</h3>
+    <p>
+        A similar ambiguity exists for <code>Weak</code> references: <code>Rc::downgrade(&amp;rc)</code> produces <code>std::rc::Weak&lt;T&gt;</code> while <code>Arc::downgrade(&amp;arc)</code> produces <code>std::sync::Weak&lt;T&gt;</code>. Both display as <code>Weak&lt;T&gt;</code> in type output, but require different tracking calls (<code>track_weak_new</code> vs <code>track_weak_new_sync</code>). The analyzer resolves this by comparing the ADT identity against both <code>weak_rc</code> and <code>weak_arc</code> known types, setting a dedicated <code>is_sync_weak</code> field when the type matches <code>std::sync::Weak</code>.
+    </p>
+
     <h2>4.5 Method Call Analysis</h2>
     <p>
         For each tracked variable, the analyzer records all method calls made on it. This is the key capability that eliminates the 47 self-borrow heuristics and 18 semantic dispatch patterns from the macro. The analyzer resolves each method call to its actual function definition, extracting the self parameter's access mode directly from the function signature rather than guessing from the method name.

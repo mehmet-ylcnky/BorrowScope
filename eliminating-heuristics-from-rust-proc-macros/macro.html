@@ -24,11 +24,8 @@
         .as_ref()
 }
 
-<span class="rust-comment">// Two-tier lookup: function-scoped (primary) → name-only (fallback)</span>
+<span class="rust-comment">// Function-scoped lookup only (v3.0: by_name fallback removed)</span>
 <span class="rust-keyword">pub fn</span> <span class="rust-function">lookup_in_function</span>(fn_name: &amp;<span class="rust-keyword">str</span>, var_name: &amp;<span class="rust-keyword">str</span>, decl_index: Option&lt;u32&gt;)
-    -> Option&lt;&amp;'<span class="rust-keyword">static</span> VariableTypeInfo&gt;;
-
-<span class="rust-keyword">pub fn</span> <span class="rust-function">lookup_by_name</span>(var_name: &amp;<span class="rust-keyword">str</span>)
     -> Option&lt;&amp;'<span class="rust-keyword">static</span> VariableTypeInfo&gt;;</pre>
     </div>
     <p>
@@ -38,6 +35,9 @@
         patterns like <code>let x = x.unwrap()</code> or <code>let config = config.build()</code> are common and must
         resolve to the correct type at each point.
     </p>
+    <div class="highlight-box">
+        <strong>v3.0 change:</strong> The <code>lookup_by_name</code> fallback was removed. In v2.0, when function-scoped lookup failed, the macro fell back to a global name-only index. This caused <strong>cross-function name collisions</strong>: a variable named <code>p</code> in function <code>test_fn</code> would incorrectly match a variable named <code>p</code> in an unrelated function <code>rc_test_13</code>, inheriting its <code>is_rc = true</code> flag and causing the macro to wrap a <code>Point</code> struct with <code>track_rc_new</code>. The fix is simple: if the function-scoped lookup returns <code>None</code>, the macro uses default (non-semantic) transformation rather than risking a cross-function mismatch.
+    </div>
 
     <h2>5.2 Initializer Kind Dispatch</h2>
     <p>
