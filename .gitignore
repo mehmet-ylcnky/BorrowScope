@@ -14,3 +14,5 @@ target/
 Cargo.lock
 Cargo.toml
 *.bak
+node_modules/
+borrowscope-vscode/node_modules/
