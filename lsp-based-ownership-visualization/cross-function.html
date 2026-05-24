@@ -1,1 +1,423 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>5. Cross-Function Borrow Tracking</h1>
+    <p>
+        Standard borrow scope computation (Section 4.3) operates within a single function body. It finds the last use of a reference variable and reports the scope as the range from declaration to last use. However, when a reference is passed to another function as an argument, the borrow extends beyond the caller's visible scope into the callee. Understanding these cross-function borrows is essential for reasoning about why certain operations are blocked: the borrow checker may reject code because a reference is still alive inside a called function, even though the caller never uses it again after the call.
+    </p>
+
+    <h2>5.1 Problem: Borrows That Escape Function Boundaries</h2>
+    <p>
+        Consider a function that creates a reference and passes it to a helper. From the caller's perspective, the reference is "used" at the call site and the borrow scope ends there. But from the program's perspective, the borrow is alive for the entire duration of the callee's execution. If the callee stores the reference, passes it further, or holds it across an await point, the borrow may live much longer than the caller expects.
+    </p>
+    <p>
+        The challenge is that the LSP server must answer the question "where does this borrow go?" without performing whole-program analysis. We cannot trace through every possible callee recursively (that would be unbounded in time and complexity). Instead, we resolve one level: for each call site that passes a reference, we identify the target function and the parameter that receives it. This gives the developer immediate visibility into where their borrows flow without requiring deep interprocedural analysis.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">process</span>(data: &amp;mut Vec&lt;i32&gt;) {
+    data.push(42);
+    validate(data);  <span class="rust-comment">// borrow flows further into validate()</span>
+}
+
+<span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    <span class="rust-keyword">let mut</span> items = <span class="rust-keyword">vec!</span>[1, 2, 3];
+    process(&amp;<span class="rust-keyword">mut</span> items);  <span class="rust-comment">// &amp;mut items flows into process::data</span>
+    items.push(4);         <span class="rust-comment">// OK: borrow returned</span>
+}</pre>
+    </div>
+    <p>
+        In this example, the <code>&amp;mut items</code> borrow crosses into <code>process()</code> as the parameter <code>data</code>, and then flows further into <code>validate()</code>. The engine traces the first hop (main -> process) and reports it as a cross-function borrow with the parameter name, file location, and mutability.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="escape-svg" viewBox="0 0 750 340" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceEscape()">
+            <text id="escape-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see a borrow escaping across files</text>
+
+            <!-- File 1: src/main.rs -->
+            <rect x="20" y="35" width="340" height="150" rx="6" fill="white" stroke="#2980b9" stroke-width="2"/>
+            <rect x="20" y="35" width="340" height="22" rx="6" fill="#2980b9"/>
+            <text x="190" y="50" text-anchor="middle" font-size="10" fill="white" font-weight="bold">src/main.rs</text>
+            <text x="35" y="75" font-size="9" fill="#999" font-family="monospace">1</text>
+            <text x="50" y="75" font-size="9" fill="#333" font-family="monospace">fn main() {</text>
+            <text x="35" y="92" font-size="9" fill="#999" font-family="monospace">2</text>
+            <text x="50" y="92" font-size="9" fill="#333" font-family="monospace">    let mut db = Database::new();</text>
+            <text x="35" y="109" font-size="9" fill="#999" font-family="monospace">3</text>
+            <text id="escape-call-text" x="50" y="109" font-size="9" fill="#333" font-family="monospace">    service::update(&amp;mut db);</text>
+            <text x="35" y="126" font-size="9" fill="#999" font-family="monospace">4</text>
+            <text x="50" y="126" font-size="9" fill="#333" font-family="monospace">    db.commit(); // blocked while borrow active?</text>
+            <text x="35" y="143" font-size="9" fill="#999" font-family="monospace">5</text>
+            <text x="50" y="143" font-size="9" fill="#333" font-family="monospace">}</text>
+
+            <!-- Borrow highlight on line 3 -->
+            <rect id="escape-hl-src" x="48" y="99" width="230" height="14" rx="3" fill="#e74c3c" opacity="0"/>
+
+            <!-- File 2: src/service.rs -->
+            <rect x="390" y="35" width="340" height="150" rx="6" fill="white" stroke="#27ae60" stroke-width="2"/>
+            <rect x="390" y="35" width="340" height="22" rx="6" fill="#27ae60"/>
+            <text x="560" y="50" text-anchor="middle" font-size="10" fill="white" font-weight="bold">src/service.rs</text>
+            <text x="405" y="75" font-size="9" fill="#999" font-family="monospace">1</text>
+            <text id="escape-fn-sig" x="420" y="75" font-size="9" fill="#333" font-family="monospace">pub fn update(db: &amp;mut Database) {</text>
+            <text x="405" y="92" font-size="9" fill="#999" font-family="monospace">2</text>
+            <text x="420" y="92" font-size="9" fill="#333" font-family="monospace">    let query = db.prepare("SELECT");</text>
+            <text x="405" y="109" font-size="9" fill="#999" font-family="monospace">3</text>
+            <text x="420" y="109" font-size="9" fill="#333" font-family="monospace">    validator::check(db, &amp;query);</text>
+            <text x="405" y="126" font-size="9" fill="#999" font-family="monospace">4</text>
+            <text x="420" y="126" font-size="9" fill="#333" font-family="monospace">    db.execute(&amp;query);</text>
+            <text x="405" y="143" font-size="9" fill="#999" font-family="monospace">5</text>
+            <text x="420" y="143" font-size="9" fill="#333" font-family="monospace">}</text>
+
+            <!-- Borrow highlight on parameter -->
+            <rect id="escape-hl-dst" x="418" y="65" width="290" height="14" rx="3" fill="#27ae60" opacity="0"/>
+
+            <!-- Borrow scope bar in callee -->
+            <rect id="escape-scope-bar" x="395" y="65" width="6" height="0" rx="2" fill="#e74c3c" opacity="0"/>
+
+            <!-- Animated borrow dot -->
+            <circle id="escape-dot" cx="280" cy="109" r="0" fill="#e74c3c"/>
+
+            <!-- Flow arrow (curved, between files) -->
+            <path id="escape-flow" d="M 280,109 C 340,109 360,75 420,75" fill="none" stroke="#e74c3c" stroke-width="0" stroke-dasharray="6,3"/>
+            <defs><marker id="escape-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e74c3c"/></marker></defs>
+
+            <!-- Question mark -->
+            <text id="escape-question" x="190" y="165" text-anchor="middle" font-size="11" fill="#c0392b" font-weight="bold" opacity="0">How long does &amp;mut db live inside service.rs?</text>
+
+            <!-- Answer: scope visualization -->
+            <g id="escape-answer" opacity="0">
+                <rect x="20" y="200" width="710" height="55" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5"/>
+                <text x="375" y="218" text-anchor="middle" font-size="10" fill="#b7950b" font-weight="bold">Without cross-function tracking, the caller cannot see this:</text>
+                <text x="45" y="238" font-size="9" fill="#555" font-family="monospace">main.rs:3  &amp;mut db ----[crosses into service.rs]----&gt; service.rs:1-5 (entire function body)</text>
+                <text x="45" y="252" font-size="9" fill="#e74c3c" font-family="monospace">The borrow lives for ALL of update(). db.commit() on line 4 of main.rs must wait.</text>
+            </g>
+
+            <!-- Description -->
+            <rect x="20" y="270" width="710" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="escape-desc" x="375" y="287" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to see the borrow escape from main.rs into service.rs</text>
+            <text id="escape-step" x="375" y="310" text-anchor="middle" font-size="9" fill="#999">Step 0/5</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var escStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('escape-hl-src').setAttribute('opacity','0.3');
+                return 'Step 1: &mut db is created at line 3 of main.rs (exclusive borrow)';
+            },
+            function() {
+                document.getElementById('escape-hl-src').setAttribute('opacity','0.5');
+                document.getElementById('escape-dot').setAttribute('r','6');
+                document.getElementById('escape-flow').setAttribute('stroke-width','3');
+                document.getElementById('escape-flow').setAttribute('marker-end','url(#escape-arr)');
+                return 'Step 2: The borrow crosses the file boundary into service::update()';
+            },
+            function() {
+                document.getElementById('escape-hl-dst').setAttribute('opacity','0.3');
+                document.getElementById('escape-scope-bar').setAttribute('opacity','0.7');
+                document.getElementById('escape-scope-bar').setAttribute('height','80');
+                document.getElementById('escape-dot').setAttribute('cx','420');
+                document.getElementById('escape-dot').setAttribute('cy','75');
+                return 'Step 3: Inside service.rs, the borrow lives as parameter `db` for the entire function';
+            },
+            function() {
+                document.getElementById('escape-question').setAttribute('opacity','1');
+                return 'Step 4: The caller (main.rs) cannot see how long the borrow lives in the callee';
+            },
+            function() {
+                document.getElementById('escape-answer').setAttribute('opacity','1');
+                return 'Step 5: Cross-function tracking reveals: borrow spans all of update(). db.commit() must wait.';
+            }
+        ];
+        window.advanceEscape = function() {
+            if (escStep >= steps.length) { escStep = 0; resetEscape(); return; }
+            var desc = steps[escStep]();
+            document.getElementById('escape-desc').textContent = desc;
+            escStep++;
+            document.getElementById('escape-step').textContent = 'Step ' + escStep + '/' + steps.length;
+            document.getElementById('escape-title').textContent = 'Click to continue';
+        };
+        function resetEscape() {
+            document.getElementById('escape-hl-src').setAttribute('opacity','0');
+            document.getElementById('escape-hl-dst').setAttribute('opacity','0');
+            document.getElementById('escape-scope-bar').setAttribute('opacity','0');
+            document.getElementById('escape-scope-bar').setAttribute('height','0');
+            document.getElementById('escape-dot').setAttribute('r','0');
+            document.getElementById('escape-dot').setAttribute('cx','280');
+            document.getElementById('escape-dot').setAttribute('cy','109');
+            document.getElementById('escape-flow').setAttribute('stroke-width','0');
+            document.getElementById('escape-flow').removeAttribute('marker-end');
+            document.getElementById('escape-question').setAttribute('opacity','0');
+            document.getElementById('escape-answer').setAttribute('opacity','0');
+            document.getElementById('escape-desc').textContent = '// click to see the borrow escape from main.rs into service.rs';
+            document.getElementById('escape-title').textContent = 'Click to see a borrow escaping across files';
+            document.getElementById('escape-step').textContent = 'Step 0/5';
+        }
+    })();
+    </script>
+
+    <h2>5.2 Call Target Resolution via sema.resolve_path</h2>
+    <p>
+        For each <code>CallExpr</code> in the function body, the engine checks whether any argument is a reference type (via <code>sema.type_of_expr(&amp;arg).is_reference()</code>). If so, it resolves the callee by extracting the path expression from the call and invoking <code>sema.resolve_path(&amp;path)</code>. If the resolution is <code>PathResolution::Def(ModuleDef::Function(f))</code>, the engine has the target <code>hir::Function</code> and can extract its name, source file, and parameter names.
+    </p>
+    <p>
+        The source file is obtained via <code>f.source(db)</code>, which returns an <code>InFile</code> containing the file ID. This file ID is converted to a VFS path for display. Parameter names are extracted via <code>f.params_without_self(db)</code>, which returns each parameter with its name and type. The engine matches arguments to parameters by position (argument index corresponds to parameter index), giving a clear mapping from "this variable in the caller" to "this parameter in the callee".
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">resolve_call_target</span>(sema, db, callee: &amp;ast::Expr) -> Option&lt;(String, String, Vec&lt;String&gt;)&gt; {
+    <span class="rust-keyword">let</span> path_expr = ast::PathExpr::cast(callee.syntax().clone())?;
+    <span class="rust-keyword">let</span> path = path_expr.path()?;
+    <span class="rust-keyword">let</span> resolution = sema.resolve_path(&amp;path)?;
+
+    <span class="rust-keyword">match</span> resolution {
+        hir::PathResolution::Def(hir::ModuleDef::Function(f)) => {
+            <span class="rust-keyword">let</span> name = f.name(db).to_string();
+            <span class="rust-keyword">let</span> file_path = f.source(db).map(|s| {
+                <span class="rust-keyword">let</span> file_id = s.file_id.original_file(db).file_id(db);
+                format!(<span class="rust-string">"file_id:{}"</span>, file_id.index())
+            }).unwrap_or_default();
+            <span class="rust-keyword">let</span> params = f.params_without_self(db).iter()
+                .map(|p| p.name(db).map(|n| n.to_string()).unwrap_or(<span class="rust-string">"_"</span>.into()))
+                .collect();
+            Some((name, file_path, params))
+        }
+        _ => None,
+    }
+}</pre>
+    </div>
+
+    <h2>5.3 Method Receiver Analysis via self_param.access</h2>
+    <p>
+        Method calls (<code>data.process()</code>) are handled separately from function calls because the receiver is an implicit argument. The engine resolves the method via <code>sema.resolve_method_call(&amp;method_call)</code> to get the <code>hir::Function</code>, then checks <code>func.self_param(db)</code> to determine if the method takes <code>&amp;self</code> (shared borrow of receiver), <code>&amp;mut self</code> (exclusive borrow), or <code>self</code> (consuming move). Only the first two cases create cross-function borrows; the third is a move (handled by Section 4.4).
+    </p>
+    <p>
+        When a method borrows the receiver, the engine creates a <code>CrossFunctionBorrow</code> with the receiver variable as the origin and <code>"self"</code> as the parameter name in the callee. The mutability is determined by <code>self_param.access(db)</code>: <code>Access::Shared</code> produces a shared cross-function borrow, <code>Access::Exclusive</code> produces a mutable one. This captures the common pattern where <code>vec.sort()</code> creates an exclusive borrow that extends into the sort implementation.
+    </p>
+
+    <h2>5.4 Borrow Path Construction</h2>
+    <p>
+        Each detected cross-function borrow is represented as a <code>CrossFunctionBorrow</code> struct containing a path of segments. The path describes the journey of the reference from its origin in the caller to its destination in the callee. Each segment records: the file path, function name, variable name, start/end lines, mutability, and a kind tag (<code>Origin</code>, <code>Parameter</code>, <code>PassThrough</code>, or <code>Return</code>).
+    </p>
+    <p>
+        For a simple case like <code>process(&amp;data)</code>, the path has two segments: an Origin segment (variable <code>data</code> in the caller at the call site line) and a Parameter segment (parameter <code>data</code> in <code>process()</code>). For method calls, the Parameter segment uses <code>"self"</code> as the variable name. The <code>file_id:N</code> references in the path are resolved to actual file paths by the request handler before sending the response to the client, using the VFS to map file IDs back to paths.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="path-svg" viewBox="0 0 750 440" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advancePath()">
+            <text id="path-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see the full resolution pipeline (5.2 + 5.3 + 5.4)</text>
+
+            <!-- Scenario tabs -->
+            <rect id="path-tab1" x="20" y="28" width="120" height="20" rx="4" fill="#2980b9" stroke="#2980b9"/>
+            <text x="80" y="42" text-anchor="middle" font-size="8" fill="white" font-weight="bold">Function Call</text>
+            <rect id="path-tab2" x="150" y="28" width="120" height="20" rx="4" fill="#eee" stroke="#bdc3c7"/>
+            <text x="210" y="42" text-anchor="middle" font-size="8" fill="#555">Method Call</text>
+
+            <!-- Source code panel -->
+            <rect x="20" y="55" width="350" height="120" rx="6" fill="white" stroke="#34495e" stroke-width="1.5"/>
+            <rect x="20" y="55" width="350" height="18" rx="6" fill="#34495e"/>
+            <text x="195" y="67" text-anchor="middle" font-size="9" fill="white">src/handler.rs</text>
+            <text x="32" y="86" font-size="8" fill="#999" font-family="monospace">1</text>
+            <text id="path-src-l1" x="44" y="86" font-size="9" fill="#333" font-family="monospace">fn handle_request(req: Request) {</text>
+            <text x="32" y="101" font-size="8" fill="#999" font-family="monospace">2</text>
+            <text id="path-src-l2" x="44" y="101" font-size="9" fill="#333" font-family="monospace">    let mut ctx = Context::new();</text>
+            <text x="32" y="116" font-size="8" fill="#999" font-family="monospace">3</text>
+            <text id="path-src-l3" x="44" y="116" font-size="9" fill="#333" font-family="monospace">    validate(&amp;ctx, &amp;req);</text>
+            <text x="32" y="131" font-size="8" fill="#999" font-family="monospace">4</text>
+            <text id="path-src-l4" x="44" y="131" font-size="9" fill="#333" font-family="monospace">    ctx.process(&amp;req);</text>
+            <text x="32" y="146" font-size="8" fill="#999" font-family="monospace">5</text>
+            <text id="path-src-l5" x="44" y="146" font-size="9" fill="#333" font-family="monospace">    ctx.commit();</text>
+            <text x="32" y="161" font-size="8" fill="#999" font-family="monospace">6</text>
+            <text x="44" y="161" font-size="9" fill="#333" font-family="monospace">}</text>
+
+            <!-- Highlight bars -->
+            <rect id="path-hl-call" x="42" y="107" width="200" height="13" rx="2" fill="#3498db" opacity="0"/>
+            <rect id="path-hl-method" x="42" y="122" width="170" height="13" rx="2" fill="#f39c12" opacity="0"/>
+
+            <!-- Resolution panel -->
+            <rect x="390" y="55" width="340" height="120" rx="6" fill="white" stroke="#34495e" stroke-width="1.5"/>
+            <rect x="390" y="55" width="340" height="18" rx="6" fill="#34495e"/>
+            <text id="path-resolve-title" x="560" y="67" text-anchor="middle" font-size="9" fill="white">Resolution Engine</text>
+            <text id="path-r1" x="402" y="86" font-size="8" fill="#555" font-family="monospace" opacity="0">1. sema.type_of_expr(&amp;arg) -> is_reference() = true</text>
+            <text id="path-r2" x="402" y="101" font-size="8" fill="#555" font-family="monospace" opacity="0">2. sema.resolve_path("validate") -> Function(f)</text>
+            <text id="path-r3" x="402" y="116" font-size="8" fill="#555" font-family="monospace" opacity="0">3. f.params_without_self(db) -> ["ctx", "req"]</text>
+            <text id="path-r4" x="402" y="131" font-size="8" fill="#555" font-family="monospace" opacity="0">4. Match arg[0]="&amp;ctx" -> param[0]="ctx"</text>
+            <text id="path-r5" x="402" y="146" font-size="8" fill="#555" font-family="monospace" opacity="0">5. Match arg[1]="&amp;req" -> param[1]="req"</text>
+            <text id="path-r6" x="402" y="161" font-size="8" fill="#8e44ad" font-family="monospace" opacity="0">   Mutability: shared (is_mutable_reference=false)</text>
+
+            <!-- Method resolution (hidden initially) -->
+            <text id="path-m1" x="402" y="86" font-size="8" fill="#555" font-family="monospace" opacity="0">1. sema.resolve_method_call(&amp;method_call) -> Function</text>
+            <text id="path-m2" x="402" y="101" font-size="8" fill="#555" font-family="monospace" opacity="0">2. func.self_param(db).access(db) -> Exclusive</text>
+            <text id="path-m3" x="402" y="116" font-size="8" fill="#555" font-family="monospace" opacity="0">3. Receiver "ctx" borrowed as &amp;mut self</text>
+            <text id="path-m4" x="402" y="131" font-size="8" fill="#555" font-family="monospace" opacity="0">4. arg[0]="&amp;req" -> param[0]="req" (shared)</text>
+            <text id="path-m5" x="402" y="146" font-size="8" fill="#8e44ad" font-family="monospace" opacity="0">   Two borrows: ctx(&amp;mut) + req(&amp;)</text>
+
+            <!-- Flow arrows -->
+            <defs><marker id="path-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e74c3c"/></marker>
+            <marker id="path-arr-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3498db"/></marker>
+            <marker id="path-arr-orange" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#f39c12"/></marker></defs>
+            <path id="path-flow1" d="M 245,116 C 310,116 340,90 390,90" fill="none" stroke="#3498db" stroke-width="2.5" stroke-dasharray="6,3" marker-end="url(#path-arr-blue)" opacity="0"/>
+            <path id="path-flow2" d="M 245,131 C 310,131 340,110 390,110" fill="none" stroke="#f39c12" stroke-width="2.5" stroke-dasharray="6,3" marker-end="url(#path-arr-orange)" opacity="0"/>
+
+            <!-- Animated dots on arrows -->
+            <circle id="path-dot1" r="4" fill="#3498db" opacity="0">
+                <animateMotion dur="1.5s" repeatCount="indefinite" path="M 245,116 C 310,116 340,90 390,90"/>
+            </circle>
+            <circle id="path-dot2" r="4" fill="#f39c12" opacity="0">
+                <animateMotion dur="1.8s" repeatCount="indefinite" path="M 245,131 C 310,131 340,110 390,110"/>
+            </circle>
+
+            <!-- Result: CrossFunctionBorrow JSON -->
+            <g id="path-result" opacity="0">
+                <rect x="20" y="185" width="710" height="105" rx="6" fill="white" stroke="#8e44ad" stroke-width="2"/>
+                <text x="35" y="203" font-size="10" fill="#6c3483" font-weight="bold">CrossFunctionBorrow (constructed path):</text>
+                <text id="path-json1" x="35" y="220" font-size="8" fill="#333" font-family="monospace"></text>
+                <text id="path-json2" x="35" y="235" font-size="8" fill="#333" font-family="monospace"></text>
+                <text id="path-json3" x="35" y="250" font-size="8" fill="#333" font-family="monospace"></text>
+                <text id="path-json4" x="35" y="265" font-size="8" fill="#333" font-family="monospace"></text>
+                <text id="path-json5" x="35" y="280" font-size="8" fill="#333" font-family="monospace"></text>
+            </g>
+
+            <!-- Visual path diagram -->
+            <g id="path-diagram" opacity="0">
+                <rect x="20" y="300" width="710" height="70" rx="6" fill="#fafafa" stroke="#bdc3c7"/>
+                <text x="375" y="318" text-anchor="middle" font-size="9" fill="#7f8c8d" font-weight="bold">Borrow Path Visualization</text>
+
+                <!-- Origin node -->
+                <rect id="path-node-origin" x="50" y="330" width="130" height="30" rx="5" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+                <text id="path-node-origin-t" x="115" y="349" text-anchor="middle" font-size="8" fill="#2980b9" font-weight="bold"></text>
+
+                <!-- Arrow -->
+                <line id="path-edge1" x1="180" y1="345" x2="280" y2="345" stroke="#e74c3c" stroke-width="2" marker-end="url(#path-arr)"/>
+                <text id="path-edge1-label" x="230" y="338" text-anchor="middle" font-size="7" fill="#e74c3c"></text>
+
+                <!-- Parameter node -->
+                <rect id="path-node-param" x="285" y="330" width="160" height="30" rx="5" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+                <text id="path-node-param-t" x="365" y="349" text-anchor="middle" font-size="8" fill="#1e8449" font-weight="bold"></text>
+
+                <!-- Optional second borrow -->
+                <line id="path-edge2" x1="445" y1="345" x2="530" y2="345" stroke="#f39c12" stroke-width="0"/>
+                <rect id="path-node-param2" x="535" y="330" width="160" height="30" rx="5" fill="#fef9e7" stroke="#f39c12" stroke-width="0"/>
+                <text id="path-node-param2-t" x="615" y="349" text-anchor="middle" font-size="8" fill="#b7950b" font-weight="bold"></text>
+            </g>
+
+            <!-- Description -->
+            <rect x="20" y="385" width="710" height="30" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="path-desc" x="375" y="404" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click: full pipeline from detection to path construction</text>
+            <text id="path-step" x="375" y="430" text-anchor="middle" font-size="9" fill="#999">Step 0/8</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var pathStep = 0;
+        var rIds = ['path-r1','path-r2','path-r3','path-r4','path-r5','path-r6'];
+        var mIds = ['path-m1','path-m2','path-m3','path-m4','path-m5'];
+        function hideAll(ids) { ids.forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); }); }
+        function showUpTo(ids, n) { for(var i=0;i<ids.length;i++) document.getElementById(ids[i]).setAttribute('opacity', i<n?'1':'0'); }
+
+        var steps = [
+            function() {
+                document.getElementById('path-hl-call').setAttribute('opacity','0.3');
+                showUpTo(rIds, 1);
+                return '5.2: Detect reference argument: sema.type_of_expr(&ctx) -> is_reference() = true';
+            },
+            function() {
+                showUpTo(rIds, 2);
+                document.getElementById('path-flow1').setAttribute('opacity','0.6');
+                document.getElementById('path-dot1').setAttribute('opacity','0.8');
+                return '5.2: Resolve call target: sema.resolve_path("validate") -> PathResolution::Def(Function)';
+            },
+            function() {
+                showUpTo(rIds, 5);
+                return '5.2: Extract parameter names via f.params_without_self(db), match by position';
+            },
+            function() {
+                showUpTo(rIds, 6);
+                return '5.2: Check mutability: is_mutable_reference() = false -> shared borrow';
+            },
+            function() {
+                // Switch to method call scenario
+                document.getElementById('path-tab1').setAttribute('fill','#eee');
+                document.getElementById('path-tab2').setAttribute('fill','#f39c12');
+                document.getElementById('path-hl-call').setAttribute('opacity','0');
+                document.getElementById('path-hl-method').setAttribute('opacity','0.3');
+                hideAll(rIds);
+                document.getElementById('path-flow1').setAttribute('opacity','0');
+                document.getElementById('path-dot1').setAttribute('opacity','0');
+                document.getElementById('path-flow2').setAttribute('opacity','0.6');
+                document.getElementById('path-dot2').setAttribute('opacity','0.8');
+                showUpTo(mIds, 2);
+                return '5.3: Method call ctx.process(&req): resolve via sema.resolve_method_call()';
+            },
+            function() {
+                showUpTo(mIds, 5);
+                return '5.3: self_param.access(db) = Exclusive -> ctx borrowed as &mut self. req as shared param.';
+            },
+            function() {
+                document.getElementById('path-result').setAttribute('opacity','1');
+                document.getElementById('path-json1').textContent = '{ origin_variable: "ctx", origin_line: 4, path: [';
+                document.getElementById('path-json2').textContent = '    { file: "handler.rs", fn: "handle_request", var: "ctx", kind: Origin, mutable: true },';
+                document.getElementById('path-json3').textContent = '    { file: "handler.rs", fn: "process", var: "self", kind: Parameter, mutable: true },';
+                document.getElementById('path-json4').textContent = ']}';
+                document.getElementById('path-json5').textContent = '// + second CrossFunctionBorrow for "req" -> param "req" (shared)';
+                return '5.4: Construct CrossFunctionBorrow structs with Origin + Parameter segments';
+            },
+            function() {
+                document.getElementById('path-diagram').setAttribute('opacity','1');
+                document.getElementById('path-node-origin-t').textContent = 'ctx (handler.rs:4)';
+                document.getElementById('path-edge1-label').textContent = '&mut self';
+                document.getElementById('path-node-param-t').textContent = 'self (process)';
+                document.getElementById('path-edge2').setAttribute('stroke-width','2');
+                document.getElementById('path-edge2').setAttribute('marker-end','url(#path-arr-orange)');
+                document.getElementById('path-node-param2').setAttribute('stroke-width','2');
+                document.getElementById('path-node-param2-t').textContent = 'req (process, shared)';
+                return '5.4: Visual path: two borrows flow from caller into callee with different mutabilities';
+            }
+        ];
+
+        window.advancePath = function() {
+            if (pathStep >= steps.length) { pathStep = 0; resetPath(); return; }
+            var desc = steps[pathStep]();
+            document.getElementById('path-desc').textContent = desc;
+            pathStep++;
+            document.getElementById('path-step').textContent = 'Step ' + pathStep + '/' + steps.length;
+            document.getElementById('path-title').textContent = 'Click to continue';
+        };
+        function resetPath() {
+            hideAll(rIds); hideAll(mIds);
+            ['path-hl-call','path-hl-method','path-flow1','path-flow2','path-dot1','path-dot2','path-result','path-diagram'].forEach(function(id) {
+                document.getElementById(id).setAttribute('opacity','0');
+            });
+            document.getElementById('path-tab1').setAttribute('fill','#2980b9');
+            document.getElementById('path-tab2').setAttribute('fill','#eee');
+            document.getElementById('path-edge2').setAttribute('stroke-width','0');
+            document.getElementById('path-node-param2').setAttribute('stroke-width','0');
+            document.getElementById('path-desc').textContent = '// click: full pipeline from detection to path construction';
+            document.getElementById('path-title').textContent = 'Click to see the full resolution pipeline (5.2 + 5.3 + 5.4)';
+            document.getElementById('path-step').textContent = 'Step 0/8';
+        }
+    })();
+    </script>
+
+    <h2>5.5 Performance Guards (Time Budget, Max Results)</h2>
+    <p>
+        Cross-function analysis iterates over every call expression and method call in a function body, resolving each one semantically. For large functions with many call sites, this can become expensive. Two guards prevent the analysis from blocking the LSP response:
+    </p>
+    <ul>
+        <li><strong>MAX_CROSS_BORROWS = 50:</strong> The analysis stops collecting results after 50 cross-function borrows. For most functions, the actual count is well under 10. The cap protects against pathological cases (e.g., a function that calls 200 helper functions with reference arguments).</li>
+        <li><strong>MAX_CROSS_ANALYSIS_TIME_MS = 200:</strong> The analysis checks elapsed time on each iteration and aborts if it exceeds 200ms. This ensures that even if individual call resolutions are slow (e.g., resolving into deeply nested dependency crates), the total response time stays bounded.</li>
+    </ul>
+    <p>
+        Both guards are checked at the top of the iteration loop, before processing each call expression. When either limit is hit, the analysis returns whatever results it has collected so far. The response does not indicate truncation explicitly; the client receives a partial but valid result. In practice, these guards are rarely triggered: typical functions complete cross-function analysis in under 20ms with fewer than 10 results.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">const</span> MAX_CROSS_BORROWS: usize = 50;
+<span class="rust-keyword">const</span> MAX_CROSS_ANALYSIS_TIME_MS: u64 = 200;
+
+<span class="rust-keyword">let</span> start_time = std::time::Instant::now();
+
+<span class="rust-keyword">for</span> node <span class="rust-keyword">in</span> body.syntax().descendants() {
+    <span class="rust-comment">// Performance guards: abort if limits exceeded</span>
+    <span class="rust-keyword">if</span> results.len() >= MAX_CROSS_BORROWS { <span class="rust-keyword">break</span>; }
+    <span class="rust-keyword">if</span> start_time.elapsed().as_millis() >= MAX_CROSS_ANALYSIS_TIME_MS <span class="rust-keyword">as</span> u128 { <span class="rust-keyword">break</span>; }
+
+    <span class="rust-comment">// ... resolve call targets and collect cross-function borrows</span>
+}</pre>
+    </div>
+</div>
