@@ -1,1 +1,61 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>9. Limitations and Future Work</h1>
+    <p>
+        While <code>borrowscope-lsp</code> delivers real-time ownership analysis for the majority of Rust code patterns, several limitations remain. Some are inherent to the static analysis approach (no runtime observation means no dynamic dispatch resolution), some are engineering constraints (workspace loading latency), and some represent deliberate scope boundaries (single-hop cross-function tracking). This section documents each limitation honestly and outlines planned work to address them.
+    </p>
+
+    <h2>9.1 Workspace Loading Latency (~30-40s)</h2>
+    <p>
+        The most visible limitation is the initial workspace loading time. When the developer opens a project, the server must resolve all dependencies, discover the sysroot, and build the complete Salsa database before any semantic analysis is possible. For a medium-sized project with 50-100 crates in the dependency tree, this takes 30-40 seconds. During this period, the server returns <code>_status: "loading"</code> for all semantic requests, and the developer sees no ownership information.
+    </p>
+    <p>
+        This latency is inherent to the <code>ra_ap_load_cargo</code> approach: it must parse and type-check every crate in the dependency graph to build a complete semantic model. rust-analyzer itself has the same cold-start latency, which is why it shows "Loading workspace..." in the status bar for the same duration. The mitigation strategies currently in place (background loading, progress reporting, immediate file tracking) ensure the editor remains responsive, but the developer must wait before ownership analysis becomes available.
+    </p>
+    <p>
+        Future work could explore persistent caching of the Salsa database across sessions. If the dependency graph has not changed since the last session (no new crates added, no version bumps), the cached database could be loaded from disk in seconds rather than rebuilt from scratch. rust-analyzer has explored similar approaches with its "proc-macro cache" and "analysis cache" features, and the same infrastructure could be adapted for <code>borrowscope-lsp</code>.
+    </p>
+
+    <h2>9.2 Trait Implementation Detection</h2>
+    <p>
+        The current implementation does not fully resolve trait implementations for the <code>TraitImplInfo</code> struct. Fields like <code>is_send</code>, <code>is_sync</code>, <code>is_clone</code>, and <code>is_drop</code> are not populated because checking whether a type implements a specific trait requires looking up that trait by its well-known name (or lang item) in the database and then querying <code>ty.impls_trait(db, trait_id)</code>. The infrastructure for this exists in <code>ra_ap_hir</code> but requires additional setup to locate the trait definitions.
+    </p>
+    <p>
+        This limitation affects the completeness of the ownership information but not its correctness. The ownership category classification (Section 4.2) does not depend on trait implementations; it uses type structure (reference, ADT path, Copy flag) which is always available. The missing trait information would enhance the visualization (e.g., showing whether a type can be sent across threads) but does not cause incorrect analysis results.
+    </p>
+    <p>
+        Resolving this requires implementing a trait lookup mechanism that finds well-known traits (Send, Sync, Clone, Drop, Debug, Display, Default) by their crate and name, caches the resulting <code>TraitId</code>, and then queries each type against these cached IDs. This is straightforward engineering work that does not require architectural changes.
+    </p>
+
+    <h2>9.3 Generic Type Layout Estimation</h2>
+    <p>
+        The memory layout analysis (Section 6) relies on <code>ty.layout(db)</code> to obtain sizes and alignments. This works well for concrete types (<code>Vec&lt;i32&gt;</code>, <code>String</code>, <code>Rc&lt;Config&gt;</code>) but may fail for types containing unresolved generics. When a function is generic over a type parameter (<code>fn process&lt;T&gt;(data: T)</code>), the layout of <code>T</code> is unknown at analysis time because it depends on the concrete type supplied by the caller.
+    </p>
+    <p>
+        In these cases, <code>ty.layout(db)</code> returns an error, and the engine records size=0 and alignment=1 for the variable. The stack frame visualization shows the variable with "unknown size" rather than omitting it entirely. This is the correct behavior: the engine reports what it knows (the variable exists, its name, its generic type) without guessing at the layout.
+    </p>
+    <p>
+        A potential improvement would be to analyze call sites and infer the concrete type arguments used in practice. If <code>process&lt;String&gt;</code> is the only call site in the workspace, the engine could speculatively use <code>String</code>'s layout for the generic parameter. However, this introduces complexity (multiple call sites with different types, conditional compilation) and risks showing misleading information. For now, the conservative approach of reporting "unknown" is preferred.
+    </p>
+
+    <h2>9.4 Cross-Crate Borrow Tracking</h2>
+    <p>
+        The cross-function borrow tracking (Section 5) resolves call targets within the current crate and its direct dependencies. When a reference is passed to a function defined in an external crate (e.g., <code>serde_json::to_string(&amp;data)</code>), the engine can resolve the function name and parameter names (because the Salsa database contains type information for all dependencies), but it cannot trace how long the borrow lives inside the external function's body (because the source code may not be available or may not be indexed at the same level of detail).
+    </p>
+    <p>
+        In practice, this means cross-function borrows into standard library functions and popular crates are reported with the correct parameter name but without end-line information (the Parameter segment has <code>start_line: 0, end_line: 0</code>). The visualization can still show that the borrow crosses into the external function, but cannot show its lifetime within that function.
+    </p>
+    <p>
+        Future work could leverage the fact that the Salsa database does contain the full source of dependencies (downloaded by Cargo). By indexing dependency source at the same level as workspace source, the engine could trace borrows multiple hops deep, even across crate boundaries. The performance guards (Section 5.5) would need to be adjusted to account for the increased analysis scope.
+    </p>
+
+    <h2>9.5 Planned: Runtime Event Merge</h2>
+    <p>
+        The most significant planned enhancement is merging static LSP analysis with dynamic runtime events from <code>borrowscope-runtime</code>. The LSP provides what <em>could</em> happen (all paths, all branches), while the runtime provides what <em>did</em> happen (one path, precise timing, actual reference counts). Combining both views enables divergence detection: highlighting cases where the static analysis predicts a borrow conflict that does not occur at runtime (because the conflicting path is never taken), or where the runtime observes behavior that the static analysis cannot predict (dynamic dispatch, runtime-conditional borrows).
+    </p>
+    <p>
+        The integration point is the VS Code extension, which can load both the LSP response (via custom requests) and the runtime event file (<code>memory-events.json</code> produced by the instrumented program). The extension would overlay runtime observations onto the static ownership graph: nodes gain actual reference counts (from runtime) alongside predicted categories (from LSP), edges gain timing information (when the borrow actually started and ended), and divergence points are highlighted with a distinct visual indicator.
+    </p>
+    <p>
+        This merge addresses the fundamental limitation of any static analysis: it cannot observe runtime behavior. By combining both approaches in a single visualization, the developer gets the best of both worlds: instant feedback from the LSP during editing, and precise validation from the runtime after execution. The <code>borrowscope/analysisUpdated</code> notification mechanism already provides the infrastructure for real-time updates; extending it to incorporate runtime events is a natural next step.
+    </p>
+</div>

@@ -1,1 +1,16 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>10. Conclusion</h1>
+    <p>
+        This paper presented <code>borrowscope-lsp</code>, a Language Server Protocol implementation that delivers real-time ownership visualization for Rust programs directly inside the editor. The system was motivated by a concrete limitation discovered during the development of <code>borrowscope-analyzer</code> and <code>borrowscope-macro</code>: the static <code>type-info.json</code> file becomes stale the moment the developer edits the source code, and the runtime instrumentation pipeline requires a full compile-and-execute cycle to produce results. By building on the same <code>ra_ap_*</code> semantic engine that powers rust-analyzer, the LSP server provides the same compiler-grade type information on demand, always fresh, without requiring compilation or execution.
+    </p>
+    <p>
+        The ownership analysis engine extracts 40+ type properties per variable, classifies ownership into 8 categories, computes borrow scopes via <code>Definition::usages</code> (matching NLL semantics), detects 4 move patterns, resolves closure captures via <code>CaptureKind</code>, tracks Rc/Arc clones through both method and explicit styles, and identifies borrow conflicts through scope overlap analysis. All of this is achieved with zero heuristics: every decision is based on semantic resolution through the Salsa database. Cross-function borrow tracking resolves call targets via <code>sema.resolve_path</code> and method receivers via <code>self_param.access</code>, tracing borrows one hop into callees with performance guards ensuring responsiveness. Memory layout visualization reconstructs stack frames with field-level detail for 12+ standard library types and arbitrary user-defined structs.
+    </p>
+    <p>
+        The integration layer delivers this information through standard LSP features (CodeLens, InlayHints, Hover, Diagnostics) and 5 custom requests, validated by 107 integration tests covering the full protocol lifecycle. A debounced analysis pipeline with fresh/stale caching ensures the server remains responsive during rapid editing, with typical response times under 50ms for single-function analysis after the initial workspace load. The three BorrowScope components form a complementary system: the LSP provides instant static feedback across all code paths, the runtime provides precise dynamic truth along executed paths, and a future VS Code extension can merge both views with divergence detection to give developers complete visibility into Rust's ownership system.
+    </p>
+
+    <div class="dedication">
+        <p>To the Rust community, for building a language where memory safety and performance are not in conflict.</p>
+    </div>
+</div>

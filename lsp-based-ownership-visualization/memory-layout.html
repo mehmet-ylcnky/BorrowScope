@@ -1,1 +1,515 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>6. Memory Layout Visualization</h1>
+    <p>
+        Understanding how Rust variables are laid out in memory is essential for performance reasoning, unsafe code correctness, and FFI interoperability. The <code>borrowscope/memoryLayout</code> request reconstructs the stack frame of a function, identifies heap allocations, and maps pointer relationships between variables. All information is derived from the Salsa type database using <code>ty.layout(db)</code> for sizes and alignments, <code>ty.fields(db)</code> for struct internals, and ADT path resolution for category classification. No runtime observation is needed.
+    </p>
+
+    <h2>6.1 Stack Frame Reconstruction</h2>
+    <p>
+        For each function, the engine iterates all <code>let</code> bindings and simulates stack allocation. For each variable, it queries <code>ty.layout(db)</code> to obtain the size (in bytes) and alignment requirement. The offset is computed by aligning the current stack pointer to the variable's alignment, then advancing by its size. The result is a <code>StackFrame</code> struct containing the total frame size and a list of <code>StackVariable</code> entries, each with its name, type, offset, size, alignment, declaration line, and last-use line.
+    </p>
+    <p>
+        The alignment simulation follows the same rules as the Rust compiler: each variable's offset must be a multiple of its alignment. For example, a <code>u8</code> (align 1) can start at any offset, but a <code>u64</code> (align 8) must start at an offset divisible by 8. If the previous variable ends at offset 5 and the next requires alignment 8, the engine inserts 3 bytes of padding (advancing to offset 8). This padding is not explicitly stored but is visible as gaps in the offset sequence.
+    </p>
+    <p>
+        The last-use line for each variable is computed using the same <code>Definition::usages</code> mechanism from Section 4.3. This allows the visualization to show variable lifetimes within the stack frame: a variable that is dropped early frees its stack slot for reuse (though the Rust compiler may or may not actually reuse it depending on optimization level).
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">let mut</span> current_offset: u64 = 0;
+
+<span class="rust-keyword">for</span> let_stmt <span class="rust-keyword">in</span> body.syntax().descendants().filter_map(ast::LetStmt::cast) {
+    <span class="rust-keyword">let</span> ty = sema.type_of_expr(&amp;init)?.original;
+    <span class="rust-keyword">let</span> (size, alignment) = <span class="rust-keyword">match</span> ty.layout(db) {
+        Ok(layout) => (layout.size(), layout.align()),
+        Err(_) => (0, 1),  <span class="rust-comment">// Unknown layout: skip gracefully</span>
+    };
+
+    <span class="rust-comment">// Align offset to variable's alignment requirement</span>
+    <span class="rust-keyword">if</span> alignment > 0 {
+        current_offset = (current_offset + alignment - 1) &amp; !(alignment - 1);
+    }
+
+    stack_vars.push(StackVariable {
+        name, type_display, offset: current_offset, size, alignment, line, end_line, ..
+    });
+    current_offset += size;
+}</pre>
+    </div>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="stack-svg" viewBox="0 0 750 350" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceStack()">
+            <text id="stack-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to build the stack frame variable by variable</text>
+
+            <!-- Stack frame container -->
+            <rect x="50" y="35" width="200" height="260" rx="4" fill="white" stroke="#34495e" stroke-width="2"/>
+            <text x="150" y="52" text-anchor="middle" font-size="10" fill="#34495e" font-weight="bold">Stack Frame</text>
+
+            <!-- Offset labels (left) -->
+            <text x="35" y="75" text-anchor="end" font-size="8" fill="#999">0</text>
+            <text x="35" y="107" text-anchor="end" font-size="8" fill="#999">8</text>
+            <text x="35" y="139" text-anchor="end" font-size="8" fill="#999">16</text>
+            <text x="35" y="171" text-anchor="end" font-size="8" fill="#999">24</text>
+            <text x="35" y="203" text-anchor="end" font-size="8" fill="#999">32</text>
+            <text x="35" y="235" text-anchor="end" font-size="8" fill="#999">40</text>
+            <text x="35" y="267" text-anchor="end" font-size="8" fill="#999">48</text>
+
+            <!-- Variable blocks (appear on click) -->
+            <rect id="stack-v1" x="55" y="60" width="190" height="40" rx="3" fill="#3498db" opacity="0"/>
+            <text id="stack-v1-t" x="150" y="78" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0">count: u64</text>
+            <text id="stack-v1-s" x="150" y="92" text-anchor="middle" font-size="8" fill="white" opacity="0">8 bytes, align 8</text>
+
+            <rect id="stack-v2" x="55" y="100" width="190" height="14" rx="3" fill="#27ae60" opacity="0"/>
+            <text id="stack-v2-t" x="150" y="111" text-anchor="middle" font-size="8" fill="white" font-weight="bold" opacity="0">flag: bool (1B, align 1)</text>
+
+            <rect id="stack-pad" x="55" y="114" width="190" height="18" rx="2" fill="#ecf0f1" opacity="0" stroke="#bdc3c7" stroke-dasharray="3,2"/>
+            <text id="stack-pad-t" x="150" y="127" text-anchor="middle" font-size="7" fill="#999" opacity="0">padding (7 bytes for alignment)</text>
+
+            <rect id="stack-v3" x="55" y="132" width="190" height="60" rx="3" fill="#8e44ad" opacity="0"/>
+            <text id="stack-v3-t" x="150" y="155" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0">name: String</text>
+            <text id="stack-v3-s" x="150" y="170" text-anchor="middle" font-size="8" fill="white" opacity="0">24 bytes (ptr+len+cap), align 8</text>
+
+            <rect id="stack-v4" x="55" y="192" width="190" height="60" rx="3" fill="#e74c3c" opacity="0"/>
+            <text id="stack-v4-t" x="150" y="215" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0">items: Vec&lt;i32&gt;</text>
+            <text id="stack-v4-s" x="150" y="230" text-anchor="middle" font-size="8" fill="white" opacity="0">24 bytes (ptr+len+cap), align 8</text>
+
+            <!-- Total size label -->
+            <text id="stack-total" x="150" y="280" text-anchor="middle" font-size="10" fill="#34495e" font-weight="bold" opacity="0">Total: 72 bytes</text>
+
+            <!-- Right side: field expansion -->
+            <g id="stack-expand" opacity="0">
+                <rect x="300" y="60" width="420" height="220" rx="6" fill="white" stroke="#8e44ad" stroke-width="1.5"/>
+                <text x="510" y="80" text-anchor="middle" font-size="10" fill="#6c3483" font-weight="bold">Field-Level Detail (String)</text>
+                <rect x="315" y="90" width="390" height="30" rx="3" fill="#d2b4de"/>
+                <text x="330" y="110" font-size="9" fill="#4a235a" font-family="monospace">ptr: *const u8    offset: 0   size: 8B</text>
+                <rect x="315" y="125" width="390" height="30" rx="3" fill="#d7bde2"/>
+                <text x="330" y="145" font-size="9" fill="#4a235a" font-family="monospace">len: usize        offset: 8   size: 8B</text>
+                <rect x="315" y="160" width="390" height="30" rx="3" fill="#e8daef"/>
+                <text x="330" y="180" font-size="9" fill="#4a235a" font-family="monospace">cap: usize        offset: 16  size: 8B</text>
+
+                <!-- Pointer arrow to heap -->
+                <path d="M 510,195 L 510,220 L 600,220" fill="none" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#stack-arr)"/>
+                <rect x="600" y="210" width="100" height="25" rx="4" fill="#fdedec" stroke="#e74c3c"/>
+                <text x="650" y="227" text-anchor="middle" font-size="8" fill="#c0392b" font-weight="bold">Heap data</text>
+                <text x="510" y="260" text-anchor="middle" font-size="8" fill="#7f8c8d">ptr field points to heap allocation</text>
+            </g>
+
+            <defs><marker id="stack-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#e74c3c"/></marker></defs>
+
+            <!-- Description -->
+            <rect x="20" y="305" width="710" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="stack-desc" x="375" y="322" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to allocate variables on the stack frame</text>
+            <text id="stack-step" x="375" y="342" text-anchor="middle" font-size="9" fill="#999">Step 0/6</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var stackStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('stack-v1').setAttribute('opacity','0.9');
+                document.getElementById('stack-v1-t').setAttribute('opacity','1');
+                document.getElementById('stack-v1-s').setAttribute('opacity','1');
+                return 'count: u64 at offset 0 (size=8, align=8). No padding needed.';
+            },
+            function() {
+                document.getElementById('stack-v2').setAttribute('opacity','0.9');
+                document.getElementById('stack-v2-t').setAttribute('opacity','1');
+                return 'flag: bool at offset 8 (size=1, align=1). Fits immediately after count.';
+            },
+            function() {
+                document.getElementById('stack-pad').setAttribute('opacity','0.7');
+                document.getElementById('stack-pad-t').setAttribute('opacity','1');
+                return 'Next variable (String) needs align=8. Current offset=9. Pad 7 bytes to reach 16.';
+            },
+            function() {
+                document.getElementById('stack-v3').setAttribute('opacity','0.9');
+                document.getElementById('stack-v3-t').setAttribute('opacity','1');
+                document.getElementById('stack-v3-s').setAttribute('opacity','1');
+                return 'name: String at offset 16 (size=24: ptr+len+cap, each 8B). Next free: 40.';
+            },
+            function() {
+                document.getElementById('stack-v4').setAttribute('opacity','0.9');
+                document.getElementById('stack-v4-t').setAttribute('opacity','1');
+                document.getElementById('stack-v4-s').setAttribute('opacity','1');
+                document.getElementById('stack-total').setAttribute('opacity','1');
+                return 'items: Vec<i32> at offset 40 (size=24). Total frame: 64 bytes + 8 padding = 72.';
+            },
+            function() {
+                document.getElementById('stack-expand').setAttribute('opacity','1');
+                return 'Expand String: internal fields (ptr, len, cap) with pointer to heap allocation.';
+            }
+        ];
+        window.advanceStack = function() {
+            if (stackStep >= steps.length) { stackStep = 0; resetStack(); return; }
+            var desc = steps[stackStep]();
+            document.getElementById('stack-desc').textContent = desc;
+            stackStep++;
+            document.getElementById('stack-step').textContent = 'Step ' + stackStep + '/' + steps.length;
+            document.getElementById('stack-title').textContent = 'Click to continue';
+        };
+        function resetStack() {
+            ['stack-v1','stack-v1-t','stack-v1-s','stack-v2','stack-v2-t','stack-pad','stack-pad-t','stack-v3','stack-v3-t','stack-v3-s','stack-v4','stack-v4-t','stack-v4-s','stack-total','stack-expand'].forEach(function(id) {
+                document.getElementById(id).setAttribute('opacity','0');
+            });
+            document.getElementById('stack-desc').textContent = '// click to allocate variables on the stack frame';
+            document.getElementById('stack-title').textContent = 'Click to build the stack frame variable by variable';
+            document.getElementById('stack-step').textContent = 'Step 0/6';
+        }
+    })();
+    </script>
+
+    <h2>6.2 Field-Level Layout for Standard Library Types</h2>
+    <p>
+        Many standard library types have well-known internal layouts that are stable across Rust versions. The engine provides hardcoded field decompositions for 12+ types, giving developers immediate insight into what a <code>String</code>, <code>Vec</code>, or <code>HashMap</code> actually looks like in memory. This is particularly valuable for understanding why certain types have specific sizes (e.g., <code>String</code> is always 24 bytes on 64-bit: three pointer-sized fields) and where the actual data lives (on the heap, pointed to by the <code>ptr</code> field).
+    </p>
+    <p>
+        The decompositions are returned as <code>Vec&lt;MemoryFieldInfo&gt;</code>, each entry containing the field name, type display string, byte offset within the parent type, and field size. For types with pointer fields (String, Vec, Box, Rc, Arc), the engine also generates a <code>PointerRelation</code> entry indicating that the stack variable "owns" a heap allocation, enabling the visualization to draw arrows from stack to heap.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">extract_type_fields</span>(db, display_target, ty) -> Vec&lt;MemoryFieldInfo&gt; {
+    <span class="rust-keyword">let</span> type_str = ty.display(db, display_target).to_string();
+
+    <span class="rust-keyword">if</span> type_str == <span class="rust-string">"String"</span> {
+        <span class="rust-keyword">return vec!</span>[
+            MemoryFieldInfo { name: <span class="rust-string">"ptr"</span>, ty: <span class="rust-string">"*const u8"</span>,  offset: 0,  size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"len"</span>, ty: <span class="rust-string">"usize"</span>,     offset: 8,  size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"cap"</span>, ty: <span class="rust-string">"usize"</span>,     offset: 16, size: 8 },
+        ];
+    }
+    <span class="rust-keyword">if</span> type_str.starts_with(<span class="rust-string">"Vec&lt;"</span>) {
+        <span class="rust-keyword">return vec!</span>[
+            MemoryFieldInfo { name: <span class="rust-string">"ptr"</span>, ty: <span class="rust-string">"*const T"</span>,  offset: 0,  size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"len"</span>, ty: <span class="rust-string">"usize"</span>,     offset: 8,  size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"cap"</span>, ty: <span class="rust-string">"usize"</span>,     offset: 16, size: 8 },
+        ];
+    }
+    <span class="rust-keyword">if</span> type_str.starts_with(<span class="rust-string">"Rc&lt;"</span>) {
+        <span class="rust-keyword">return vec!</span>[
+            MemoryFieldInfo { name: <span class="rust-string">"ptr"</span>, ty: <span class="rust-string">"NonNull&lt;RcBox&lt;T&gt;&gt;"</span>, offset: 0, size: 8 },
+        ];
+    }
+    <span class="rust-keyword">if</span> type_str.starts_with(<span class="rust-string">"HashMap&lt;"</span>) {
+        <span class="rust-keyword">return vec!</span>[
+            MemoryFieldInfo { name: <span class="rust-string">"ctrl"</span>,        ty: <span class="rust-string">"*const u8"</span>, offset: 0,  size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"bucket_mask"</span>, ty: <span class="rust-string">"usize"</span>,     offset: 8,  size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"items"</span>,       ty: <span class="rust-string">"usize"</span>,     offset: 16, size: 8 },
+            MemoryFieldInfo { name: <span class="rust-string">"growth_left"</span>, ty: <span class="rust-string">"usize"</span>,     offset: 24, size: 8 },
+        ];
+    }
+    <span class="rust-comment">// ... RefCell, Cell, Option, Result, Box, Arc, &amp;T</span>
+}</pre>
+    </div>
+
+    <h2>6.3 User-Defined Struct Field Extraction via ty.fields</h2>
+    <p>
+        For user-defined structs, the engine cannot rely on hardcoded layouts. Instead, it calls <code>ty.fields(db)</code> which returns an iterator of <code>(hir::Field, hir::Type)</code> pairs. For each field, it queries <code>field_ty.layout(db)</code> to get the size and alignment, then computes the field offset by simulating the compiler's layout algorithm (aligning each field to its requirement and advancing). The field name is obtained via <code>field.name(db)</code> and the type display string via <code>field_ty.display(db, display_target)</code>, giving both human-readable and machine-processable representations.
+    </p>
+    <p>
+        This approach works for any struct visible to the Salsa database, including structs defined in the current crate, in dependencies, and in the standard library (though standard library types are handled by the hardcoded path in Section 6.2 for accuracy). Enum variants and union fields are not decomposed in the current implementation; only named struct fields are extracted. If <code>ty.layout(db)</code> fails for a field (e.g., the field type contains an unresolved generic), that field is included with size 0 and the layout continues with the next field. The Rust compiler may reorder fields for optimization (unless <code>#[repr(C)]</code> is specified), so the computed layout represents the logical field order as declared in source, which may differ from the actual memory order at runtime.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// For user-defined structs: enumerate fields via ADT</span>
+<span class="rust-keyword">if let</span> Some(hir::Adt::Struct(_)) = ty.as_adt() {
+    <span class="rust-keyword">let mut</span> fields = Vec::new();
+    <span class="rust-keyword">let mut</span> field_offset = 0u64;
+
+    <span class="rust-keyword">for</span> (field, field_ty) <span class="rust-keyword">in</span> ty.fields(db) {
+        <span class="rust-keyword">let</span> field_name = field.name(db).to_string();
+        <span class="rust-keyword">let</span> field_size = field_ty.layout(db).ok().map(|l| l.size()).unwrap_or(0);
+        <span class="rust-keyword">let</span> field_align = field_ty.layout(db).ok().map(|l| l.align()).unwrap_or(1);
+
+        <span class="rust-comment">// Align the offset</span>
+        field_offset = (field_offset + field_align - 1) / field_align * field_align;
+
+        fields.push(MemoryFieldInfo {
+            name: field_name, type_display: field_ty.display(..).to_string(),
+            offset: field_offset, size: field_size,
+        });
+        field_offset += field_size;
+    }
+    <span class="rust-keyword">return</span> fields;
+}</pre>
+    </div>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="struct-svg" viewBox="0 0 750 340" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceStruct()">
+            <text id="struct-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to extract fields from a user-defined struct</text>
+
+            <!-- Source struct definition -->
+            <rect x="20" y="30" width="300" height="110" rx="6" fill="white" stroke="#34495e" stroke-width="1.5"/>
+            <text x="170" y="48" text-anchor="middle" font-size="10" fill="#34495e" font-weight="bold">Source Definition</text>
+            <text x="35" y="68" font-size="9" fill="#333" font-family="monospace">struct Player {</text>
+            <text x="35" y="83" font-size="9" fill="#333" font-family="monospace">    x: f32,       // 4B, align 4</text>
+            <text x="35" y="98" font-size="9" fill="#333" font-family="monospace">    y: f32,       // 4B, align 4</text>
+            <text x="35" y="113" font-size="9" fill="#333" font-family="monospace">    health: u16,  // 2B, align 2</text>
+            <text x="35" y="128" font-size="9" fill="#333" font-family="monospace">    alive: bool,  // 1B, align 1</text>
+            <text x="35" y="138" font-size="9" fill="#333" font-family="monospace">}</text>
+
+            <!-- API call visualization -->
+            <g id="struct-api" opacity="0">
+                <rect x="20" y="150" width="300" height="35" rx="4" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5"/>
+                <text x="170" y="172" text-anchor="middle" font-size="9" fill="#b7950b" font-family="monospace">ty.fields(db) -> [(x,f32),(y,f32),(health,u16),(alive,bool)]</text>
+            </g>
+
+            <!-- Memory layout result -->
+            <rect x="370" y="30" width="360" height="250" rx="6" fill="white" stroke="#8e44ad" stroke-width="1.5"/>
+            <text x="550" y="48" text-anchor="middle" font-size="10" fill="#6c3483" font-weight="bold">Computed Memory Layout</text>
+
+            <!-- Byte offset ruler -->
+            <text x="385" y="68" font-size="7" fill="#999">offset</text>
+            <line x1="420" y1="60" x2="420" y2="265" stroke="#eee" stroke-width="1"/>
+
+            <!-- Field blocks (appear step by step) -->
+            <g id="struct-f1" opacity="0">
+                <rect x="425" y="62" width="280" height="35" rx="3" fill="#3498db" opacity="0.8"/>
+                <text x="385" y="83" text-anchor="end" font-size="8" fill="#2980b9" font-weight="bold">0</text>
+                <text x="440" y="78" font-size="9" fill="white" font-weight="bold">x: f32</text>
+                <text x="440" y="92" font-size="8" fill="white">size: 4B | align: 4 | offset: 0</text>
+            </g>
+
+            <g id="struct-f2" opacity="0">
+                <rect x="425" y="100" width="280" height="35" rx="3" fill="#27ae60" opacity="0.8"/>
+                <text x="385" y="121" text-anchor="end" font-size="8" fill="#1e8449" font-weight="bold">4</text>
+                <text x="440" y="116" font-size="9" fill="white" font-weight="bold">y: f32</text>
+                <text x="440" y="130" font-size="8" fill="white">size: 4B | align: 4 | offset: 4</text>
+            </g>
+
+            <g id="struct-f3" opacity="0">
+                <rect x="425" y="138" width="280" height="35" rx="3" fill="#f39c12" opacity="0.8"/>
+                <text x="385" y="159" text-anchor="end" font-size="8" fill="#b7950b" font-weight="bold">8</text>
+                <text x="440" y="154" font-size="9" fill="white" font-weight="bold">health: u16</text>
+                <text x="440" y="168" font-size="8" fill="white">size: 2B | align: 2 | offset: 8</text>
+            </g>
+
+            <g id="struct-f4" opacity="0">
+                <rect x="425" y="176" width="280" height="35" rx="3" fill="#e74c3c" opacity="0.8"/>
+                <text x="385" y="197" text-anchor="end" font-size="8" fill="#c0392b" font-weight="bold">10</text>
+                <text x="440" y="192" font-size="9" fill="white" font-weight="bold">alive: bool</text>
+                <text x="440" y="206" font-size="8" fill="white">size: 1B | align: 1 | offset: 10</text>
+            </g>
+
+            <!-- Padding + total -->
+            <g id="struct-pad" opacity="0">
+                <rect x="425" y="214" width="280" height="18" rx="2" fill="#ecf0f1" stroke="#bdc3c7" stroke-dasharray="3,2"/>
+                <text x="440" y="227" font-size="8" fill="#999">padding: 1 byte (to reach align 4 for struct)</text>
+                <text x="385" y="227" text-anchor="end" font-size="8" fill="#999">11</text>
+            </g>
+
+            <g id="struct-total" opacity="0">
+                <rect x="425" y="238" width="280" height="25" rx="3" fill="#34495e"/>
+                <text x="565" y="255" text-anchor="middle" font-size="10" fill="white" font-weight="bold">Total: 12 bytes (align 4)</text>
+            </g>
+
+            <!-- Description -->
+            <rect x="20" y="295" width="710" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="struct-desc" x="375" y="312" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to extract and lay out struct fields</text>
+            <text id="struct-step" x="375" y="333" text-anchor="middle" font-size="9" fill="#999">Step 0/6</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var structStep = 0;
+        var steps = [
+            function() {
+                document.getElementById('struct-api').setAttribute('opacity','1');
+                return 'Call ty.fields(db) on Player -> returns 4 (Field, Type) pairs';
+            },
+            function() {
+                document.getElementById('struct-f1').setAttribute('opacity','1');
+                return 'x: f32 -> layout(db) = {size:4, align:4}. offset=0 (already aligned). Next free: 4';
+            },
+            function() {
+                document.getElementById('struct-f2').setAttribute('opacity','1');
+                return 'y: f32 -> layout(db) = {size:4, align:4}. offset=4 (aligned). Next free: 8';
+            },
+            function() {
+                document.getElementById('struct-f3').setAttribute('opacity','1');
+                return 'health: u16 -> layout(db) = {size:2, align:2}. offset=8 (aligned). Next free: 10';
+            },
+            function() {
+                document.getElementById('struct-f4').setAttribute('opacity','1');
+                return 'alive: bool -> layout(db) = {size:1, align:1}. offset=10. Next free: 11';
+            },
+            function() {
+                document.getElementById('struct-pad').setAttribute('opacity','1');
+                document.getElementById('struct-total').setAttribute('opacity','1');
+                return 'Struct alignment = max(4,4,2,1) = 4. Pad 1 byte to reach 12 (multiple of 4). Done.';
+            }
+        ];
+        window.advanceStruct = function() {
+            if (structStep >= steps.length) { structStep = 0; resetStruct(); return; }
+            var desc = steps[structStep]();
+            document.getElementById('struct-desc').textContent = desc;
+            structStep++;
+            document.getElementById('struct-step').textContent = 'Step ' + structStep + '/' + steps.length;
+            document.getElementById('struct-title').textContent = 'Click to continue';
+        };
+        function resetStruct() {
+            ['struct-api','struct-f1','struct-f2','struct-f3','struct-f4','struct-pad','struct-total'].forEach(function(id) {
+                document.getElementById(id).setAttribute('opacity','0');
+            });
+            document.getElementById('struct-desc').textContent = '// click to extract and lay out struct fields';
+            document.getElementById('struct-title').textContent = 'Click to extract fields from a user-defined struct';
+            document.getElementById('struct-step').textContent = 'Step 0/6';
+        }
+    })();
+    </script>
+
+    <h2>6.4 Heap Allocation Detection and Estimation</h2>
+    <p>
+        Not all memory lives on the stack. Types like <code>Vec</code>, <code>String</code>, <code>Box</code>, and <code>HashMap</code> allocate backing storage on the heap. The engine detects these by classifying each variable into a <code>MemoryCategory</code> (see Section 6.6) and generating a <code>HeapAllocation</code> entry for heap-backed and ref-counted types. Each entry records the owning variable name, a description of what is allocated, an estimated size, and the allocation kind. This separation between stack representation (the pointer/length/capacity triple) and heap storage (the actual data) is fundamental to understanding Rust's memory model.
+    </p>
+    <p>
+        Heap size estimation is necessarily approximate without runtime observation. The engine uses type-based heuristics: a <code>Vec&lt;T&gt;</code> is estimated at 24 bytes of heap storage (3 elements of average size), a <code>String</code> at 16 bytes, a <code>HashMap</code> at 64 bytes (initial bucket array), and a <code>Box&lt;T&gt;</code> at the size of T. For <code>Rc</code> and <code>Arc</code>, the heap allocation includes the inner value plus 16 bytes for the strong and weak reference counts. These estimates provide relative sizing for visualization purposes rather than exact byte counts. When the runtime component is available, it can supply actual allocation sizes observed during execution, replacing these estimates with precise measurements.
+    </p>
+
+    <h2>6.5 Pointer Relationship Graph</h2>
+    <p>
+        The engine builds a graph of pointer relationships between variables and their heap allocations. Three relationship kinds are tracked:
+    </p>
+    <ul>
+        <li><strong>owns_heap:</strong> A heap-backed variable (Vec, String, Box) owns its backing storage. The stack representation contains a pointer that points to the heap allocation.</li>
+        <li><strong>owns_heap (ref-counted):</strong> An Rc or Arc variable owns a pointer to the shared inner allocation (which contains the value plus reference counts).</li>
+        <li><strong>borrows:</strong> A reference variable (&amp;T or &amp;mut T) points to another stack variable. The target is extracted from the initializer expression (e.g., <code>let r = &amp;data</code> produces a "borrows" edge from r to data).</li>
+    </ul>
+    <p>
+        These relationships are returned as <code>Vec&lt;PointerRelation&gt;</code> in the <code>MemoryLayoutInfo</code> response. Each entry has a <code>from</code> (the variable holding the pointer), a <code>to</code> (the target, either a heap allocation name like <code>"data.data"</code> or another variable name), and a <code>kind</code> string. Visualization tools use these to draw arrows between stack slots and heap regions, making the ownership topology visible at a glance.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="heap-svg" viewBox="0 0 750 300" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceHeap()">
+            <text id="heap-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see stack-to-heap pointer relationships</text>
+
+            <!-- Stack region -->
+            <rect x="30" y="35" width="200" height="200" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="1.5"/>
+            <text x="130" y="52" text-anchor="middle" font-size="10" fill="#2980b9" font-weight="bold">Stack</text>
+
+            <!-- Stack variables -->
+            <rect id="heap-s1" x="45" y="60" width="170" height="28" rx="4" fill="#3498db" opacity="0.3"/>
+            <text id="heap-s1-t" x="130" y="78" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0.3">data: Vec&lt;i32&gt; (24B)</text>
+
+            <rect id="heap-s2" x="45" y="95" width="170" height="28" rx="4" fill="#8e44ad" opacity="0.3"/>
+            <text id="heap-s2-t" x="130" y="113" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0.3">shared: Rc&lt;Config&gt; (8B)</text>
+
+            <rect id="heap-s3" x="45" y="130" width="170" height="28" rx="4" fill="#27ae60" opacity="0.3"/>
+            <text id="heap-s3-t" x="130" y="148" text-anchor="middle" font-size="9" fill="white" font-weight="bold" opacity="0.3">r: &amp;Vec&lt;i32&gt; (8B)</text>
+
+            <!-- Heap region -->
+            <rect x="350" y="35" width="370" height="200" rx="6" fill="#fdedec" stroke="#e74c3c" stroke-width="1.5"/>
+            <text x="535" y="52" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">Heap</text>
+
+            <!-- Heap allocations -->
+            <rect id="heap-h1" x="370" y="60" width="160" height="40" rx="4" fill="#e74c3c" opacity="0"/>
+            <text id="heap-h1-t" x="450" y="78" text-anchor="middle" font-size="8" fill="white" font-weight="bold" opacity="0">[i32; capacity]</text>
+            <text id="heap-h1-s" x="450" y="92" text-anchor="middle" font-size="7" fill="white" opacity="0">~24 bytes (Vec backing)</text>
+
+            <rect id="heap-h2" x="370" y="110" width="160" height="50" rx="4" fill="#6c3483" opacity="0"/>
+            <text id="heap-h2-t" x="450" y="128" text-anchor="middle" font-size="8" fill="white" font-weight="bold" opacity="0">RcBox&lt;Config&gt;</text>
+            <text id="heap-h2-s1" x="450" y="142" text-anchor="middle" font-size="7" fill="white" opacity="0">strong: 1 | weak: 0</text>
+            <text id="heap-h2-s2" x="450" y="154" text-anchor="middle" font-size="7" fill="white" opacity="0">value: Config (+ 16B counts)</text>
+
+            <!-- Arrows -->
+            <defs><marker id="heap-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e74c3c"/></marker>
+            <marker id="heap-arr-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8e44ad"/></marker>
+            <marker id="heap-arr-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#27ae60"/></marker></defs>
+
+            <line id="heap-a1" x1="215" y1="74" x2="368" y2="74" stroke="#e74c3c" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#heap-arr)" opacity="0"/>
+            <text id="heap-a1-l" x="290" y="67" text-anchor="middle" font-size="7" fill="#e74c3c" opacity="0">owns_heap</text>
+
+            <line id="heap-a2" x1="215" y1="109" x2="368" y2="130" stroke="#8e44ad" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#heap-arr-purple)" opacity="0"/>
+            <text id="heap-a2-l" x="290" y="115" text-anchor="middle" font-size="7" fill="#8e44ad" opacity="0">owns_heap (rc)</text>
+
+            <line id="heap-a3" x1="130" y1="158" x2="130" y2="90" stroke="#27ae60" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#heap-arr-green)" opacity="0"/>
+            <text id="heap-a3-l" x="155" y="125" font-size="7" fill="#27ae60" opacity="0">borrows</text>
+
+            <!-- Description -->
+            <rect x="30" y="250" width="690" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="heap-desc" x="375" y="267" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to reveal pointer relationships</text>
+            <text id="heap-step" x="375" y="290" text-anchor="middle" font-size="9" fill="#999">Step 0/4</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var heapStep = 0;
+        var steps = [
+            function() {
+                ['heap-s1','heap-s1-t','heap-s2','heap-s2-t','heap-s3','heap-s3-t'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Stack variables: Vec (24B), Rc (8B pointer), &Vec (8B pointer). Total stack: 40B.';
+            },
+            function() {
+                ['heap-h1','heap-h1-t','heap-h1-s','heap-a1','heap-a1-l'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Vec owns heap backing storage (~24B). PointerRelation: data -> data.data (owns_heap)';
+            },
+            function() {
+                ['heap-h2','heap-h2-t','heap-h2-s1','heap-h2-s2','heap-a2','heap-a2-l'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Rc owns RcBox on heap (value + 16B ref counts). PointerRelation: shared -> shared.inner';
+            },
+            function() {
+                ['heap-a3','heap-a3-l'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Reference r borrows data (points to stack, not heap). PointerRelation: r -> data (borrows)';
+            }
+        ];
+        window.advanceHeap = function() {
+            if (heapStep >= steps.length) { heapStep = 0; resetHeap(); return; }
+            var desc = steps[heapStep]();
+            document.getElementById('heap-desc').textContent = desc;
+            heapStep++;
+            document.getElementById('heap-step').textContent = 'Step ' + heapStep + '/' + steps.length;
+            document.getElementById('heap-title').textContent = 'Click to continue';
+        };
+        function resetHeap() {
+            ['heap-s1','heap-s1-t','heap-s2','heap-s2-t','heap-s3','heap-s3-t'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0.3'); });
+            ['heap-h1','heap-h1-t','heap-h1-s','heap-h2','heap-h2-t','heap-h2-s1','heap-h2-s2','heap-a1','heap-a1-l','heap-a2','heap-a2-l','heap-a3','heap-a3-l'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('heap-desc').textContent = '// click to reveal pointer relationships';
+            document.getElementById('heap-title').textContent = 'Click to see stack-to-heap pointer relationships';
+            document.getElementById('heap-step').textContent = 'Step 0/4';
+        }
+    })();
+    </script>
+
+    <h2>6.6 Memory Category Classification</h2>
+    <p>
+        Every variable is classified into one of five memory categories that determine how it appears in the visualization and whether heap allocation entries are generated:
+    </p>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Criteria</th>
+            <th>Examples</th>
+            <th>Visualization</th>
+        </tr>
+        <tr>
+            <td><strong>StackOnly</strong></td>
+            <td>Copy type with size &lt;= 16 bytes</td>
+            <td>i32, f64, bool, (u8, u8)</td>
+            <td>Simple colored block, no heap arrow</td>
+        </tr>
+        <tr>
+            <td><strong>HeapBacked</strong></td>
+            <td>ADT name is Vec, String, Box, HashMap, etc.</td>
+            <td>Vec&lt;i32&gt;, String, Box&lt;dyn Trait&gt;</td>
+            <td>Stack block + arrow to heap region</td>
+        </tr>
+        <tr>
+            <td><strong>Reference</strong></td>
+            <td>ty.is_reference() = true</td>
+            <td>&amp;str, &amp;mut Vec&lt;i32&gt;</td>
+            <td>Thin block + arrow to target variable</td>
+        </tr>
+        <tr>
+            <td><strong>RefCounted</strong></td>
+            <td>ADT name is Rc or Arc</td>
+            <td>Rc&lt;Config&gt;, Arc&lt;Mutex&lt;T&gt;&gt;</td>
+            <td>Stack pointer + arrow to shared heap inner</td>
+        </tr>
+        <tr>
+            <td><strong>InteriorMut</strong></td>
+            <td>ADT name is RefCell, Cell, Mutex, RwLock</td>
+            <td>RefCell&lt;Vec&lt;i32&gt;&gt;, Mutex&lt;State&gt;</td>
+            <td>Stack block with borrow_flag field shown</td>
+        </tr>
+    </table>
+    <p>
+        Classification uses the resolved ADT name from <code>hir::Adt::name(db)</code>, not the display string. This ensures that type aliases and re-exports are correctly classified (e.g., <code>type MyVec = Vec&lt;i32&gt;</code> is still classified as HeapBacked). The classification is performed once per variable during the <code>analyze_memory_layout</code> pass and stored in the <code>StackVariable::category</code> field. The category drives both the heap allocation generation (only HeapBacked and RefCounted produce entries) and the pointer relationship generation (only HeapBacked, RefCounted, and Reference produce edges). StackOnly variables appear as simple blocks with no outgoing arrows, making the visualization cleaner for functions with many primitive locals. The InteriorMut category is particularly important because it signals that the variable's contents can be mutated through shared references, which affects borrow conflict analysis.
+    </p>
+</div>
