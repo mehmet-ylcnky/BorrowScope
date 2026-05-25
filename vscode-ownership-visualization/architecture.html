@@ -1,1 +1,217 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>2. Architecture</h1>
+    <p>
+        The extension follows VS Code's extension model: a TypeScript module that activates when a Rust file is opened, manages a language client connection to the LSP server, and registers commands, decorations, and a WebView panel. The architecture separates concerns into four layers: the LSP client (data acquisition), the state layer (caching and coordination), the decoration layer (inline editor feedback), and the panel layer (WebView visualization). Each layer operates independently and communicates through well-defined interfaces.
+    </p>
+
+    <h2>2.1 Extension Activation and Lifecycle</h2>
+    <p>
+        The extension activates when VS Code opens a file with <code>languageId: "rust"</code>. The <code>activate()</code> function performs five initialization steps in sequence: creates an output channel for logging, initializes the performance monitor, shows the welcome panel on first activation, registers all 27 commands, and starts the LSP client connection. If the workspace contains a Rust project, it also starts the runtime watcher, creates runtime decoration types, and initializes the status bar.
+    </p>
+    <p>
+        The <code>deactivate()</code> function stops the LSP client and disposes the runtime watcher. All resources (decoration types, file watchers, status bar items) are registered in <code>context.subscriptions</code> for automatic disposal when the extension is deactivated or uninstalled. This ensures no resource leaks even if deactivation is triggered by VS Code shutting down unexpectedly.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export async function</span> <span class="rust-function">activate</span>(context: vscode.ExtensionContext): Promise&lt;void&gt; {
+  outputChannel = vscode.window.createOutputChannel(<span class="rust-string">"BorrowScope"</span>);
+  perfMonitor = <span class="rust-keyword">new</span> PerformanceMonitor(outputChannel);
+  registerPerformanceCommand(context, perfMonitor);
+  showWelcomeIfNeeded(context);
+  registerCommands(context);
+
+  <span class="rust-comment">// Register 27 commands (inspect, toggle, navigate, export, views...)</span>
+  context.subscriptions.push(
+    vscode.commands.registerCommand(<span class="rust-string">"borrowscope.inspectVariable"</span>, inspectVariable),
+    vscode.commands.registerCommand(<span class="rust-string">"borrowscope.toggleDecorations"</span>, toggleDecorations),
+    vscode.commands.registerCommand(<span class="rust-string">"borrowscope.nextConflict"</span>, nextConflict),
+    vscode.commands.registerCommand(<span class="rust-string">"borrowscope.focusGraph"</span>, focusGraph),
+    <span class="rust-comment">// ... 23 more commands</span>
+  );
+
+  <span class="rust-keyword">await</span> startClient(context);
+
+  <span class="rust-comment">// Runtime watcher (file + WebSocket)</span>
+  runtimeWatcher = <span class="rust-keyword">new</span> RuntimeWatcher();
+  runtimeStatusBar = <span class="rust-keyword">new</span> RuntimeStatusBar();
+  runtimeStatusBar.attachWatcher(runtimeWatcher);
+  runtimeWatcher.start(workspaceRoot);
+}</pre>
+    </div>
+
+    <h2>2.2 LSP Client Connection</h2>
+    <p>
+        The extension uses <code>vscode-languageclient/node</code> to spawn and communicate with the <code>borrowscope-lsp</code> binary. The server is started via stdio transport, with the binary path resolved from configuration (<code>borrowscope.server.path</code>), the extension's bundled binary, or the system PATH. The client registers a document selector for Rust files and a file system watcher for <code>**/*.rs</code> to trigger re-analysis on external file changes.
+    </p>
+    <p>
+        After the client starts, the extension registers two notification handlers. The first listens for <code>borrowscope/analysisUpdated</code>: when received, it invalidates the graph cache, refreshes inline decorations, and live-updates the WebView panel if the currently displayed function is in the affected list. The second listens for <code>textDocument/publishDiagnostics</code>: when received, it applies conflict zone highlighting to the active editor. Both handlers check that the notification's URI matches the active editor before acting, preventing stale updates from background files.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code">client.onNotification(<span class="rust-string">"borrowscope/analysisUpdated"</span>, <span class="rust-keyword">async</span> (params) => {
+  <span class="rust-keyword">const</span> editor = vscode.window.activeTextEditor;
+  <span class="rust-keyword">if</span> (!editor || editor.document.uri.toString() !== params.uri) <span class="rust-keyword">return</span>;
+
+  lastGraph = undefined; graphCache.clear(); <span class="rust-comment">// invalidate cache</span>
+  refreshInlayHints(editor);
+  refreshDecorations(editor);
+
+  <span class="rust-comment">// Live update the graph panel if open and showing an affected function</span>
+  <span class="rust-keyword">const</span> panel = GraphPanel.getPanel();
+  <span class="rust-keyword">if</span> (panel && panel.getGraph()) {
+    <span class="rust-keyword">const</span> currentFn = panel.getGraph().function_name;
+    <span class="rust-keyword">if</span> (params.functions?.includes(currentFn)) {
+      <span class="rust-keyword">const</span> graph = <span class="rust-keyword">await</span> client.sendRequest(<span class="rust-string">"borrowscope/ownershipGraph"</span>, { ... });
+      <span class="rust-keyword">if</span> (graph) panel.updateGraph(graph);
+    }
+  }
+});</pre>
+    </div>
+    <p>
+        The extension also implements a pre-fetch strategy: after the workspace finishes loading (detected by the first successful <code>analysisUpdated</code> notification), it fires parallel <code>ownershipGraph</code> requests for every function in the active file. This warms the Salsa cache on the server side and populates the local graph cache, making subsequent CodeLens clicks and panel opens instantaneous.
+    </p>
+
+    <h2>2.3 Graph Cache and State Management</h2>
+    <p>
+        The extension maintains a per-function graph cache (<code>graphCache: Map&lt;string, any&gt;</code>) that stores the most recent <code>ownershipGraph</code> response for each function name. When the developer clicks a CodeLens or switches the panel to a different function, the extension first checks this cache before sending a request to the LSP server. Cache hits are served immediately (zero latency); cache misses trigger an LSP request and store the result for future use.
+    </p>
+    <p>
+        The cache is invalidated entirely when an <code>analysisUpdated</code> notification arrives, because any function in the file may have been affected by the change. The previous graph is preserved separately (<code>_previousGraph</code>) to enable the comparison view, which shows what changed between the last two analyses. The current graph is also persisted to <code>workspaceState</code> so that the panel can restore its content when VS Code is restarted or the panel is hidden and re-shown.
+    </p>
+
+    <h2>2.4 Configuration System (33 Settings)</h2>
+    <p>
+        The extension exposes 33 settings organized into 9 groups, all accessible via VS Code's standard settings UI. The <code>getConfig()</code> function returns a fully typed <code>BorrowScopeConfig</code> object that is read fresh on each access (no stale configuration). Settings changes take effect immediately without requiring an extension restart, because each feature checks its configuration at render time rather than caching it at activation.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export interface</span> <span class="rust-type">BorrowScopeConfig</span> {
+  server:       { path: string; extraArgs: string[] };
+  analysis:     { debounceMs: number };
+  decorations:  { enabled: boolean; borrowScopes: boolean; gutterIcons: boolean;
+                  inlayHints: boolean; codeLens: boolean; lifelines: boolean };
+  graph:        { layout: <span class="rust-string">"force"</span> | <span class="rust-string">"hierarchical"</span> | <span class="rust-string">"radial"</span>;
+                  showTypes: boolean; animateUpdates: boolean };
+  colors:       { sharedBorrow: string; mutableBorrow: string; move: string;
+                  rcArc: string; owned: string; drop: string };
+  crossFunction: { enabled: boolean; maxDepth: number; showInline: boolean };
+  memoryLayout: { enabled: boolean; showAlignment: boolean; animationSpeed: number };
+  runtime:      { enabled: boolean; source: <span class="rust-string">"file"</span> | <span class="rust-string">"websocket"</span>; filePath: string;
+                  websocketPort: number; showTimings: boolean; showDropOrder: boolean;
+                  showRefCounts: boolean; highlightDivergences: boolean };
+  diagnostics:  { enabled: boolean; severity: <span class="rust-string">"information"</span> | <span class="rust-string">"hint"</span> | <span class="rust-string">"warning"</span> };
+}</pre>
+    </div>
+    <p>
+        The color settings deserve special attention. Each ownership category has a configurable color that is used consistently across all views: the same blue for shared borrows appears in the graph nodes, the lifeline gutter, the timeline bars, and the inlay hint text. This consistency helps the developer build a mental model where color always means the same thing regardless of which view they are looking at. The defaults follow a semantic color scheme: blue for shared (safe, read-only), red for mutable (exclusive, dangerous), green for owned (stable), purple for Rc/Arc (shared ownership), orange for moves (transfer), and gray for drops (end of life).
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="arch-ext-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceArchExt()">
+            <text id="arch-ext-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to explore the extension architecture</text>
+
+            <!-- LSP Server -->
+            <g id="ae-lsp">
+                <rect x="20" y="40" width="140" height="60" rx="6" fill="#f4ecf7" stroke="#8e44ad" stroke-width="2"/>
+                <text x="90" y="65" text-anchor="middle" font-size="10" fill="#6c3483" font-weight="bold">borrowscope-lsp</text>
+                <text x="90" y="80" text-anchor="middle" font-size="8" fill="#555">5 custom requests</text>
+                <text x="90" y="92" text-anchor="middle" font-size="8" fill="#555">2 notifications</text>
+            </g>
+
+            <!-- Client Layer -->
+            <g id="ae-client">
+                <rect x="200" y="40" width="140" height="60" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+                <text x="270" y="65" text-anchor="middle" font-size="10" fill="#2980b9" font-weight="bold">LSP Client</text>
+                <text x="270" y="80" text-anchor="middle" font-size="8" fill="#555">Graph cache</text>
+                <text x="270" y="92" text-anchor="middle" font-size="8" fill="#555">Pre-fetch + refresh</text>
+            </g>
+
+            <!-- Decoration Layer -->
+            <g id="ae-deco">
+                <rect x="380" y="30" width="160" height="45" rx="6" fill="#d5f5e3" stroke="#27ae60" stroke-width="2"/>
+                <text x="460" y="50" text-anchor="middle" font-size="10" fill="#1e8449" font-weight="bold">Decorations</text>
+                <text x="460" y="65" text-anchor="middle" font-size="8" fill="#555">Lifelines, hints, conflicts</text>
+            </g>
+
+            <!-- Panel Layer -->
+            <g id="ae-panel">
+                <rect x="380" y="85" width="160" height="45" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+                <text x="460" y="105" text-anchor="middle" font-size="10" fill="#b7950b" font-weight="bold">WebView Panel</text>
+                <text x="460" y="120" text-anchor="middle" font-size="8" fill="#555">11 views (D3.js)</text>
+            </g>
+
+            <!-- Runtime Layer -->
+            <g id="ae-runtime">
+                <rect x="20" y="140" width="140" height="60" rx="6" fill="#fdedec" stroke="#e74c3c" stroke-width="2"/>
+                <text x="90" y="165" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">Runtime Events</text>
+                <text x="90" y="180" text-anchor="middle" font-size="8" fill="#555">File watcher / WebSocket</text>
+                <text x="90" y="192" text-anchor="middle" font-size="8" fill="#555">88 event types</text>
+            </g>
+
+            <!-- Merge Layer -->
+            <g id="ae-merge">
+                <rect x="200" y="140" width="140" height="60" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+                <text x="270" y="165" text-anchor="middle" font-size="10" fill="#b7950b" font-weight="bold">Merge Layer</text>
+                <text x="270" y="180" text-anchor="middle" font-size="8" fill="#555">Static + Runtime</text>
+                <text x="270" y="192" text-anchor="middle" font-size="8" fill="#555">9 divergence kinds</text>
+            </g>
+
+            <!-- Config -->
+            <g id="ae-config">
+                <rect x="580" y="60" width="140" height="50" rx="6" fill="#e8f8f5" stroke="#1abc9c" stroke-width="2"/>
+                <text x="650" y="82" text-anchor="middle" font-size="10" fill="#148f77" font-weight="bold">Configuration</text>
+                <text x="650" y="97" text-anchor="middle" font-size="8" fill="#555">33 settings, 9 groups</text>
+            </g>
+
+            <!-- Arrows -->
+            <defs><marker id="ae-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#7f8c8d"/></marker></defs>
+            <line x1="160" y1="70" x2="198" y2="70" stroke="#7f8c8d" stroke-width="2" marker-end="url(#ae-arr)"/>
+            <line x1="340" y1="60" x2="378" y2="52" stroke="#7f8c8d" stroke-width="2" marker-end="url(#ae-arr)"/>
+            <line x1="340" y1="80" x2="378" y2="100" stroke="#7f8c8d" stroke-width="2" marker-end="url(#ae-arr)"/>
+            <line x1="160" y1="170" x2="198" y2="170" stroke="#7f8c8d" stroke-width="2" marker-end="url(#ae-arr)"/>
+            <line x1="340" y1="170" x2="378" y2="120" stroke="#7f8c8d" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#ae-arr)"/>
+            <line x1="540" y1="85" x2="578" y2="85" stroke="#1abc9c" stroke-width="1.5" stroke-dasharray="3,3"/>
+
+            <!-- Animated dots -->
+            <circle r="3" fill="#8e44ad" opacity="0.8"><animateMotion dur="1.8s" repeatCount="indefinite" path="M160,70 L198,70"/></circle>
+            <circle r="3" fill="#e74c3c" opacity="0.8"><animateMotion dur="2.1s" repeatCount="indefinite" path="M160,170 L198,170"/></circle>
+            <circle r="3" fill="#2980b9" opacity="0.8"><animateMotion dur="1.5s" repeatCount="indefinite" path="M340,60 L378,52"/></circle>
+            <circle r="3" fill="#f39c12" opacity="0.8"><animateMotion dur="1.7s" repeatCount="indefinite" path="M340,80 L378,100"/></circle>
+
+            <!-- Description -->
+            <rect x="20" y="220" width="710" height="35" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="ae-desc" x="375" y="242" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to highlight each architectural layer</text>
+            <text id="ae-step" x="375" y="265" text-anchor="middle" font-size="9" fill="#999">Step 0/6</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var aeStep = 0;
+        var allGroups = ['ae-lsp','ae-client','ae-deco','ae-panel','ae-runtime','ae-merge','ae-config'];
+        var steps = [
+            { hl: 'ae-lsp', desc: 'LSP Server: produces ownership data via 5 custom requests + 2 notifications (stdio)' },
+            { hl: 'ae-client', desc: 'Client Layer: manages connection, caches graphs per function, pre-fetches on load' },
+            { hl: 'ae-deco', desc: 'Decorations: lifelines, inlay hints, conflict highlights, cross-function annotations' },
+            { hl: 'ae-panel', desc: 'WebView Panel: 11 views rendered with D3.js, linked highlighting, zoom/pan/drag' },
+            { hl: 'ae-runtime', desc: 'Runtime Events: loaded from .borrowscope/events.json or WebSocket (88 event types)' },
+            { hl: 'ae-merge', desc: 'Merge Layer: correlates static + runtime, detects 9 divergence kinds with severity' }
+        ];
+        window.advanceArchExt = function() {
+            if (aeStep >= steps.length) { aeStep = 0; resetAE(); return; }
+            var s = steps[aeStep];
+            allGroups.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (id === s.hl) { el.style.opacity = '1'; el.querySelector('rect').setAttribute('stroke-width','4'); }
+                else { el.style.opacity = '0.3'; el.querySelector('rect').setAttribute('stroke-width','2'); }
+            });
+            document.getElementById('ae-desc').textContent = s.desc;
+            aeStep++;
+            document.getElementById('ae-step').textContent = 'Step ' + aeStep + '/' + steps.length;
+            document.getElementById('ae-ext-title').textContent = 'Click to continue';
+        };
+        function resetAE() {
+            allGroups.forEach(function(id) { var el = document.getElementById(id); el.style.opacity = '1'; el.querySelector('rect').setAttribute('stroke-width','2'); });
+            document.getElementById('ae-desc').textContent = '// click to highlight each architectural layer';
+            document.getElementById('ae-ext-title').textContent = 'Click to explore the extension architecture';
+            document.getElementById('ae-step').textContent = 'Step 0/6';
+        }
+    })();
+    </script>
+</div>

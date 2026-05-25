@@ -1,1 +1,12 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>Abstract</h1>
+    <p>
+        The <code>borrowscope-lsp</code> server produces structured ownership analysis (variables, borrow scopes, moves, Rc/Arc clones, conflicts, cross-function paths, and memory layout) as JSON responses to custom LSP requests. However, raw JSON is not actionable for a developer working inside an editor. This paper presents <code>borrowscope-vscode</code>, a Visual Studio Code extension that transforms these LSP responses into 11 interactive visualization views, inline editor decorations, and a runtime-static merge layer with divergence detection. The extension is the user-facing layer of the BorrowScope ecosystem: it consumes the analysis data produced by the LSP server and renders it as visual feedback that a developer can act on without leaving the editor.
+    </p>
+    <p>
+        The extension provides two complementary feedback channels. The first is inline decorations applied directly to the source code: color-coded ownership annotations after variable names (<code>[&amp;]</code>, <code>[&amp;mut]</code>, <code>[Rc]</code>), borrow lifeline characters in the gutter showing scope duration with emoji labels, conflict zone highlighting, and cross-function borrow annotations at call sites. The second is a WebView panel offering 11 specialized views: a D3.js force-directed ownership graph, a timeline (Gantt chart) of variable lifetimes, a scope nesting diagram, a reference count step chart, a move chain visualization, a conflict detail view, a comparison (diff) view, a cross-references graph, a memory layout view with play/scrub timeline, and a runtime event viewer with drop order and divergence indicators.
+    </p>
+    <p>
+        Beyond static visualization, the extension implements a runtime-static merge layer that correlates runtime events (from <code>borrowscope-runtime</code>) with static analysis results (from the LSP). This merge produces a unified view where each variable shows both its statically predicted ownership category and its observed runtime behavior. When the two disagree, the extension detects and classifies 9 kinds of divergences (Rc leaks, reference cycles, missing drops, borrows held across await points, unsafe hidden behavior, conditional moves, weak upgrade failures, channel receive failures, and use-after-move). These divergences are surfaced with severity levels and actionable suggestions. The extension is validated by 689 tests covering all views, decorations, runtime integration, and configuration, with 33 user-configurable settings, 27 commands, and 6 keyboard shortcuts.
+    </p>
+</div>

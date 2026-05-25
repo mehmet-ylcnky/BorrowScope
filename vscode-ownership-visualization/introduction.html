@@ -1,1 +1,94 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>1. Introduction</h1>
+
+    <h2>1.1 From Data to Experience</h2>
+    <p>
+        The <code>borrowscope-lsp</code> server (presented in the companion paper) solves the problem of extracting ownership information from Rust source code in real-time. It produces a <code>FunctionOwnershipSummary</code> containing every variable's type, ownership category, borrow scopes, moves, Rc/Arc clones, closure captures, and conflicts. It also provides cross-function borrow paths and field-level memory layout. All of this is available as structured JSON through 5 custom LSP requests.
+    </p>
+    <p>
+        But structured JSON is not what a developer needs while writing code. A developer needs to <em>see</em> that a variable is borrowed, <em>see</em> where the borrow ends, <em>see</em> which borrows conflict, and <em>see</em> how ownership flows through function calls. The gap between "data available via protocol" and "developer understands ownership at a glance" is the visualization gap. This paper presents the system that closes it.
+    </p>
+    <p>
+        <code>borrowscope-vscode</code> is a VS Code extension that consumes every piece of data the LSP server produces and renders it in the most appropriate visual form: inline decorations for information that belongs next to the code, and a dedicated panel for information that requires spatial layout (graphs, timelines, memory diagrams). The extension makes no ownership decisions itself. Every piece of information it displays originates from the LSP server's semantic analysis. The extension's role is purely presentational: it transforms data into pixels.
+    </p>
+
+    <h2>1.2 Design Goals</h2>
+    <p>
+        The extension was designed around five principles that guided every implementation decision:
+    </p>
+    <ul>
+        <li><strong>Real-time:</strong> Visual feedback updates as the developer types. The extension listens for <code>borrowscope/analysisUpdated</code> notifications from the LSP server and re-renders affected views within one frame. There is no "refresh" button; the visualization is always current.</li>
+        <li><strong>Non-intrusive:</strong> Inline decorations are subtle (small italic text, thin gutter lines). The WebView panel is opt-in: it only opens when the developer clicks a CodeLens or invokes a command. The extension never blocks the editor or shows modal dialogs during normal operation.</li>
+        <li><strong>Multi-modal:</strong> Different ownership questions require different visual representations. "Who borrows from this variable?" is best answered by a graph. "When does this borrow end?" is best answered by a timeline. "How much stack space does this function use?" is best answered by a memory diagram. The extension provides 11 specialized views, each optimized for a specific class of question.</li>
+        <li><strong>Linked:</strong> All views are connected. Clicking a node in the graph navigates to the source line. Hovering a row in the table highlights the corresponding graph node. Scrubbing the memory timeline shows which variables are alive at each line. This linking ensures the developer never loses context when switching between views.</li>
+        <li><strong>Configurable:</strong> Every visual aspect can be customized: colors for each ownership category, which decorations are shown, graph layout algorithm, animation speed, runtime source (file or WebSocket), and diagnostic severity. The extension exposes 33 settings organized into 9 groups.</li>
+    </ul>
+
+    <h2>1.3 Relationship to borrowscope-lsp</h2>
+    <p>
+        The extension and the LSP server have a strict producer-consumer relationship. The server produces ownership data; the extension consumes and renders it. This separation has several benefits: the server can be tested independently (107 protocol tests), the extension can be tested with mock data (689 tests without a running server), and alternative clients (Neovim, Emacs) can consume the same LSP data with their own visualization layers.
+    </p>
+    <p>
+        The following table shows what the LSP provides and what the extension renders from each response:
+    </p>
+    <table>
+        <tr>
+            <th>LSP Request</th>
+            <th>Data Provided</th>
+            <th>Extension Renders</th>
+        </tr>
+        <tr>
+            <td><code>ownershipGraph</code></td>
+            <td>Variables, borrows, moves, clones, conflicts, stats</td>
+            <td>Force-directed graph, table, timeline, scopes, moves, conflicts, compare views</td>
+        </tr>
+        <tr>
+            <td><code>borrowScopes</code></td>
+            <td>Borrow ranges with mutability</td>
+            <td>Gutter lifelines, frozen/locked indicators, scope nesting view</td>
+        </tr>
+        <tr>
+            <td><code>crossFunctionBorrows</code></td>
+            <td>Borrow paths across call boundaries</td>
+            <td>Inline annotations at call sites, cross-references graph view</td>
+        </tr>
+        <tr>
+            <td><code>memoryLayout</code></td>
+            <td>Stack frame, heap allocations, pointer relationships</td>
+            <td>Memory view with stack/heap columns, play/scrub timeline, field detail</td>
+        </tr>
+        <tr>
+            <td><code>inlayHint</code></td>
+            <td>Ownership category per variable</td>
+            <td>Color-coded [&amp;], [&amp;mut], [Rc], [Arc] annotations inline</td>
+        </tr>
+        <tr>
+            <td><code>analysisUpdated</code> (notification)</td>
+            <td>List of affected function names</td>
+            <td>Triggers re-render of graph panel if displayed function is affected</td>
+        </tr>
+        <tr>
+            <td><code>publishDiagnostics</code> (notification)</td>
+            <td>Borrow conflicts with ranges</td>
+            <td>Conflict zone highlighting, squiggly underlines, next/prev navigation</td>
+        </tr>
+    </table>
+    <p>
+        The extension also consumes data from a second source: runtime events produced by <code>borrowscope-runtime</code>. These are not provided by the LSP server but loaded directly from a JSON file or WebSocket. The merge of static (LSP) and dynamic (runtime) data happens entirely within the extension, producing the divergence detection layer described in Section 5. In further phases of development, <code>borrowscope-macro</code> integration will complete the end-to-end pipeline: the extension will be able to trigger instrumentation, compilation, and execution from within the editor, automatically loading the resulting runtime events and merging them with the live static analysis to provide a fully integrated experience without leaving VS Code.
+    </p>
+
+    <h2>1.4 Contributions</h2>
+    <p>
+        This paper makes the following contributions. Together, they demonstrate that ownership visualization can be delivered as a rich, interactive, real-time experience within a production code editor, bridging the gap between compiler-grade analysis and developer comprehension.
+    </p>
+    <div class="contributions">
+        <ol>
+            <li>A VS Code extension with 11 interactive visualization views in a single WebView panel, each specialized for a different aspect of ownership analysis (graph, timeline, scopes, ref count, moves, conflicts, comparison, cross-references, memory layout, runtime events).</li>
+            <li>Inline editor decorations providing immediate ownership feedback without opening a panel: color-coded category annotations, borrow lifelines with emoji labels, conflict zone highlighting, and cross-function borrow annotations at call sites.</li>
+            <li>A runtime-static merge layer that correlates runtime events (88 types from <code>borrowscope-runtime</code>) with static analysis results (from the LSP), detecting and classifying 9 kinds of divergences with severity levels and actionable suggestions.</li>
+            <li>A linked interaction model where all views are connected: clicking a graph node navigates to source, hovering a table row highlights the graph, scrubbing the memory timeline shows variable lifetimes, and runtime events link back to declaration lines.</li>
+            <li>Comprehensive configurability (33 settings, 27 commands, 6 keyboard shortcuts) and accessibility support (ARIA labels, keyboard navigation, screen reader graph descriptions, high-contrast theme adaptation).</li>
+            <li>Validation through 689 tests covering all views, decorations, runtime integration, configuration, commands, and accessibility, running against a VS Code mock without requiring a live editor instance.</li>
+        </ol>
+    </div>
+</div>
