@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>borrowscope-vscode: Interactive Ownership Visualization for Rust in VS Code</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .section-container { margin-bottom: 3rem; }
+        .loading { text-align: center; color: var(--secondary-color); font-style: italic; padding: 2rem; }
+        .navigation { position: fixed; top: 20px; right: 20px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 280px; max-height: 90vh; overflow-y: auto; z-index: 1000; }
+        .navigation h3 { margin-top: 0; font-size: 1rem; color: var(--primary-color); }
+        .navigation ul { list-style: none; padding: 0; margin: 0; }
+        .navigation li { margin: 0.3rem 0; }
+        .navigation a { color: var(--secondary-color); text-decoration: none; font-size: 0.9rem; }
+        .navigation a:hover { text-decoration: underline; }
+        @media (max-width: 1200px) { .navigation { display: none; } }
+        .back-link { display: inline-block; margin-bottom: 1rem; color: var(--secondary-color); text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .back-link::before { content: "\2190 "; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        th { background: var(--code-bg); }
+        .screenshot-placeholder { background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%); border: 2px dashed #999; border-radius: 8px; padding: 40px 20px; text-align: center; margin: 1.5rem 0; color: #666; font-style: italic; }
+        .screenshot-placeholder::before { content: "📸 "; font-size: 1.5em; }
+    </style>
+</head>
+<body>
+    <a href="../" class="back-link">Back to BorrowScope</a>
+
+    <div class="navigation">
+        <h3>Quick Navigation</h3>
+        <nav class="toc">
+            <ul>
+                <li><a href="#abstract">Abstract</a></li>
+                <li><a href="#introduction">1. Introduction</a></li>
+                <li><a href="#architecture">2. Architecture</a></li>
+                <li><a href="#decorations">3. Inline Decorations</a></li>
+                <li><a href="#panel">4. WebView Panel</a></li>
+                <li><a href="#merge">5. Runtime-Static Merge</a></li>
+                <li><a href="#performance">6. Performance</a></li>
+                <li><a href="#accessibility">7. Accessibility</a></li>
+                <li><a href="#testing">8. Testing</a></li>
+                <li><a href="#evaluation">9. Evaluation</a></li>
+                <li><a href="#limitations">10. Limitations</a></li>
+                <li><a href="#conclusion">11. Conclusion</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="header">
+        <h1 class="title"><strong><code>borrowscope-vscode</code></strong>: Interactive Ownership Visualization for Rust in VS Code</h1>
+        <p class="subtitle">11 Visualization Views, Runtime-Static Merge, and Divergence Detection for Real-Time Ownership Feedback</p>
+        <div class="logo-container">
+            <img src="logo.png" alt="BorrowScope Logo" class="logo">
+        </div>
+        <div class="authors">
+            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank" class="author-link">Mehmet Yalcinkaya, PhD</a><br>
+            Principal Platform Engineer<br><br>
+            <strong>Date:</strong> May 2026<br>
+            <strong>Version:</strong> 1.0<br>
+            <div class="badges">
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
+                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github" alt="GitHub Repository">
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <div id="abstract" class="section-container"><div class="loading">Loading abstract...</div></div>
+        <div id="introduction" class="section-container"><div class="loading">Loading introduction...</div></div>
+        <div id="architecture" class="section-container"><div class="loading">Loading architecture...</div></div>
+        <div id="decorations" class="section-container"><div class="loading">Loading decorations...</div></div>
+        <div id="panel" class="section-container"><div class="loading">Loading panel...</div></div>
+        <div id="merge" class="section-container"><div class="loading">Loading merge...</div></div>
+        <div id="performance" class="section-container"><div class="loading">Loading performance...</div></div>
+        <div id="accessibility" class="section-container"><div class="loading">Loading accessibility...</div></div>
+        <div id="testing" class="section-container"><div class="loading">Loading testing...</div></div>
+        <div id="evaluation" class="section-container"><div class="loading">Loading evaluation...</div></div>
+        <div id="limitations" class="section-container"><div class="loading">Loading limitations...</div></div>
+        <div id="conclusion" class="section-container"><div class="loading">Loading conclusion...</div></div>
+    </main>
+
+    <footer>
+        <p><strong><code>borrowscope-vscode</code></strong>: Interactive Ownership Visualization for Rust in VS Code</p>
+        <p>Part of the <a href="../">BorrowScope Project</a></p>
+    </footer>
+
+    <script>
+        const sections = [
+            { id: 'abstract', file: 'abstract.html' },
+            { id: 'introduction', file: 'introduction.html' },
+            { id: 'architecture', file: 'architecture.html' },
+            { id: 'decorations', file: 'decorations.html' },
+            { id: 'panel', file: 'panel.html' },
+            { id: 'merge', file: 'merge.html' },
+            { id: 'performance', file: 'performance.html' },
+            { id: 'accessibility', file: 'accessibility.html' },
+            { id: 'testing', file: 'testing.html' },
+            { id: 'evaluation', file: 'evaluation.html' },
+            { id: 'limitations', file: 'limitations.html' },
+            { id: 'conclusion', file: 'conclusion.html' },
+        ];
+
+        sections.forEach(section => {
+            fetch(section.file)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById(section.id).innerHTML = html;
+                    document.getElementById(section.id).querySelectorAll('script').forEach(oldScript => {
+                        const newScript = document.createElement('script');
+                        newScript.textContent = oldScript.textContent;
+                        oldScript.parentNode.replaceChild(newScript, oldScript);
+                    });
+                    document.getElementById(section.id).querySelectorAll('.code-block').forEach(block => {
+                        if (block.querySelector('.copy-btn')) return;
+                        const copyButton = document.createElement('button');
+                        copyButton.textContent = 'Copy';
+                        copyButton.className = 'copy-btn';
+                        copyButton.onclick = () => {
+                            const code = block.querySelector('pre').textContent;
+                            navigator.clipboard.writeText(code);
+                            copyButton.textContent = 'Copied!';
+                            setTimeout(() => copyButton.textContent = 'Copy', 2000);
+                        };
+                        block.style.position = 'relative';
+                        block.appendChild(copyButton);
+                    });
+                });
+        });
+    </script>
+    <script src="scripts.js"></script>
+</body>
+</html>
