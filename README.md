@@ -6,7 +6,7 @@
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-  [![Rust Version](https://img.shields.io/badge/rust-1.70%2B-blue.svg)](https://www.rust-lang.org)
+  [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
   [![Tests](https://img.shields.io/badge/tests-2100%2B%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
   
   📄 [Read the Technical Whitepapers](https://mehmet-ylcnky.github.io/BorrowScope/)
