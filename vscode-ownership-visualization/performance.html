@@ -1,1 +1,133 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>6. Performance and Responsiveness</h1>
+    <p>
+        A visualization tool that lags behind the developer's typing is worse than no tool at all: it shows stale information that may mislead. The extension is designed to feel instantaneous for the common case (single-function edits) while gracefully degrading for expensive operations (full-file analysis, cross-function resolution). This section describes the three mechanisms that ensure responsiveness: debounced refresh, performance monitoring, and graph caching.
+    </p>
+
+    <h2>6.1 Debounced Refresh Pipeline</h2>
+    <p>
+        The extension uses multiple debounce timers to avoid redundant work during rapid editing. When the developer types, VS Code fires <code>onDidChangeTextDocument</code> events for every keystroke. The extension does not refresh decorations on every event. Instead, it waits 300ms after the last change before triggering a refresh. This matches the LSP server's own debounce (also 300ms by default), ensuring that the extension requests fresh data only after the server has finished processing the change.
+    </p>
+    <p>
+        A separate, shorter debounce (150ms) is used for editor switches (<code>onDidChangeActiveTextEditor</code>). When the developer clicks a different tab, the extension waits 150ms before refreshing decorations for the new file. This prevents flickering when rapidly switching between tabs (e.g., using Ctrl+Tab to cycle through recent files). If the developer settles on a file, decorations appear within 150ms, which is below the perceptual threshold for "instant."
+    </p>
+    <p>
+        The <code>analysisUpdated</code> notification from the LSP server triggers an immediate cache invalidation and refresh (no debounce), because this notification already incorporates the server's own debounce. When it arrives, the data is guaranteed to be fresh, so the extension can render immediately. The refresh pipeline is: invalidate graph cache, request new inlay hints, request new borrow scopes, request ownership graph for the current function (if panel is open), and apply all decorations. These requests are fired in parallel for maximum speed.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Debounced refresh on text change (300ms)</span>
+context.subscriptions.push(
+  vscode.workspace.onDidChangeTextDocument((e) => {
+    <span class="rust-keyword">const</span> editor = vscode.window.activeTextEditor;
+    <span class="rust-keyword">if</span> (editor && e.document === editor.document && e.document.languageId === <span class="rust-string">"rust"</span>) {
+      setTimeout(() => refreshDecorations(editor), 300);
+    }
+  })
+);
+
+<span class="rust-comment">// Debounced refresh on editor switch (150ms)</span>
+<span class="rust-keyword">let</span> editorChangeTimer: NodeJS.Timeout | undefined;
+context.subscriptions.push(
+  vscode.window.onDidChangeActiveTextEditor((editor) => {
+    <span class="rust-keyword">if</span> (editorChangeTimer) clearTimeout(editorChangeTimer);
+    editorChangeTimer = setTimeout(() => {
+      <span class="rust-keyword">if</span> (editor && editor.document.languageId === <span class="rust-string">"rust"</span>) {
+        refreshDecorations(editor);
+      }
+    }, 150);
+  })
+);
+
+<span class="rust-comment">// Immediate refresh on analysisUpdated (server already debounced)</span>
+client.onNotification(<span class="rust-string">"borrowscope/analysisUpdated"</span>, <span class="rust-keyword">async</span> (params) => {
+  graphCache.clear();
+  refreshInlayHints(editor);
+  refreshDecorations(editor);
+});</pre>
+    </div>
+
+    <h2>6.2 Performance Monitoring</h2>
+    <p>
+        The extension includes a built-in performance monitoring system that tracks the duration of every significant operation. The <code>PerformanceMonitor</code> class records timings per operation label, keeps the last 100 measurements for each, and logs a warning to the output channel when any operation exceeds the 100ms slow threshold. The developer can view a full performance report via the <code>borrowscope.showPerformanceReport</code> command, which shows average, maximum, minimum, and count for each tracked operation.
+    </p>
+    <p>
+        The monitor provides both synchronous and asynchronous timing wrappers. The synchronous <code>time(label, fn)</code> method wraps a function call and records its duration. The asynchronous <code>timeAsync(label, fn)</code> method does the same for Promise-returning functions. Both return the original function's result transparently, so they can be inserted into any call chain without changing behavior. The <code>commands.ts</code> module uses these wrappers around every LSP request to track response times in production.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export class</span> <span class="rust-type">PerformanceMonitor</span> {
+  <span class="rust-keyword">private</span> timings: Map&lt;string, number[]&gt; = <span class="rust-keyword">new</span> Map();
+  <span class="rust-keyword">private</span> slowThresholdMs: number = 100;
+
+  <span class="rust-comment">/** Time an async operation */</span>
+  <span class="rust-keyword">async</span> <span class="rust-function">timeAsync</span>&lt;T&gt;(label: string, fn: () => Promise&lt;T&gt;): Promise&lt;T&gt; {
+    <span class="rust-keyword">const</span> start = performance.now();
+    <span class="rust-keyword">const</span> result = <span class="rust-keyword">await</span> fn();
+    <span class="rust-keyword">this</span>.record(label, performance.now() - start);
+    <span class="rust-keyword">return</span> result;
+  }
+
+  <span class="rust-comment">/** Record a timing and warn if slow */</span>
+  <span class="rust-function">record</span>(label: string, elapsedMs: number): void {
+    <span class="rust-keyword">const</span> times = <span class="rust-keyword">this</span>.timings.get(label) || [];
+    times.push(elapsedMs);
+    <span class="rust-keyword">if</span> (times.length > 100) times.shift(); <span class="rust-comment">// keep last 100</span>
+    <span class="rust-keyword">this</span>.timings.set(label, times);
+
+    <span class="rust-keyword">if</span> (elapsedMs > <span class="rust-keyword">this</span>.slowThresholdMs) {
+      <span class="rust-keyword">this</span>.outputChannel?.appendLine(<span class="rust-string">`[perf] ${label} took ${elapsedMs.toFixed(1)}ms (slow)`</span>);
+    }
+  }
+
+  <span class="rust-comment">/** Generate full report */</span>
+  <span class="rust-function">report</span>(): string {
+    <span class="rust-keyword">const</span> lines = [<span class="rust-string">"BorrowScope Performance Report:"</span>, <span class="rust-string">""</span>];
+    <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> label <span class="rust-keyword">of</span> [...<span class="rust-keyword">this</span>.timings.keys()].sort()) {
+      <span class="rust-keyword">const</span> stats = <span class="rust-keyword">this</span>.getStats(label)!;
+      lines.push(<span class="rust-string">`  ${label}: avg=${stats.avg.toFixed(1)}ms, max=${stats.max.toFixed(1)}ms, count=${stats.count}`</span>);
+    }
+    <span class="rust-keyword">return</span> lines.join(<span class="rust-string">"\n"</span>);
+  }
+}</pre>
+    </div>
+    <p>
+        The extension also includes a file size guard: files exceeding 10,000 lines are skipped for analysis entirely, because the LSP server's response time scales with function count and large files may exceed the 100ms budget. The guard is implemented as a simple check before any LSP request, returning early with no decorations rather than blocking the editor with a slow request.
+    </p>
+
+    <h2>6.3 Graph Cache Strategy</h2>
+    <p>
+        The most expensive LSP request is <code>borrowscope/ownershipGraph</code>, which runs all 7 analysis passes for a single function. To avoid repeating this work on every decoration refresh, the extension maintains a per-function cache (<code>graphCache: Map&lt;string, any&gt;</code>). When the developer's cursor is inside a function, the extension checks the cache before sending a request. Cache hits are served with zero latency; cache misses trigger an LSP request and store the result.
+    </p>
+    <p>
+        The cache is invalidated entirely when an <code>analysisUpdated</code> notification arrives, because any function in the file may have been affected by the edit. This is a conservative strategy (it may invalidate functions that were not actually affected), but it guarantees correctness: the developer never sees stale ownership information after an edit. The trade-off is acceptable because the LSP server's incremental computation (Salsa) makes re-analysis fast even after cache invalidation.
+    </p>
+    <p>
+        The extension also implements a pre-fetch strategy to warm the cache proactively. After the workspace finishes loading (detected by the first successful response), the extension identifies all function declarations in the active file and fires parallel <code>ownershipGraph</code> requests for each. The results are stored in the cache, making subsequent CodeLens clicks and panel opens instantaneous. This pre-fetch runs in the background and does not block the editor; if it fails (e.g., the server is still loading), it silently retries after 10 and 20 seconds.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Pre-fetch all functions in background (warms Salsa cache)</span>
+<span class="rust-keyword">const</span> <span class="rust-function">preFetchAll</span> = <span class="rust-keyword">async</span> () => {
+  <span class="rust-keyword">const</span> editor = vscode.window.activeTextEditor;
+  <span class="rust-keyword">if</span> (!editor || editor.document.languageId !== <span class="rust-string">"rust"</span>) <span class="rust-keyword">return</span>;
+
+  <span class="rust-keyword">const</span> fnLines: number[] = [];
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">let</span> i = 0; i < editor.document.lineCount; i++) {
+    <span class="rust-keyword">if</span> (/\bfn\s+\w+/.test(editor.document.lineAt(i).text)) fnLines.push(i);
+  }
+
+  <span class="rust-comment">// Fire all requests in parallel for maximum speed</span>
+  <span class="rust-keyword">const</span> results = <span class="rust-keyword">await</span> Promise.all(fnLines.map(line =>
+    client.sendRequest(<span class="rust-string">"borrowscope/ownershipGraph"</span>, {
+      textDocument: { uri }, position: { line, character: 4 },
+    }).catch(() => null)
+  ));
+
+  results.forEach((r: any) => {
+    <span class="rust-keyword">if</span> (r && r.function_name) graphCache.set(r.function_name, r);
+  });
+};
+
+<span class="rust-comment">// Retry at multiple points during workspace loading</span>
+setTimeout(preFetchAll, 10000);
+setTimeout(preFetchAll, 20000);</pre>
+    </div>
+</div>

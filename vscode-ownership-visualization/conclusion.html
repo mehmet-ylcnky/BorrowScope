@@ -1,1 +1,16 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>11. Conclusion</h1>
+    <p>
+        This paper presented <code>borrowscope-vscode</code>, a Visual Studio Code extension that transforms the structured ownership analysis produced by <code>borrowscope-lsp</code> into interactive visual feedback. The extension closes the gap between "data available via protocol" and "developer understands ownership at a glance" by providing two complementary feedback channels: inline decorations that make ownership visible as part of the normal code reading experience, and a WebView panel with 11 specialized views for deeper investigation. Every piece of information displayed by the extension originates from the LSP server's semantic analysis or from observed runtime events; the extension makes no ownership decisions of its own.
+    </p>
+    <p>
+        The extension's most significant contribution is the runtime-static merge layer, which correlates static analysis predictions with dynamic runtime observations to detect 9 kinds of divergences. This merge enables a class of insights that neither static analysis nor runtime observation can provide alone: Rc reference cycles (detected by observing that the count never reaches zero), borrows held across await points (detected by correlating borrow events with await events), and conditional moves (detected by observing that a statically predicted move was never executed). These divergences are surfaced with severity levels and actionable suggestions, turning abstract ownership concepts into concrete debugging guidance.
+    </p>
+    <p>
+        The extension is validated by 689 tests, configured through 33 settings, operated via 27 commands and 6 keyboard shortcuts, and designed for accessibility with ARIA labels, keyboard navigation, and high-contrast theme support. Together with <code>borrowscope-lsp</code> (which provides the analysis), <code>borrowscope-runtime</code> (which provides runtime events), and <code>borrowscope-macro</code> (which instruments the code), the extension completes the BorrowScope ecosystem: a comprehensive platform for making Rust's ownership system visible, understandable, and actionable throughout the entire development workflow.
+    </p>
+
+    <div class="dedication">
+        <p>To every developer who has stared at a borrow checker error and wished they could <em>see</em> what was happening.</p>
+    </div>
+</div>

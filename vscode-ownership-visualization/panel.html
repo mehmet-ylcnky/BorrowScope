@@ -1,1 +1,181 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>4. The WebView Panel (11 Views)</h1>
+    <p>
+        The second feedback channel is a dedicated WebView panel that opens beside the editor. Unlike inline decorations (which are limited to text annotations), the panel can render arbitrary HTML, SVG, and JavaScript, enabling rich interactive visualizations. The panel uses D3.js for force-directed graphs and SVG rendering, and vanilla JavaScript for the remaining views. All 11 views share a single panel instance, switched via a vertical toolbar on the right side. The panel communicates with the extension host via <code>postMessage</code> for navigation (clicking a node jumps to the source line) and view state persistence.
+    </p>
+
+    <h2>4.1 Landing Page and View Selection</h2>
+    <p>
+        When the panel first opens, it displays a landing page with the BorrowScope logo, the function name, summary statistics (variable count, borrow count, move count), and a grid of circular icon buttons for each view. Each button has an emoji icon, a label, and a tooltip describing what the view shows. Clicking a button transitions to that view. A home button in the header returns to the landing page at any time.
+    </p>
+    <p>
+        The landing page serves as both a navigation hub and a quick summary. The developer can see at a glance how complex the function's ownership patterns are (e.g., "12 variables, 5 borrows, 2 moves") before choosing which view to explore. The grid layout accommodates all 11 views plus two external links (GitHub repository and research papers) in a 4-column responsive grid.
+    </p>
+    <p>
+        The last selected view is persisted via <code>workspaceState</code>, so reopening the panel returns to the same view the developer was using before. The view state is also communicated back to the extension host via <code>postMessage({ type: 'viewChanged', view: name })</code>, enabling the extension to offer view-specific commands (e.g., "Show Timeline" directly opens the timeline view).
+    </p>
+
+    <!-- SCREENSHOT: The landing page of the WebView panel showing the BorrowScope logo, function name, stats, and the 4x3 grid of view icons -->
+    <div class="screenshot-placeholder">Screenshot: Landing page with BorrowScope logo, function stats, and circular icon grid (Graph, Table, Timeline, Scopes, RefCount, Moves, Conflicts, Compare, CrossRefs, Memory, Runtime)</div>
+
+    <h2>4.2 Force-Directed Ownership Graph (D3.js)</h2>
+    <p>
+        The primary visualization is a force-directed graph where nodes represent variables and edges represent ownership relationships. The graph uses D3.js's force simulation with four forces: link force (edges pull connected nodes together), charge force (nodes repel each other), center force (keeps the graph centered in the viewport), and collision force (prevents node overlap). The simulation runs continuously until it reaches equilibrium, then settles.
+    </p>
+    <p>
+        Nodes are circles colored by ownership category: green for Owned, blue for SharedRef, red for MutableRef, purple for Rc/Arc, orange for InteriorMut, teal for Copy, gray for RawPointer, and yellow for Closure. Node size scales with the number of connections (more borrows/clones = larger node). Dead nodes (moved or dropped) are shown with reduced opacity and a red stroke. Each node displays the variable name above and the type below (truncated to 20 characters).
+    </p>
+    <p>
+        Edges are styled by relationship kind: dashed lines for shared borrows (blue), solid lines for mutable borrows (red), dotted lines for Rc/Arc clones (purple), dash-dot lines for closure captures (orange), and solid lines for moves (green). Each edge has an arrowhead marker colored to match the edge, and a label at the midpoint showing the relationship kind. Edges connected to mutable borrows are drawn thicker (2.5px vs 1.5px) to emphasize exclusive access.
+    </p>
+    <p>
+        Interaction is central to the graph's utility. Nodes can be dragged to rearrange the layout. The entire graph supports zoom (scroll wheel) and pan (click-drag on background). Clicking a node sends a <code>postMessage</code> to the extension host, which navigates the editor to that variable's declaration line. Hovering a node shows a tooltip with the variable's full type, ownership category, line number, and Copy status. Hovering also triggers linked highlighting: the corresponding table row is highlighted, and edges not connected to the hovered node are dimmed to 30% opacity.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Node color mapping by ownership category</span>
+<span class="rust-keyword">function</span> <span class="rust-function">nodeColor</span>(category) {
+  <span class="rust-keyword">const</span> colors = {
+    <span class="rust-string">'Owned'</span>: <span class="rust-string">'#2ecc71'</span>,      <span class="rust-string">'SharedRef'</span>: <span class="rust-string">'#3498db'</span>,
+    <span class="rust-string">'MutableRef'</span>: <span class="rust-string">'#e74c3c'</span>,  <span class="rust-string">'Rc'</span>: <span class="rust-string">'#9b59b6'</span>,
+    <span class="rust-string">'Arc'</span>: <span class="rust-string">'#8e44ad'</span>,        <span class="rust-string">'InteriorMut'</span>: <span class="rust-string">'#e67e22'</span>,
+    <span class="rust-string">'Copy'</span>: <span class="rust-string">'#1abc9c'</span>,       <span class="rust-string">'RawPointer'</span>: <span class="rust-string">'#7f8c8d'</span>,
+    <span class="rust-string">'Closure'</span>: <span class="rust-string">'#f1c40f'</span>
+  };
+  <span class="rust-keyword">return</span> colors[category] || <span class="rust-string">'#bdc3c7'</span>;
+}
+
+<span class="rust-comment">// Force simulation setup</span>
+<span class="rust-keyword">const</span> simulation = d3.forceSimulation(data.nodes)
+  .force(<span class="rust-string">'link'</span>, d3.forceLink(data.edges).id(d => d.id).distance(80))
+  .force(<span class="rust-string">'charge'</span>, d3.forceManyBody().strength(-80))
+  .force(<span class="rust-string">'center'</span>, d3.forceCenter(width / 2, height / 2).strength(0.15))
+  .force(<span class="rust-string">'collision'</span>, d3.forceCollide().radius(30));</pre>
+    </div>
+
+    <!-- SCREENSHOT: The force-directed ownership graph showing 6-8 nodes with different colors, edges with arrows, and a tooltip on hover -->
+    <div class="screenshot-placeholder">Screenshot: Force-directed ownership graph with colored nodes (green Owned, blue SharedRef, red MutableRef, purple Rc), labeled edges, and a hover tooltip showing variable details</div>
+
+    <h2>4.3 Filter Bar (Category Filtering)</h2>
+    <p>
+        Above the graph, a filter bar displays one button per ownership category present in the current function. Each button is colored to match its category and labeled with the category name. Clicking a button toggles visibility of all nodes in that category: hidden nodes disappear from the graph along with their connected edges. The button text gets a strikethrough and reduced opacity to indicate the hidden state. Clicking again restores visibility.
+    </p>
+    <p>
+        This filtering is useful for complex functions with many variables. A developer investigating a borrow conflict can hide all Copy and Owned nodes to focus only on references. A developer investigating shared ownership can hide everything except Rc/Arc nodes. The filter state is not persisted across panel updates; it resets when the graph data changes (because the set of categories may differ).
+    </p>
+
+    <h2>4.4 Table View</h2>
+    <p>
+        The table view presents the same data as the graph but in a structured tabular format. It contains collapsible sections for Variables (name, type, category), Borrow Scopes (borrower, kind, target, line range), Moves (source, destination, line), Rc/Arc Clones (clone, source, line), and Conflicts (borrow A, borrow B, overlap lines). Each section header shows the count and can be expanded or collapsed.
+    </p>
+    <p>
+        Table rows are interactive: hovering a row highlights the corresponding node in the graph (if the graph view is also visible or was recently active), and clicking a row navigates to the source line via <code>postMessage</code>. The table is particularly useful for functions with many variables where the graph becomes dense, as it provides a linear, searchable list of all ownership relationships.
+    </p>
+
+    <h2>4.5 Timeline View (Gantt Chart)</h2>
+    <p>
+        The timeline view renders variable lifetimes as horizontal bars on a Gantt chart. The X-axis represents line numbers (from function start to function end), and the Y-axis lists each variable. Each bar spans from the variable's declaration line to its last use (or function end if never dropped). Bars are colored by ownership category, matching the graph node colors.
+    </p>
+    <p>
+        Borrow relationships are overlaid on the target variable's bar: a blue sub-bar for shared borrows, a red sub-bar for mutable borrows, each spanning the borrow's active scope. Conflict zones appear as semi-transparent red vertical bands spanning the full height of the chart, making it immediately visible where overlapping borrows occur. The timeline also shows grid lines at regular line intervals and a legend explaining the color coding.
+    </p>
+    <p>
+        Interaction follows the same linked model: hovering a bar highlights the corresponding table row and graph node. Clicking a bar navigates to the variable's declaration line. The timeline is particularly effective for understanding temporal relationships: which borrows are active at the same time, when moves happen relative to borrows, and how long each variable lives.
+    </p>
+
+    <!-- SCREENSHOT: The timeline (Gantt chart) view showing 5-6 variable lifetime bars with borrow overlays and a conflict zone -->
+    <div class="screenshot-placeholder">Screenshot: Timeline view with horizontal lifetime bars, blue/red borrow overlays on target variables, and a red conflict zone band</div>
+
+    <h2>4.6 Scope Nesting View</h2>
+    <p>
+        The scope nesting view shows the hierarchical structure of variable scopes within the function. The outermost box represents the function scope (with its name and line range). Variables declared at the function level are listed inside this box. If the function contains inner blocks (detected by borrows that end before the function end), a nested box represents the inner scope with its own variables.
+    </p>
+    <p>
+        Each variable is displayed as a colored bar (matching its ownership category) with its name, type, and line number. At the bottom of the function scope, the drop order is shown: the reverse of declaration order, indicating the sequence in which variables will be destroyed when the scope ends. This view is particularly useful for understanding why certain borrows are valid: a variable in an inner scope is dropped before variables in the outer scope, which may release a borrow that would otherwise conflict.
+    </p>
+
+    <h2>4.7 Reference Count View</h2>
+    <p>
+        For functions that use <code>Rc</code> or <code>Arc</code>, the reference count view shows a step chart of the strong count over time. The X-axis represents line numbers, and the Y-axis represents the reference count. Each event (new, clone, drop) produces a step in the chart. The chart starts at count=1 (creation), steps up on each clone, and steps down on each drop. If the final count is greater than 0 at the function end, a warning label indicates a potential leak.
+    </p>
+    <p>
+        Each step is marked with a dot and a label describing the event (e.g., "clone b", "drop a"). The chart uses a step-after curve (horizontal line until the next event, then vertical jump) to accurately represent that the count changes instantaneously at each event. Multiple Rc/Arc sources in the same function each get their own chart, stacked vertically. The chart color matches the Rc/Arc category color (purple).
+    </p>
+
+    <!-- SCREENSHOT: The reference count view showing a step chart going 1→2→3→2→1→0 with event labels at each step -->
+    <div class="screenshot-placeholder">Screenshot: Reference count step chart showing strong_count rising on clones and falling on drops, with event labels and a "potential leak" warning</div>
+
+    <h2>4.8 Move Chain View</h2>
+    <p>
+        The move chain view visualizes ownership transfers as a sequence of boxes connected by arrows. Each move is shown as a source box (crossed out with reduced opacity, indicating the variable is dead) connected by an orange arrow to a destination box (showing where ownership went). The source box displays the variable name, type, and a red "moved" indicator. The destination box shows the target name and a green "alive" indicator (unless it was subsequently moved again).
+    </p>
+    <p>
+        This view makes move semantics immediately visible: the developer can see at a glance which variables have been consumed and where their ownership went. For functions with chains of moves (e.g., builder patterns), the view shows the full chain from original owner to final destination. Clicking any box navigates to the corresponding source line.
+    </p>
+
+    <!-- SCREENSHOT: Move chain view showing source boxes (crossed out) connected by arrows to destination boxes -->
+    <div class="screenshot-placeholder">Screenshot: Move chain view with "data" (crossed out, moved) → arrow → "process()" destination, and "result" → "return" chain</div>
+
+    <h2>4.9 Conflict Detail View</h2>
+    <p>
+        The conflict detail view provides a focused presentation of borrow conflicts. Each conflict is rendered as a card showing the target variable name, two side-by-side boxes for Borrow A and Borrow B (with their names and a lightning bolt between them), and the overlap line range. A "Go to line" link navigates directly to the conflict region. If no conflicts exist, the view shows a green checkmark with "No conflicts detected" and a note that all borrows have non-overlapping scopes.
+    </p>
+    <p>
+        This view is the primary destination for developers investigating borrow checker errors. While the compiler reports the error, this view shows the spatial relationship between the conflicting borrows: which one started first, how long each is active, and exactly where they overlap. The visual layout (two boxes with a lightning bolt) makes the conflict structure immediately comprehensible without reading error messages.
+    </p>
+
+    <!-- SCREENSHOT: Conflict detail view showing a conflict card with Borrow A and Borrow B boxes, lightning bolt, and overlap line range -->
+    <div class="screenshot-placeholder">Screenshot: Conflict detail card showing "r" (shared) vs "w" (mutable) both borrowing "data", overlap lines 6-8, with "Go to line" link</div>
+
+    <h2>4.10 Comparison View (Diff)</h2>
+    <p>
+        The comparison view shows what changed between the previous and current ownership analysis. When the developer switches between functions or edits code, the extension stores the previous graph state. The comparison view computes the diff: added variables (present in new, not in old), removed variables (present in old, not in new), added borrows, and removed borrows. Each category is displayed with green (+) or red (-) indicators and a summary badge (e.g., "+2 vars, -1 borrow").
+    </p>
+    <p>
+        This view is particularly useful during refactoring: the developer can see immediately how a code change affected the ownership structure. Adding a new borrow, removing a clone, or introducing a move all appear as clear additions or removals. If nothing changed (e.g., only a comment was edited), the view shows an equals sign with "No ownership changes." The comparison is computed purely from the graph data (variable names and borrow relationships), not from source text diffs.
+    </p>
+
+    <h2>4.11 Cross-References View</h2>
+    <p>
+        The cross-references view shows borrows that flow across function boundaries. It has a split layout: a file tree on the left listing all files involved in cross-function borrows (with badge counts showing how many borrows cross into each file), and a D3.js force-directed graph on the right showing function nodes connected by borrow edges. The current function is highlighted in blue; target functions are shown in green.
+    </p>
+    <p>
+        Edge labels show the variable name and mutability (e.g., "&amp;data" or "&amp;mut ctx"). Clicking a function node in the graph navigates to that function's definition in the editor. The file tree highlights the current file and dims files with no cross-function borrows. This view answers the question "where do my borrows go?" at a higher level than the inline annotations (Section 3.4), showing the full topology of cross-function ownership flow.
+    </p>
+
+    <!-- SCREENSHOT: Cross-references view with file tree on left and D3 graph on right showing function nodes connected by borrow edges -->
+    <div class="screenshot-placeholder">Screenshot: Cross-references view with file tree (src/main.rs, src/service.rs) and force-directed graph showing main() → process() → validate() borrow flow</div>
+
+    <h2>4.12 Memory Layout View</h2>
+    <p>
+        The memory layout view shows the physical memory structure of the function's stack frame and heap allocations. It has a split layout: the left column shows the stack (variables with byte offsets, sizes, alignment, and internal fields), and the right column shows the heap (allocations with owner, estimated size, and capacity utilization bar). Pointer relationships are described textually (e.g., "data → data.data (owns_heap)").
+    </p>
+    <p>
+        The most distinctive feature is the play/scrub timeline at the bottom. A slider allows the developer to "scrub" through the function line by line, watching the stack frame evolve: variables appear when declared, show a green "allocated this line" indicator, and disappear (with strikethrough) when dropped. The play button auto-advances through lines at the configured animation speed (default 600ms per line). This temporal view makes it clear when each variable is alive and how the stack frame grows and shrinks over the function's execution.
+    </p>
+    <p>
+        For variables with known internal structure (String, Vec, HashMap, Rc, user-defined structs), the view expands to show individual fields with their byte offsets and sizes. Pointer fields (like String's <code>ptr</code>) are highlighted in green to indicate they point to heap memory. The runtime mode (when runtime events are available) replaces estimated sizes with actual hex addresses observed during execution, showing the real memory layout rather than the static approximation.
+    </p>
+
+    <!-- SCREENSHOT: Memory layout view showing stack column with variables and fields, heap column with allocations, and the play/scrub timeline at the bottom -->
+    <div class="screenshot-placeholder">Screenshot: Memory layout view with stack (data: Vec at offset 0, 24B with ptr/len/cap fields) and heap (backing storage, ~24B), plus scrub timeline</div>
+
+    <h2>4.13 Runtime View (4 Sub-tabs)</h2>
+    <p>
+        The runtime view is available when runtime events have been loaded (from file or WebSocket). It provides four sub-tabs, each showing a different aspect of the observed runtime behavior:
+    </p>
+    <ul>
+        <li><strong>Timeline:</strong> Horizontal bars showing each variable's actual lifetime (in nanoseconds from program start). Bars are colored by category and show borrow regions as overlays. A play/scrub control allows stepping through time. Clicking a bar navigates to the variable's declaration line.</li>
+        <li><strong>Drop Order:</strong> A numbered list showing the exact sequence in which variables were destroyed. Each entry shows the variable name, a numbered badge (#1, #2, #3...), and the lifetime duration. This reveals the actual destruction order, which may differ from what the developer expects (especially with nested scopes and early drops).</li>
+        <li><strong>Ref Count:</strong> A step chart (similar to Section 4.7) but built from actual runtime events rather than static analysis. Shows the real strong_count at each point in time, including counts from clones that happen in other functions or threads. Detects leaks where the count never reaches zero.</li>
+        <li><strong>Events:</strong> A scrollable log of all runtime events for the current function, with color-coded type badges (green for New, orange for Drop, blue for Borrow, purple for RcClone, etc.), timestamps in nanoseconds, and the affected variable name. Clicking an event navigates to the corresponding source line.</li>
+    </ul>
+    <p>
+        All four sub-tabs share the same event data and are linked: hovering a variable in the timeline highlights it in the drop order list and filters the event log. The sub-tab selector at the top shows the total event count as a badge, giving an immediate sense of how much runtime activity occurred in this function.
+    </p>
+
+    <!-- SCREENSHOT: Runtime view showing the Timeline sub-tab with horizontal lifetime bars, play button, and scrub slider -->
+    <div class="screenshot-placeholder">Screenshot: Runtime view Timeline sub-tab with colored lifetime bars, borrow overlays, play/pause button, and time scrub slider showing 100%</div>
+
+    <!-- SCREENSHOT: Runtime view showing the Drop Order sub-tab with numbered badges -->
+    <div class="screenshot-placeholder">Screenshot: Runtime view Drop Order sub-tab showing #1 data (lived 4.2ms), #2 r (lived 2.1ms), #3 config (lived 8.7ms)</div>
+</div>

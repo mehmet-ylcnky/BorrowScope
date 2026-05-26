@@ -1,1 +1,42 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>10. Limitations and Future Work</h1>
+    <p>
+        While <code>borrowscope-vscode</code> provides comprehensive ownership visualization, several limitations remain. Some are inherent to the VS Code extension model (WebView isolation), some are engineering trade-offs (bundle size), and some represent deliberate scope boundaries (runtime dependency). This section documents each limitation and outlines planned enhancements.
+    </p>
+
+    <h2>10.1 WebView Isolation</h2>
+    <p>
+        The WebView panel runs in a sandboxed iframe, isolated from the editor's DOM. This means the graph cannot be overlaid directly on the source code (e.g., drawing edges between variable declarations in the editor). All communication between the panel and the extension host goes through <code>postMessage</code>, which adds a small latency (~1-2ms per message) for navigation actions. The panel also cannot access the file system directly; all data must be passed from the extension host via the HTML content or messages.
+    </p>
+    <p>
+        This isolation is a VS Code security requirement (preventing extensions from accessing arbitrary web content or other extensions' data), so it cannot be bypassed. The practical impact is that the graph and the source code are always in separate visual areas (side-by-side), rather than integrated into a single view. Future VS Code APIs (such as the proposed "editor overlay" API) may eventually allow richer integration, but for now the split layout is the best available approach.
+    </p>
+
+    <h2>10.2 D3.js Bundle Size</h2>
+    <p>
+        The extension bundles <code>d3.min.js</code> (~250KB) for the force-directed graph and SVG rendering. This adds to the extension's total package size and increases the WebView's initial load time by approximately 50-100ms (parsing and executing the D3 library). For the graph view, D3's force simulation is essential (no lighter alternative provides the same quality of layout). However, simpler views (table, scopes, moves, conflicts) do not use D3 at all and could theoretically be rendered without it.
+    </p>
+    <p>
+        A potential optimization would be to lazy-load D3 only when the graph view is first selected, reducing the initial panel load time for developers who primarily use the table or timeline views. This optimization has not been implemented because the 50-100ms overhead is below the perceptual threshold and the panel is typically opened infrequently (once per editing session, then kept open).
+    </p>
+
+    <h2>10.3 Runtime Event File Dependency</h2>
+    <p>
+        The runtime-static merge (Section 5) requires the developer to have executed their instrumented program at least once to produce an events file. Without this file, the runtime overlay, divergence detection, drop order view, and runtime timeline are all unavailable. The extension shows a helpful message ("Enable runtime overlay and run your instrumented program") but cannot generate the events itself.
+    </p>
+    <p>
+        The WebSocket mode partially addresses this by allowing live streaming of events during execution, but it still requires the program to be running. For developers who are writing new code (not yet compilable), or working on library code (no main function to execute), the runtime features are inaccessible. The static analysis features (all 11 views except the runtime sub-tabs) remain fully functional without runtime events.
+    </p>
+
+    <h2>10.4 Planned Enhancements</h2>
+    <p>
+        Several enhancements are planned for future versions of the extension:
+    </p>
+    <ul>
+        <li><strong>borrowscope-macro integration:</strong> A command that triggers <code>#[track_ownership]</code> instrumentation, compilation, and execution from within VS Code, automatically loading the resulting events file. This would close the loop between static analysis and runtime observation without requiring the developer to run commands manually in the terminal.</li>
+        <li><strong>Git integration:</strong> Show ownership changes between commits by comparing the ownership graph of the current version with a previous version. This would help during code review: "this PR added 2 new borrows and removed a conflict."</li>
+        <li><strong>Multi-file graph:</strong> Currently, the graph shows one function at a time. A future enhancement would show the ownership topology across multiple functions in the same module, with edges representing cross-function borrows (already detected by the LSP) rendered as inter-function connections.</li>
+        <li><strong>Custom view plugins:</strong> An API that allows other extensions to register custom visualization views in the BorrowScope panel, enabling domain-specific ownership visualizations (e.g., a database connection pool view that shows which connections are borrowed and by whom).</li>
+        <li><strong>Collaborative sharing:</strong> Export the current ownership graph as a shareable link or image that can be pasted into code reviews, documentation, or chat. The export commands (DOT, SVG) already exist; the enhancement would add a "copy as image" option and a hosted viewer for shared links.</li>
+    </ul>
+</div>

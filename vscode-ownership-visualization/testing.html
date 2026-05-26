@@ -1,1 +1,149 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>8. Testing</h1>
+    <p>
+        The extension is validated by 689 tests distributed across 42 test files. Every source module has a corresponding test file that exercises its public API with both normal and edge cases. Tests run against a comprehensive VS Code mock (<code>__mocks__/vscode.js</code>) that simulates the editor environment without requiring a live VS Code instance. This enables fast, deterministic test execution in CI (under 10 seconds for the full suite) while still testing the actual extension logic including decoration application, panel HTML generation, runtime event processing, and configuration handling.
+    </p>
+
+    <h2>8.1 Test Architecture</h2>
+    <p>
+        The test suite uses Mocha as the test runner with a custom setup file (<code>test-setup.js</code>) that loads the VS Code mock before any test executes. The mock provides implementations for all VS Code APIs used by the extension: <code>window.createTextEditorDecorationType</code>, <code>workspace.getConfiguration</code>, <code>languages.getDiagnostics</code>, <code>commands.registerCommand</code>, <code>Uri</code>, <code>Range</code>, <code>Position</code>, <code>Selection</code>, <code>StatusBarAlignment</code>, <code>MarkdownString</code>, and more. The mock tracks all calls (decorations applied, commands registered, messages shown) so tests can assert on side effects.
+    </p>
+    <p>
+        Tests are organized by module: each source file <code>src/foo.ts</code> has a corresponding <code>src/test/suite/foo.test.ts</code>. This one-to-one mapping ensures complete coverage and makes it easy to find tests for any given feature. Tests are grouped using Mocha's <code>describe</code>/<code>it</code> blocks with descriptive names that document the expected behavior (e.g., <code>"should apply blue decoration for shared borrow"</code>, <code>"should detect rc_leak when ref_count never reaches 0"</code>).
+    </p>
+    <p>
+        The extension is compiled with <code>esbuild</code> for production (single bundled file) and with <code>tsc</code> for testing (individual files for accurate stack traces). The build and test pipeline runs: <code>npm run build</code> (esbuild bundle), <code>tsc --noEmit false</code> (type-check + emit for tests), then <code>npx mocha --require ./test-setup.js</code> (run all tests). All 689 tests must pass before any commit.
+    </p>
+
+    <h2>8.2 Test Categories</h2>
+    <p>
+        The 689 tests cover every aspect of the extension's functionality. The following table breaks down the test count by category, showing what each group validates:
+    </p>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Test File(s)</th>
+            <th>Tests</th>
+            <th>What is Tested</th>
+        </tr>
+        <tr>
+            <td>Extension lifecycle</td>
+            <td>extension.test.ts</td>
+            <td>24</td>
+            <td>activate/deactivate, command registration, output channel, runtime watcher init</td>
+        </tr>
+        <tr>
+            <td>LSP client</td>
+            <td>client.test.ts</td>
+            <td>18</td>
+            <td>Connection setup, notification handling, refresh pipeline, pre-fetch</td>
+        </tr>
+        <tr>
+            <td>Graph model</td>
+            <td>model.test.ts</td>
+            <td>22</td>
+            <td>Node/edge construction from raw LSP data, category mapping, size scaling</td>
+        </tr>
+        <tr>
+            <td>Panel views</td>
+            <td>panel.test.ts, timeline.test.ts, scopes.test.ts, refcount.test.ts, movechain.test.ts, comparison.test.ts</td>
+            <td>86</td>
+            <td>HTML generation, view switching, linked highlighting, D3 data binding</td>
+        </tr>
+        <tr>
+            <td>Decorations</td>
+            <td>decorations.test.ts, lifelines.test.ts, highlights.test.ts, conflicts.test.ts, cross-lifelines.test.ts</td>
+            <td>78</td>
+            <td>Color mapping, decoration application, lifeline characters, conflict zones</td>
+        </tr>
+        <tr>
+            <td>Runtime integration</td>
+            <td>runtime-parser.test.ts, runtime-mapper.test.ts, runtime-watcher.test.ts, runtime-socket.test.ts, runtime-status.test.ts, runtime-decorations.test.ts</td>
+            <td>92</td>
+            <td>Event parsing (88 types), variable mapping, file watching, WebSocket, status bar</td>
+        </tr>
+        <tr>
+            <td>Merge and divergence</td>
+            <td>merge-views.test.ts, divergence-detector.test.ts, async-borrow-tracker.test.ts</td>
+            <td>64</td>
+            <td>Static-runtime merge, all 9 divergence kinds, await crossing detection</td>
+        </tr>
+        <tr>
+            <td>Configuration</td>
+            <td>config.test.ts</td>
+            <td>33</td>
+            <td>All 33 settings read correctly, defaults, type safety</td>
+        </tr>
+        <tr>
+            <td>Commands</td>
+            <td>commands.test.ts, command-palette.test.ts</td>
+            <td>54</td>
+            <td>All 27 commands execute without error, CodeLens click handling</td>
+        </tr>
+        <tr>
+            <td>Graph features</td>
+            <td>edges.test.ts, filter.test.ts, tooltip.test.ts, diff.test.ts</td>
+            <td>48</td>
+            <td>Edge styling, category filtering, tooltip content, graph diff computation</td>
+        </tr>
+        <tr>
+            <td>Accessibility</td>
+            <td>accessibility.test.ts</td>
+            <td>18</td>
+            <td>ARIA labels present, keyboard handlers, graph description generation</td>
+        </tr>
+        <tr>
+            <td>Performance</td>
+            <td>performance.test.ts</td>
+            <td>16</td>
+            <td>Monitor timing, report generation, debouncer, file size guard</td>
+        </tr>
+        <tr>
+            <td>Server management</td>
+            <td>server-manager.test.ts</td>
+            <td>12</td>
+            <td>Server path resolution, restart logic, error handling</td>
+        </tr>
+        <tr>
+            <td>Keybindings and theme</td>
+            <td>keybindings.test.ts, theme.test.ts</td>
+            <td>22</td>
+            <td>Shortcut registration, theme color contributions, high-contrast rules</td>
+        </tr>
+        <tr>
+            <td>Memory and live update</td>
+            <td>memory.test.ts, live-update.test.ts</td>
+            <td>38</td>
+            <td>Memory layout rendering, play/scrub, live panel update on notification</td>
+        </tr>
+        <tr>
+            <td>Welcome and integration</td>
+            <td>welcome.test.ts, integration.test.ts</td>
+            <td>24</td>
+            <td>First-run detection, welcome panel content, end-to-end flow</td>
+        </tr>
+        <tr>
+            <td>Ref count and drop order</td>
+            <td>refcount-timeline.test.ts, drop-order.test.ts</td>
+            <td>40</td>
+            <td>Step chart data, leak detection, drop sequence computation</td>
+        </tr>
+        <tr>
+            <td><strong>Total</strong></td>
+            <td><strong>42 files</strong></td>
+            <td><strong>689</strong></td>
+            <td></td>
+        </tr>
+    </table>
+
+    <h2>8.3 Testing Methodology</h2>
+    <p>
+        Tests follow a consistent pattern: arrange (set up mock data or configuration), act (call the function under test), assert (verify the output or side effects). For decoration tests, the assertion checks that <code>editor.setDecorations</code> was called with the correct decoration type and ranges. For panel tests, the assertion checks that the generated HTML contains expected elements (node circles, edge paths, table rows). For runtime tests, the assertion checks that events are correctly parsed, filtered, and mapped to static variables.
+    </p>
+    <p>
+        Edge cases are tested explicitly. The runtime parser tests include: empty event arrays, events with missing fields, events in both internally-tagged and externally-tagged JSON formats, events with timestamps of 0, and events with unicode variable names. The divergence detector tests include: Rc with ref_count that never reaches 0 (leak), variables that are moved and then have subsequent events (use-after-move), and borrows that span across await points (async_borrow_held). The configuration tests verify that every setting has a sensible default and that invalid values fall back gracefully.
+    </p>
+    <p>
+        The test suite runs in under 10 seconds on a standard development machine, making it practical to run on every save during development. The CI pipeline (GitHub Actions) runs the full suite on every push and pull request, ensuring that no regression is merged. Test failures block the build, and the failure output includes the specific assertion that failed with expected vs actual values.
+    </p>
+</div>

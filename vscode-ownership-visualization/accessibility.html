@@ -1,1 +1,119 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>7. Accessibility and Theming</h1>
+    <p>
+        Ownership visualization must be usable by all developers, including those who rely on screen readers, keyboard navigation, or high-contrast themes. The extension implements accessibility features at every layer: ARIA attributes on graph nodes, a textual graph description for screen readers, keyboard navigation within the panel, and full adaptation to VS Code's light, dark, and high-contrast themes. These features ensure that the ownership information is accessible regardless of how the developer interacts with the editor.
+    </p>
+
+    <h2>7.1 ARIA Labels and Screen Reader Support</h2>
+    <p>
+        Every node in the force-directed graph has three accessibility attributes: <code>role="button"</code> (indicating it is interactive), <code>tabindex="0"</code> (making it focusable via Tab key), and <code>aria-label</code> (providing a textual description of the variable). The aria-label includes the variable name, type, and ownership category, e.g., <code>"Variable data, type Vec&lt;i32&gt;, category Owned"</code>. When a screen reader user tabs to a node, they hear this description read aloud.
+    </p>
+    <p>
+        Pressing Enter on a focused node triggers the same navigation action as clicking: the editor jumps to the variable's declaration line. This ensures that keyboard-only users have full access to the graph's navigation functionality without needing a mouse.
+    </p>
+    <p>
+        Beyond individual nodes, the panel includes a hidden <code>aria-live</code> region that contains a complete textual description of the entire graph. This description is generated when the graph data loads and includes: the function name, total counts (variables, borrows, moves), a list of all variables with their categories, and a list of all borrow relationships. Screen reader users can navigate to this region to get a full overview of the ownership structure without interacting with individual nodes.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// ARIA attributes on graph nodes</span>
+node.attr(<span class="rust-string">'role'</span>, <span class="rust-string">'button'</span>)
+    .attr(<span class="rust-string">'tabindex'</span>, <span class="rust-string">'0'</span>)
+    .attr(<span class="rust-string">'aria-label'</span>, d =>
+      <span class="rust-string">`Variable ${d.name}, type ${d.type}, category ${d.category}`</span>)
+    .on(<span class="rust-string">'keydown'</span>, (event, d) => {
+      <span class="rust-keyword">if</span> (event.key === <span class="rust-string">'Enter'</span> && vscodeApi && d.line > 0)
+        vscodeApi.postMessage({ type: <span class="rust-string">'nodeClicked'</span>, line: d.line });
+    });
+
+<span class="rust-comment">// Graph description for screen readers (aria-live region)</span>
+(<span class="rust-keyword">function</span>() {
+  <span class="rust-keyword">var</span> desc = <span class="rust-string">'Ownership graph for function '</span> + rawGraph.function_name + <span class="rust-string">'. '</span>;
+  desc += vars.length + <span class="rust-string">' variables, '</span> + borrows.length + <span class="rust-string">' borrows, '</span> + moves.length + <span class="rust-string">' moves. '</span>;
+  vars.forEach(<span class="rust-keyword">function</span>(v) {
+    desc += v.name + <span class="rust-string">' is '</span> + v.ownership_category + <span class="rust-string">' '</span> + v.type_display + <span class="rust-string">'. '</span>;
+  });
+  borrows.forEach(<span class="rust-keyword">function</span>(b) {
+    desc += b.borrower + <span class="rust-string">' borrows '</span> + b.owner + <span class="rust-string">' ('</span> + b.kind + <span class="rust-string">'). '</span>;
+  });
+  document.getElementById(<span class="rust-string">'graph-description'</span>).textContent = desc;
+})();</pre>
+    </div>
+
+    <h2>7.2 Theme Integration</h2>
+    <p>
+        The WebView panel adapts to VS Code's active theme using CSS variables. All colors reference VS Code's theme tokens (<code>var(--vscode-editor-background)</code>, <code>var(--vscode-editor-foreground)</code>, <code>var(--vscode-panel-border)</code>, etc.) rather than hardcoded values. This means the panel automatically looks correct in light themes, dark themes, and custom themes without any special handling.
+    </p>
+    <p>
+        The extension also contributes 10 custom theme colors to VS Code's color registry, allowing theme authors to customize ownership visualization colors. These are: <code>borrowscope.sharedBorrow</code>, <code>borrowscope.mutableBorrow</code>, <code>borrowscope.move</code>, <code>borrowscope.rcArc</code>, <code>borrowscope.owned</code>, <code>borrowscope.drop</code>, <code>borrowscope.conflict</code>, <code>borrowscope.closure</code>, <code>borrowscope.copy</code>, and <code>borrowscope.rawPointer</code>. Theme extensions can override these to match their color palette.
+    </p>
+    <p>
+        For high-contrast themes, the panel applies additional CSS rules: thicker borders on nodes (3px instead of 2px), thicker edge strokes (3px instead of 1.5px), thicker view toggle button borders (2px), and increased tooltip border width. These adjustments ensure that graph elements remain distinguishable when color contrast is the primary visual differentiator. The extension detects high-contrast mode via the <code>vscode-high-contrast</code> body class that VS Code applies automatically.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">/* Theme-adaptive CSS in the WebView panel */</span>
+body {
+  font-family: var(--vscode-font-family);
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+}
+#tooltip {
+  background: var(--vscode-editorHoverWidget-background, #1e1e1e);
+  border: 1px solid var(--vscode-editorHoverWidget-border, #454545);
+}
+
+<span class="rust-comment">/* High contrast mode adaptations */</span>
+.vscode-high-contrast .node circle { stroke-width: 3px; }
+.vscode-high-contrast .edge path { stroke-width: 3px; }
+.vscode-high-contrast #view-toggle .view-btn { border-width: 2px; }
+.vscode-high-contrast #tooltip { border-width: 2px; }
+
+<span class="rust-comment">/* Light theme adaptations */</span>
+.vscode-light .node circle { opacity: 0.85; }
+.vscode-light .edge path { opacity: 0.7; }</pre>
+    </div>
+
+    <h2>7.3 Keyboard Shortcuts (6)</h2>
+    <p>
+        The extension registers 6 keyboard shortcuts for the most common operations, allowing power users to access ownership information without touching the mouse. All shortcuts use the <code>Ctrl+Shift</code> modifier to avoid conflicts with VS Code's built-in bindings and other extensions. The shortcuts are active only when a Rust file is focused (<code>when: editorLangId == rust</code>).
+    </p>
+    <table>
+        <tr>
+            <th>Shortcut</th>
+            <th>Command</th>
+            <th>Action</th>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Shift+B</code></td>
+            <td><code>borrowscope.toggleDecorations</code></td>
+            <td>Toggle all inline decorations on/off</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Shift+G</code></td>
+            <td><code>borrowscope.focusGraph</code></td>
+            <td>Focus the graph panel (or show message if not open)</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Shift+N</code></td>
+            <td><code>borrowscope.nextConflict</code></td>
+            <td>Jump to next borrow conflict in the file</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Shift+P</code></td>
+            <td><code>borrowscope.prevConflict</code></td>
+            <td>Jump to previous borrow conflict</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Shift+T</code></td>
+            <td><code>borrowscope.showTimeline</code></td>
+            <td>Open the panel and switch to Timeline view</td>
+        </tr>
+        <tr>
+            <td><code>Ctrl+Shift+M</code></td>
+            <td><code>borrowscope.showMoves</code></td>
+            <td>Open the panel and switch to Moves view</td>
+        </tr>
+    </table>
+    <p>
+        Beyond these global shortcuts, the WebView panel supports keyboard navigation within its content. Tab cycles through graph nodes (via <code>tabindex="0"</code>), Enter activates the focused node (navigates to source), and the view toggle buttons are accessible via standard button focus. The landing page icons are also keyboard-accessible, allowing the developer to select a view without a mouse click.
+    </p>
+</div>

@@ -1,1 +1,150 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>3. Inline Editor Decorations</h1>
+    <p>
+        The first feedback channel is inline decorations applied directly to the source code. These provide immediate ownership information without requiring the developer to open a panel or hover over anything. Decorations are visible at a glance while reading code, making ownership relationships part of the reading experience rather than a separate investigation step. The extension provides five types of inline decorations, each targeting a different aspect of ownership.
+    </p>
+
+    <h2>3.1 Ownership Category Annotations (InlayHints)</h2>
+    <p>
+        After each variable name in a <code>let</code> binding, the extension displays a small color-coded label indicating the variable's ownership category. These labels appear as italic text in a distinct color, visually separated from the code by a small margin. The labels are: <code>[&amp;]</code> for shared references (blue), <code>[&amp;mut]</code> for mutable references (red), <code>[Rc]</code> for reference-counted pointers (purple), <code>[Arc]</code> for atomic reference-counted pointers (purple), <code>[Cell]</code> for interior mutability types (orange), <code>[*ptr]</code> for raw pointers (gray), and <code>[closure]</code> for closure types (green).
+    </p>
+    <p>
+        Plain owned values and Copy types do not receive annotations, keeping the display clean for the common case. This means annotations only appear where ownership is non-trivial: where the developer needs to be aware of borrowing rules, shared ownership semantics, or interior mutability. The annotations are generated from the LSP server's <code>textDocument/inlayHint</code> response, which provides the position and label for each hint. The extension maps each label to a <code>TextEditorDecorationType</code> with the appropriate color from the configuration.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">getColorForLabel</span>(label: string): string {
+  <span class="rust-keyword">const</span> cfg = vscode.workspace.getConfiguration(<span class="rust-string">"borrowscope.colors"</span>);
+  <span class="rust-keyword">switch</span> (label) {
+    <span class="rust-keyword">case</span> <span class="rust-string">"[&]"</span>:       <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"sharedBorrow"</span>, <span class="rust-string">"#3498db"</span>);
+    <span class="rust-keyword">case</span> <span class="rust-string">"[&mut]"</span>:   <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"mutableBorrow"</span>, <span class="rust-string">"#e74c3c"</span>);
+    <span class="rust-keyword">case</span> <span class="rust-string">"[Rc]"</span>:      <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"rcArc"</span>, <span class="rust-string">"#9b59b6"</span>);
+    <span class="rust-keyword">case</span> <span class="rust-string">"[Arc]"</span>:     <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"rcArc"</span>, <span class="rust-string">"#9b59b6"</span>);
+    <span class="rust-keyword">case</span> <span class="rust-string">"[Cell]"</span>:    <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"move"</span>, <span class="rust-string">"#e67e22"</span>);
+    <span class="rust-keyword">case</span> <span class="rust-string">"[*ptr]"</span>:    <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"drop"</span>, <span class="rust-string">"#95a5a6"</span>);
+    <span class="rust-keyword">case</span> <span class="rust-string">"[closure]"</span>: <span class="rust-keyword">return</span> cfg.get(<span class="rust-string">"owned"</span>, <span class="rust-string">"#2ecc71"</span>);
+  }
+}</pre>
+    </div>
+
+    <!-- SCREENSHOT: VS Code editor showing inlay hint annotations after variable names ([&], [Rc], [&mut], [closure]) with different colors -->
+    <div class="screenshot-placeholder">Screenshot: Inlay hint annotations in a Rust file showing [&amp;], [Rc], [&amp;mut], [closure] labels after variable names</div>
+
+    <h2>3.2 Borrow Lifelines (Gutter Decorations)</h2>
+    <p>
+        The most distinctive visual feature of the extension is the borrow lifeline system. For each active borrow in the function, the extension draws a vertical line in the editor gutter spanning the borrow's active scope (from declaration to last use). The line uses Unicode box-drawing characters: <code>├─</code> at the start (borrow begins), <code>│</code> for each intermediate line (borrow active), and <code>╰─</code> at the end (borrow released). Each lifeline is color-coded: blue for shared borrows, red for mutable borrows.
+    </p>
+    <p>
+        Beyond the line characters, the extension adds emoji labels that communicate the semantic meaning at a glance. At the start of a shared borrow: <code>👁 &amp;borrower ⟵ target</code> (the eye indicates read-only observation). At the start of a mutable borrow: <code>🔒 &amp;mut borrower ⟵ target</code> (the lock indicates exclusive access). At the end of any borrow: <code>💧 borrower released</code> (the droplet indicates the borrow is returned). On the target variable's line during a shared borrow: <code>❄ target frozen</code> (cannot be mutated). On the target during a mutable borrow: <code>🔒 target locked</code> (cannot be accessed at all).
+    </p>
+    <p>
+        The lifeline system also visualizes moves and Rc/Arc clones. A move is shown as <code>↦ source ⤳ destination</code> in orange, followed by <code>─┘ source dead</code> indicating the variable can no longer be used. An Rc/Arc clone is shown as <code>├─ 🔗 clone cloned from source</code> in purple. Conflict zones are highlighted with <code>┃</code> in yellow with a warning message. Each decoration includes a hover message explaining the relationship in plain English.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Shared borrow lifeline (blue)</span>
+<span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> s <span class="rust-keyword">of</span> scopes.filter(s => !s.is_mutable)) {
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">let</span> line = s.range.start.line; line <= s.range.end.line; line++) {
+    <span class="rust-keyword">let</span> char = <span class="rust-string">"│ "</span>;
+    <span class="rust-keyword">let</span> suffix = <span class="rust-string">""</span>;
+    <span class="rust-keyword">if</span> (line === s.range.start.line) {
+      char = <span class="rust-string">"├─"</span>;
+      suffix = <span class="rust-string">` 👁 &amp;${s.borrower} ⟵ ${s.target}`</span>;
+    } <span class="rust-keyword">else if</span> (line === s.range.end.line) {
+      char = <span class="rust-string">"╰─"</span>;
+      suffix = <span class="rust-string">` 💧 ${s.borrower} released`</span>;
+    }
+    decorations.push({ line, char, suffix, color: COLORS.shared,
+      hover: <span class="rust-string">`& borrow: ${s.borrower} reads ${s.target}`</span> });
+  }
+  <span class="rust-comment">// Frozen indicator on target variable</span>
+  decorations.push({ line: s.range.start.line, char: <span class="rust-string">"❄ "</span>,
+    suffix: <span class="rust-string">`${s.target} frozen (immutably borrowed)`</span>,
+    color: <span class="rust-string">"rgba(52, 152, 219, 0.4)"</span> });
+}</pre>
+    </div>
+
+    <!-- SCREENSHOT: VS Code editor showing borrow lifelines in the gutter with ├─, │, ╰─ characters, emoji labels, and colored lines -->
+    <div class="screenshot-placeholder">Screenshot: Borrow lifelines in the gutter showing ├─ 👁 at borrow start, │ for active lines, ╰─ 💧 at release, and ❄ frozen indicator on target</div>
+
+    <h2>3.3 Conflict Zone Highlighting</h2>
+    <p>
+        When the LSP server detects borrow conflicts (overlapping mutable and shared borrows of the same variable), it publishes them as diagnostics via <code>textDocument/publishDiagnostics</code>. The extension receives these and applies two visual indicators: a background highlight on the conflict region (the lines where both borrows are simultaneously active) and the standard VS Code squiggly underline. The diagnostic source is set to "BorrowScope" to distinguish these from compiler errors.
+    </p>
+    <p>
+        The extension also provides navigation commands for conflicts: <code>borrowscope.nextConflict</code> (Ctrl+Shift+N) jumps to the next conflict diagnostic after the cursor, and <code>borrowscope.prevConflict</code> (Ctrl+Shift+P) jumps to the previous one. Both commands wrap around at the end/beginning of the file. If no conflicts exist, they show an informational message. This allows the developer to quickly cycle through all ownership issues in a file without scrolling manually.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">function</span> <span class="rust-function">nextConflict</span>(): void {
+  <span class="rust-keyword">const</span> editor = vscode.window.activeTextEditor;
+  <span class="rust-keyword">const</span> diagnostics = vscode.languages.getDiagnostics(editor.document.uri)
+    .filter(d => d.source === <span class="rust-string">"BorrowScope"</span>);
+
+  <span class="rust-keyword">if</span> (diagnostics.length === 0) {
+    vscode.window.showInformationMessage(<span class="rust-string">"BorrowScope: No conflicts in this file"</span>);
+    <span class="rust-keyword">return</span>;
+  }
+
+  <span class="rust-keyword">const</span> currentLine = editor.selection.active.line;
+  <span class="rust-keyword">const</span> next = diagnostics.find(d => d.range.start.line > currentLine);
+
+  <span class="rust-keyword">if</span> (next) {
+    editor.selection = <span class="rust-keyword">new</span> vscode.Selection(next.range.start, next.range.start);
+    editor.revealRange(next.range, vscode.TextEditorRevealType.InCenter);
+  } <span class="rust-keyword">else</span> {
+    <span class="rust-comment">// Wrap around to first conflict</span>
+    <span class="rust-keyword">const</span> first = diagnostics[0];
+    editor.selection = <span class="rust-keyword">new</span> vscode.Selection(first.range.start, first.range.start);
+    editor.revealRange(first.range, vscode.TextEditorRevealType.InCenter);
+  }
+}</pre>
+    </div>
+
+    <!-- SCREENSHOT: VS Code editor showing a borrow conflict with squiggly underline, background highlight on overlap region, and the diagnostic message in the Problems panel -->
+    <div class="screenshot-placeholder">Screenshot: Borrow conflict visualization with squiggly underline on overlap region, yellow background highlight, and BorrowScope diagnostic in Problems panel</div>
+
+    <h2>3.4 Cross-Function Borrow Annotations</h2>
+    <p>
+        When a reference is passed to another function, the extension displays an inline annotation after the call site showing where the borrow flows. The annotation appears as italic teal text: <code>──→ 👁 &amp;data enters process(param)</code> for shared borrows, or <code>──→ 🔒 &amp;data enters process(param)</code> for mutable borrows. The eye emoji indicates read-only access in the callee; the lock indicates exclusive access.
+    </p>
+    <p>
+        These annotations are generated from the <code>borrowscope/crossFunctionBorrows</code> LSP response. Each cross-function borrow has a path with an Origin segment (the variable in the caller) and a Parameter segment (the parameter in the callee). The extension renders the annotation on the Origin's line, showing the target function name and parameter name. Hovering the annotation shows a tooltip with the full borrow path details including mutability and file location.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">function</span> <span class="rust-function">applyCrossFunctionAnnotations</span>(editor, crossBorrows) {
+  <span class="rust-keyword">const</span> decorations = crossBorrows.map(b => {
+    <span class="rust-keyword">const</span> line = (b.origin_line || 1) - 1;
+    <span class="rust-keyword">const</span> targetFn = b.path[1]?.function_name || <span class="rust-string">"?"</span>;
+    <span class="rust-keyword">const</span> paramName = b.path[1]?.variable || <span class="rust-string">"?"</span>;
+    <span class="rust-keyword">const</span> isMut = b.path[1]?.is_mutable;
+    <span class="rust-keyword">return</span> {
+      range: <span class="rust-keyword">new</span> vscode.Range(line, 0, line, 0),
+      renderOptions: {
+        after: {
+          contentText: <span class="rust-string">` ──→ ${isMut ? "🔒" : "👁"} &amp;${b.origin_variable} enters ${targetFn}(${paramName})`</span>,
+          color: <span class="rust-string">"rgba(26, 188, 156, 0.6)"</span>,
+          fontStyle: <span class="rust-string">"italic"</span>,
+        }
+      },
+      hoverMessage: <span class="rust-string">`**Cross-function borrow**\n\n\`${b.origin_variable}\` is passed as...`</span>,
+    };
+  });
+  editor.setDecorations(crossFnDecorationType, decorations);
+}</pre>
+    </div>
+
+    <!-- SCREENSHOT: VS Code editor showing cross-function borrow annotations after call sites with teal italic text and emoji indicators -->
+    <div class="screenshot-placeholder">Screenshot: Cross-function borrow annotations showing "──→ 👁 &amp;data enters validate(input)" after a function call</div>
+
+    <h2>3.5 Runtime Overlay Decorations</h2>
+    <p>
+        When runtime events are available (from <code>borrowscope-runtime</code> execution), the extension overlays additional decorations showing observed runtime behavior. These appear only when <code>borrowscope.runtime.enabled</code> is set to <code>true</code> and a valid events file exists at the configured path. The runtime overlay provides three types of information that static analysis cannot: actual timing (how long each variable lived in nanoseconds), drop order (the exact sequence in which variables were destroyed), and divergences (where runtime behavior differs from static prediction).
+    </p>
+    <p>
+        Runtime decorations use a distinct visual style to differentiate them from static decorations: green text for timing annotations, numbered badges for drop order, and yellow/red highlights for divergences. The overlay is applied to the active editor whenever the events file changes (detected by the file watcher) or when the developer switches to a different file. Events are filtered by file path to show only events relevant to the currently visible code.
+    </p>
+    <p>
+        The merge between static and runtime data happens in the <code>mergeViews()</code> function, which correlates runtime variable IDs with static variable declarations by matching on name and line number. The result is a <code>MergedVariable[]</code> array where each entry has both static information (type, category) and runtime information (lifetime, borrow count, ref count peak, drop order). Variables that appear only in runtime (not in static analysis) are marked as <code>"runtime_only"</code>; variables that appear only in static analysis are marked as <code>"static_only"</code>. This merge is described in detail in Section 5.
+    </p>
+
+    <!-- SCREENSHOT: VS Code editor showing runtime overlay decorations: green timing annotations, numbered drop order badges, and a yellow divergence highlight -->
+    <div class="screenshot-placeholder">Screenshot: Runtime overlay showing green timing annotations (e.g., "lived 4.2ms"), drop order badges (#1, #2, #3), and a yellow divergence highlight on an Rc variable</div>
+</div>

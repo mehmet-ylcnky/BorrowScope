@@ -1,1 +1,221 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>5. Runtime-Static Merge</h1>
+    <p>
+        The most novel aspect of <code>borrowscope-vscode</code> is its ability to combine two fundamentally different sources of ownership information: static analysis from the LSP server (which sees all paths but no runtime values) and dynamic observation from <code>borrowscope-runtime</code> (which sees one path with precise timing and counts). The merge layer correlates these two views, produces a unified representation, and detects divergences where they disagree. This section describes the merge architecture, the correlation algorithm, and the 9 divergence kinds that the system can detect.
+    </p>
+
+    <h2>5.1 The Merge Problem</h2>
+    <p>
+        Static analysis and runtime observation answer different questions. The LSP server can tell you that a variable <em>could</em> be moved (because there is a move expression in the code), but it cannot tell you whether the move <em>actually happened</em> in a given execution (the move might be inside an <code>if</code> branch that was not taken). The runtime can tell you that an Rc's strong count reached 3 and never went back to 0, but it cannot tell you <em>why</em> (the static analysis can identify the clone sites and suggest where to break the cycle).
+    </p>
+    <p>
+        The merge problem has three sub-problems. First, <strong>correlation</strong>: matching runtime variable IDs (e.g., <code>"data_0"</code>) to static variable declarations (e.g., <code>data: Vec&lt;i32&gt;</code> at line 5). Second, <strong>aggregation</strong>: computing summary statistics from the raw event stream (lifetime duration, borrow count, ref count peak, drop order). Third, <strong>divergence detection</strong>: identifying cases where the static prediction and runtime observation disagree in a meaningful way.
+    </p>
+    <p>
+        The merge is performed entirely within the extension (not on the LSP server), because it requires access to both data sources simultaneously. The LSP server has no knowledge of runtime events, and the runtime has no knowledge of static analysis results. The extension is the only component that sees both, making it the natural location for the merge logic.
+    </p>
+
+    <h2>5.2 MergedVariable Structure</h2>
+    <p>
+        The output of the merge is a <code>MergedVariable[]</code> array. Each entry represents one variable and contains four sections: identity (name, var_id, line, file), static information (type, ownership category, is_copy), runtime information (lifetime, borrow counts, ref counts, drop order, await crossings, unsafe accesses), and agreement status (match, diverge, runtime_only, or static_only).
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export interface</span> <span class="rust-type">MergedVariable</span> {
+  name: string;
+  var_id: string | null;
+  line: number;
+  file: string | null;
+
+  static_info: {
+    type_display: string;
+    ownership_category: string;
+    is_copy: boolean;
+  } | null;
+
+  runtime_info: <span class="rust-type">RuntimeInfo</span> | null;
+
+  agreement: <span class="rust-string">"match"</span> | <span class="rust-string">"diverge"</span> | <span class="rust-string">"runtime_only"</span> | <span class="rust-string">"static_only"</span>;
+  divergences: <span class="rust-type">Divergence</span>[];
+}</pre>
+    </div>
+    <p>
+        The <code>RuntimeInfo</code> structure captures everything observable about a variable's runtime behavior: actual lifetime in nanoseconds, number of shared and mutable borrows observed, whether it was actually moved (and where), its position in the global drop sequence, peak and final reference counts (for Rc/Arc), clone count, await crossings (borrows held across await points), unsafe access count, and total event count. This is a superset of what static analysis can predict, because it includes timing, counts, and path-specific behavior.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export interface</span> <span class="rust-type">RuntimeInfo</span> {
+  actual_lifetime_ns: number;       <span class="rust-comment">// Drop timestamp - New timestamp (-1 if not dropped)</span>
+  actual_borrow_count: number;      <span class="rust-comment">// total Borrow events referencing this var</span>
+  actual_mut_borrow_count: number;  <span class="rust-comment">// mutable borrows only</span>
+  was_actually_moved: boolean;      <span class="rust-comment">// Move event with from_id = this var</span>
+  move_destination: string | null;  <span class="rust-comment">// to_name if moved</span>
+  drop_order: number;               <span class="rust-comment">// position in global drop sequence (-1 if not dropped)</span>
+  drop_timestamp: number;           <span class="rust-comment">// timestamp of Drop event</span>
+  ref_count_peak: number;           <span class="rust-comment">// max strong_count for Rc/Arc</span>
+  ref_count_final: number;          <span class="rust-comment">// last known strong_count</span>
+  weak_count_peak: number;          <span class="rust-comment">// max weak_count</span>
+  clone_count: number;              <span class="rust-comment">// number of RcClone/ArcClone from this source</span>
+  await_crossings: <span class="rust-type">AwaitCrossing</span>[];  <span class="rust-comment">// borrows held across await points</span>
+  unsafe_accesses: number;          <span class="rust-comment">// times accessed in unsafe blocks</span>
+  event_count: number;              <span class="rust-comment">// total events for this var</span>
+}</pre>
+    </div>
+
+    <h2>5.3 Runtime Event Processing</h2>
+    <p>
+        The runtime produces a JSON array of events, each tagged with a type name and containing a timestamp plus type-specific fields. The extension supports all 88 event types defined by <code>borrowscope-runtime</code>. Events are loaded either from a file (<code>.borrowscope/events.json</code>, watched for changes) or from a WebSocket connection (for live streaming during execution).
+    </p>
+    <p>
+        Processing happens in three stages. First, <strong>parsing</strong>: the raw JSON is validated and typed using the <code>RuntimeEvent</code> union type. The parser handles both internally-tagged format (<code>{ "type": "New", "var_name": "x", ... }</code>) and externally-tagged format (<code>{ "New": { "var_name": "x", ... } }</code>) for compatibility with different serialization modes. Second, <strong>filtering</strong>: events are filtered by file path (only events from the currently active file are processed) and by relevance (only ownership-related events are used for the merge; control flow events like LoopIteration are skipped). Third, <strong>mapping</strong>: runtime variable IDs are correlated with static variable declarations using the <code>mapVariables()</code> function, which matches by variable name and declaration line.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Build runtime info from a mapped variable's events</span>
+<span class="rust-keyword">function</span> <span class="rust-function">buildRuntimeInfo</span>(mapped: MappedVariable, allEvents: RuntimeEvent[]): RuntimeInfo {
+  <span class="rust-keyword">let</span> createTimestamp = 0, dropTimestamp = -1;
+  <span class="rust-keyword">let</span> borrowCount = 0, mutBorrowCount = 0;
+  <span class="rust-keyword">let</span> wasMoved = <span class="rust-keyword">false</span>, refCountPeak = 0, cloneCount = 0;
+
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> event <span class="rust-keyword">of</span> mapped.events) {
+    <span class="rust-keyword">const</span> type = eventType(event);
+    <span class="rust-keyword">const</span> data = eventData(event);
+
+    <span class="rust-keyword">switch</span> (type) {
+      <span class="rust-keyword">case</span> <span class="rust-string">"New"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"RcNew"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"ArcNew"</span>:
+        createTimestamp = data.timestamp;
+        refCountPeak = Math.max(refCountPeak, data.strong_count || 1);
+        <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"Drop"</span>:
+        dropTimestamp = data.timestamp; <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"Borrow"</span>:
+        borrowCount++; <span class="rust-keyword">if</span> (data.mutable) mutBorrowCount++; <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"Move"</span>:
+        <span class="rust-keyword">if</span> (data.from_id === mapped.var_id) { wasMoved = <span class="rust-keyword">true</span>; } <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"RcClone"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"ArcClone"</span>:
+        cloneCount++; refCountPeak = Math.max(refCountPeak, data.strong_count); <span class="rust-keyword">break</span>;
+    }
+  }
+
+  <span class="rust-keyword">return</span> {
+    actual_lifetime_ns: dropTimestamp >= 0 ? dropTimestamp - createTimestamp : -1,
+    actual_borrow_count: borrowCount,
+    was_actually_moved: wasMoved,
+    drop_order: dropOrder.get(mapped.var_id) ?? -1,
+    ref_count_peak: refCountPeak,
+    clone_count: cloneCount,
+    <span class="rust-comment">// ... remaining fields</span>
+  };
+}</pre>
+    </div>
+
+    <h2>5.4 Divergence Detection (9 Kinds)</h2>
+    <p>
+        The most valuable output of the merge is divergence detection: identifying cases where static analysis and runtime observation disagree. Each divergence has a kind (categorizing the type of disagreement), a severity (info, warning, or error), a description (human-readable explanation), a suggestion (actionable fix), and runtime evidence (the specific observations that triggered the detection). The extension detects 9 kinds of divergences:
+    </p>
+    <table>
+        <tr>
+            <th>Kind</th>
+            <th>Severity</th>
+            <th>Condition</th>
+            <th>Meaning</th>
+        </tr>
+        <tr>
+            <td><code>rc_leak</code></td>
+            <td>Error</td>
+            <td>Rc/Arc never dropped, final ref_count &gt; 0</td>
+            <td>Memory leak: the reference-counted value will never be freed</td>
+        </tr>
+        <tr>
+            <td><code>rc_cycle</code></td>
+            <td>Error</td>
+            <td>Rc ref count went up (2+ clones), never reached 0</td>
+            <td>Reference cycle: mutual Rc references prevent deallocation</td>
+        </tr>
+        <tr>
+            <td><code>missing_drop</code></td>
+            <td>Warning</td>
+            <td>Non-Copy, non-moved, never dropped</td>
+            <td>Possible leak via std::mem::forget or program exit before scope end</td>
+        </tr>
+        <tr>
+            <td><code>async_borrow_held</code></td>
+            <td>Warning</td>
+            <td>Borrow active during AwaitStart event</td>
+            <td>Borrow held across await point (may prevent Send)</td>
+        </tr>
+        <tr>
+            <td><code>unsafe_hidden</code></td>
+            <td>Info</td>
+            <td>Unsafe accesses on a non-RawPointer variable</td>
+            <td>Static analysis may be incomplete due to unsafe code</td>
+        </tr>
+        <tr>
+            <td><code>conditional_move</code></td>
+            <td>Info</td>
+            <td>Owned, non-Copy, never moved, never borrowed, dropped normally</td>
+            <td>A move expression exists in code but the branch was not taken</td>
+        </tr>
+        <tr>
+            <td><code>weak_upgrade_fail</code></td>
+            <td>Warning</td>
+            <td>WeakUpgrade event with success=false</td>
+            <td>Weak::upgrade returned None (the strong reference was already dropped)</td>
+        </tr>
+        <tr>
+            <td><code>channel_recv_fail</code></td>
+            <td>Warning</td>
+            <td>ChannelRecv event with success=false</td>
+            <td>Channel receive failed because the sender was dropped</td>
+        </tr>
+        <tr>
+            <td><code>use_after_move</code></td>
+            <td>Error</td>
+            <td>Events with this var_id after a Move from it</td>
+            <td>Should not happen in safe Rust; indicates unsafe code or instrumentation error</td>
+        </tr>
+    </table>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">detectAllDivergences</span>(merged: MergedVariable, allEvents: RuntimeEvent[]): DetailedDivergence[] {
+  <span class="rust-keyword">const</span> divergences: DetailedDivergence[] = [];
+  <span class="rust-keyword">const</span> s = merged.static_info;
+  <span class="rust-keyword">const</span> r = merged.runtime_info;
+  <span class="rust-keyword">if</span> (!r) <span class="rust-keyword">return</span> divergences;
+
+  <span class="rust-comment">// 1. Rc/Arc leak</span>
+  <span class="rust-keyword">if</span> (s && (s.ownership_category === <span class="rust-string">"Rc"</span> || s.ownership_category === <span class="rust-string">"Arc"</span>) &&
+      r.drop_timestamp < 0 && r.ref_count_final > 0) {
+    divergences.push({
+      kind: <span class="rust-string">"rc_leak"</span>, severity: <span class="rust-string">"error"</span>,
+      description: <span class="rust-string">`${s.ownership_category} never dropped (final ref count: ${r.ref_count_final})`</span>,
+      suggestion: <span class="rust-string">"Check for reference cycles. Consider using Weak references."</span>,
+      runtime_evidence: <span class="rust-string">`Created with ref_count=1, peaked at ${r.ref_count_peak}, never reached 0`</span>,
+    });
+  }
+
+  <span class="rust-comment">// 2. Async borrow held across await</span>
+  <span class="rust-keyword">if</span> (r.await_crossings.length > 0) {
+    divergences.push({
+      kind: <span class="rust-string">"async_borrow_held"</span>, severity: <span class="rust-string">"warning"</span>,
+      description: <span class="rust-string">`Borrow held across ${r.await_crossings.length} await point(s)`</span>,
+      suggestion: <span class="rust-string">"Consider cloning before the await or restructuring to drop the borrow first."</span>,
+      runtime_evidence: r.await_crossings.map(c => <span class="rust-string">`await at line ${c.await_line}`</span>).join(<span class="rust-string">"; "</span>),
+    });
+  }
+
+  <span class="rust-comment">// ... 7 more divergence checks</span>
+  <span class="rust-keyword">return</span> divergences;
+}</pre>
+    </div>
+
+    <h2>5.5 Divergence Visualization</h2>
+    <p>
+        Detected divergences are surfaced to the developer through multiple channels. In the inline decorations (Section 3.5), divergences appear as colored highlights on the affected variable's declaration line: yellow background for warnings, red background for errors, with a text annotation describing the divergence. In the runtime status bar, a badge shows the total divergence count with color coding (green for 0, yellow for warnings only, red if any errors).
+    </p>
+    <p>
+        In the WebView panel's Runtime view (Section 4.13), divergences are shown in the event log with severity badges and expandable detail sections. Each divergence entry shows the kind, description, suggestion, and runtime evidence. The developer can click a divergence to navigate to the affected variable's source line. The panel also provides a summary function (<code>analyzeDivergences()</code>) that aggregates divergences across all merged variables, producing counts by kind and by severity for the status bar display.
+    </p>
+    <p>
+        The divergence system is designed to be actionable rather than noisy. Info-level divergences (conditional_move, unsafe_hidden) are shown only in the detailed panel view, not as inline highlights. Warning-level divergences (missing_drop, async_borrow_held, weak_upgrade_fail, channel_recv_fail) appear as subtle yellow highlights. Only error-level divergences (rc_leak, rc_cycle, use_after_move) produce prominent red highlights, because these indicate genuine bugs (memory leaks, undefined behavior) rather than expected runtime variation.
+    </p>
+
+    <!-- SCREENSHOT: The runtime overlay showing a divergence highlight on an Rc variable with the "rc_leak" warning and suggestion tooltip -->
+    <div class="screenshot-placeholder">Screenshot: Divergence visualization showing yellow highlight on an Rc variable, with tooltip: "Rc never dropped (final ref count: 2). Suggestion: Check for reference cycles."</div>
+</div>
