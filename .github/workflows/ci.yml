@@ -100,7 +100,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       
       - name: Generate coverage
-        run: cargo llvm-cov --features track --package borrowscope-runtime --package borrowscope-macro --package borrowscope-analyzer --package borrowscope-lsp --lib --lcov --output-path lcov.info
+        run: cargo llvm-cov --features track --package borrowscope-runtime --package borrowscope-macro --package borrowscope-analyzer --package borrowscope-lsp --package borrowscope-graph --lib --lcov --output-path lcov.info
       
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
