@@ -100,7 +100,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       
       - name: Generate coverage
-        run: cargo llvm-cov --features track --package borrowscope-runtime --package borrowscope-macro --lib --lcov --output-path lcov.info
+        run: cargo llvm-cov --features track --package borrowscope-runtime --package borrowscope-macro --package borrowscope-analyzer --package borrowscope-lsp --lib --lcov --output-path lcov.info
       
       - name: Upload to Codecov
         uses: codecov/codecov-action@v4
@@ -108,3 +108,26 @@ jobs:
           files: lcov.info
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  vscode-tests:
+    name: VS Code Extension Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: borrowscope-vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: borrowscope-vscode
+        run: npm run build
+
+      - name: Run tests
+        working-directory: borrowscope-vscode
+        run: npx tsc --noEmit false && npx mocha --require ./test-setup.js --timeout 10000
