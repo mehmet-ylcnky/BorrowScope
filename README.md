@@ -346,6 +346,14 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+## Disclaimer
+
+BorrowScope is a research and development project exploring the boundaries of Rust ownership visualization. It is not production-grade software and makes no guarantees regarding stability, performance, or completeness. Use it as a learning tool and development aid, not as a dependency in production systems.
+
+## AI Acknowledgment
+
+Parts of this project were developed with the assistance of AI-based coding tools for code generation, documentation drafting, and test scaffolding. All outputs were reviewed, validated, and integrated by the author.
+
 ---
 
 <div align="center">
