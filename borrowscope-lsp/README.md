@@ -1,10 +1,10 @@
 # borrowscope-lsp
 
-> Language server for real-time Rust ownership visualization — powered by rust-analyzer's semantic engine
+> Language server for real-time Rust ownership visualization - powered by rust-analyzer's semantic engine
 
 ## Overview
 
-`borrowscope-lsp` is a Language Server Protocol (LSP) implementation that provides real-time ownership analysis for Rust code. It uses the same `ra_ap_*` compiler infrastructure as rust-analyzer to perform deep semantic analysis — resolving types, borrow scopes, moves, conflicts, cross-function borrows, and memory layouts — then serves this data to the VS Code extension via custom LSP requests.
+`borrowscope-lsp` is a Language Server Protocol (LSP) implementation that provides real-time ownership analysis for Rust code. It uses the same `ra_ap_*` compiler infrastructure as rust-analyzer to perform deep semantic analysis - resolving types, borrow scopes, moves, conflicts, cross-function borrows, and memory layouts - then serves this data to the VS Code extension via custom LSP requests.
 
 **No instrumentation needed.** Works immediately on any Rust project.
 
@@ -107,10 +107,10 @@ Uses Non-Lexical Lifetimes (NLL) semantics:
 ### Move Detection
 
 Semantic move detection via:
-- `ty.is_copy(db)` — Copy types don't move
-- Assignment analysis — `let y = x` where x is non-Copy
-- Function call arguments — passing by value
-- Pattern matching — destructuring moves
+- `ty.is_copy(db)` - Copy types don't move
+- Assignment analysis - `let y = x` where x is non-Copy
+- Function call arguments - passing by value
+- Pattern matching - destructuring moves
 
 ### Conflict Detection
 

@@ -1,12 +1,12 @@
 # borrowscope-analyzer
 
-> Static type analysis tool for Rust projects — powers the `#[trace_borrow]` macro with semantic type information
+> Static type analysis tool for Rust projects - powers the `#[trace_borrow]` macro with semantic type information
 
 ## Overview
 
 `borrowscope-analyzer` performs deep semantic analysis of Rust projects using the same compiler infrastructure as rust-analyzer (`ra_ap_*` crates). It extracts comprehensive type information for every variable, expression, and operation in your code, then outputs a structured JSON file (`.borrowscope/type-info.json`) that the `borrowscope-macro` reads at compile time to emit accurate tracking calls.
 
-**Key principle:** Zero heuristics. All analysis is fully semantic — types are resolved via the compiler's type system, not string matching.
+**Key principle:** Zero heuristics. All analysis is fully semantic - types are resolved via the compiler's type system, not string matching.
 
 ## Architecture
 

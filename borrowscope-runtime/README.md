@@ -1,6 +1,6 @@
 # borrowscope-runtime
 
-> Runtime tracking library for Rust ownership visualization — 93 event types, zero-cost when disabled
+> Runtime tracking library for Rust ownership visualization - 93 event types, zero-cost when disabled
 
 [![Crates.io](https://img.shields.io/crates/v/borrowscope-runtime.svg)](https://crates.io/crates/borrowscope-runtime)
 
@@ -238,9 +238,9 @@ cargo bench -p borrowscope-runtime
 ```
 
 Three benchmark suites:
-- `performance` — core tracking call overhead
-- `optimization` — sampling and batch operations
-- `overhead_analysis` — real-world scenario overhead
+- `performance` - core tracking call overhead
+- `optimization` - sampling and batch operations
+- `overhead_analysis` - real-world scenario overhead
 
 ## Testing
 

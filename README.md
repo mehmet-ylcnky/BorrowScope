@@ -1,7 +1,7 @@
 <div align="center">
   <img src="logo.png" alt="BorrowScope Logo" width="400"/>
   
-  > Real-time ownership visualization for Rust — static analysis + runtime tracking + VS Code integration
+  > Real-time ownership visualization for Rust - static analysis + runtime tracking + VS Code integration
 
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
@@ -68,7 +68,7 @@ BorrowScope is a comprehensive Rust ownership visualization platform that combin
 |-----------|-------------|-------|-------|
 | **borrowscope-runtime** | Runtime tracking library (88 event types, JSON export) | ~8,800 | 775 |
 | **borrowscope-macro** | `#[trace_borrow]` proc macro for automatic instrumentation | ~8,800 | 533 |
-| **borrowscope-analyzer** | Static analysis tool (type extraction for macro) | ~2,000 | — |
+| **borrowscope-analyzer** | Static analysis tool (type extraction for macro) | ~2,000 | - |
 | **borrowscope-lsp** | Language server (ownership analysis via ra_ap_* APIs) | ~2,800 | 107 |
 | **borrowscope-vscode** | VS Code extension (decorations, panel, runtime overlay) | ~6,900 | 689 |
 
@@ -113,7 +113,7 @@ When `borrowscope-runtime` is used, the extension shows:
 
 ### 1. VS Code Extension (Static Analysis Only)
 
-No instrumentation needed — works immediately on any Rust project:
+No instrumentation needed - works immediately on any Rust project:
 
 ```bash
 # Build the language server
@@ -198,7 +198,7 @@ Run your program → VS Code detects the events file → runtime overlay appears
 
 ## Memory Layout Visualization
 
-The Memory tab shows field-level detail for all types — no runtime needed:
+The Memory tab shows field-level detail for all types - no runtime needed:
 
 ```
 STACK (72B)                          HEAP
@@ -349,5 +349,5 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ---
 
 <div align="center">
-  <strong>Making Rust's ownership system visible — from source to execution.</strong>
+  <strong>Making Rust's ownership system visible - from source to execution.</strong>
 </div>

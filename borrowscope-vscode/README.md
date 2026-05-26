@@ -1,12 +1,12 @@
 # borrowscope-vscode
 
-> VS Code extension for real-time Rust ownership visualization — 11 interactive views, inline annotations, and runtime overlay
+> VS Code extension for real-time Rust ownership visualization - 11 interactive views, inline annotations, and runtime overlay
 
 ## Overview
 
 The BorrowScope VS Code extension provides a rich visual experience for understanding Rust's ownership system. It combines **static analysis** (from `borrowscope-lsp`) with optional **runtime data** (from `borrowscope-runtime`) to show ownership flow directly in your editor and in an interactive visualization panel.
 
-**No configuration needed** — install, point to the LSP binary, and open a Rust file.
+**No configuration needed** - install, point to the LSP binary, and open a Rust file.
 
 ## Features at a Glance
 
@@ -32,7 +32,7 @@ The panel opens when you click a CodeLens or press `Ctrl+Shift+O`:
 
 | View | Icon | What It Shows |
 |------|------|---------------|
-| **Graph** | 🕸️ | Force-directed ownership graph (D3.js) — nodes are variables, edges are borrows/moves |
+| **Graph** | 🕸️ | Force-directed ownership graph (D3.js) - nodes are variables, edges are borrows/moves |
 | **Table** | ▦ | All variables with types, categories, and ownership info |
 | **Timeline** | ⏱️ | Gantt-chart of variable lifetimes with borrow regions |
 | **Scopes** | 🔍 | Nested borrow scopes showing active borrows at each line |
@@ -55,10 +55,10 @@ On first open, the panel shows a landing page with:
 ### Runtime Overlay (Optional)
 
 When `borrowscope-runtime` events are available:
-- **Green annotations**: `⏱ 1.2ms (3×&)` — actual variable lifetime
-- **Red divergences**: `⚡ Rc never dropped` — static vs runtime disagreement
-- **Purple ref counts**: `🔗 peak:4 (3 clones)` — Rc/Arc tracking
-- **Gray drop order**: `💀 #3` — actual LIFO sequence
+- **Green annotations**: `⏱ 1.2ms (3×&)` - actual variable lifetime
+- **Red divergences**: `⚡ Rc never dropped` - static vs runtime disagreement
+- **Purple ref counts**: `🔗 peak:4 (3 clones)` - Rc/Arc tracking
+- **Gray drop order**: `💀 #3` - actual LIFO sequence
 - **Status bar**: `BorrowScope: Static ✓ | Runtime ✓ (103 events, just now)`
 
 ## Installation

@@ -1,10 +1,10 @@
 # borrowscope-macro
 
-> `#[trace_borrow]` — automatic instrumentation of Rust code for ownership tracking
+> `#[trace_borrow]` - automatic instrumentation of Rust code for ownership tracking
 
 ## Overview
 
-`borrowscope-macro` is a procedural macro that automatically transforms Rust functions to emit runtime tracking calls. It reads semantic type information from `borrowscope-analyzer` and generates precise `borrowscope-runtime` calls for every ownership operation — variable creation, borrows, moves, drops, smart pointer operations, control flow, and more.
+`borrowscope-macro` is a procedural macro that automatically transforms Rust functions to emit runtime tracking calls. It reads semantic type information from `borrowscope-analyzer` and generates precise `borrowscope-runtime` calls for every ownership operation - variable creation, borrows, moves, drops, smart pointer operations, control flow, and more.
 
 **133 instrumentation points** covering the full Rust ownership model.
 
@@ -229,15 +229,15 @@ cargo test -p borrowscope-macro --test closure_tests
 ```
 
 Test categories:
-- `track_new_tests` / `track_move_tests` / `track_borrow_tests` — core ownership
-- `rc_arc_tests` / `box_tests` — smart pointers
-- `closure_tests` — closure captures and traits
-- `async_tests` — async/await instrumentation
-- `control_flow_tests` — loops, branches, break/continue
-- `pattern_tests` — destructuring, match bindings
-- `config_tests` — presets, skip/only, sampling
-- `semantic_integration` / `semantic_lookup_tests` — type info integration
-- `compile/` — trybuild compile-fail tests
+- `track_new_tests` / `track_move_tests` / `track_borrow_tests` - core ownership
+- `rc_arc_tests` / `box_tests` - smart pointers
+- `closure_tests` - closure captures and traits
+- `async_tests` - async/await instrumentation
+- `control_flow_tests` - loops, branches, break/continue
+- `pattern_tests` - destructuring, match bindings
+- `config_tests` - presets, skip/only, sampling
+- `semantic_integration` / `semantic_lookup_tests` - type info integration
+- `compile/` - trybuild compile-fail tests
 
 ## Performance Impact
 
