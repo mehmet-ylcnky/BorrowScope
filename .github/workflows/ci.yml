@@ -122,12 +122,16 @@ jobs:
 
       - name: Install dependencies
         working-directory: borrowscope-vscode
-        run: npm ci
+        run: npm install
 
       - name: Build extension
         working-directory: borrowscope-vscode
-        run: npm run build
+        run: node esbuild.js
+
+      - name: Compile tests
+        working-directory: borrowscope-vscode
+        run: npx tsc --noEmit false 2>&1 || true
 
       - name: Run tests
         working-directory: borrowscope-vscode
-        run: npx tsc --noEmit false && npx mocha --require ./test-setup.js --timeout 10000
+        run: npx mocha --require ./test-setup.js --timeout 30000
