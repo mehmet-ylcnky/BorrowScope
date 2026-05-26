@@ -53,13 +53,17 @@ impl AnalysisCache {
 
     /// Check if result is stale.
     pub fn is_stale(&self, function_name: &str) -> bool {
-        matches!(self.functions.get(function_name), Some(AnalysisState::Stale(_)))
+        matches!(
+            self.functions.get(function_name),
+            Some(AnalysisState::Stale(_))
+        )
     }
 
     /// Store a fresh result.
     pub fn set_ready(&mut self, function_name: String, value: serde_json::Value) {
         self.last_accessed = std::time::Instant::now();
-        self.functions.insert(function_name, AnalysisState::Ready(value));
+        self.functions
+            .insert(function_name, AnalysisState::Ready(value));
     }
 
     /// Mark all entries as stale.
@@ -78,12 +82,15 @@ impl AnalysisCache {
 
     /// Estimated memory usage in bytes.
     pub fn estimated_size_bytes(&self) -> usize {
-        self.functions.values().map(|s| {
-            let v = match s {
-                AnalysisState::Ready(v) | AnalysisState::Stale(v) => v,
-            };
-            v.to_string().len()
-        }).sum()
+        self.functions
+            .values()
+            .map(|s| {
+                let v = match s {
+                    AnalysisState::Ready(v) | AnalysisState::Stale(v) => v,
+                };
+                v.to_string().len()
+            })
+            .sum()
     }
 }
 
@@ -232,7 +239,9 @@ impl GlobalState {
         let now = std::time::Instant::now();
         let grace = std::time::Duration::from_secs(grace_period_secs);
 
-        let open_uris: std::collections::HashSet<&String> = self.open_files.iter()
+        let open_uris: std::collections::HashSet<&String> = self
+            .open_files
+            .iter()
             .filter(|(_, f)| f.is_open)
             .map(|(uri, _)| uri)
             .collect();
@@ -249,7 +258,9 @@ impl GlobalState {
 
     /// Evict LRU entries if total cache exceeds budget.
     pub fn evict_if_over_budget(&mut self, max_bytes: usize) {
-        let total: usize = self.analysis_cache.values()
+        let total: usize = self
+            .analysis_cache
+            .values()
             .map(|c| c.estimated_size_bytes())
             .sum();
 
@@ -257,13 +268,17 @@ impl GlobalState {
             return;
         }
 
-        let open_uris: std::collections::HashSet<&String> = self.open_files.iter()
+        let open_uris: std::collections::HashSet<&String> = self
+            .open_files
+            .iter()
             .filter(|(_, f)| f.is_open)
             .map(|(uri, _)| uri)
             .collect();
 
         // Sort closed caches by last_accessed (oldest first)
-        let mut closed: Vec<(String, std::time::Instant)> = self.analysis_cache.iter()
+        let mut closed: Vec<(String, std::time::Instant)> = self
+            .analysis_cache
+            .iter()
             .filter(|(uri, _)| !open_uris.contains(uri))
             .map(|(uri, cache)| (uri.clone(), cache.last_accessed))
             .collect();
@@ -283,7 +298,10 @@ impl GlobalState {
 
     /// Total estimated cache memory in bytes.
     pub fn total_cache_bytes(&self) -> usize {
-        self.analysis_cache.values().map(|c| c.estimated_size_bytes()).sum()
+        self.analysis_cache
+            .values()
+            .map(|c| c.estimated_size_bytes())
+            .sum()
     }
 }
 

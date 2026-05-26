@@ -5,8 +5,8 @@
 
 use ra_ap_hir::{self as hir, HirDisplay, Semantics};
 use ra_ap_ide_db::RootDatabase;
+use ra_ap_syntax::ast::{HasArgList, HasName};
 use ra_ap_syntax::{ast, AstNode, Edition};
-use ra_ap_syntax::ast::{HasName, HasArgList};
 use serde::Serialize;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -207,7 +207,14 @@ pub fn extract_full_type_info(
             hir::Adt::Union(_) => "union",
         };
         let module = adt.module(db);
-        let canonical_path = module.path_to_root(db).iter().rev().filter_map(|m| m.name(db)).map(|n| n.display_no_db(Edition::Edition2021).to_string()).collect::<Vec<_>>().join("::");
+        let canonical_path = module
+            .path_to_root(db)
+            .iter()
+            .rev()
+            .filter_map(|m| m.name(db))
+            .map(|n| n.display_no_db(Edition::Edition2021).to_string())
+            .collect::<Vec<_>>()
+            .join("::");
         let adt_name = adt.name(db).display_no_db(Edition::Edition2021).to_string();
 
         info.adt_info = Some(AdtInfo {
@@ -220,37 +227,65 @@ pub fn extract_full_type_info(
 
     // ── Builtin type ──
     if let Some(builtin) = ty.as_builtin() {
-        info.builtin_type = Some(builtin.name().display_no_db(Edition::Edition2021).to_string());
+        info.builtin_type = Some(
+            builtin
+                .name()
+                .display_no_db(Edition::Edition2021)
+                .to_string(),
+        );
     }
 
     // ── Dyn trait ──
     if let Some(trait_) = ty.as_dyn_trait() {
-        info.dyn_trait = Some(trait_.name(db).display_no_db(Edition::Edition2021).to_string());
+        info.dyn_trait = Some(
+            trait_
+                .name(db)
+                .display_no_db(Edition::Edition2021)
+                .to_string(),
+        );
     }
 
     // ── Impl traits ──
     if let Some(traits) = ty.as_impl_traits(db) {
-        info.impl_traits = traits.map(|t| t.name(db).display_no_db(Edition::Edition2021).to_string()).collect();
+        info.impl_traits = traits
+            .map(|t| t.name(db).display_no_db(Edition::Edition2021).to_string())
+            .collect();
     }
 
     // ── Type arguments ──
-    info.type_arguments = ty.type_arguments().map(|t| t.display(db, *display_target).to_string()).collect();
+    info.type_arguments = ty
+        .type_arguments()
+        .map(|t| t.display(db, *display_target).to_string())
+        .collect();
 
     // ── Future output ──
-    info.future_output = ty.clone().future_output(db).map(|t| t.display(db, *display_target).to_string());
+    info.future_output = ty
+        .clone()
+        .future_output(db)
+        .map(|t| t.display(db, *display_target).to_string());
 
     // ── Iterator item ──
-    info.iterator_item = ty.clone().iterator_item(db).map(|t| t.display(db, *display_target).to_string());
+    info.iterator_item = ty
+        .clone()
+        .iterator_item(db)
+        .map(|t| t.display(db, *display_target).to_string());
 
     // ── Tuple fields ──
-    info.tuple_fields = ty.tuple_fields(db).iter().map(|t| t.display(db, *display_target).to_string()).collect();
+    info.tuple_fields = ty
+        .tuple_fields(db)
+        .iter()
+        .map(|t| t.display(db, *display_target).to_string())
+        .collect();
 
     // ── Struct fields ──
     info.struct_fields = ty
         .fields(db)
         .iter()
         .map(|(field, field_ty)| FieldInfo {
-            name: field.name(db).display_no_db(Edition::Edition2021).to_string(),
+            name: field
+                .name(db)
+                .display_no_db(Edition::Edition2021)
+                .to_string(),
             ty: field_ty.display(db, *display_target).to_string(),
         })
         .collect();
@@ -277,7 +312,10 @@ pub fn extract_full_type_info(
                 .iter()
                 .map(|p| p.ty().display(db, *display_target).to_string())
                 .collect(),
-            return_type: callable.return_type().display(db, *display_target).to_string(),
+            return_type: callable
+                .return_type()
+                .display(db, *display_target)
+                .to_string(),
             is_closure: ty.is_closure(),
         });
     }
@@ -351,11 +389,11 @@ fn check_traits(db: &RootDatabase, ty: &hir::Type<'_>) -> TraitImplInfo {
     // For now, we use the available methods. Full trait checking
     // will be expanded when we have trait lookup infrastructure.
     TraitImplInfo {
-        is_send: false, // Requires trait lookup (Send is not a lang item)
-        is_sync: false, // Requires trait lookup
+        is_send: false,  // Requires trait lookup (Send is not a lang item)
+        is_sync: false,  // Requires trait lookup
         is_clone: false, // Requires trait lookup
-        is_drop: false, // Requires trait lookup
-        is_sized: true, // Most types are sized
+        is_drop: false,  // Requires trait lookup
+        is_sized: true,  // Most types are sized
         is_debug: false,
         is_display: false,
         is_default: false,
@@ -443,10 +481,7 @@ pub fn resolve_method_calls(
             .unwrap_or_default();
 
         // Return type
-        let return_type = func
-            .ret_type(db)
-            .display(db, *display_target)
-            .to_string();
+        let return_type = func.ret_type(db).display(db, *display_target).to_string();
 
         // Trait method detection
         let (is_trait_method, trait_name) = resolve_trait_info(db, &func);
@@ -483,7 +518,10 @@ fn build_function_path(db: &RootDatabase, func: &hir::Function) -> String {
         .collect::<Vec<_>>()
         .join("::");
 
-    let func_name = func.name(db).display_no_db(Edition::Edition2021).to_string();
+    let func_name = func
+        .name(db)
+        .display_no_db(Edition::Edition2021)
+        .to_string();
 
     if module_path.is_empty() {
         func_name
@@ -502,7 +540,10 @@ fn resolve_trait_info(db: &RootDatabase, func: &hir::Function) -> (bool, Option<
         }
         hir::AssocItemContainer::Impl(i) => {
             if let Some(trait_ref) = i.trait_(db) {
-                let name = trait_ref.name(db).display_no_db(Edition::Edition2021).to_string();
+                let name = trait_ref
+                    .name(db)
+                    .display_no_db(Edition::Edition2021)
+                    .to_string();
                 (true, Some(name))
             } else {
                 (false, None)
@@ -535,8 +576,8 @@ pub fn compute_borrow_scopes(
     line_index: &dyn Fn(ra_ap_syntax::TextSize) -> (u32, u32),
 ) -> Vec<BorrowScopeInfo> {
     use ra_ap_ide_db::defs::Definition;
-    use ra_ap_syntax::{ast, AstNode, TextRange};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextRange};
 
     let body = match function.body() {
         Some(b) => b,
@@ -571,8 +612,14 @@ pub fn compute_borrow_scopes(
         }
 
         // Get the borrower name
-        let borrower_name = pat.syntax().text().to_string().trim()
-            .trim_start_matches("mut ").trim().to_string();
+        let borrower_name = pat
+            .syntax()
+            .text()
+            .to_string()
+            .trim()
+            .trim_start_matches("mut ")
+            .trim()
+            .to_string();
 
         // Get start position (the let statement)
         let start_offset = let_stmt.syntax().text_range().start();
@@ -624,11 +671,22 @@ fn analyze_borrow_expr(
                 // Check for guard types (RefCell, Mutex, RwLock)
                 if let Some(adt) = ty.original.as_adt() {
                     let db = sema.db;
-                    let name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
-                    let module_path = adt.module(db).path_to_root(db).iter().rev()
+                    let name = adt
+                        .name(db)
+                        .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                        .to_string();
+                    let module_path = adt
+                        .module(db)
+                        .path_to_root(db)
+                        .iter()
+                        .rev()
                         .filter_map(|m| m.name(db))
-                        .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
-                        .collect::<Vec<_>>().join("::");
+                        .map(|n| {
+                            n.display_no_db(ra_ap_syntax::Edition::Edition2021)
+                                .to_string()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("::");
                     let full_path = format!("{}::{}", module_path, name).to_lowercase();
 
                     // Detect borrow-like guards
@@ -662,7 +720,10 @@ fn extract_guard_target(expr: &ra_ap_syntax::ast::Expr) -> String {
     loop {
         match &current {
             ast::Expr::MethodCallExpr(call) => {
-                let method = call.name_ref().map(|n| n.text().to_string()).unwrap_or_default();
+                let method = call
+                    .name_ref()
+                    .map(|n| n.text().to_string())
+                    .unwrap_or_default();
                 if method == "unwrap" || method == "expect" {
                     // Skip .unwrap()/.expect() and look at receiver
                     if let Some(receiver) = call.receiver() {
@@ -763,7 +824,9 @@ pub fn detect_moves(
     for node in body.syntax().descendants() {
         // Case 1: let b = a; (assignment move)
         if let Some(let_stmt) = ast::LetStmt::cast(node.clone()) {
-            if let Some(move_info) = detect_let_move(db, sema, display_target, &let_stmt, line_index) {
+            if let Some(move_info) =
+                detect_let_move(db, sema, display_target, &let_stmt, line_index)
+            {
                 moves.push(move_info);
             }
             continue;
@@ -771,13 +834,21 @@ pub fn detect_moves(
 
         // Case 2: foo(a) (function argument move)
         if let Some(call_expr) = ast::CallExpr::cast(node.clone()) {
-            moves.extend(detect_call_arg_moves(db, sema, display_target, &call_expr, line_index));
+            moves.extend(detect_call_arg_moves(
+                db,
+                sema,
+                display_target,
+                &call_expr,
+                line_index,
+            ));
             continue;
         }
 
         // Case 3: return expr (return move)
         if let Some(return_expr) = ast::ReturnExpr::cast(node.clone()) {
-            if let Some(move_info) = detect_return_move(db, sema, display_target, &return_expr, line_index) {
+            if let Some(move_info) =
+                detect_return_move(db, sema, display_target, &return_expr, line_index)
+            {
                 moves.push(move_info);
             }
             continue;
@@ -785,7 +856,13 @@ pub fn detect_moves(
 
         // Case 4: move || { ... } (closure capture move)
         if let Some(closure) = ast::ClosureExpr::cast(node.clone()) {
-            moves.extend(detect_closure_capture_moves(db, sema, display_target, &closure, line_index));
+            moves.extend(detect_closure_capture_moves(
+                db,
+                sema,
+                display_target,
+                &closure,
+                line_index,
+            ));
         }
     }
 
@@ -948,7 +1025,10 @@ fn detect_closure_capture_moves(
 
     for capture in closure_hir.captured_items(db) {
         let local = capture.local();
-        let name = local.name(db).display_no_db(Edition::Edition2021).to_string();
+        let name = local
+            .name(db)
+            .display_no_db(Edition::Edition2021)
+            .to_string();
         let ty = local.ty(db);
 
         // Only non-Copy, non-reference types are actual moves
@@ -1039,8 +1119,7 @@ pub fn analyze_closures(
             None => continue,
         };
 
-        let (closure_line, closure_column) =
-            line_index(closure_expr.syntax().text_range().start());
+        let (closure_line, closure_column) = line_index(closure_expr.syntax().text_range().start());
 
         // Determine Fn trait
         let fn_trait_str = closure_hir.fn_trait(db).to_string();
@@ -1054,7 +1133,10 @@ pub fn analyze_closures(
         let mut captures = Vec::new();
         for capture in closure_hir.captured_items(db) {
             let local = capture.local();
-            let name = local.name(db).display_no_db(Edition::Edition2021).to_string();
+            let name = local
+                .name(db)
+                .display_no_db(Edition::Edition2021)
+                .to_string();
             let ty = local.ty(db);
 
             let capture_mode = match capture.kind() {
@@ -1121,12 +1203,15 @@ pub fn track_rc_clones(
     for node in body.syntax().descendants() {
         // Case 1: let b = a.clone() where a is Rc/Arc
         if let Some(let_stmt) = ast::LetStmt::cast(node.clone()) {
-            if let Some(info) = detect_method_clone(db, sema, display_target, &let_stmt, line_index) {
+            if let Some(info) = detect_method_clone(db, sema, display_target, &let_stmt, line_index)
+            {
                 results.push(info);
                 continue;
             }
             // Case 2: let b = Rc::clone(&a) or Arc::clone(&a)
-            if let Some(info) = detect_explicit_clone(db, sema, display_target, &let_stmt, line_index) {
+            if let Some(info) =
+                detect_explicit_clone(db, sema, display_target, &let_stmt, line_index)
+            {
                 results.push(info);
             }
         }
@@ -1232,8 +1317,14 @@ fn detect_explicit_clone(
     let arg_list = call_expr.arg_list()?;
     let first_arg = arg_list.args().next()?;
     // Strip the & from &a
-    let source_variable = first_arg.syntax().text().to_string().trim()
-        .trim_start_matches('&').trim().to_string();
+    let source_variable = first_arg
+        .syntax()
+        .text()
+        .to_string()
+        .trim()
+        .trim_start_matches('&')
+        .trim()
+        .to_string();
 
     let clone_variable = pat.syntax().text().to_string().trim().to_string();
     let (line, column) = line_index(let_stmt.syntax().text_range().start());
@@ -1248,10 +1339,7 @@ fn detect_explicit_clone(
 }
 
 /// Classify if a type is Rc or Arc based on its display string and ADT path.
-fn classify_rc_arc(
-    ty: &hir::Type<'_>,
-    db: &RootDatabase,
-) -> Option<RcType> {
+fn classify_rc_arc(ty: &hir::Type<'_>, db: &RootDatabase) -> Option<RcType> {
     // Check ADT canonical path
     if let Some(adt) = ty.as_adt() {
         let module = adt.module(db);
@@ -1396,7 +1484,11 @@ pub fn analyze_function_timed(
     let result = analyze_function(db, sema, display_target, function, file, line_index);
     let elapsed = start.elapsed();
     if elapsed.as_millis() > 100 {
-        tracing::warn!("Analysis of {} took {:?} (exceeds 100ms budget)", result.function_name, elapsed);
+        tracing::warn!(
+            "Analysis of {} took {:?} (exceeds 100ms budget)",
+            result.function_name,
+            elapsed
+        );
     }
     (result, elapsed)
 }
@@ -1533,15 +1625,15 @@ mod tests {
             scope("r2", "x", false, 7, 12),
         ];
         let conflicts = detect_conflicts(&scopes);
-        assert!(conflicts.is_empty(), "Multiple shared borrows should not conflict");
+        assert!(
+            conflicts.is_empty(),
+            "Multiple shared borrows should not conflict"
+        );
     }
 
     #[test]
     fn test_conflict_mutable_and_shared() {
-        let scopes = vec![
-            scope("r", "x", false, 5, 10),
-            scope("m", "x", true, 7, 12),
-        ];
+        let scopes = vec![scope("r", "x", false, 5, 10), scope("m", "x", true, 7, 12)];
         let conflicts = detect_conflicts(&scopes);
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].kind, ConflictKind::MutableAndShared);
@@ -1550,10 +1642,7 @@ mod tests {
 
     #[test]
     fn test_conflict_multiple_mutable() {
-        let scopes = vec![
-            scope("m1", "x", true, 5, 10),
-            scope("m2", "x", true, 7, 12),
-        ];
+        let scopes = vec![scope("m1", "x", true, 5, 10), scope("m2", "x", true, 7, 12)];
         let conflicts = detect_conflicts(&scopes);
         assert_eq!(conflicts.len(), 1);
         assert_eq!(conflicts[0].kind, ConflictKind::MultipleMutable);
@@ -1566,39 +1655,43 @@ mod tests {
             scope("r1", "x", false, 12, 15),
         ];
         let conflicts = detect_conflicts(&scopes);
-        assert!(conflicts.is_empty(), "Non-overlapping borrows should not conflict");
+        assert!(
+            conflicts.is_empty(),
+            "Non-overlapping borrows should not conflict"
+        );
     }
 
     #[test]
     fn test_no_conflict_different_variables() {
-        let scopes = vec![
-            scope("m1", "x", true, 5, 10),
-            scope("m2", "y", true, 5, 10),
-        ];
+        let scopes = vec![scope("m1", "x", true, 5, 10), scope("m2", "y", true, 5, 10)];
         let conflicts = detect_conflicts(&scopes);
-        assert!(conflicts.is_empty(), "Borrows of different variables should not conflict");
+        assert!(
+            conflicts.is_empty(),
+            "Borrows of different variables should not conflict"
+        );
     }
 
     #[test]
     fn test_conflict_overlap_boundaries() {
         // Exact boundary: a ends at line 10, b starts at line 10
-        let scopes = vec![
-            scope("m", "x", true, 5, 10),
-            scope("r", "x", false, 10, 15),
-        ];
+        let scopes = vec![scope("m", "x", true, 5, 10), scope("r", "x", false, 10, 15)];
         let conflicts = detect_conflicts(&scopes);
-        assert_eq!(conflicts.len(), 1, "Borrows touching at boundary should conflict (overlap at line 10)");
+        assert_eq!(
+            conflicts.len(),
+            1,
+            "Borrows touching at boundary should conflict (overlap at line 10)"
+        );
     }
 
     #[test]
     fn test_no_conflict_adjacent_no_overlap() {
         // a ends at line 9, b starts at line 10
-        let scopes = vec![
-            scope("m", "x", true, 5, 9),
-            scope("r", "x", false, 10, 15),
-        ];
+        let scopes = vec![scope("m", "x", true, 5, 9), scope("r", "x", false, 10, 15)];
         let conflicts = detect_conflicts(&scopes);
-        assert!(conflicts.is_empty(), "Adjacent non-overlapping borrows should not conflict");
+        assert!(
+            conflicts.is_empty(),
+            "Adjacent non-overlapping borrows should not conflict"
+        );
     }
 
     #[test]
@@ -1623,8 +1716,15 @@ mod tests {
         let conflicts = detect_conflicts(&scopes);
         // r1 conflicts with m1 (overlap 8-12) and m2 (overlap 15-18)
         // m1 and m2 don't overlap (12 < 15)
-        assert_eq!(conflicts.len(), 2, "Should have 2 conflicts. Got: {:?}",
-            conflicts.iter().map(|c| (&c.borrow_a, &c.borrow_b)).collect::<Vec<_>>());
+        assert_eq!(
+            conflicts.len(),
+            2,
+            "Should have 2 conflicts. Got: {:?}",
+            conflicts
+                .iter()
+                .map(|c| (&c.borrow_a, &c.borrow_b))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -1748,8 +1848,12 @@ pub fn analyze_cross_function_borrows(
     // Find all call expressions
     for node in body.syntax().descendants() {
         // Performance guard: abort if too many results or too slow
-        if results.len() >= MAX_CROSS_BORROWS { break; }
-        if start_time.elapsed().as_millis() >= MAX_CROSS_ANALYSIS_TIME_MS as u128 { break; }
+        if results.len() >= MAX_CROSS_BORROWS {
+            break;
+        }
+        if start_time.elapsed().as_millis() >= MAX_CROSS_ANALYSIS_TIME_MS as u128 {
+            break;
+        }
 
         // Handle function calls: foo(&data)
         if let Some(call) = ast::CallExpr::cast(node.clone()) {
@@ -1765,8 +1869,15 @@ pub fn analyze_cross_function_borrows(
                     }
 
                     let is_mutable = ty.original.is_mutable_reference();
-                    let arg_text = arg.syntax().text().to_string().trim()
-                        .trim_start_matches('&').trim_start_matches("mut ").trim().to_string();
+                    let arg_text = arg
+                        .syntax()
+                        .text()
+                        .to_string()
+                        .trim()
+                        .trim_start_matches('&')
+                        .trim_start_matches("mut ")
+                        .trim()
+                        .to_string();
 
                     // Resolve the call target
                     let callee = match call.expr() {
@@ -1774,14 +1885,21 @@ pub fn analyze_cross_function_borrows(
                         None => continue,
                     };
 
-                    let (target_fn_name, target_file, param_names) = match resolve_call_target(sema, db, &callee) {
-                        Some(info) => info,
-                        None => continue,
-                    };
+                    let (target_fn_name, target_file, param_names) =
+                        match resolve_call_target(sema, db, &callee) {
+                            Some(info) => info,
+                            None => continue,
+                        };
 
                     let (call_line, _) = line_index(call.syntax().text_range().start());
-                    let fn_name = function.name().map(|n| n.text().to_string()).unwrap_or_default();
-                    let param_name = param_names.get(idx).cloned().unwrap_or_else(|| format!("param[{}]", idx));
+                    let fn_name = function
+                        .name()
+                        .map(|n| n.text().to_string())
+                        .unwrap_or_default();
+                    let param_name = param_names
+                        .get(idx)
+                        .cloned()
+                        .unwrap_or_else(|| format!("param[{}]", idx));
 
                     results.push(CrossFunctionBorrow {
                         origin_variable: arg_text.clone(),
@@ -1818,14 +1936,17 @@ pub fn analyze_cross_function_borrows(
                 if let Some(func) = sema.resolve_method_call(&method_call) {
                     let self_param = func.self_param(db);
                     if let Some(self_param) = self_param {
-                        let is_mutable = matches!(
-                            self_param.access(db),
-                            hir::Access::Exclusive
-                        );
+                        let is_mutable = matches!(self_param.access(db), hir::Access::Exclusive);
                         let receiver_text = receiver.syntax().text().to_string().trim().to_string();
                         let (call_line, _) = line_index(method_call.syntax().text_range().start());
-                        let fn_name = function.name().map(|n| n.text().to_string()).unwrap_or_default();
-                        let target_fn_name = func.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                        let fn_name = function
+                            .name()
+                            .map(|n| n.text().to_string())
+                            .unwrap_or_default();
+                        let target_fn_name = func
+                            .name(db)
+                            .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                            .to_string();
 
                         results.push(CrossFunctionBorrow {
                             origin_variable: receiver_text.clone(),
@@ -1873,8 +1994,12 @@ fn resolve_call_target(
             let resolution = sema.resolve_path(&path)?;
             match resolution {
                 hir::PathResolution::Def(hir::ModuleDef::Function(f)) => {
-                    let name = f.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
-                    let file_path = f.source(db)
+                    let name = f
+                        .name(db)
+                        .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                        .to_string();
+                    let file_path = f
+                        .source(db)
                         .map(|in_file| {
                             let editioned = in_file.file_id.original_file(db);
                             let file_id = editioned.file_id(db);
@@ -1882,15 +2007,29 @@ fn resolve_call_target(
                         })
                         .unwrap_or_else(|| {
                             let module = f.module(db);
-                            module.path_to_root(db).iter().rev()
+                            module
+                                .path_to_root(db)
+                                .iter()
+                                .rev()
                                 .filter_map(|m| m.name(db))
-                                .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
-                                .collect::<Vec<_>>().join("::")
+                                .map(|n| {
+                                    n.display_no_db(ra_ap_syntax::Edition::Edition2021)
+                                        .to_string()
+                                })
+                                .collect::<Vec<_>>()
+                                .join("::")
                         });
-                    let params: Vec<String> = f.params_without_self(db).iter()
-                        .map(|p| p.name(db)
-                            .map(|n| n.display_no_db(ra_ap_syntax::Edition::Edition2021).to_string())
-                            .unwrap_or_else(|| "_".to_string()))
+                    let params: Vec<String> = f
+                        .params_without_self(db)
+                        .iter()
+                        .map(|p| {
+                            p.name(db)
+                                .map(|n| {
+                                    n.display_no_db(ra_ap_syntax::Edition::Edition2021)
+                                        .to_string()
+                                })
+                                .unwrap_or_else(|| "_".to_string())
+                        })
                         .collect();
                     Some((name, file_path, params))
                 }
@@ -1973,10 +2112,23 @@ pub fn analyze_memory_layout(
 ) -> MemoryLayoutInfo {
     use ra_ap_syntax::ast::HasName;
 
-    let fn_name = function.name().map(|n| n.text().to_string()).unwrap_or_default();
+    let fn_name = function
+        .name()
+        .map(|n| n.text().to_string())
+        .unwrap_or_default();
     let body = match function.body() {
         Some(b) => b,
-        None => return MemoryLayoutInfo { function_name: fn_name, stack_frame: StackFrame { total_size: 0, variables: vec![] }, heap_allocations: vec![], pointer_relationships: vec![] },
+        None => {
+            return MemoryLayoutInfo {
+                function_name: fn_name,
+                stack_frame: StackFrame {
+                    total_size: 0,
+                    variables: vec![],
+                },
+                heap_allocations: vec![],
+                pointer_relationships: vec![],
+            }
+        }
     };
 
     let mut stack_vars = Vec::new();
@@ -1990,11 +2142,26 @@ pub fn analyze_memory_layout(
             None => continue,
         };
 
-        let pat = match let_stmt.pat() { Some(p) => p, None => continue };
-        let name = pat.syntax().text().to_string().trim().trim_start_matches("mut ").to_string();
+        let pat = match let_stmt.pat() {
+            Some(p) => p,
+            None => continue,
+        };
+        let name = pat
+            .syntax()
+            .text()
+            .to_string()
+            .trim()
+            .trim_start_matches("mut ")
+            .to_string();
 
-        let init = match let_stmt.initializer() { Some(e) => e, None => continue };
-        let ty = match sema.type_of_expr(&init) { Some(t) => t.original, None => continue };
+        let init = match let_stmt.initializer() {
+            Some(e) => e,
+            None => continue,
+        };
+        let ty = match sema.type_of_expr(&init) {
+            Some(t) => t.original,
+            None => continue,
+        };
 
         let (size, alignment) = match ty.layout(db) {
             Ok(layout) => (layout.size(), layout.align()),
@@ -2017,24 +2184,54 @@ pub fn analyze_memory_layout(
         } else {
             // Check ADT path for heap-backed types
             let is_heap = if let Some(adt) = ty.as_adt() {
-                let adt_name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
-                matches!(adt_name.as_str(), "Vec" | "String" | "Box" | "VecDeque" | "HashMap" | "HashSet" | "BTreeMap" | "BTreeSet")
-            } else { false };
+                let adt_name = adt
+                    .name(db)
+                    .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                    .to_string();
+                matches!(
+                    adt_name.as_str(),
+                    "Vec"
+                        | "String"
+                        | "Box"
+                        | "VecDeque"
+                        | "HashMap"
+                        | "HashSet"
+                        | "BTreeMap"
+                        | "BTreeSet"
+                )
+            } else {
+                false
+            };
 
             let is_rc = if let Some(adt) = ty.as_adt() {
-                let adt_name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                let adt_name = adt
+                    .name(db)
+                    .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                    .to_string();
                 matches!(adt_name.as_str(), "Rc" | "Arc")
-            } else { false };
+            } else {
+                false
+            };
 
             let is_cell = if let Some(adt) = ty.as_adt() {
-                let adt_name = adt.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                let adt_name = adt
+                    .name(db)
+                    .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                    .to_string();
                 matches!(adt_name.as_str(), "RefCell" | "Cell" | "Mutex" | "RwLock")
-            } else { false };
+            } else {
+                false
+            };
 
-            if is_rc { MemoryCategory::RefCounted }
-            else if is_cell { MemoryCategory::InteriorMut }
-            else if is_heap { MemoryCategory::HeapBacked }
-            else { MemoryCategory::StackOnly }
+            if is_rc {
+                MemoryCategory::RefCounted
+            } else if is_cell {
+                MemoryCategory::InteriorMut
+            } else if is_heap {
+                MemoryCategory::HeapBacked
+            } else {
+                MemoryCategory::StackOnly
+            }
         };
 
         // Create heap allocation for heap-backed types
@@ -2047,7 +2244,11 @@ pub fn analyze_memory_layout(
                     estimated_size: heap_size,
                     kind: "backing storage".to_string(),
                 });
-                pointers.push(PointerRelation { from: name.clone(), to: format!("{}.data", name), kind: "owns_heap".to_string() });
+                pointers.push(PointerRelation {
+                    from: name.clone(),
+                    to: format!("{}.data", name),
+                    kind: "owns_heap".to_string(),
+                });
             }
             MemoryCategory::RefCounted => {
                 heap_allocs.push(HeapAllocation {
@@ -2056,12 +2257,27 @@ pub fn analyze_memory_layout(
                     estimated_size: size + 16, // value + strong + weak counts
                     kind: "ref-counted inner".to_string(),
                 });
-                pointers.push(PointerRelation { from: name.clone(), to: format!("{}.inner", name), kind: "owns_heap".to_string() });
+                pointers.push(PointerRelation {
+                    from: name.clone(),
+                    to: format!("{}.inner", name),
+                    kind: "owns_heap".to_string(),
+                });
             }
             MemoryCategory::Reference => {
                 // Try to find what it borrows from the initializer text
-                let target = init.syntax().text().to_string().trim().trim_start_matches('&').trim_start_matches("mut ").to_string();
-                pointers.push(PointerRelation { from: name.clone(), to: target, kind: "borrows".to_string() });
+                let target = init
+                    .syntax()
+                    .text()
+                    .to_string()
+                    .trim()
+                    .trim_start_matches('&')
+                    .trim_start_matches("mut ")
+                    .to_string();
+                pointers.push(PointerRelation {
+                    from: name.clone(),
+                    to: target,
+                    kind: "borrows".to_string(),
+                });
             }
             _ => {}
         }
@@ -2090,7 +2306,10 @@ pub fn analyze_memory_layout(
 
     MemoryLayoutInfo {
         function_name: fn_name,
-        stack_frame: StackFrame { total_size: current_offset, variables: stack_vars },
+        stack_frame: StackFrame {
+            total_size: current_offset,
+            variables: stack_vars,
+        },
         heap_allocations: heap_allocs,
         pointer_relationships: pointers,
     }
@@ -2098,11 +2317,19 @@ pub fn analyze_memory_layout(
 
 fn estimate_heap_size_for_type(type_display: &str) -> u64 {
     // Rough estimates based on type
-    if type_display.contains("Vec<") { 24 } // 3 elements * 8 avg
-    else if type_display == "String" || type_display.contains("String") { 16 }
-    else if type_display.contains("HashMap") { 64 }
-    else if type_display.contains("Box<") { 8 }
-    else { 16 }
+    if type_display.contains("Vec<") {
+        24
+    }
+    // 3 elements * 8 avg
+    else if type_display == "String" || type_display.contains("String") {
+        16
+    } else if type_display.contains("HashMap") {
+        64
+    } else if type_display.contains("Box<") {
+        8
+    } else {
+        16
+    }
 }
 
 /// Extract internal field layout for a type.
@@ -2117,68 +2344,166 @@ fn extract_type_fields(
     // Known standard library types with fixed layouts
     if type_str == "String" || type_str == "alloc::string::String" {
         return vec![
-            MemoryFieldInfo { name: "ptr".into(), type_display: "*const u8".into(), offset: 0, size: 8 },
-            MemoryFieldInfo { name: "len".into(), type_display: "usize".into(), offset: 8, size: 8 },
-            MemoryFieldInfo { name: "cap".into(), type_display: "usize".into(), offset: 16, size: 8 },
+            MemoryFieldInfo {
+                name: "ptr".into(),
+                type_display: "*const u8".into(),
+                offset: 0,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "len".into(),
+                type_display: "usize".into(),
+                offset: 8,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "cap".into(),
+                type_display: "usize".into(),
+                offset: 16,
+                size: 8,
+            },
         ];
     }
     if type_str.starts_with("Vec<") || type_str.starts_with("alloc::vec::Vec<") {
         return vec![
-            MemoryFieldInfo { name: "ptr".into(), type_display: "*const T".into(), offset: 0, size: 8 },
-            MemoryFieldInfo { name: "len".into(), type_display: "usize".into(), offset: 8, size: 8 },
-            MemoryFieldInfo { name: "cap".into(), type_display: "usize".into(), offset: 16, size: 8 },
+            MemoryFieldInfo {
+                name: "ptr".into(),
+                type_display: "*const T".into(),
+                offset: 0,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "len".into(),
+                type_display: "usize".into(),
+                offset: 8,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "cap".into(),
+                type_display: "usize".into(),
+                offset: 16,
+                size: 8,
+            },
         ];
     }
     if type_str.starts_with("Box<") {
-        return vec![
-            MemoryFieldInfo { name: "ptr".into(), type_display: "NonNull<T>".into(), offset: 0, size: 8 },
-        ];
+        return vec![MemoryFieldInfo {
+            name: "ptr".into(),
+            type_display: "NonNull<T>".into(),
+            offset: 0,
+            size: 8,
+        }];
     }
     if type_str.starts_with("Rc<") || type_str.starts_with("alloc::rc::Rc<") {
-        return vec![
-            MemoryFieldInfo { name: "ptr".into(), type_display: "NonNull<RcBox<T>>".into(), offset: 0, size: 8 },
-        ];
+        return vec![MemoryFieldInfo {
+            name: "ptr".into(),
+            type_display: "NonNull<RcBox<T>>".into(),
+            offset: 0,
+            size: 8,
+        }];
     }
     if type_str.starts_with("Arc<") || type_str.starts_with("alloc::sync::Arc<") {
-        return vec![
-            MemoryFieldInfo { name: "ptr".into(), type_display: "NonNull<ArcInner<T>>".into(), offset: 0, size: 8 },
-        ];
+        return vec![MemoryFieldInfo {
+            name: "ptr".into(),
+            type_display: "NonNull<ArcInner<T>>".into(),
+            offset: 0,
+            size: 8,
+        }];
     }
     if type_str.starts_with("&") || type_str.starts_with("&mut") {
-        return vec![
-            MemoryFieldInfo { name: "ptr".into(), type_display: format!("*const {}", type_str.trim_start_matches("&mut ").trim_start_matches('&')), offset: 0, size: 8 },
-        ];
+        return vec![MemoryFieldInfo {
+            name: "ptr".into(),
+            type_display: format!(
+                "*const {}",
+                type_str.trim_start_matches("&mut ").trim_start_matches('&')
+            ),
+            offset: 0,
+            size: 8,
+        }];
     }
     if type_str.starts_with("Option<") {
         // Option<T> = discriminant + T
         return vec![
-            MemoryFieldInfo { name: "discriminant".into(), type_display: "u8/u32".into(), offset: 0, size: 1 },
-            MemoryFieldInfo { name: "value".into(), type_display: "T".into(), offset: 8, size: 0 }, // size unknown without inner type
+            MemoryFieldInfo {
+                name: "discriminant".into(),
+                type_display: "u8/u32".into(),
+                offset: 0,
+                size: 1,
+            },
+            MemoryFieldInfo {
+                name: "value".into(),
+                type_display: "T".into(),
+                offset: 8,
+                size: 0,
+            }, // size unknown without inner type
         ];
     }
     if type_str.starts_with("Result<") {
         return vec![
-            MemoryFieldInfo { name: "discriminant".into(), type_display: "u8/u32".into(), offset: 0, size: 1 },
-            MemoryFieldInfo { name: "value".into(), type_display: "T | E".into(), offset: 8, size: 0 },
+            MemoryFieldInfo {
+                name: "discriminant".into(),
+                type_display: "u8/u32".into(),
+                offset: 0,
+                size: 1,
+            },
+            MemoryFieldInfo {
+                name: "value".into(),
+                type_display: "T | E".into(),
+                offset: 8,
+                size: 0,
+            },
         ];
     }
     if type_str.starts_with("RefCell<") {
         return vec![
-            MemoryFieldInfo { name: "borrow_flag".into(), type_display: "Cell<isize>".into(), offset: 0, size: 8 },
-            MemoryFieldInfo { name: "value".into(), type_display: "UnsafeCell<T>".into(), offset: 8, size: 0 },
+            MemoryFieldInfo {
+                name: "borrow_flag".into(),
+                type_display: "Cell<isize>".into(),
+                offset: 0,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "value".into(),
+                type_display: "UnsafeCell<T>".into(),
+                offset: 8,
+                size: 0,
+            },
         ];
     }
     if type_str.starts_with("Cell<") {
-        return vec![
-            MemoryFieldInfo { name: "value".into(), type_display: "UnsafeCell<T>".into(), offset: 0, size: 0 },
-        ];
+        return vec![MemoryFieldInfo {
+            name: "value".into(),
+            type_display: "UnsafeCell<T>".into(),
+            offset: 0,
+            size: 0,
+        }];
     }
     if type_str.starts_with("HashMap<") || type_str.starts_with("std::collections::HashMap<") {
         return vec![
-            MemoryFieldInfo { name: "ctrl".into(), type_display: "*const u8".into(), offset: 0, size: 8 },
-            MemoryFieldInfo { name: "bucket_mask".into(), type_display: "usize".into(), offset: 8, size: 8 },
-            MemoryFieldInfo { name: "items".into(), type_display: "usize".into(), offset: 16, size: 8 },
-            MemoryFieldInfo { name: "growth_left".into(), type_display: "usize".into(), offset: 24, size: 8 },
+            MemoryFieldInfo {
+                name: "ctrl".into(),
+                type_display: "*const u8".into(),
+                offset: 0,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "bucket_mask".into(),
+                type_display: "usize".into(),
+                offset: 8,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "items".into(),
+                type_display: "usize".into(),
+                offset: 16,
+                size: 8,
+            },
+            MemoryFieldInfo {
+                name: "growth_left".into(),
+                type_display: "usize".into(),
+                offset: 24,
+                size: 8,
+            },
         ];
     }
 
@@ -2189,14 +2514,13 @@ fn extract_type_fields(
                 let mut fields = Vec::new();
                 let mut field_offset = 0u64;
                 for (field, field_ty) in ty.fields(db) {
-                    let field_name = field.name(db).display_no_db(ra_ap_syntax::Edition::Edition2021).to_string();
+                    let field_name = field
+                        .name(db)
+                        .display_no_db(ra_ap_syntax::Edition::Edition2021)
+                        .to_string();
                     let field_type_display = field_ty.display(db, *display_target).to_string();
-                    let field_size = field_ty.layout(db)
-                        .ok().map(|l| l.size())
-                        .unwrap_or(0);
-                    let field_align = field_ty.layout(db)
-                        .ok().map(|l| l.align())
-                        .unwrap_or(1);
+                    let field_size = field_ty.layout(db).ok().map(|l| l.size()).unwrap_or(0);
+                    let field_align = field_ty.layout(db).ok().map(|l| l.align()).unwrap_or(1);
 
                     // Align the offset
                     if field_align > 0 {

@@ -211,15 +211,10 @@ fn test_generic_with_multiple_lifetimes() {
     let events = get_events();
     assert!(events.len() >= 1);
 
-    assert!(events[0].is_new(), "Reference copy should be tracked as New");
-
-
-
-
-
-
-
-
+    assert!(
+        events[0].is_new(),
+        "Reference copy should be tracked as New"
+    );
 }
 
 #[test]

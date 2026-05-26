@@ -932,11 +932,11 @@ impl Event {
             | Event::MaybeUninitAssumeInit { timestamp, .. }
             | Event::MaybeUninitAssumeInitRead { timestamp, .. }
             | Event::MaybeUninitAssumeInitDrop { timestamp, .. } => *timestamp,
-            | Event::StackAddr { timestamp, .. } => *timestamp,
-            | Event::StackField { timestamp, .. } => *timestamp,
-            | Event::HeapAddr { timestamp, .. } => *timestamp,
-            | Event::HeapRealloc { timestamp, .. } => *timestamp,
-            | Event::StackPadding { timestamp, .. } => *timestamp,
+            Event::StackAddr { timestamp, .. } => *timestamp,
+            Event::StackField { timestamp, .. } => *timestamp,
+            Event::HeapAddr { timestamp, .. } => *timestamp,
+            Event::HeapRealloc { timestamp, .. } => *timestamp,
+            Event::StackPadding { timestamp, .. } => *timestamp,
         }
     }
 
@@ -1023,11 +1023,11 @@ impl Event {
             | Event::MaybeUninitAssumeInit { .. }
             | Event::MaybeUninitAssumeInitRead { .. }
             | Event::MaybeUninitAssumeInitDrop { .. } => None,
-            | Event::StackAddr { ref var_name, .. } => Some(var_name.as_str()),
-            | Event::StackField { .. } => None,
-            | Event::HeapAddr { ref owner_name, .. } => Some(owner_name.as_str()),
-            | Event::HeapRealloc { .. } => None,
-            | Event::StackPadding { .. } => None,
+            Event::StackAddr { ref var_name, .. } => Some(var_name.as_str()),
+            Event::StackField { .. } => None,
+            Event::HeapAddr { ref owner_name, .. } => Some(owner_name.as_str()),
+            Event::HeapRealloc { .. } => None,
+            Event::StackPadding { .. } => None,
             Event::WeakNew { var_name, .. }
             | Event::WeakClone { var_name, .. }
             | Event::BoxNew { var_name, .. }

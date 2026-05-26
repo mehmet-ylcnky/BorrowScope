@@ -114,9 +114,13 @@ impl OwnershipVisitor {
         // Check if analyzer data is available
         let skip_transform = {
             #[cfg(not(test))]
-            { type_info::get_type_info().is_none() }
+            {
+                type_info::get_type_info().is_none()
+            }
             #[cfg(test)]
-            { false }
+            {
+                false
+            }
         };
 
         Self {
@@ -1257,10 +1261,20 @@ impl OwnershipVisitor {
                     // Check if the expression is Arc::downgrade(...)
                     if let Expr::Call(call) = original_expr {
                         if let Expr::Path(p) = call.func.as_ref() {
-                            let path_str = p.path.segments.iter().map(|s| s.ident.to_string()).collect::<Vec<_>>().join("::");
+                            let path_str = p
+                                .path
+                                .segments
+                                .iter()
+                                .map(|s| s.ident.to_string())
+                                .collect::<Vec<_>>()
+                                .join("::");
                             path_str.contains("Arc")
-                        } else { false }
-                    } else { false }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
                 };
                 if is_sync {
                     self.weak_vars
@@ -1331,11 +1345,9 @@ impl OwnershipVisitor {
             }
 
             // Box::from_raw (unsafe, returns Box<T>)
-            "box_block" if type_info.is_box => {
-                Some(safe_parse_quote!((*original_expr).clone(),
-                    borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
-                ))
-            }
+            "box_block" if type_info.is_box => Some(safe_parse_quote!((*original_expr).clone(),
+                borrowscope_runtime::track_box_from_raw(#var_name, #location, #original_expr)
+            )),
 
             // Guards - mark for drop tracking, let track_new/transform_unwrap handle the rest
             "mutex_guard" | "mutex_lock" | "mutex_try_lock" | "result_try_lock"

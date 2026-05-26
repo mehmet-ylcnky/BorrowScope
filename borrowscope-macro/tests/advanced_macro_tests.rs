@@ -213,7 +213,10 @@ fn test_macro_move_preserves_source_id() {
     let move_count = events.iter().filter(|e| e.is_move()).count();
 
     assert!(new_count >= 1, "Should have New event");
-    assert!(new_count >= 1, "Should have New events for Copy type (no moves)");
+    assert!(
+        new_count >= 1,
+        "Should have New events for Copy type (no moves)"
+    );
 }
 
 #[test]

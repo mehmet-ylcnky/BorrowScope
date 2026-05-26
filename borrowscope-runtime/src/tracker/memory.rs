@@ -1,7 +1,7 @@
 //! Memory layout tracking functions.
 //! Records actual stack/heap addresses at runtime for visualization.
 
-use super::{TRACKER, TIMESTAMP};
+use super::{TIMESTAMP, TRACKER};
 use crate::event::Event;
 use std::sync::atomic::Ordering;
 
@@ -85,14 +85,23 @@ pub fn track_heap_addr(owner_name: &str, addr: usize, size: usize, capacity: usi
 
 /// Track a heap reallocation.
 #[cfg_attr(not(feature = "track"), allow(unused_variables))]
-pub fn track_heap_realloc(var_id: &str, old_addr: usize, new_addr: usize, old_size: usize, new_size: usize) {
+pub fn track_heap_realloc(
+    var_id: &str,
+    old_addr: usize,
+    new_addr: usize,
+    old_size: usize,
+    new_size: usize,
+) {
     #[cfg(feature = "track")]
     {
         let mut tracker = TRACKER.lock();
         tracker.events.push(Event::HeapRealloc {
             timestamp: next_ts(),
             var_id: var_id.to_string(),
-            old_addr, new_addr, old_size, new_size,
+            old_addr,
+            new_addr,
+            old_size,
+            new_size,
         });
     }
 }
@@ -106,7 +115,8 @@ pub fn track_stack_padding(after_var: &str, addr: usize, bytes: usize) {
         tracker.events.push(Event::StackPadding {
             timestamp: next_ts(),
             after_var: after_var.to_string(),
-            addr, bytes,
+            addr,
+            bytes,
         });
     }
 }
@@ -122,16 +132,47 @@ pub fn track_string_layout(name: &str, value: &String) {
         let mut tracker = TRACKER.lock();
 
         tracker.events.push(Event::StackAddr {
-            timestamp: next_ts(), var_name: name.to_string(), var_id: var_id.clone(),
-            addr, size: std::mem::size_of::<String>(), type_name: "String".to_string(), location: String::new(),
+            timestamp: next_ts(),
+            var_name: name.to_string(),
+            var_id: var_id.clone(),
+            addr,
+            size: std::mem::size_of::<String>(),
+            type_name: "String".to_string(),
+            location: String::new(),
         });
-        tracker.events.push(Event::StackField { timestamp: next_ts(), var_id: var_id.clone(), field_name: "ptr".to_string(), field_value: format!("0x{:x}", ptr_val), offset: 0 });
-        tracker.events.push(Event::StackField { timestamp: next_ts(), var_id: var_id.clone(), field_name: "len".to_string(), field_value: value.len().to_string(), offset: 8 });
-        tracker.events.push(Event::StackField { timestamp: next_ts(), var_id: var_id.clone(), field_name: "cap".to_string(), field_value: value.capacity().to_string(), offset: 16 });
+        tracker.events.push(Event::StackField {
+            timestamp: next_ts(),
+            var_id: var_id.clone(),
+            field_name: "ptr".to_string(),
+            field_value: format!("0x{:x}", ptr_val),
+            offset: 0,
+        });
+        tracker.events.push(Event::StackField {
+            timestamp: next_ts(),
+            var_id: var_id.clone(),
+            field_name: "len".to_string(),
+            field_value: value.len().to_string(),
+            offset: 8,
+        });
+        tracker.events.push(Event::StackField {
+            timestamp: next_ts(),
+            var_id: var_id.clone(),
+            field_name: "cap".to_string(),
+            field_value: value.capacity().to_string(),
+            offset: 16,
+        });
         tracker.events.push(Event::HeapAddr {
-            timestamp: next_ts(), var_id: format!("{}_data", var_id), owner_name: name.to_string(),
-            addr: ptr_val, size: value.len(), capacity: value.capacity(),
-            content_preview: if value.len() <= 20 { format!("\"{}\"", value) } else { format!("\"{}...\"", &value[..17]) },
+            timestamp: next_ts(),
+            var_id: format!("{}_data", var_id),
+            owner_name: name.to_string(),
+            addr: ptr_val,
+            size: value.len(),
+            capacity: value.capacity(),
+            content_preview: if value.len() <= 20 {
+                format!("\"{}\"", value)
+            } else {
+                format!("\"{}...\"", &value[..17])
+            },
         });
     }
 }
@@ -148,17 +189,48 @@ pub fn track_vec_layout<T: std::fmt::Debug>(name: &str, value: &Vec<T>) {
         let mut tracker = TRACKER.lock();
 
         tracker.events.push(Event::StackAddr {
-            timestamp: next_ts(), var_name: name.to_string(), var_id: var_id.clone(),
-            addr, size: std::mem::size_of::<Vec<T>>(), type_name, location: String::new(),
+            timestamp: next_ts(),
+            var_name: name.to_string(),
+            var_id: var_id.clone(),
+            addr,
+            size: std::mem::size_of::<Vec<T>>(),
+            type_name,
+            location: String::new(),
         });
-        tracker.events.push(Event::StackField { timestamp: next_ts(), var_id: var_id.clone(), field_name: "ptr".to_string(), field_value: format!("0x{:x}", ptr_val), offset: 0 });
-        tracker.events.push(Event::StackField { timestamp: next_ts(), var_id: var_id.clone(), field_name: "len".to_string(), field_value: value.len().to_string(), offset: 8 });
-        tracker.events.push(Event::StackField { timestamp: next_ts(), var_id: var_id.clone(), field_name: "cap".to_string(), field_value: value.capacity().to_string(), offset: 16 });
+        tracker.events.push(Event::StackField {
+            timestamp: next_ts(),
+            var_id: var_id.clone(),
+            field_name: "ptr".to_string(),
+            field_value: format!("0x{:x}", ptr_val),
+            offset: 0,
+        });
+        tracker.events.push(Event::StackField {
+            timestamp: next_ts(),
+            var_id: var_id.clone(),
+            field_name: "len".to_string(),
+            field_value: value.len().to_string(),
+            offset: 8,
+        });
+        tracker.events.push(Event::StackField {
+            timestamp: next_ts(),
+            var_id: var_id.clone(),
+            field_name: "cap".to_string(),
+            field_value: value.capacity().to_string(),
+            offset: 16,
+        });
 
-        let content = if value.len() <= 5 { format!("{:?}", value) } else { format!("[{:?}, ... ({} items)]", value[0], value.len()) };
+        let content = if value.len() <= 5 {
+            format!("{:?}", value)
+        } else {
+            format!("[{:?}, ... ({} items)]", value[0], value.len())
+        };
         tracker.events.push(Event::HeapAddr {
-            timestamp: next_ts(), var_id: format!("{}_data", var_id), owner_name: name.to_string(),
-            addr: ptr_val, size: value.len() * std::mem::size_of::<T>(), capacity: value.capacity() * std::mem::size_of::<T>(),
+            timestamp: next_ts(),
+            var_id: format!("{}_data", var_id),
+            owner_name: name.to_string(),
+            addr: ptr_val,
+            size: value.len() * std::mem::size_of::<T>(),
+            capacity: value.capacity() * std::mem::size_of::<T>(),
             content_preview: content,
         });
     }

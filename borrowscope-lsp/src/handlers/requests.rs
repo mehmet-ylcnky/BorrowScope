@@ -7,11 +7,7 @@ use serde::Deserialize;
 
 use crate::state::GlobalState;
 
-pub fn handle(
-    state: &mut GlobalState,
-    sender: &Sender<Message>,
-    req: Request,
-) -> Result<()> {
+pub fn handle(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
     tracing::debug!("Request: {} (id={})", req.method, req.id);
 
     // Requests that need workspace
@@ -128,7 +124,11 @@ fn build_line_index(content: &str) -> impl Fn(ra_ap_syntax::TextSize) -> (u32, u
     move |offset: ra_ap_syntax::TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     }
 }
@@ -137,32 +137,38 @@ fn build_line_index(content: &str) -> impl Fn(ra_ap_syntax::TextSize) -> (u32, u
 // 3.1 borrowscope/ownershipGraph
 // ═══════════════════════════════════════════════════════════════════════════
 
-fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+fn handle_ownership_graph(
+    state: &mut GlobalState,
+    sender: &Sender<Message>,
+    req: Request,
+) -> Result<()> {
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;
     let uri_str = params.text_document.uri.as_str();
 
     // If workspace not loaded, try returning cached stale data or loading indicator
-    let ws = match &state.workspace {
-        Some(ws) => ws,
-        None => {
-            // Check cache for stale data
-            if let Some(cache) = state.analysis_cache.get(uri_str) {
-                // Find any cached function (best effort)
-                if let Some((_, cached_value)) = cache.functions.iter().next() {
-                    let value = match cached_value {
-                        crate::state::AnalysisState::Ready(v) | crate::state::AnalysisState::Stale(v) => v.clone(),
-                    };
-                    let mut resp_value = value;
-                    if let Some(obj) = resp_value.as_object_mut() {
-                        obj.insert("_stale".to_string(), serde_json::json!(true));
-                        obj.insert("_status".to_string(), serde_json::json!("loading"));
+    let ws =
+        match &state.workspace {
+            Some(ws) => ws,
+            None => {
+                // Check cache for stale data
+                if let Some(cache) = state.analysis_cache.get(uri_str) {
+                    // Find any cached function (best effort)
+                    if let Some((_, cached_value)) = cache.functions.iter().next() {
+                        let value = match cached_value {
+                            crate::state::AnalysisState::Ready(v)
+                            | crate::state::AnalysisState::Stale(v) => v.clone(),
+                        };
+                        let mut resp_value = value;
+                        if let Some(obj) = resp_value.as_object_mut() {
+                            obj.insert("_stale".to_string(), serde_json::json!(true));
+                            obj.insert("_status".to_string(), serde_json::json!("loading"));
+                        }
+                        sender.send(Message::Response(Response::new_ok(req.id, resp_value)))?;
+                        return Ok(());
                     }
-                    sender.send(Message::Response(Response::new_ok(req.id, resp_value)))?;
-                    return Ok(());
                 }
-            }
-            // No cache — return loading indicator
-            sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!({
+                // No cache — return loading indicator
+                sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!({
                 "_status": "loading",
                 "_stale": false,
                 "function_name": "",
@@ -173,44 +179,65 @@ fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req
                 "conflicts": [],
                 "stats": {"total_variables": 0, "total_borrows": 0, "moves": 0, "conflicts": 0}
             }))))?;
-            return Ok(());
-        }
-    };
+                return Ok(());
+            }
+        };
     let (file_id, file_path) = get_file_id_or_empty!(ws, uri_str, req, sender);
 
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode};
 
     let sema = Semantics::new(&ws.db);
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let display_target = match hir::Crate::all(&ws.db).first() {
         Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     let file_content = state.get_file_content(uri_str).unwrap_or("").to_string();
     let line_index = build_line_index(&file_content);
     let target_line = params.position.line;
 
-    let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
-        let (fn_start, _) = line_index(f.syntax().text_range().start());
-        let (fn_end, _) = line_index(f.syntax().text_range().end());
-        target_line >= fn_start.saturating_sub(1) && target_line <= fn_end
-    });
+    let function = source_file
+        .syntax()
+        .descendants()
+        .filter_map(ast::Fn::cast)
+        .find(|f| {
+            let (fn_start, _) = line_index(f.syntax().text_range().start());
+            let (fn_end, _) = line_index(f.syntax().text_range().end());
+            target_line >= fn_start.saturating_sub(1) && target_line <= fn_end
+        });
 
     let function = match function {
         Some(f) => f,
         None => {
             // No function at cursor — try returning cached stale result
-            sender.send(Message::Response(Response::new_err(req.id, -32602, "Cursor not inside a function".into())))?;
+            sender.send(Message::Response(Response::new_err(
+                req.id,
+                -32602,
+                "Cursor not inside a function".into(),
+            )))?;
             return Ok(());
         }
     };
 
     let (summary, _elapsed) = attach_db(&ws.db, || {
-        borrowscope_lsp::analysis::analyze_function_timed(&ws.db, &sema, &display_target, &function, &file_path, &line_index)
+        borrowscope_lsp::analysis::analyze_function_timed(
+            &ws.db,
+            &sema,
+            &display_target,
+            &function,
+            &file_path,
+            &line_index,
+        )
     });
 
     let mut value = serde_json::to_value(&summary)?;
@@ -231,7 +258,11 @@ fn handle_ownership_graph(state: &mut GlobalState, sender: &Sender<Message>, req
 // 3.2 borrowscope/borrowScopes
 // ═══════════════════════════════════════════════════════════════════════════
 
-fn handle_borrow_scopes(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+fn handle_borrow_scopes(
+    state: &mut GlobalState,
+    sender: &Sender<Message>,
+    req: Request,
+) -> Result<()> {
     let params: TextDocParams = serde_json::from_value(req.params)?;
     let ws = get_workspace_or_empty!(state, req, sender);
     let uri_str = params.text_document.uri.as_str();
@@ -249,7 +280,12 @@ fn handle_borrow_scopes(state: &mut GlobalState, sender: &Sender<Message>, req: 
     let scopes = attach_db(&ws.db, || {
         let mut all = Vec::new();
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
-            let fn_scopes = borrowscope_lsp::analysis::compute_borrow_scopes(&ws.db, &sema, &function, &line_index);
+            let fn_scopes = borrowscope_lsp::analysis::compute_borrow_scopes(
+                &ws.db,
+                &sema,
+                &function,
+                &line_index,
+            );
             for s in fn_scopes {
                 all.push(serde_json::json!({
                     "borrower": s.borrower_name, "target": s.target_name, "is_mutable": s.is_mutable,
@@ -260,7 +296,10 @@ fn handle_borrow_scopes(state: &mut GlobalState, sender: &Sender<Message>, req: 
         all
     });
 
-    sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!({"scopes": scopes}))))?;
+    sender.send(Message::Response(Response::new_ok(
+        req.id,
+        serde_json::json!({"scopes": scopes}),
+    )))?;
     Ok(())
 }
 
@@ -272,7 +311,11 @@ fn handle_borrow_scopes(state: &mut GlobalState, sender: &Sender<Message>, req: 
 // 11.3 borrowscope/crossFunctionBorrows
 // ═══════════════════════════════════════════════════════════════════════════
 
-fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+fn handle_cross_function_borrows(
+    state: &mut GlobalState,
+    sender: &Sender<Message>,
+    req: Request,
+) -> Result<()> {
     let params: TextDocParams = serde_json::from_value(req.params)?;
     let ws = get_workspace_or_empty!(state, req, sender);
     let uri_str = params.text_document.uri.as_str();
@@ -280,8 +323,8 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
 
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
 
     let sema = Semantics::new(&ws.db);
     let source_file = sema.parse(sema.attach_first_edition(file_id));
@@ -292,7 +335,11 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
         let mut all = Vec::new();
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
             let borrows = borrowscope_lsp::analysis::analyze_cross_function_borrows(
-                &ws.db, &sema, &function, &file_path, &line_index,
+                &ws.db,
+                &sema,
+                &function,
+                &file_path,
+                &line_index,
             );
             all.extend(borrows);
         }
@@ -312,7 +359,10 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
         }
     }
 
-    let resp = Response::new_ok(req.id, serde_json::json!({ "cross_borrows": cross_borrows }));
+    let resp = Response::new_ok(
+        req.id,
+        serde_json::json!({ "cross_borrows": cross_borrows }),
+    );
     sender.send(Message::Response(resp))?;
     Ok(())
 }
@@ -321,33 +371,61 @@ fn handle_cross_function_borrows(state: &mut GlobalState, sender: &Sender<Messag
 // 13.2 borrowscope/memoryLayout
 // ═══════════════════════════════════════════════════════════════════════════
 
-fn handle_memory_layout(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+fn handle_memory_layout(
+    state: &mut GlobalState,
+    sender: &Sender<Message>,
+    req: Request,
+) -> Result<()> {
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;
     let ws = match &state.workspace {
         Some(ws) => ws,
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
     let uri_str = params.text_document.uri.as_str();
     let file_path = match uri_str.strip_prefix("file://") {
         Some(p) => p.to_string(),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
     let vfs_path = ra_ap_vfs::VfsPath::new_real_path(file_path.clone());
     let file_id = match ws.vfs.file_id(&vfs_path) {
         Some((fid, _)) => fid,
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode};
 
     let sema = Semantics::new(&ws.db);
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let display_target = match hir::Crate::all(&ws.db).first() {
         Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     let file_content = state.get_file_content(uri_str).unwrap_or("").to_string();
@@ -355,13 +433,23 @@ fn handle_memory_layout(state: &mut GlobalState, sender: &Sender<Message>, req: 
     let target_line = params.position.line;
 
     let result = attach_db(&ws.db, || {
-        let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
-            let (s, _) = line_index(f.syntax().text_range().start());
-            let (e, _) = line_index(f.syntax().text_range().end());
-            target_line >= s.saturating_sub(1) && target_line <= e
-        });
+        let function = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                let (s, _) = line_index(f.syntax().text_range().start());
+                let (e, _) = line_index(f.syntax().text_range().end());
+                target_line >= s.saturating_sub(1) && target_line <= e
+            });
         match function {
-            Some(f) => Some(borrowscope_lsp::analysis::analyze_memory_layout(&ws.db, &sema, &display_target, &f, &line_index)),
+            Some(f) => Some(borrowscope_lsp::analysis::analyze_memory_layout(
+                &ws.db,
+                &sema,
+                &display_target,
+                &f,
+                &line_index,
+            )),
             None => None,
         }
     });
@@ -374,33 +462,61 @@ fn handle_memory_layout(state: &mut GlobalState, sender: &Sender<Message>, req: 
     Ok(())
 }
 
-fn handle_variable_info(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+fn handle_variable_info(
+    state: &mut GlobalState,
+    sender: &Sender<Message>,
+    req: Request,
+) -> Result<()> {
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;
     let ws = match &state.workspace {
         Some(ws) => ws,
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
     let uri_str = params.text_document.uri.as_str();
     let file_path = match uri_str.strip_prefix("file://") {
         Some(p) => p.to_string(),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
     let vfs_path = ra_ap_vfs::VfsPath::new_real_path(file_path.clone());
     let file_id = match ws.vfs.file_id(&vfs_path) {
         Some((fid, _)) => fid,
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode};
 
     let sema = Semantics::new(&ws.db);
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let display_target = match hir::Crate::all(&ws.db).first() {
         Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     let file_content = state.get_file_content(uri_str).unwrap_or("");
@@ -408,17 +524,40 @@ fn handle_variable_info(state: &mut GlobalState, sender: &Sender<Message>, req: 
     let target_line = params.position.line;
 
     let result = attach_db(&ws.db, || {
-        let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
-            let (s, _) = line_index(f.syntax().text_range().start());
-            let (e, _) = line_index(f.syntax().text_range().end());
-            target_line >= s.saturating_sub(1) && target_line <= e
-        })?;
+        let function = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                let (s, _) = line_index(f.syntax().text_range().start());
+                let (e, _) = line_index(f.syntax().text_range().end());
+                target_line >= s.saturating_sub(1) && target_line <= e
+            })?;
 
-        let summary = borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index);
-        let var = summary.variables.iter().find(|v| v.line == target_line + 1)?;
+        let summary = borrowscope_lsp::analysis::analyze_function(
+            &ws.db,
+            &sema,
+            &display_target,
+            &function,
+            &file_path,
+            &line_index,
+        );
+        let var = summary
+            .variables
+            .iter()
+            .find(|v| v.line == target_line + 1)?;
 
-        let borrowed_by: Vec<String> = summary.borrow_scopes.iter().filter(|s| s.target_name == var.name).map(|s| s.borrower_name.clone()).collect();
-        let moved_to = summary.moves.iter().find(|m| m.source_name == var.name).map(|m| format!("{:?}", m.destination));
+        let borrowed_by: Vec<String> = summary
+            .borrow_scopes
+            .iter()
+            .filter(|s| s.target_name == var.name)
+            .map(|s| s.borrower_name.clone())
+            .collect();
+        let moved_to = summary
+            .moves
+            .iter()
+            .find(|m| m.source_name == var.name)
+            .map(|m| format!("{:?}", m.destination));
 
         Some(serde_json::json!({
             "name": var.name, "type_display": var.type_display, "ownership_category": var.ownership_category,
@@ -428,7 +567,10 @@ fn handle_variable_info(state: &mut GlobalState, sender: &Sender<Message>, req: 
         }))
     });
 
-    sender.send(Message::Response(Response::new_ok(req.id, result.unwrap_or(serde_json::Value::Null))))?;
+    sender.send(Message::Response(Response::new_ok(
+        req.id,
+        result.unwrap_or(serde_json::Value::Null),
+    )))?;
     Ok(())
 }
 
@@ -440,29 +582,53 @@ fn handle_hover(state: &mut GlobalState, sender: &Sender<Message>, req: Request)
     let params: TextDocPositionParams = serde_json::from_value(req.params)?;
     let ws = match &state.workspace {
         Some(ws) => ws,
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
     let uri_str = params.text_document.uri.as_str();
     let file_path = match uri_str.strip_prefix("file://") {
         Some(p) => p.to_string(),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
     let vfs_path = ra_ap_vfs::VfsPath::new_real_path(file_path.clone());
     let file_id = match ws.vfs.file_id(&vfs_path) {
         Some((fid, _)) => fid,
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode};
 
     let sema = Semantics::new(&ws.db);
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let display_target = match hir::Crate::all(&ws.db).first() {
         Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::Value::Null)))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::Value::Null,
+            )))?;
+            return Ok(());
+        }
     };
 
     let file_content = state.get_file_content(uri_str).unwrap_or("");
@@ -470,33 +636,74 @@ fn handle_hover(state: &mut GlobalState, sender: &Sender<Message>, req: Request)
     let target_line = params.position.line;
 
     let hover = attach_db(&ws.db, || -> Option<String> {
-        let function = source_file.syntax().descendants().filter_map(ast::Fn::cast).find(|f| {
-            let (s, _) = line_index(f.syntax().text_range().start());
-            let (e, _) = line_index(f.syntax().text_range().end());
-            target_line >= s.saturating_sub(1) && target_line <= e
-        })?;
+        let function = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                let (s, _) = line_index(f.syntax().text_range().start());
+                let (e, _) = line_index(f.syntax().text_range().end());
+                target_line >= s.saturating_sub(1) && target_line <= e
+            })?;
 
-        let summary = borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index);
-        let var = summary.variables.iter().find(|v| v.line == target_line + 1)?;
+        let summary = borrowscope_lsp::analysis::analyze_function(
+            &ws.db,
+            &sema,
+            &display_target,
+            &function,
+            &file_path,
+            &line_index,
+        );
+        let var = summary
+            .variables
+            .iter()
+            .find(|v| v.line == target_line + 1)?;
 
-        let borrowed_by: Vec<&str> = summary.borrow_scopes.iter()
+        let borrowed_by: Vec<&str> = summary
+            .borrow_scopes
+            .iter()
             .filter(|s| s.target_name == var.name)
-            .map(|s| s.borrower_name.as_str()).collect();
-        let borrows_from: Vec<&str> = summary.borrow_scopes.iter()
+            .map(|s| s.borrower_name.as_str())
+            .collect();
+        let borrows_from: Vec<&str> = summary
+            .borrow_scopes
+            .iter()
             .filter(|s| s.borrower_name == var.name)
-            .map(|s| s.target_name.as_str()).collect();
-        let moved_to = summary.moves.iter()
+            .map(|s| s.target_name.as_str())
+            .collect();
+        let moved_to = summary
+            .moves
+            .iter()
             .find(|m| m.source_name == var.name)
             .map(|m| format!("{:?}", m.destination));
 
         let mut md = format!("**{}** `{}`\n\n", var.name, var.type_display);
-        md.push_str(&format!("**Ownership:** `{:?}`\n\n", var.ownership_category));
+        md.push_str(&format!(
+            "**Ownership:** `{:?}`\n\n",
+            var.ownership_category
+        ));
 
-        if var.is_copy { md.push_str("• Copy type\n\n"); }
-        if !borrows_from.is_empty() { md.push_str(&format!("• Borrows from: `{}`\n\n", borrows_from.join("`, `"))); }
-        if !borrowed_by.is_empty() { md.push_str(&format!("• Borrowed by: `{}`\n\n", borrowed_by.join("`, `"))); }
-        if let Some(dest) = moved_to { md.push_str(&format!("• Moved to: `{}`\n\n", dest)); }
-        if let Some(size) = var.layout_size { md.push_str(&format!("• Size: {} bytes\n\n", size)); }
+        if var.is_copy {
+            md.push_str("• Copy type\n\n");
+        }
+        if !borrows_from.is_empty() {
+            md.push_str(&format!(
+                "• Borrows from: `{}`\n\n",
+                borrows_from.join("`, `")
+            ));
+        }
+        if !borrowed_by.is_empty() {
+            md.push_str(&format!(
+                "• Borrowed by: `{}`\n\n",
+                borrowed_by.join("`, `")
+            ));
+        }
+        if let Some(dest) = moved_to {
+            md.push_str(&format!("• Moved to: `{}`\n\n", dest));
+        }
+        if let Some(size) = var.layout_size {
+            md.push_str(&format!("• Size: {} bytes\n\n", size));
+        }
 
         Some(md)
     });
@@ -524,14 +731,20 @@ fn handle_code_lens(state: &mut GlobalState, sender: &Sender<Message>, req: Requ
 
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode};
 
     let sema = Semantics::new(&ws.db);
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let display_target = match hir::Crate::all(&ws.db).first() {
         Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!([]))))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::json!([]),
+            )))?;
+            return Ok(());
+        }
     };
 
     let file_content = state.get_file_content(uri_str).unwrap_or("");
@@ -540,28 +753,69 @@ fn handle_code_lens(state: &mut GlobalState, sender: &Sender<Message>, req: Requ
     let lenses = attach_db(&ws.db, || {
         let mut lenses = Vec::new();
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
-            let fn_name = match function.name() { Some(n) => n.text().to_string(), None => continue };
-            let summary = borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index);
+            let fn_name = match function.name() {
+                Some(n) => n.text().to_string(),
+                None => continue,
+            };
+            let summary = borrowscope_lsp::analysis::analyze_function(
+                &ws.db,
+                &sema,
+                &display_target,
+                &function,
+                &file_path,
+                &line_index,
+            );
             let (fn_line, _) = line_index(function.syntax().text_range().start());
             let title = if summary.stats.conflicts > 0 {
-                format!("{} vars, {} borrows, {} moves, {} conflicts!", summary.stats.total_variables, summary.stats.total_borrows, summary.stats.moves, summary.stats.conflicts)
+                format!(
+                    "{} vars, {} borrows, {} moves, {} conflicts!",
+                    summary.stats.total_variables,
+                    summary.stats.total_borrows,
+                    summary.stats.moves,
+                    summary.stats.conflicts
+                )
             } else {
-                format!("{} vars, {} borrows, {} moves{}", summary.stats.total_variables, summary.stats.total_borrows, summary.stats.moves,
-                    if summary.stats.rc_clones > 0 { format!(", {} clones", summary.stats.rc_clones) } else { String::new() })
+                format!(
+                    "{} vars, {} borrows, {} moves{}",
+                    summary.stats.total_variables,
+                    summary.stats.total_borrows,
+                    summary.stats.moves,
+                    if summary.stats.rc_clones > 0 {
+                        format!(", {} clones", summary.stats.rc_clones)
+                    } else {
+                        String::new()
+                    }
+                )
             };
             lenses.push(serde_json::json!({"range": {"start": {"line": fn_line.saturating_sub(1), "character": 0}, "end": {"line": fn_line.saturating_sub(1), "character": 0}}, "command": {"title": title, "command": "borrowscope.showGraph", "arguments": [uri_str, fn_name]}}));
 
             // Memory layout CodeLens
-            let mem_layout = borrowscope_lsp::analysis::analyze_memory_layout(&ws.db, &sema, &display_target, &function, &line_index);
-            let heap_total: u64 = mem_layout.heap_allocations.iter().map(|h| h.estimated_size).sum();
+            let mem_layout = borrowscope_lsp::analysis::analyze_memory_layout(
+                &ws.db,
+                &sema,
+                &display_target,
+                &function,
+                &line_index,
+            );
+            let heap_total: u64 = mem_layout
+                .heap_allocations
+                .iter()
+                .map(|h| h.estimated_size)
+                .sum();
             let ptr_count = mem_layout.pointer_relationships.len();
-            let mem_title = format!("\u{1f9e0} Stack: {}B | Heap: ~{}B | {} ptrs", mem_layout.stack_frame.total_size, heap_total, ptr_count);
+            let mem_title = format!(
+                "\u{1f9e0} Stack: {}B | Heap: ~{}B | {} ptrs",
+                mem_layout.stack_frame.total_size, heap_total, ptr_count
+            );
             lenses.push(serde_json::json!({"range": {"start": {"line": fn_line.saturating_sub(1), "character": 0}, "end": {"line": fn_line.saturating_sub(1), "character": 0}}, "command": {"title": mem_title, "command": "borrowscope.showGraph", "arguments": [uri_str, fn_name]}}));
         }
         lenses
     });
 
-    sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!(lenses))))?;
+    sender.send(Message::Response(Response::new_ok(
+        req.id,
+        serde_json::json!(lenses),
+    )))?;
     Ok(())
 }
 
@@ -569,7 +823,11 @@ fn handle_code_lens(state: &mut GlobalState, sender: &Sender<Message>, req: Requ
 // 3.7 textDocument/inlayHint
 // ═══════════════════════════════════════════════════════════════════════════
 
-fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Request) -> Result<()> {
+fn handle_inlay_hints(
+    state: &mut GlobalState,
+    sender: &Sender<Message>,
+    req: Request,
+) -> Result<()> {
     let params: InlayHintParams = serde_json::from_value(req.params)?;
     let ws = get_workspace_or_empty!(state, req, sender);
     let uri_str = params.text_document.uri.as_str();
@@ -583,7 +841,13 @@ fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Re
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let display_target = match hir::Crate::all(&ws.db).first() {
         Some(k) => DisplayTarget::from_crate(&ws.db, (*k).into()),
-        None => { sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!([]))))?; return Ok(()); }
+        None => {
+            sender.send(Message::Response(Response::new_ok(
+                req.id,
+                serde_json::json!([]),
+            )))?;
+            return Ok(());
+        }
     };
 
     let file_content = state.get_file_content(uri_str).unwrap_or("");
@@ -593,10 +857,19 @@ fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Re
     let hints = attach_db(&ws.db, || {
         let mut hints = Vec::new();
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
-            let summary = borrowscope_lsp::analysis::analyze_function(&ws.db, &sema, &display_target, &function, &file_path, &line_index);
+            let summary = borrowscope_lsp::analysis::analyze_function(
+                &ws.db,
+                &sema,
+                &display_target,
+                &function,
+                &file_path,
+                &line_index,
+            );
             for var in &summary.variables {
                 let var_line = var.line.saturating_sub(1);
-                if var_line < start_line || var_line > end_line { continue; }
+                if var_line < start_line || var_line > end_line {
+                    continue;
+                }
                 let label = match &var.ownership_category {
                     borrowscope_lsp::analysis::OwnershipCategory::SharedRef => Some("[&]"),
                     borrowscope_lsp::analysis::OwnershipCategory::MutableRef => Some("[&mut]"),
@@ -604,7 +877,13 @@ fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Re
                     borrowscope_lsp::analysis::OwnershipCategory::Arc => Some("[Arc]"),
                     borrowscope_lsp::analysis::OwnershipCategory::InteriorMut => Some("[Cell]"),
                     borrowscope_lsp::analysis::OwnershipCategory::RawPointer => Some("[*ptr]"),
-                    _ => if var.is_closure { Some("[closure]") } else { None },
+                    _ => {
+                        if var.is_closure {
+                            Some("[closure]")
+                        } else {
+                            None
+                        }
+                    }
                 };
                 if let Some(label) = label {
                     hints.push(serde_json::json!({"position": {"line": var_line, "character": var.column + var.name.len() as u32}, "label": format!(" {}", label), "kind": 1, "paddingLeft": true}));
@@ -614,14 +893,18 @@ fn handle_inlay_hints(state: &mut GlobalState, sender: &Sender<Message>, req: Re
         hints
     });
 
-    sender.send(Message::Response(Response::new_ok(req.id, serde_json::json!(hints))))?;
+    sender.send(Message::Response(Response::new_ok(
+        req.id,
+        serde_json::json!(hints),
+    )))?;
     Ok(())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 
 fn requires_workspace(method: &str) -> bool {
-    matches!(method,
+    matches!(
+        method,
         "textDocument/hover" | "borrowscope/borrowScopes" | "borrowscope/variableInfo"
     )
 }

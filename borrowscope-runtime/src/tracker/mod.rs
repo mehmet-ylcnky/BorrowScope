@@ -1512,6 +1512,7 @@ mod core;
 mod expressions;
 mod interior_mut;
 mod maybe_uninit;
+mod memory;
 mod query;
 /// Track a new variable creation.
 ///
@@ -1521,7 +1522,6 @@ mod sampling;
 mod smart_pointers;
 mod statics;
 mod unsafe_code;
-mod memory;
 
 // Re-export all public items
 pub use self::core::*;

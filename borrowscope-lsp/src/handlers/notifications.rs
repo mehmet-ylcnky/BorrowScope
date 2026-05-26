@@ -83,7 +83,12 @@ pub fn flush_pending_changes(state: &mut GlobalState, sender: &Sender<Message>) 
     // Send notifications for each changed file
     for (uri, prev_content) in &pending {
         let new_content = state.get_file_content(uri).map(|s| s.to_string());
-        send_analysis_updated_if_changed(sender, uri, prev_content.as_deref(), new_content.as_deref());
+        send_analysis_updated_if_changed(
+            sender,
+            uri,
+            prev_content.as_deref(),
+            new_content.as_deref(),
+        );
         publish_diagnostics(sender, uri, state);
     }
 
@@ -138,7 +143,11 @@ fn publish_diagnostics(sender: &Sender<Message>, uri: &str, state: &GlobalState)
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
@@ -148,7 +157,12 @@ fn publish_diagnostics(sender: &Sender<Message>, uri: &str, state: &GlobalState)
 
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
             let summary = borrowscope_lsp::analysis::analyze_function(
-                &ws.db, &sema, &display_target, &function, file_path, &line_index,
+                &ws.db,
+                &sema,
+                &display_target,
+                &function,
+                file_path,
+                &line_index,
             );
 
             for c in &summary.conflicts {
@@ -304,7 +318,9 @@ fn extract_fn_name(line: &str) -> Option<String> {
         .or_else(|| trimmed.strip_prefix("pub fn "))
         .or_else(|| trimmed.strip_prefix("async fn "))
         .or_else(|| trimmed.strip_prefix("fn "))?;
-    let name = after_fn.split(|c: char| c == '(' || c == '<' || c == ' ').next()?;
+    let name = after_fn
+        .split(|c: char| c == '(' || c == '<' || c == ' ')
+        .next()?;
     if !name.is_empty() {
         Some(name.to_string())
     } else {

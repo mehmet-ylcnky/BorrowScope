@@ -34,7 +34,9 @@ pub fn main_loop(connection: &Connection, mut state: GlobalState) -> Result<bool
 
         // Check if debounce timer expired
         if let Some(last_change) = state.last_change_time {
-            if state.debounce_ms == 0 || last_change.elapsed().as_millis() >= state.debounce_ms as u128 {
+            if state.debounce_ms == 0
+                || last_change.elapsed().as_millis() >= state.debounce_ms as u128
+            {
                 handlers::flush_pending_changes(&mut state, &connection.sender);
             }
         }
@@ -156,6 +158,9 @@ fn send_progress(sender: &Sender<Message>, token: &NumberOrString, value: WorkDo
         token: token.clone(),
         value: ProgressParamsValue::WorkDone(value),
     };
-    let notif = Notification::new("$/progress".to_string(), serde_json::to_value(params).unwrap());
+    let notif = Notification::new(
+        "$/progress".to_string(),
+        serde_json::to_value(params).unwrap(),
+    );
     sender.send(Message::Notification(notif)).ok();
 }

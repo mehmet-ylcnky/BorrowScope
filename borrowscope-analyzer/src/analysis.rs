@@ -1912,10 +1912,17 @@ fn classify_initializer_semantic(
         if let Some(ast::Expr::PathExpr(path_expr)) = call.expr() {
             if let Some(path) = path_expr.path() {
                 if let Some(resolved) = sema.resolve_path(&path) {
-                    if let ra_ap_hir::PathResolution::Def(ra_ap_hir::ModuleDef::Variant(variant)) = resolved {
-                        let variant_name = variant.name(db).display_no_db(Edition::Edition2021).to_string();
+                    if let ra_ap_hir::PathResolution::Def(ra_ap_hir::ModuleDef::Variant(variant)) =
+                        resolved
+                    {
+                        let variant_name = variant
+                            .name(db)
+                            .display_no_db(Edition::Edition2021)
+                            .to_string();
                         let parent_enum = variant.parent_enum(db);
-                        if let Some(classification) = known_types.classify(&ra_ap_hir::Adt::Enum(parent_enum), db) {
+                        if let Some(classification) =
+                            known_types.classify(&ra_ap_hir::Adt::Enum(parent_enum), db)
+                        {
                             return format!("{}_{}", classification, variant_name.to_lowercase());
                         }
                     }

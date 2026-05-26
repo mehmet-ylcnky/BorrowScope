@@ -104,7 +104,10 @@ fn test_exhaustive_type_extraction() {
     assert!(info.has_drop_glue, "Vec should have drop glue");
     assert!(info.adt_info.is_some(), "Vec should have ADT info");
     assert_eq!(info.adt_info.as_ref().unwrap().kind, "struct");
-    assert!(!info.type_arguments.is_empty(), "Vec<i32> should have type args");
+    assert!(
+        !info.type_arguments.is_empty(),
+        "Vec<i32> should have type args"
+    );
     assert_eq!(info.ownership_category, OwnershipCategory::Owned);
 
     // ── &Vec<i32>: Shared reference ──
@@ -130,7 +133,8 @@ fn test_exhaustive_type_extraction() {
     let path = info.adt_canonical_path.as_ref().unwrap();
     assert!(
         path.to_lowercase().contains("rc"),
-        "Path should contain Rc, got: {}", path
+        "Path should contain Rc, got: {}",
+        path
     );
     assert_eq!(info.ownership_category, OwnershipCategory::Rc);
 
@@ -141,7 +145,8 @@ fn test_exhaustive_type_extraction() {
     let path = info.adt_canonical_path.as_ref().unwrap();
     assert!(
         path.to_lowercase().contains("refcell") || path.to_lowercase().contains("cell"),
-        "Path should contain RefCell, got: {}", path
+        "Path should contain RefCell, got: {}",
+        path
     );
     assert_eq!(info.ownership_category, OwnershipCategory::InteriorMut);
 
@@ -191,8 +196,8 @@ fn test_method_call_resolution() {
     use borrowscope_lsp::analysis::{resolve_method_calls, SelfBorrow};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -224,8 +229,11 @@ fn test_method_call_resolution() {
 
     // ── vec.len(): self_borrow=Shared ──
     let len_call = results.iter().find(|r| r.method_name == "len");
-    assert!(len_call.is_some(), "Should find len() call. Found: {:?}",
-        results.iter().map(|r| &r.method_name).collect::<Vec<_>>());
+    assert!(
+        len_call.is_some(),
+        "Should find len() call. Found: {:?}",
+        results.iter().map(|r| &r.method_name).collect::<Vec<_>>()
+    );
     let len_call = len_call.unwrap();
     assert_eq!(len_call.self_borrow, SelfBorrow::Shared);
 
@@ -261,7 +269,10 @@ fn test_method_call_resolution() {
     // ── Unresolvable methods are skipped (no panic) ──
     // This is implicitly tested: if any method panicked, the test would fail
 
-    println!("All method call resolution assertions passed! ({} calls resolved)", results.len());
+    println!(
+        "All method call resolution assertions passed! ({} calls resolved)",
+        results.len()
+    );
 }
 
 /// Test borrow scope computation (step 2.3).
@@ -271,8 +282,8 @@ fn test_borrow_scope_computation() {
     use borrowscope_lsp::analysis::{compute_borrow_scopes, BorrowScopeInfo};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -301,7 +312,11 @@ fn test_borrow_scope_computation() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "borrow_scopes_test")
+                    .unwrap_or(false)
+            })
             .expect("borrow_scopes_test fn not found");
 
         compute_borrow_scopes(&db, &sema, &test_fn, &line_index)
@@ -311,19 +326,28 @@ fn test_borrow_scope_computation() {
 
     // ── Simple borrow: r1 borrows data ──
     let r1_scope = scopes.iter().find(|s| s.borrower_name == "r1");
-    assert!(r1_scope.is_some(), "Should find r1 scope. Found: {:?}",
-        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>());
+    assert!(
+        r1_scope.is_some(),
+        "Should find r1 scope. Found: {:?}",
+        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>()
+    );
     let r1 = r1_scope.unwrap();
     assert_eq!(r1.target_name, "data");
     assert!(!r1.is_mutable);
-    assert!(r1.end_line > r1.start_line, "r1 scope should span multiple lines (used after creation)");
+    assert!(
+        r1.end_line > r1.start_line,
+        "r1 scope should span multiple lines (used after creation)"
+    );
 
     // ── Mutable borrow: m1 borrows data2 ──
     let m1_scope = scopes.iter().find(|s| s.borrower_name == "m1");
     assert!(m1_scope.is_some(), "Should find m1 scope");
     let m1 = m1_scope.unwrap();
     assert!(m1.is_mutable, "m1 should be a mutable borrow");
-    assert!(m1.end_line > m1.start_line, "m1 scope should span to push() usage");
+    assert!(
+        m1.end_line > m1.start_line,
+        "m1 scope should span to push() usage"
+    );
 
     // ── Multiple borrows of same variable ──
     let r2_scope = scopes.iter().find(|s| s.borrower_name == "r2");
@@ -341,14 +365,19 @@ fn test_borrow_scope_computation() {
     let unused = scopes.iter().find(|s| s.borrower_name == "_unused_ref");
     assert!(unused.is_some(), "Should find _unused_ref scope");
     let unused = unused.unwrap();
-    assert_eq!(unused.start_line, unused.end_line,
+    assert_eq!(
+        unused.start_line, unused.end_line,
         "Unused borrow scope should be single line (start={}, end={})",
-        unused.start_line, unused.end_line);
+        unused.start_line, unused.end_line
+    );
 
     // ── Borrow in a block: scope ends within the block ──
     let block_ref = scopes.iter().find(|s| s.borrower_name == "block_ref");
-    assert!(block_ref.is_some(), "Should find block_ref scope. Found: {:?}",
-        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>());
+    assert!(
+        block_ref.is_some(),
+        "Should find block_ref scope. Found: {:?}",
+        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>()
+    );
     let block_ref = block_ref.unwrap();
     assert!(!block_ref.is_mutable);
     assert_eq!(block_ref.target_name, "data");
@@ -362,11 +391,17 @@ fn test_borrow_scope_computation() {
     assert!(!func_ref.is_mutable);
     assert_eq!(func_ref.target_name, "data");
     // func_ref is used in consume_ref() call, so end > start
-    assert!(func_ref.end_line > func_ref.start_line,
+    assert!(
+        func_ref.end_line > func_ref.start_line,
         "func_ref scope should extend to function call (start={}, end={})",
-        func_ref.start_line, func_ref.end_line);
+        func_ref.start_line,
+        func_ref.end_line
+    );
 
-    println!("All borrow scope assertions passed! ({} scopes found)", scopes.len());
+    println!(
+        "All borrow scope assertions passed! ({} scopes found)",
+        scopes.len()
+    );
 }
 
 /// Test move detection (step 2.4).
@@ -376,8 +411,8 @@ fn test_move_detection() {
     use borrowscope_lsp::analysis::{detect_moves, MoveDestination};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -408,7 +443,11 @@ fn test_move_detection() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "move_detection_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "move_detection_test")
+                    .unwrap_or(false)
+            })
             .expect("move_detection_test fn not found");
 
         detect_moves(&db, &sema, &display_target, &test_fn, &line_index)
@@ -418,15 +457,27 @@ fn test_move_detection() {
 
     // ── let b = a; (String): move to Variable("b") ──
     let a_move = moves.iter().find(|m| m.source_name == "a");
-    assert!(a_move.is_some(), "Should detect move of 'a'. Found: {:?}",
-        moves.iter().map(|m| (&m.source_name, &m.destination)).collect::<Vec<_>>());
+    assert!(
+        a_move.is_some(),
+        "Should detect move of 'a'. Found: {:?}",
+        moves
+            .iter()
+            .map(|m| (&m.source_name, &m.destination))
+            .collect::<Vec<_>>()
+    );
     let a_move = a_move.unwrap();
-    assert_eq!(a_move.destination, MoveDestination::Variable("b".to_string()));
+    assert_eq!(
+        a_move.destination,
+        MoveDestination::Variable("b".to_string())
+    );
     assert!(a_move.source_type.contains("String"));
 
     // ── let m = n; (i32): NOT a move (Copy) ──
     let n_move = moves.iter().find(|m| m.source_name == "n");
-    assert!(n_move.is_none(), "i32 assignment should NOT be detected as move");
+    assert!(
+        n_move.is_none(),
+        "i32 assignment should NOT be detected as move"
+    );
 
     // ── drop(v): move to FunctionArg ──
     let v_move = moves.iter().find(|m| m.source_name == "v");
@@ -435,16 +486,27 @@ fn test_move_detection() {
     assert!(matches!(&v_move.destination, MoveDestination::FunctionArg(f) if f == "drop"));
 
     // ── move || { s }: move to ClosureCapture ──
-    let s_move = moves.iter().find(|m| m.source_name == "s" && matches!(&m.destination, MoveDestination::ClosureCapture(_)));
-    assert!(s_move.is_some(), "Should detect move of 's' into closure. Found: {:?}",
-        moves.iter().filter(|m| m.source_name == "s").collect::<Vec<_>>());
+    let s_move = moves.iter().find(|m| {
+        m.source_name == "s" && matches!(&m.destination, MoveDestination::ClosureCapture(_))
+    });
+    assert!(
+        s_move.is_some(),
+        "Should detect move of 's' into closure. Found: {:?}",
+        moves
+            .iter()
+            .filter(|m| m.source_name == "s")
+            .collect::<Vec<_>>()
+    );
 
     // ── return result: move to Return ──
     let ret_move = moves.iter().find(|m| m.source_name == "result");
     assert!(ret_move.is_some(), "Should detect return move of 'result'");
     assert_eq!(ret_move.unwrap().destination, MoveDestination::Return);
 
-    println!("All move detection assertions passed! ({} moves detected)", moves.len());
+    println!(
+        "All move detection assertions passed! ({} moves detected)",
+        moves.len()
+    );
 }
 
 /// Test closure capture analysis (step 2.5).
@@ -454,8 +516,8 @@ fn test_closure_capture_analysis() {
     use borrowscope_lsp::analysis::{analyze_closures, CaptureMode, FnTrait};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -486,7 +548,11 @@ fn test_closure_capture_analysis() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "closure_capture_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "closure_capture_test")
+                    .unwrap_or(false)
+            })
             .expect("closure_capture_test fn not found");
 
         analyze_closures(&db, &sema, &display_target, &test_fn, &line_index)
@@ -495,28 +561,47 @@ fn test_closure_capture_analysis() {
     assert!(!closures.is_empty(), "Should find closures. Got 0.");
 
     // ── Fn closure: captures x by shared ref ──
-    let c_fn = closures.iter().find(|c| {
-        c.fn_trait == FnTrait::Fn && c.captures.iter().any(|cap| cap.name == "x")
-    });
-    assert!(c_fn.is_some(), "Should find Fn closure capturing x. Found traits: {:?}",
-        closures.iter().map(|c| (&c.fn_trait, c.captures.iter().map(|cap| &cap.name).collect::<Vec<_>>())).collect::<Vec<_>>());
+    let c_fn = closures
+        .iter()
+        .find(|c| c.fn_trait == FnTrait::Fn && c.captures.iter().any(|cap| cap.name == "x"));
+    assert!(
+        c_fn.is_some(),
+        "Should find Fn closure capturing x. Found traits: {:?}",
+        closures
+            .iter()
+            .map(|c| (
+                &c.fn_trait,
+                c.captures.iter().map(|cap| &cap.name).collect::<Vec<_>>()
+            ))
+            .collect::<Vec<_>>()
+    );
     let c_fn = c_fn.unwrap();
     let x_cap = c_fn.captures.iter().find(|c| c.name == "x").unwrap();
     assert_eq!(x_cap.capture_mode, CaptureMode::BySharedRef);
 
     // ── FnMut closure: captures y by mut ref ──
-    let c_fnmut = closures.iter().find(|c| {
-        c.fn_trait == FnTrait::FnMut && c.captures.iter().any(|cap| cap.name == "y")
-    });
+    let c_fnmut = closures
+        .iter()
+        .find(|c| c.fn_trait == FnTrait::FnMut && c.captures.iter().any(|cap| cap.name == "y"));
     assert!(c_fnmut.is_some(), "Should find FnMut closure capturing y");
-    let y_cap = c_fnmut.unwrap().captures.iter().find(|c| c.name == "y").unwrap();
+    let y_cap = c_fnmut
+        .unwrap()
+        .captures
+        .iter()
+        .find(|c| c.name == "y")
+        .unwrap();
     assert_eq!(y_cap.capture_mode, CaptureMode::ByMutRef);
 
     // ── FnOnce (move) closure: captures z by move ──
     let c_fnonce = closures.iter().find(|c| {
-        c.captures.iter().any(|cap| cap.name == "z" && cap.capture_mode == CaptureMode::ByMove)
+        c.captures
+            .iter()
+            .any(|cap| cap.name == "z" && cap.capture_mode == CaptureMode::ByMove)
     });
-    assert!(c_fnonce.is_some(), "Should find closure capturing z by move");
+    assert!(
+        c_fnonce.is_some(),
+        "Should find closure capturing z by move"
+    );
 
     // ── Empty closure: no captures ──
     let c_empty = closures.iter().find(|c| c.captures.is_empty());
@@ -524,13 +609,27 @@ fn test_closure_capture_analysis() {
 
     // ── Multiple captures: a and b ──
     let c_multi = closures.iter().find(|c| c.captures.len() >= 2);
-    assert!(c_multi.is_some(), "Should find closure with multiple captures");
+    assert!(
+        c_multi.is_some(),
+        "Should find closure with multiple captures"
+    );
     let c_multi = c_multi.unwrap();
     let cap_names: Vec<&str> = c_multi.captures.iter().map(|c| c.name.as_str()).collect();
-    assert!(cap_names.contains(&"a"), "Should capture 'a'. Got: {:?}", cap_names);
-    assert!(cap_names.contains(&"b"), "Should capture 'b'. Got: {:?}", cap_names);
+    assert!(
+        cap_names.contains(&"a"),
+        "Should capture 'a'. Got: {:?}",
+        cap_names
+    );
+    assert!(
+        cap_names.contains(&"b"),
+        "Should capture 'b'. Got: {:?}",
+        cap_names
+    );
 
-    println!("All closure capture assertions passed! ({} closures analyzed)", closures.len());
+    println!(
+        "All closure capture assertions passed! ({} closures analyzed)",
+        closures.len()
+    );
 }
 
 /// Test Rc/Arc clone tracking (step 2.6) - 10 assertions.
@@ -540,8 +639,8 @@ fn test_rc_clone_tracking() {
     use borrowscope_lsp::analysis::{track_rc_clones, RcType};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -572,7 +671,11 @@ fn test_rc_clone_tracking() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "rc_clone_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "rc_clone_test")
+                    .unwrap_or(false)
+            })
             .expect("rc_clone_test fn not found");
 
         track_rc_clones(&db, &sema, &display_target, &test_fn, &line_index)
@@ -583,8 +686,14 @@ fn test_rc_clone_tracking() {
 
     // 2. rc2 = rc1.clone() detected as Rc
     let rc2 = clones.iter().find(|c| c.clone_variable == "rc2");
-    assert!(rc2.is_some(), "Should detect rc2 clone. Found: {:?}",
-        clones.iter().map(|c| (&c.clone_variable, &c.source_variable)).collect::<Vec<_>>());
+    assert!(
+        rc2.is_some(),
+        "Should detect rc2 clone. Found: {:?}",
+        clones
+            .iter()
+            .map(|c| (&c.clone_variable, &c.source_variable))
+            .collect::<Vec<_>>()
+    );
     let rc2 = rc2.unwrap();
     assert_eq!(rc2.clone_type, RcType::Rc);
     assert_eq!(rc2.source_variable, "rc1");
@@ -609,7 +718,10 @@ fn test_rc_clone_tracking() {
 
     // 6. String clone NOT detected (s2 should not appear)
     let s2 = clones.iter().find(|c| c.clone_variable == "s2");
-    assert!(s2.is_none(), "String clone should NOT be detected as Rc/Arc");
+    assert!(
+        s2.is_none(),
+        "String clone should NOT be detected as Rc/Arc"
+    );
 
     // 7. Vec clone NOT detected (v2 should not appear)
     let v2 = clones.iter().find(|c| c.clone_variable == "v2");
@@ -626,14 +738,20 @@ fn test_rc_clone_tracking() {
     assert_eq!(rc5.unwrap().source_variable, "rc1");
 
     // 10. All rc1 clones share the same source
-    let rc1_clones: Vec<_> = clones.iter()
+    let rc1_clones: Vec<_> = clones
+        .iter()
         .filter(|c| c.source_variable == "rc1")
         .collect();
-    assert!(rc1_clones.len() >= 3,
+    assert!(
+        rc1_clones.len() >= 3,
         "Should have at least 3 clones from rc1 (rc2, rc3, rc4, rc5). Got: {}",
-        rc1_clones.len());
+        rc1_clones.len()
+    );
 
-    println!("All Rc/Arc clone tracking assertions passed! ({} clones detected)", clones.len());
+    println!(
+        "All Rc/Arc clone tracking assertions passed! ({} clones detected)",
+        clones.len()
+    );
 }
 
 /// Test per-function ownership summary (step 2.8) - 10 assertions.
@@ -643,8 +761,8 @@ fn test_function_ownership_summary() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -676,42 +794,75 @@ fn test_function_ownership_summary() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "summary_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "summary_test")
+                    .unwrap_or(false)
+            })
             .expect("summary_test fn not found");
 
-        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &test_fn,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // 1. Function name correct
     assert_eq!(summary.function_name, "summary_test");
 
     // 2. Has variables
-    assert!(summary.stats.total_variables > 0,
-        "Should have variables. Got: {}", summary.stats.total_variables);
+    assert!(
+        summary.stats.total_variables > 0,
+        "Should have variables. Got: {}",
+        summary.stats.total_variables
+    );
 
     // 3. Has borrow scopes
-    assert!(summary.stats.total_borrows > 0,
-        "Should have borrows. Got: {}", summary.stats.total_borrows);
+    assert!(
+        summary.stats.total_borrows > 0,
+        "Should have borrows. Got: {}",
+        summary.stats.total_borrows
+    );
 
     // 4. Has mutable borrows
-    assert!(summary.stats.mutable_borrows > 0,
-        "Should have mutable borrows. Got: {}", summary.stats.mutable_borrows);
+    assert!(
+        summary.stats.mutable_borrows > 0,
+        "Should have mutable borrows. Got: {}",
+        summary.stats.mutable_borrows
+    );
 
     // 5. Has moves
-    assert!(summary.stats.moves > 0,
-        "Should have moves. Got: {}", summary.stats.moves);
+    assert!(
+        summary.stats.moves > 0,
+        "Should have moves. Got: {}",
+        summary.stats.moves
+    );
 
     // 6. Has Rc clones
-    assert!(summary.stats.rc_clones > 0,
-        "Should have Rc clones. Got: {}", summary.stats.rc_clones);
+    assert!(
+        summary.stats.rc_clones > 0,
+        "Should have Rc clones. Got: {}",
+        summary.stats.rc_clones
+    );
 
     // 7. Has closures
-    assert!(summary.stats.closures > 0,
-        "Should have closures. Got: {}", summary.stats.closures);
+    assert!(
+        summary.stats.closures > 0,
+        "Should have closures. Got: {}",
+        summary.stats.closures
+    );
 
     // 8. Result is JSON-serializable
     let json = serde_json::to_string(&summary);
-    assert!(json.is_ok(), "Should be JSON-serializable. Error: {:?}", json.err());
+    assert!(
+        json.is_ok(),
+        "Should be JSON-serializable. Error: {:?}",
+        json.err()
+    );
     assert!(!json.unwrap().is_empty());
 
     // ── Test empty_fn (all zeros) ──
@@ -723,7 +874,14 @@ fn test_function_ownership_summary() {
             .find(|f| f.name().map(|n| n.text() == "empty_fn").unwrap_or(false))
             .expect("empty_fn not found");
 
-        analyze_function(&db, &sema, &display_target, &empty_fn, "src/main.rs", &line_index)
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &empty_fn,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // 9. Empty function: all counts 0
@@ -748,8 +906,8 @@ fn test_single_variable_function() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -780,18 +938,35 @@ fn test_single_variable_function() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "single_var_fn").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "single_var_fn")
+                    .unwrap_or(false)
+            })
             .expect("single_var_fn not found");
 
-        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &test_fn,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Single variable function
-    assert_eq!(summary.stats.total_variables, 1,
-        "Should have exactly 1 variable. Got: {}", summary.stats.total_variables);
+    assert_eq!(
+        summary.stats.total_variables, 1,
+        "Should have exactly 1 variable. Got: {}",
+        summary.stats.total_variables
+    );
     assert_eq!(summary.variables.len(), 1);
     assert_eq!(summary.variables[0].name, "only_one");
-    assert!(!summary.variables[0].type_display.is_empty(), "Type should be populated");
+    assert!(
+        !summary.variables[0].type_display.is_empty(),
+        "Type should be populated"
+    );
 
     println!("Single variable function test passed!");
 }
@@ -803,8 +978,8 @@ fn test_ownership_graph_request_full() {
     use borrowscope_lsp::analysis::FunctionOwnershipSummary;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -835,11 +1010,20 @@ fn test_ownership_graph_request_full() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "summary_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "summary_test")
+                    .unwrap_or(false)
+            })
             .expect("summary_test fn not found");
 
         borrowscope_lsp::analysis::analyze_function(
-            &db, &sema, &display_target, &main_fn, "src/main.rs", &line_index,
+            &db,
+            &sema,
+            &display_target,
+            &main_fn,
+            "src/main.rs",
+            &line_index,
         )
     });
 
@@ -877,14 +1061,26 @@ fn test_ownership_graph_request_full() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "summary_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "summary_test")
+                    .unwrap_or(false)
+            })
             .unwrap();
 
         borrowscope_lsp::analysis::analyze_function(
-            &db, &sema, &display_target, &main_fn, "src/main.rs", &line_index,
+            &db,
+            &sema,
+            &display_target,
+            &main_fn,
+            "src/main.rs",
+            &line_index,
         )
     });
-    assert_eq!(summary.stats.total_variables, summary2.stats.total_variables);
+    assert_eq!(
+        summary.stats.total_variables,
+        summary2.stats.total_variables
+    );
     assert_eq!(summary.stats.total_borrows, summary2.stats.total_borrows);
 
     println!("ownershipGraph request test passed! All fields present and correct.");
@@ -921,8 +1117,12 @@ fn test_borrow_scopes_request() {
     let all_scopes = attach_db(&db, || {
         let mut scopes = Vec::new();
         for function in source_file.syntax().descendants().filter_map(ast::Fn::cast) {
-            let fn_scopes =
-                borrowscope_lsp::analysis::compute_borrow_scopes(&db, &sema, &function, &line_index);
+            let fn_scopes = borrowscope_lsp::analysis::compute_borrow_scopes(
+                &db,
+                &sema,
+                &function,
+                &line_index,
+            );
             scopes.extend(fn_scopes);
         }
         scopes
@@ -942,19 +1142,33 @@ fn test_borrow_scopes_request() {
     // 4. Scopes from multiple functions (borrow_scopes_test + main + others)
     let unique_targets: std::collections::HashSet<&str> =
         all_scopes.iter().map(|s| s.target_name.as_str()).collect();
-    assert!(unique_targets.len() >= 2, "Should have borrows of multiple variables. Got: {:?}", unique_targets);
+    assert!(
+        unique_targets.len() >= 2,
+        "Should have borrows of multiple variables. Got: {:?}",
+        unique_targets
+    );
 
     // 5. Each scope has valid range (start <= end)
     for scope in &all_scopes {
-        assert!(scope.end_line >= scope.start_line,
+        assert!(
+            scope.end_line >= scope.start_line,
             "Scope {} should have end >= start (start={}, end={})",
-            scope.borrower_name, scope.start_line, scope.end_line);
+            scope.borrower_name,
+            scope.start_line,
+            scope.end_line
+        );
     }
 
     // 6. Scopes have non-empty borrower and target names
     for scope in &all_scopes {
-        assert!(!scope.borrower_name.is_empty(), "Borrower name should not be empty");
-        assert!(!scope.target_name.is_empty(), "Target name should not be empty");
+        assert!(
+            !scope.borrower_name.is_empty(),
+            "Borrower name should not be empty"
+        );
+        assert!(
+            !scope.target_name.is_empty(),
+            "Target name should not be empty"
+        );
     }
 
     // 7. Result is JSON-serializable
@@ -976,11 +1190,23 @@ fn test_borrow_scopes_request() {
     assert!(has_r1, "Should find r1 from borrow_scopes_test");
 
     // 10. Multiple functions contribute (not all from one function)
-    let from_main = all_scopes.iter().filter(|s| s.target_name == "v" || s.target_name == "m").count();
-    let from_test = all_scopes.iter().filter(|s| s.target_name == "data" || s.target_name == "data2").count();
-    assert!(from_main > 0 || from_test > 0, "Should have scopes from multiple functions");
+    let from_main = all_scopes
+        .iter()
+        .filter(|s| s.target_name == "v" || s.target_name == "m")
+        .count();
+    let from_test = all_scopes
+        .iter()
+        .filter(|s| s.target_name == "data" || s.target_name == "data2")
+        .count();
+    assert!(
+        from_main > 0 || from_test > 0,
+        "Should have scopes from multiple functions"
+    );
 
-    println!("borrowScopes request test passed! ({} scopes from file)", all_scopes.len());
+    println!(
+        "borrowScopes request test passed! ({} scopes from file)",
+        all_scopes.len()
+    );
 }
 
 /// Test borrowscope/variableInfo with real file (step 3.3) - 6 assertions.
@@ -990,8 +1216,8 @@ fn test_variable_info_request() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1023,10 +1249,21 @@ fn test_variable_info_request() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "borrow_scopes_test")
+                    .unwrap_or(false)
+            })
             .expect("borrow_scopes_test fn not found");
 
-        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &test_fn,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // 1. Find "data" variable - it should be borrowed by r1, r2, r3, etc.
@@ -1036,15 +1273,23 @@ fn test_variable_info_request() {
     assert!(!data_var.type_display.is_empty());
 
     // 2. "data" is borrowed by multiple variables
-    let data_borrowers: Vec<&str> = summary.borrow_scopes.iter()
+    let data_borrowers: Vec<&str> = summary
+        .borrow_scopes
+        .iter()
         .filter(|s| s.target_name == "data")
         .map(|s| s.borrower_name.as_str())
         .collect();
     assert!(!data_borrowers.is_empty(), "data should have borrowers");
-    assert!(data_borrowers.contains(&"r1"), "r1 should borrow data. Got: {:?}", data_borrowers);
+    assert!(
+        data_borrowers.contains(&"r1"),
+        "r1 should borrow data. Got: {:?}",
+        data_borrowers
+    );
 
     // 3. "r1" borrows from "data"
-    let r1_borrows_from: Vec<&str> = summary.borrow_scopes.iter()
+    let r1_borrows_from: Vec<&str> = summary
+        .borrow_scopes
+        .iter()
         .filter(|s| s.borrower_name == "r1")
         .map(|s| s.target_name.as_str())
         .collect();
@@ -1064,7 +1309,10 @@ fn test_variable_info_request() {
     assert!(json["name"].is_string());
     assert!(json["type_display"].is_string());
     assert!(json["is_copy"].is_boolean());
-    assert!(json["trait_impls"].is_object(), "Should have trait_impls field");
+    assert!(
+        json["trait_impls"].is_object(),
+        "Should have trait_impls field"
+    );
 
     // 7. Test moved_to: analyze move_detection_test which has moves
     let move_summary = attach_db(&db, || {
@@ -1072,25 +1320,49 @@ fn test_variable_info_request() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "move_detection_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "move_detection_test")
+                    .unwrap_or(false)
+            })
             .expect("move_detection_test fn not found");
 
-        analyze_function(&db, &sema, &display_target, &move_fn, "src/main.rs", &line_index)
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &move_fn,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // "a" is moved to "b" in move_detection_test
     let a_moved_to = move_summary.moves.iter().find(|m| m.source_name == "a");
-    assert!(a_moved_to.is_some(), "Should find move of 'a'. Moves: {:?}",
-        move_summary.moves.iter().map(|m| &m.source_name).collect::<Vec<_>>());
+    assert!(
+        a_moved_to.is_some(),
+        "Should find move of 'a'. Moves: {:?}",
+        move_summary
+            .moves
+            .iter()
+            .map(|m| &m.source_name)
+            .collect::<Vec<_>>()
+    );
     let a_move = a_moved_to.unwrap();
-    assert!(format!("{:?}", a_move.destination).contains("b"),
-        "a should be moved to b. Got: {:?}", a_move.destination);
+    assert!(
+        format!("{:?}", a_move.destination).contains("b"),
+        "a should be moved to b. Got: {:?}",
+        a_move.destination
+    );
 
     // 8. traits field exists and has boolean fields
     let a_var = move_summary.variables.iter().find(|v| v.name == "a");
     assert!(a_var.is_some());
     let a_json = serde_json::to_value(a_var.unwrap()).unwrap();
-    assert!(a_json["trait_impls"].is_object(), "trait_impls should be an object");
+    assert!(
+        a_json["trait_impls"].is_object(),
+        "trait_impls should be an object"
+    );
     assert!(a_json["trait_impls"]["is_sized"].is_boolean());
 
     // 9. Response time < 50ms for cached/repeated lookup
@@ -1100,13 +1372,27 @@ fn test_variable_info_request() {
             .syntax()
             .descendants()
             .filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false))
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "borrow_scopes_test")
+                    .unwrap_or(false)
+            })
             .unwrap();
-        analyze_function(&db, &sema, &display_target, &test_fn, "src/main.rs", &line_index)
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &test_fn,
+            "src/main.rs",
+            &line_index,
+        )
     });
     let elapsed = start.elapsed();
-    assert!(elapsed.as_millis() < 50,
-        "Repeated analysis should be < 50ms (Salsa cache). Got: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 50,
+        "Repeated analysis should be < 50ms (Salsa cache). Got: {:?}",
+        elapsed
+    );
 
     println!("variableInfo request test passed! data borrowed by: {:?}, a moved to: {:?}, cached call: {:?}",
         data_borrowers, a_move.destination, elapsed);
@@ -1122,8 +1408,8 @@ fn test_diagnostics_semantic_no_false_positives() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1131,34 +1417,66 @@ fn test_diagnostics_semantic_no_false_positives() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // borrow_scopes_test has multiple shared borrows of `data` - this is VALID (no conflict)
     let summary = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "borrow_scopes_test").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "borrow_scopes_test")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Multiple shared borrows of same variable should NOT produce a conflict
-    let false_shared_conflicts = summary.conflicts.iter()
-        .filter(|c| matches!(c.kind, borrowscope_lsp::analysis::ConflictKind::MutableAndShared))
+    let false_shared_conflicts = summary
+        .conflicts
+        .iter()
+        .filter(|c| {
+            matches!(
+                c.kind,
+                borrowscope_lsp::analysis::ConflictKind::MutableAndShared
+            )
+        })
         .filter(|c| c.variable == "data")
         .count();
     // r1, r2, r3 all borrow `data` immutably - no conflict
     // Only a mutable+shared overlap would be a real conflict
-    println!("Diagnostics: {} total conflicts, {} false shared-only conflicts on 'data'",
-        summary.conflicts.len(), false_shared_conflicts);
+    println!(
+        "Diagnostics: {} total conflicts, {} false shared-only conflicts on 'data'",
+        summary.conflicts.len(),
+        false_shared_conflicts
+    );
 }
 
 #[test]
@@ -1167,8 +1485,8 @@ fn test_code_lens_semantic_all_functions() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1176,29 +1494,50 @@ fn test_code_lens_semantic_all_functions() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // Every function should produce a valid summary (CodeLens data)
     let results: Vec<(String, usize, usize, usize)> = attach_db(&db, || {
-        source_file.syntax().descendants().filter_map(ast::Fn::cast)
+        source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
             .filter_map(|f| {
                 let name = f.name()?.text().to_string();
-                let s = analyze_function(&db, &sema, &display_target, &f, "src/main.rs", &line_index);
-                Some((name, s.stats.total_variables, s.stats.total_borrows, s.stats.moves))
-            }).collect()
+                let s =
+                    analyze_function(&db, &sema, &display_target, &f, "src/main.rs", &line_index);
+                Some((
+                    name,
+                    s.stats.total_variables,
+                    s.stats.total_borrows,
+                    s.stats.moves,
+                ))
+            })
+            .collect()
     });
 
-    assert!(results.len() >= 8, "Should analyze at least 8 functions. Got: {}", results.len());
+    assert!(
+        results.len() >= 8,
+        "Should analyze at least 8 functions. Got: {}",
+        results.len()
+    );
 
     // empty_fn should have 0 vars
     let empty = results.iter().find(|r| r.0 == "empty_fn").unwrap();
@@ -1211,7 +1550,10 @@ fn test_code_lens_semantic_all_functions() {
     assert!(summary.3 > 0, "summary_test should have moves");
 
     for (name, vars, borrows, moves) in &results {
-        println!("  CodeLens: {} -> {} vars, {} borrows, {} moves", name, vars, borrows, moves);
+        println!(
+            "  CodeLens: {} -> {} vars, {} borrows, {} moves",
+            name, vars, borrows, moves
+        );
     }
 }
 
@@ -1221,8 +1563,8 @@ fn test_inlay_hint_semantic_categories() {
     use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1230,36 +1572,60 @@ fn test_inlay_hint_semantic_categories() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     let summary = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "main").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "main").unwrap_or(false))
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Verify semantic categories (these are what inlayHints would show)
     let check = |name: &str, expected: OwnershipCategory| {
-        let var = summary.variables.iter().find(|v| v.name == name)
+        let var = summary
+            .variables
+            .iter()
+            .find(|v| v.name == name)
             .unwrap_or_else(|| panic!("Variable '{}' not found", name));
-        assert_eq!(var.ownership_category, expected,
-            "'{}' expected {:?}, got {:?}", name, expected, var.ownership_category);
+        assert_eq!(
+            var.ownership_category, expected,
+            "'{}' expected {:?}, got {:?}",
+            name, expected, var.ownership_category
+        );
     };
 
-    check("x", OwnershipCategory::Copy);          // i32 -> no hint
-    check("v", OwnershipCategory::Owned);          // Vec -> no hint
-    check("r", OwnershipCategory::SharedRef);      // &Vec -> [&]
-    check("m", OwnershipCategory::MutableRef);     // &mut Vec -> [&mut]
+    check("x", OwnershipCategory::Copy); // i32 -> no hint
+    check("v", OwnershipCategory::Owned); // Vec -> no hint
+    check("r", OwnershipCategory::SharedRef); // &Vec -> [&]
+    check("m", OwnershipCategory::MutableRef); // &mut Vec -> [&mut]
     check("rc", OwnershipCategory::Rc); // Rc -> [Rc]
     check("cell", OwnershipCategory::InteriorMut); // RefCell -> [Cell]
 
@@ -1277,8 +1643,8 @@ fn test_inlay_hint_semantic_visible_range_filtering() {
     use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1286,44 +1652,80 @@ fn test_inlay_hint_semantic_visible_range_filtering() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     let summary = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "main").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| f.name().map(|n| n.text() == "main").unwrap_or(false))
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Simulate visible range filtering (lines 10-15 only)
     let visible_start = 10u32;
     let visible_end = 15u32;
-    let visible_hints: Vec<_> = summary.variables.iter()
+    let visible_hints: Vec<_> = summary
+        .variables
+        .iter()
         .filter(|v| {
             let var_line = v.line.saturating_sub(1);
             var_line >= visible_start && var_line <= visible_end
         })
-        .filter(|v| !matches!(v.ownership_category, OwnershipCategory::Owned | OwnershipCategory::Copy))
+        .filter(|v| {
+            !matches!(
+                v.ownership_category,
+                OwnershipCategory::Owned | OwnershipCategory::Copy
+            )
+        })
         .collect();
 
     // Should only include variables in the visible range that need hints
     for h in &visible_hints {
         let line = h.line.saturating_sub(1);
-        assert!(line >= visible_start && line <= visible_end,
-            "'{}' at line {} should be in range {}-{}", h.name, line, visible_start, visible_end);
+        assert!(
+            line >= visible_start && line <= visible_end,
+            "'{}' at line {} should be in range {}-{}",
+            h.name,
+            line,
+            visible_start,
+            visible_end
+        );
     }
 
-    println!("InlayHint range filtering: {} hints in lines {}-{} (out of {} total vars)",
-        visible_hints.len(), visible_start, visible_end, summary.variables.len());
+    println!(
+        "InlayHint range filtering: {} hints in lines {}-{} (out of {} total vars)",
+        visible_hints.len(),
+        visible_start,
+        visible_end,
+        summary.variables.len()
+    );
 }
 
 #[test]
@@ -1332,8 +1734,8 @@ fn test_semantic_edge_cases_no_heuristics() {
     use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1341,30 +1743,67 @@ fn test_semantic_edge_cases_no_heuristics() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     let summary = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "semantic_edge_cases").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "semantic_edge_cases")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     let check = |name: &str, expected: OwnershipCategory| {
-        let var = summary.variables.iter().find(|v| v.name == name)
-            .unwrap_or_else(|| panic!("Variable '{}' not found. Available: {:?}",
-                name, summary.variables.iter().map(|v| &v.name).collect::<Vec<_>>()));
-        assert_eq!(var.ownership_category, expected,
-            "'{}' expected {:?}, got {:?} (type: {})", name, expected, var.ownership_category, var.type_display);
+        let var = summary
+            .variables
+            .iter()
+            .find(|v| v.name == name)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Variable '{}' not found. Available: {:?}",
+                    name,
+                    summary
+                        .variables
+                        .iter()
+                        .map(|v| &v.name)
+                        .collect::<Vec<_>>()
+                )
+            });
+        assert_eq!(
+            var.ownership_category, expected,
+            "'{}' expected {:?}, got {:?} (type: {})",
+            name, expected, var.ownership_category, var.type_display
+        );
     };
 
     // Type alias: `type MyRc<T> = Rc<T>` → hir resolves through alias to Rc
@@ -1391,8 +1830,8 @@ fn test_refcell_guard_borrow_scopes() {
     use borrowscope_lsp::analysis::compute_borrow_scopes;
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1402,17 +1841,30 @@ fn test_refcell_guard_borrow_scopes() {
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     let scopes = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "interior_mutability_example").unwrap_or(false)).unwrap();
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "interior_mutability_example")
+                    .unwrap_or(false)
+            })
+            .unwrap();
         compute_borrow_scopes(&db, &sema, &func, &line_index)
     });
 
@@ -1420,20 +1872,37 @@ fn test_refcell_guard_borrow_scopes() {
     let reader_scope = scopes.iter().find(|s| s.borrower_name == "reader");
     let writer_scope = scopes.iter().find(|s| s.borrower_name == "writer");
 
-    assert!(reader_scope.is_some(),
+    assert!(
+        reader_scope.is_some(),
         "Should detect RefCell::borrow() as a borrow scope. Found: {:?}",
-        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>());
-    assert!(!reader_scope.unwrap().is_mutable, "reader should be shared (not mutable)");
-    assert_eq!(reader_scope.unwrap().target_name, "cell", "reader borrows cell");
+        scopes.iter().map(|s| &s.borrower_name).collect::<Vec<_>>()
+    );
+    assert!(
+        !reader_scope.unwrap().is_mutable,
+        "reader should be shared (not mutable)"
+    );
+    assert_eq!(
+        reader_scope.unwrap().target_name,
+        "cell",
+        "reader borrows cell"
+    );
 
-    assert!(writer_scope.is_some(),
-        "Should detect RefCell::borrow_mut() as a borrow scope");
+    assert!(
+        writer_scope.is_some(),
+        "Should detect RefCell::borrow_mut() as a borrow scope"
+    );
     assert!(writer_scope.unwrap().is_mutable, "writer should be mutable");
-    assert_eq!(writer_scope.unwrap().target_name, "cell", "writer borrows cell");
+    assert_eq!(
+        writer_scope.unwrap().target_name,
+        "cell",
+        "writer borrows cell"
+    );
 
-    println!("RefCell guard scopes: reader={:?}, writer={:?}",
+    println!(
+        "RefCell guard scopes: reader={:?}, writer={:?}",
         reader_scope.map(|s| (&s.borrower_name, s.is_mutable)),
-        writer_scope.map(|s| (&s.borrower_name, s.is_mutable)));
+        writer_scope.map(|s| (&s.borrower_name, s.is_mutable))
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1446,8 +1915,8 @@ fn test_incremental_type_change_invalidates_dependents() {
     use borrowscope_lsp::analysis::{analyze_function, OwnershipCategory};
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1455,36 +1924,63 @@ fn test_incremental_type_change_invalidates_dependents() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // Analyze a function that uses the Database struct
     let summary = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "nested_borrows").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "nested_borrows")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // The function uses Database struct — if Database changes, this function's
     // analysis would be invalidated by Salsa. We verify the analysis works.
-    assert!(summary.variables.len() > 0,
-        "nested_borrows should have variables (uses Database struct)");
+    assert!(
+        summary.variables.len() > 0,
+        "nested_borrows should have variables (uses Database struct)"
+    );
 
     // Verify that a variable referencing Database fields is correctly typed
     let db_var = summary.variables.iter().find(|v| v.name == "db");
     assert!(db_var.is_some(), "Should find 'db' variable");
 
-    println!("Type change invalidation: nested_borrows has {} vars, db type: {}",
-        summary.variables.len(), db_var.unwrap().type_display);
+    println!(
+        "Type change invalidation: nested_borrows has {} vars, db type: {}",
+        summary.variables.len(),
+        db_var.unwrap().type_display
+    );
 }
 
 #[test]
@@ -1493,8 +1989,8 @@ fn test_incremental_returns_fresh_type_after_change() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1502,39 +1998,81 @@ fn test_incremental_returns_fresh_type_after_change() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // First analysis
     let summary1 = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "basic_borrows").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "basic_borrows")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Second analysis of same function (should return cached, identical result)
     let summary2 = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "basic_borrows").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "basic_borrows")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Results should be identical (Salsa cache hit)
-    assert_eq!(summary1.variables.len(), summary2.variables.len(),
-        "Cached result should be identical");
+    assert_eq!(
+        summary1.variables.len(),
+        summary2.variables.len(),
+        "Cached result should be identical"
+    );
     assert_eq!(summary1.function_name, summary2.function_name);
 
-    println!("Fresh type test: both calls returned {} vars for basic_borrows",
-        summary1.variables.len());
+    println!(
+        "Fresh type test: both calls returned {} vars for basic_borrows",
+        summary1.variables.len()
+    );
 }
 
 #[test]
@@ -1543,8 +2081,8 @@ fn test_incremental_performance_cached_under_100ms() {
     use borrowscope_lsp::analysis::analyze_function;
     use ra_ap_hir::{self as hir, DisplayTarget, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1552,39 +2090,82 @@ fn test_incremental_performance_cached_under_100ms() {
     let main_path = VfsPath::new_real_path("/tmp/bs-test-project/src/main.rs".to_string());
     let (file_id, _) = vfs.file_id(&main_path).unwrap();
     let source_file = sema.parse(sema.attach_first_edition(file_id));
-    let display_target = hir::Crate::all(&db).first()
-        .map(|k| DisplayTarget::from_crate(&db, (*k).into())).unwrap();
+    let display_target = hir::Crate::all(&db)
+        .first()
+        .map(|k| DisplayTarget::from_crate(&db, (*k).into()))
+        .unwrap();
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // First call (cold cache — may be slow)
     attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "basic_borrows").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "basic_borrows")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
 
     // Second call (warm cache — should be < 100ms)
     let start = std::time::Instant::now();
     let summary = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "basic_borrows").unwrap_or(false)).unwrap();
-        analyze_function(&db, &sema, &display_target, &func, "src/main.rs", &line_index)
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "basic_borrows")
+                    .unwrap_or(false)
+            })
+            .unwrap();
+        analyze_function(
+            &db,
+            &sema,
+            &display_target,
+            &func,
+            "src/main.rs",
+            &line_index,
+        )
     });
     let elapsed = start.elapsed();
 
-    assert!(elapsed.as_millis() < 100,
-        "Cached analysis should complete in < 100ms. Got: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Cached analysis should complete in < 100ms. Got: {:?}",
+        elapsed
+    );
     assert!(summary.variables.len() > 0);
 
-    println!("Performance: cached analysis of basic_borrows took {:?}", elapsed);
+    println!(
+        "Performance: cached analysis of basic_borrows took {:?}",
+        elapsed
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1597,8 +2178,8 @@ fn test_cross_function_borrow_detection() {
     use borrowscope_lsp::analysis::analyze_cross_function_borrows;
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1608,35 +2189,62 @@ fn test_cross_function_borrow_detection() {
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // Test cross_call_borrows function which passes &data to process_slice
     let cross_borrows = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "borrow_through_return").unwrap_or(false)).unwrap();
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "borrow_through_return")
+                    .unwrap_or(false)
+            })
+            .unwrap();
         analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
     });
 
     // Should detect at least one cross-function borrow (longest(&s1, &s2) or first_word(&sentence))
-    assert!(!cross_borrows.is_empty(),
+    assert!(
+        !cross_borrows.is_empty(),
         "Should detect cross-function borrows. Got: {:?}",
-        cross_borrows.iter().map(|b| &b.origin_variable).collect::<Vec<_>>());
+        cross_borrows
+            .iter()
+            .map(|b| &b.origin_variable)
+            .collect::<Vec<_>>()
+    );
 
     // Each borrow should have at least 2 path segments (origin + parameter)
     for b in &cross_borrows {
-        assert!(b.path.len() >= 2,
+        assert!(
+            b.path.len() >= 2,
             "Borrow path should have >= 2 segments. Got {} for {}",
-            b.path.len(), b.origin_variable);
+            b.path.len(),
+            b.origin_variable
+        );
     }
 
-    println!("Cross-function borrows detected: {}",
-        cross_borrows.iter().map(|b| format!("{} -> {}", b.origin_variable, b.path[1].function_name)).collect::<Vec<_>>().join(", "));
+    println!(
+        "Cross-function borrows detected: {}",
+        cross_borrows
+            .iter()
+            .map(|b| format!("{} -> {}", b.origin_variable, b.path[1].function_name))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 }
 
 #[test]
@@ -1645,8 +2253,8 @@ fn test_cross_function_direct_call() {
     use borrowscope_lsp::analysis::analyze_cross_function_borrows;
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1656,31 +2264,66 @@ fn test_cross_function_direct_call() {
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // cross_function_demo calls process_items(&data) — direct call with reference arg
     let borrows = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "cross_function_demo").unwrap_or(false)).unwrap();
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "cross_function_demo")
+                    .unwrap_or(false)
+            })
+            .unwrap();
         analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
     });
 
     // Should detect process_items(&data) and transform_string(&mut text) and first_word(&sentence)
-    let process_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].function_name == "process_items");
-    assert!(process_borrow.is_some(), "Should detect process_items(&data). Found: {:?}",
-        borrows.iter().map(|b| format!("{} -> {}", b.origin_variable, b.path.get(1).map(|p| p.function_name.as_str()).unwrap_or("?"))).collect::<Vec<_>>());
+    let process_borrow = borrows
+        .iter()
+        .find(|b| b.path.len() > 1 && b.path[1].function_name == "process_items");
+    assert!(
+        process_borrow.is_some(),
+        "Should detect process_items(&data). Found: {:?}",
+        borrows
+            .iter()
+            .map(|b| format!(
+                "{} -> {}",
+                b.origin_variable,
+                b.path
+                    .get(1)
+                    .map(|p| p.function_name.as_str())
+                    .unwrap_or("?")
+            ))
+            .collect::<Vec<_>>()
+    );
 
     // Parameter name should be resolved (not param[0])
     let p = process_borrow.unwrap();
-    assert!(!p.path[1].variable.contains("param["), "Should resolve param name, got: {}", p.path[1].variable);
+    assert!(
+        !p.path[1].variable.contains("param["),
+        "Should resolve param name, got: {}",
+        p.path[1].variable
+    );
 
-    println!("Direct call test passed: {} -> {}({})", p.origin_variable, p.path[1].function_name, p.path[1].variable);
+    println!(
+        "Direct call test passed: {} -> {}({})",
+        p.origin_variable, p.path[1].function_name, p.path[1].variable
+    );
 }
 
 #[test]
@@ -1689,8 +2332,8 @@ fn test_cross_function_method_call() {
     use borrowscope_lsp::analysis::analyze_cross_function_borrows;
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1700,27 +2343,58 @@ fn test_cross_function_method_call() {
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // mutable_borrows() calls m.push(4) — method call with &mut self
     let borrows = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "mutable_borrows").unwrap_or(false)).unwrap();
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "mutable_borrows")
+                    .unwrap_or(false)
+            })
+            .unwrap();
         analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
     });
 
     // Should detect method calls (push, retain, etc.)
-    let method_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].variable == "self");
-    assert!(method_borrow.is_some(), "Should detect method calls with &self/&mut self. Found: {:?}",
-        borrows.iter().map(|b| format!("{} -> {}", b.origin_variable, b.path.get(1).map(|p| p.function_name.as_str()).unwrap_or("?"))).collect::<Vec<_>>());
+    let method_borrow = borrows
+        .iter()
+        .find(|b| b.path.len() > 1 && b.path[1].variable == "self");
+    assert!(
+        method_borrow.is_some(),
+        "Should detect method calls with &self/&mut self. Found: {:?}",
+        borrows
+            .iter()
+            .map(|b| format!(
+                "{} -> {}",
+                b.origin_variable,
+                b.path
+                    .get(1)
+                    .map(|p| p.function_name.as_str())
+                    .unwrap_or("?")
+            ))
+            .collect::<Vec<_>>()
+    );
 
-    println!("Method call test passed: {} method calls detected", borrows.len());
+    println!(
+        "Method call test passed: {} method calls detected",
+        borrows.len()
+    );
 }
 
 #[test]
@@ -1729,8 +2403,8 @@ fn test_cross_function_mutable_borrow() {
     use borrowscope_lsp::analysis::analyze_cross_function_borrows;
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1740,24 +2414,45 @@ fn test_cross_function_mutable_borrow() {
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // cross_function_demo calls transform_string(&mut text)
     let borrows = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "cross_function_demo").unwrap_or(false)).unwrap();
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "cross_function_demo")
+                    .unwrap_or(false)
+            })
+            .unwrap();
         analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
     });
 
-    let mut_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].function_name == "transform_string");
-    assert!(mut_borrow.is_some(), "Should detect transform_string(&mut text)");
-    assert!(mut_borrow.unwrap().path[1].is_mutable, "Should be marked as mutable borrow");
+    let mut_borrow = borrows
+        .iter()
+        .find(|b| b.path.len() > 1 && b.path[1].function_name == "transform_string");
+    assert!(
+        mut_borrow.is_some(),
+        "Should detect transform_string(&mut text)"
+    );
+    assert!(
+        mut_borrow.unwrap().path[1].is_mutable,
+        "Should be marked as mutable borrow"
+    );
 
     println!("Mutable cross-function borrow test passed");
 }
@@ -1768,8 +2463,8 @@ fn test_cross_function_no_borrows_for_owned_args() {
     use borrowscope_lsp::analysis::analyze_cross_function_borrows;
     use ra_ap_hir::{self as hir, Semantics};
     use ra_ap_hir_ty::attach_db;
-    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_syntax::ast::HasName;
+    use ra_ap_syntax::{ast, AstNode, TextSize};
     use ra_ap_vfs::VfsPath;
 
     let (db, vfs) = load_workspace();
@@ -1779,24 +2474,45 @@ fn test_cross_function_no_borrows_for_owned_args() {
     let source_file = sema.parse(sema.attach_first_edition(file_id));
     let file_text = std::fs::read_to_string("/tmp/bs-test-project/src/main.rs").unwrap();
     let line_starts: Vec<usize> = std::iter::once(0)
-        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+        .chain(file_text.match_indices('\n').map(|(i, _)| i + 1))
+        .collect();
     let line_index = |offset: TextSize| -> (u32, u32) {
         let offset = u32::from(offset) as usize;
         let line = line_starts.partition_point(|&start| start <= offset) as u32;
-        let col = offset - line_starts.get(line.saturating_sub(1) as usize).copied().unwrap_or(0);
+        let col = offset
+            - line_starts
+                .get(line.saturating_sub(1) as usize)
+                .copied()
+                .unwrap_or(0);
         (line, col as u32)
     };
 
     // move_patterns() calls consume_string(s) — owned arg, NOT a borrow
     let borrows = attach_db(&db, || {
-        let func = source_file.syntax().descendants().filter_map(ast::Fn::cast)
-            .find(|f| f.name().map(|n| n.text() == "move_patterns").unwrap_or(false)).unwrap();
+        let func = source_file
+            .syntax()
+            .descendants()
+            .filter_map(ast::Fn::cast)
+            .find(|f| {
+                f.name()
+                    .map(|n| n.text() == "move_patterns")
+                    .unwrap_or(false)
+            })
+            .unwrap();
         analyze_cross_function_borrows(&db, &sema, &func, "src/main.rs", &line_index)
     });
 
     // consume_string takes String (owned), not &String — should NOT appear
-    let consume_borrow = borrows.iter().find(|b| b.path.len() > 1 && b.path[1].function_name == "consume_string");
-    assert!(consume_borrow.is_none(), "Owned args should NOT be detected as cross-function borrows");
+    let consume_borrow = borrows
+        .iter()
+        .find(|b| b.path.len() > 1 && b.path[1].function_name == "consume_string");
+    assert!(
+        consume_borrow.is_none(),
+        "Owned args should NOT be detected as cross-function borrows"
+    );
 
-    println!("No-borrow for owned args test passed (found {} borrows, none for consume_string)", borrows.len());
+    println!(
+        "No-borrow for owned args test passed (found {} borrows, none for consume_string)",
+        borrows.len()
+    );
 }
