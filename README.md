@@ -1,6 +1,6 @@
 <div align="center">
   <img src="logo.png" alt="BorrowScope Logo" width="400"/>
-  
+
   > Real-time ownership visualization for Rust - static analysis + runtime tracking + VS Code integration
 
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
@@ -8,7 +8,7 @@
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust Version](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
   [![Tests](https://img.shields.io/badge/tests-2100%2B%20passing-brightgreen.svg)](https://github.com/mehmet-ylcnky/BorrowScope)
-  
+
   📄 [Read the Technical Whitepapers](https://mehmet-ylcnky.github.io/BorrowScope/)
 </div>
 
@@ -28,10 +28,10 @@ BorrowScope is a comprehensive Rust ownership visualization platform that combin
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        VS Code Extension (borrowscope-vscode)            │
-│                                                                          │
-│  ┌──────────────────────┐    ┌──────────────────────────────────────┐   │
+┌───────────────────────────────────────────────────────────────────────────┐
+│                        VS Code Extension (borrowscope-vscode)             │
+│                                                                           │
+│  ┌───────────────────────┐    ┌───────────────────────────────────────┐   │
 │  │   Editor Decorations  │    │   WebView Panel (11 views)            │   │
 │  │   • Inline hints      │    │   • Force-directed graph              │   │
 │  │   • Lifeline flows    │    │   • Timeline, Scopes, RefCount        │   │
@@ -41,21 +41,21 @@ BorrowScope is a comprehensive Rust ownership visualization platform that combin
 │             │                                 │                           │
 ├─────────────┼─────────────────────────────────┼───────────────────────────┤
 │             ▼                                 ▼                           │
-│  ┌─────────────────────┐    ┌────────────────────────────────────────┐   │
-│  │  borrowscope-lsp     │    │  borrowscope-runtime (optional)         │   │
-│  │  (Language Server)   │    │  (Runtime Event Tracking)               │   │
-│  │                      │    │                                         │   │
-│  │  • Ownership graph   │    │  • 88 event types                       │   │
-│  │  • Borrow scopes     │    │  • Timing & drop order                  │   │
-│  │  • Memory layout     │    │  • Ref count tracking                   │   │
-│  │  • Cross-function    │    │  • Memory addresses                     │   │
-│  │  • Conflict detect   │    │  • Async borrow tracking                │   │
-│  └─────────────────────┘    └────────────────────────────────────────┘   │
+│  ┌──────────────────────┐    ┌─────────────────────────────────────────┐  │
+│  │  borrowscope-lsp     │    │  borrowscope-runtime (optional)         │  │
+│  │  (Language Server)   │    │  (Runtime Event Tracking)               │  │
+│  │                      │    │                                         │  │
+│  │  • Ownership graph   │    │  • 88 event types                       │  │
+│  │  • Borrow scopes     │    │  • Timing & drop order                  │  │
+│  │  • Memory layout     │    │  • Ref count tracking                   │  │
+│  │  • Cross-function    │    │  • Memory addresses                     │  │
+│  │  • Conflict detect   │    │  • Async borrow tracking                │  │
+│  └──────────────────────┘    └─────────────────────────────────────────┘  │
 │         ▲                              ▲                                  │
 │         │ ra_ap_* (rust-analyzer)      │ #[trace_borrow] macro            │
 └─────────┼──────────────────────────────┼──────────────────────────────────┘
           │                              │
-    ┌─────┴──────────┐           ┌──────┴───────────┐
+    ┌─────┴──────────┐           ┌───────┴───────────┐
     │ borrowscope-   │           │ borrowscope-      │
     │ analyzer       │           │ macro             │
     │ (Static types) │           │ (Auto-instrument) │
@@ -146,7 +146,7 @@ fn main() {
     println!("{:?}", r);
     track_drop("r");
     track_drop("data");
-    
+
     // Export events for VS Code
     std::fs::create_dir_all(".borrowscope").ok();
     let events = get_events();
