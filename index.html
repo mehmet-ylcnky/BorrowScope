@@ -172,11 +172,30 @@
                     </li>
                 </ul>
             </div>
+            <div class="paper">
+                <h2><code>borrowscope-lsp</code></h2>
+                <p>Language Server Protocol implementation providing real-time ownership visualization in any editor. Includes semantic analysis engine, cross-function borrow tracking, memory layout visualization, and a VS Code extension with 11 interactive views.</p>
+                <span class="tag">v0.1.0</span>
+                <ul class="articles">
+                    <li>
+                        <a href="lsp-based-ownership-visualization/">
+                            <span class="article-title">Real-Time Ownership Visualization via Language Server Protocol</span>
+                            <span class="article-desc">Architecture, Analysis Engine & Evaluation · Jun 2026</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="vscode-ownership-visualization/">
+                            <span class="article-title">Interactive Ownership Visualization for Rust in VS Code</span>
+                            <span class="article-desc">11 Views, Runtime-Static Merge & Divergence Detection · Jul 2026</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
             <div class="paper placeholder">
                 <h2><code>borrowscope-memory</code></h2>
-                <p>Memory layout analysis and allocation tracking. Bridges logical ownership with physical memory usage, stack vs heap visualization, cache line analysis, and fragmentation detection.</p>
-                <span class="tag roadmap">Future Roadmap</span>
-                <p class="no-articles">No articles yet</p>
+                <p>Memory layout analysis integrated into <code>borrowscope-lsp</code>. Reconstructs stack frames with field-level detail for 12+ standard library types, detects heap allocations, maps pointer relationships, and provides a play/scrub timeline showing how the stack frame evolves line by line. Covered in the LSP and VS Code papers above.</p>
+                <span class="tag">Integrated into borrowscope-lsp</span>
+                <p class="no-articles">See: LSP paper Section 6, VS Code paper Section 4.12</p>
             </div>
             <div class="paper placeholder">
                 <h2><code>borrowscope-cli</code></h2>
