@@ -3,7 +3,6 @@
   
   > Real-time ownership visualization for Rust — static analysis + runtime tracking + VS Code integration
 
-  [![Crates.io](https://img.shields.io/crates/v/borrowscope-runtime.svg)](https://crates.io/crates/borrowscope-runtime)
   [![CI](https://github.com/mehmet-ylcnky/BorrowScope/actions/workflows/ci.yml/badge.svg)](https://github.com/mehmet-ylcnky/BorrowScope/actions)
   [![codecov](https://codecov.io/gh/mehmet-ylcnky/BorrowScope/branch/main/graph/badge.svg)](https://codecov.io/gh/mehmet-ylcnky/BorrowScope)
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
