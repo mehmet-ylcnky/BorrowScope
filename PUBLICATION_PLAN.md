@@ -10,9 +10,8 @@
 | 4 | Bridging the Type Information Gap | borrowscope-analyzer | Mar 2026 | [Link](borrowscope-analyzer-whitepaper/) |
 | 5 | Eliminating Heuristics from Rust Procedural Macros (v3.0) | borrowscope-analyzer + macro | May 2026 | [Link](eliminating-heuristics-from-rust-proc-macros/) |
 | 6 | Ownership Graph Construction from Runtime Event Streams | borrowscope-graph | May 2026 | [Link](ownership-graph-construction/) |
-| 7 | Battle-Testing BorrowScope on Real-World Crates | All | May 2026 | [Link](battle-test-whitepaper/) |
-| 8 | Real-Time Ownership Visualization via Language Server Protocol | borrowscope-lsp | Jun 2026 | [Link](lsp-based-ownership-visualization/) |
-| 9 | Interactive Ownership Visualization for Rust in VS Code | borrowscope-vscode | Jun 2026 | [Link](vscode-ownership-visualization/) |
+| 7 | Real-Time Ownership Visualization via Language Server Protocol | borrowscope-lsp | Jun 2026 | [Link](lsp-based-ownership-visualization/) |
+| 8 | Interactive Ownership Visualization for Rust in VS Code | borrowscope-vscode | Jun 2026 | [Link](vscode-ownership-visualization/) |
 
 ---
 
@@ -59,16 +58,16 @@
 
 | Paper | Status | Date |
 |-------|--------|------|
-| Papers 1-7 | Published | Dec 2025 - May 2026 |
-| Paper 8: LSP Server | Published | Jun 2026 |
-| Paper 9: VS Code Extension | Published | Jun 2026 |
-| Paper 10: Runtime-Static Merge | Planned | TBD |
-| Paper 11: End-to-End Pipeline | Planned | TBD |
+| Papers 1-6 | Published | Dec 2025 - May 2026 |
+| Paper 7: LSP Server | Published | Jun 2026 |
+| Paper 8: VS Code Extension | Published | Jun 2026 |
+| Paper 9: Runtime-Static Merge | Planned | TBD |
+| Paper 10: End-to-End Pipeline | Planned | TBD |
 
 ---
 
 ## Total Publication Count
 
-- **Published:** 9 papers
+- **Published:** 8 papers
 - **Planned:** 2 papers
-- **Grand total:** 11 papers covering the complete BorrowScope ecosystem
+- **Grand total:** 10 papers covering the complete BorrowScope ecosystem
