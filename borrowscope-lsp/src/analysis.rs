@@ -1948,6 +1948,17 @@ pub fn analyze_cross_function_borrows(
                             .display_no_db(ra_ap_syntax::Edition::Edition2021)
                             .to_string();
 
+                        // Resolve the target function's source file
+                        use hir::HasSource;
+                        let target_file = func
+                            .source(db)
+                            .map(|in_file| {
+                                let editioned = in_file.file_id.original_file(db);
+                                let file_id = editioned.file_id(db);
+                                format!("file_id:{}", file_id.index())
+                            })
+                            .unwrap_or_else(|| file_path.to_string());
+
                         results.push(CrossFunctionBorrow {
                             origin_variable: receiver_text.clone(),
                             origin_line: call_line,
@@ -1962,7 +1973,7 @@ pub fn analyze_cross_function_borrows(
                                     kind: BorrowPathKind::Origin,
                                 },
                                 BorrowPathSegment {
-                                    file: file_path.to_string(),
+                                    file: target_file,
                                     function_name: target_fn_name,
                                     variable: "self".to_string(),
                                     start_line: 0,
