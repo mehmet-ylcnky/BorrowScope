@@ -167,6 +167,11 @@
         This view is particularly useful during refactoring: the developer can see immediately how a code change affected the ownership structure. Adding a new borrow, removing a clone, or introducing a move all appear as clear additions or removals. If nothing changed (e.g., only a comment was edited), the view shows an equals sign with "No ownership changes." The comparison is computed purely from the graph data (variable names and borrow relationships), not from source text diffs.
     </p>
 
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-10_diff.png" alt="Comparison view showing added and removed variables between two states" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Comparison view showing ownership changes between previous and current function state</p>
+    </div>
+
     <h2>4.11 Cross-References View</h2>
     <p>
         The cross-references view shows borrows that flow across function boundaries. It has a split layout: a file tree on the left listing all files involved in cross-function borrows (with badge counts showing how many borrows cross into each file), and a D3.js force-directed graph on the right showing function nodes connected by borrow edges. The current function is highlighted in blue; target functions are shown in green.
@@ -176,7 +181,10 @@
     </p>
 
     <!-- SCREENSHOT: Cross-references view with file tree on left and D3 graph on right showing function nodes connected by borrow edges -->
-    <div class="screenshot-placeholder">Screenshot: Cross-references view with file tree (src/main.rs, src/service.rs) and force-directed graph showing main() → process() → validate() borrow flow</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-11_cross_ref.png" alt="Cross-references view with file tree and function graph" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Cross-references view showing file tree and function-level borrow flow graph</p>
+    </div>
 
     <h2>4.12 Memory Layout View</h2>
     <p>
@@ -190,7 +198,10 @@
     </p>
 
     <!-- SCREENSHOT: Memory layout view showing stack column with variables and fields, heap column with allocations, and the play/scrub timeline at the bottom -->
-    <div class="screenshot-placeholder">Screenshot: Memory layout view with stack (data: Vec at offset 0, 24B with ptr/len/cap fields) and heap (backing storage, ~24B), plus scrub timeline</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-12_memory.png" alt="Memory layout view with stack and heap columns" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Memory layout view showing stack frame with field-level detail, heap allocations, and play/scrub timeline</p>
+    </div>
 
     <h2>4.13 Runtime View (4 Sub-tabs)</h2>
     <p>
@@ -207,8 +218,14 @@
     </p>
 
     <!-- SCREENSHOT: Runtime view showing the Timeline sub-tab with horizontal lifetime bars, play button, and scrub slider -->
-    <div class="screenshot-placeholder">Screenshot: Runtime view Timeline sub-tab with colored lifetime bars, borrow overlays, play/pause button, and time scrub slider showing 100%</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-13_timeline.png" alt="Runtime view Timeline sub-tab with lifetime bars" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Runtime view Timeline sub-tab showing variable lifetimes with play/scrub controls</p>
+    </div>
 
     <!-- SCREENSHOT: Runtime view showing the Drop Order sub-tab with numbered badges -->
-    <div class="screenshot-placeholder">Screenshot: Runtime view Drop Order sub-tab showing #1 data (lived 4.2ms), #2 r (lived 2.1ms), #3 config (lived 8.7ms)</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-13_drop.png" alt="Runtime view Drop Order sub-tab with numbered sequence" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Runtime view Drop Order sub-tab showing the exact destruction sequence with lifetime durations</p>
+    </div>
 </div>
