@@ -3,6 +3,15 @@
     <p>
         The second feedback channel is a dedicated WebView panel that opens beside the editor. Unlike inline decorations (which are limited to text annotations), the panel can render arbitrary HTML, SVG, and JavaScript, enabling rich interactive visualizations. The panel uses D3.js for force-directed graphs and SVG rendering, and vanilla JavaScript for the remaining views. All 11 views share a single panel instance, switched via a vertical toolbar on the right side. The panel communicates with the extension host via <code>postMessage</code> for navigation (clicking a node jumps to the source line) and view state persistence.
     </p>
+    <p>
+        When the developer clicks a CodeLens above a function, the panel opens with a landing page showing the function name, summary statistics, and a grid of circular icons for each available view. This landing page serves as both a navigation hub and a quick overview of the function's ownership complexity. The following screenshot shows the landing page for a function with multiple ownership patterns:
+    </p>
+
+    <!-- Landing page screenshot -->
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/5_landing_page.png" alt="WebView panel landing page with 11 view icons" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: The WebView panel landing page showing function name, ownership statistics, and the 11 view selection icons</p>
+    </div>
 
     <h2>4.1 Landing Page and View Selection</h2>
     <p>
@@ -15,8 +24,7 @@
         The last selected view is persisted via <code>workspaceState</code>, so reopening the panel returns to the same view the developer was using before. The view state is also communicated back to the extension host via <code>postMessage({ type: 'viewChanged', view: name })</code>, enabling the extension to offer view-specific commands (e.g., "Show Timeline" directly opens the timeline view).
     </p>
 
-    <!-- SCREENSHOT: The landing page of the WebView panel showing the BorrowScope logo, function name, stats, and the 4x3 grid of view icons -->
-    <div class="screenshot-placeholder">Screenshot: Landing page with BorrowScope logo, function stats, and circular icon grid (Graph, Table, Timeline, Scopes, RefCount, Moves, Conflicts, Compare, CrossRefs, Memory, Runtime)</div>
+    <!-- SCREENSHOT: Landing page covered in section intro above -->
 
     <h2>4.2 Force-Directed Ownership Graph (D3.js)</h2>
     <p>
