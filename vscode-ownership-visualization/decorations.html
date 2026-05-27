@@ -105,7 +105,10 @@
     </div>
 
     <!-- SCREENSHOT: VS Code editor showing a borrow conflict with squiggly underline, background highlight on overlap region, and the diagnostic message in the Problems panel -->
-    <div class="screenshot-placeholder">Screenshot: Borrow conflict visualization with squiggly underline on overlap region, yellow background highlight, and BorrowScope diagnostic in Problems panel</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/3_conflict.png" alt="Borrow conflict visualization with squiggly underline and diagnostic" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Borrow conflict detection showing overlapping shared and mutable borrows with diagnostic feedback</p>
+    </div>
 
     <h2>3.4 Cross-Function Borrow Annotations</h2>
     <p>
@@ -138,7 +141,10 @@
     </div>
 
     <!-- SCREENSHOT: VS Code editor showing cross-function borrow annotations after call sites with teal italic text and emoji indicators -->
-    <div class="screenshot-placeholder">Screenshot: Cross-function borrow annotations showing "──→ 👁 &amp;data enters validate(input)" after a function call</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4_cross_file.png" alt="Cross-function borrow annotations at call sites" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Cross-function borrow annotations showing where references flow into called functions</p>
+    </div>
 
     <h2>3.5 Runtime Overlay Decorations</h2>
     <p>
@@ -151,6 +157,8 @@
         The merge between static and runtime data happens in the <code>mergeViews()</code> function, which correlates runtime variable IDs with static variable declarations by matching on name and line number. The result is a <code>MergedVariable[]</code> array where each entry has both static information (type, category) and runtime information (lifetime, borrow count, ref count peak, drop order). Variables that appear only in runtime (not in static analysis) are marked as <code>"runtime_only"</code>; variables that appear only in static analysis are marked as <code>"static_only"</code>. This merge is described in detail in Section 5.
     </p>
 
-    <!-- SCREENSHOT: VS Code editor showing runtime overlay decorations: green timing annotations, numbered drop order badges, and a yellow divergence highlight -->
-    <div class="screenshot-placeholder">Screenshot: Runtime overlay showing green timing annotations (e.g., "lived 4.2ms"), drop order badges (#1, #2, #3), and a yellow divergence highlight on an Rc variable</div>
+    <!-- Runtime overlay is demonstrated in the WebView panel (Section 4.13) -->
+    <div class="highlight-box">
+        <strong>Note:</strong> The runtime overlay decorations are best understood in conjunction with the WebView panel's Runtime view (Section 4.13), which provides a full timeline, drop order sequence, reference count chart, and event log. The inline decorations described here are a summary layer; the panel provides the detailed investigation interface. See also Section 5 (Runtime-Static Merge) for how divergences between static predictions and runtime observations are detected and classified.
+    </div>
 </div>
