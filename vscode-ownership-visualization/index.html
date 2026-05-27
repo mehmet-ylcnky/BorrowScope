@@ -26,6 +26,10 @@
         th { background: var(--code-bg); }
         .screenshot-placeholder { background: linear-gradient(135deg, #f0f0f0 0%, #e0e0e0 100%); border: 2px dashed #999; border-radius: 8px; padding: 40px 20px; text-align: center; margin: 1.5rem 0; color: #666; font-style: italic; }
         .screenshot-placeholder::before { content: "📸 "; font-size: 1.5em; }
+        .lightbox { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 9999; cursor: pointer; align-items: center; justify-content: center; }
+        .lightbox.active { display: flex; }
+        .lightbox img { max-width: 95%; max-height: 95%; border-radius: 8px; box-shadow: 0 4px 30px rgba(0,0,0,0.5); }
+        .lightbox-hint { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); color: #aaa; font-size: 0.85rem; z-index: 10000; }
     </style>
 </head>
 <body>
@@ -133,6 +137,32 @@
                 });
         });
     </script>
+    <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+        <img id="lightbox-img" src="" alt="">
+        <span class="lightbox-hint">Click or press Esc to close</span>
+    </div>
     <script src="scripts.js"></script>
+    <script>
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeLightbox();
+        });
+        function openLightbox(src) {
+            document.getElementById('lightbox-img').src = src;
+            document.getElementById('lightbox').classList.add('active');
+        }
+        function closeLightbox() {
+            document.getElementById('lightbox').classList.remove('active');
+        }
+        // Make all section images clickable
+        new MutationObserver(function() {
+            document.querySelectorAll('.section-container img').forEach(function(img) {
+                if (!img.dataset.lightbox) {
+                    img.dataset.lightbox = '1';
+                    img.style.cursor = 'pointer';
+                    img.addEventListener('click', function() { openLightbox(this.src); });
+                }
+            });
+        }).observe(document.querySelector('main'), { childList: true, subtree: true });
+    </script>
 </body>
 </html>
