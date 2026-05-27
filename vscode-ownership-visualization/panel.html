@@ -204,7 +204,7 @@
     </div>
 
     <div class="highlight-box">
-        <strong>Future Development:</strong> The current memory layout view provides static estimates based on type information from the LSP. In further development and papers, we plan to enhance this view with: actual memory addresses (hex pointers from runtime execution), real heap allocation sizes observed at runtime, allocation origin tracking (distinguishing <code>Rc::new</code> vs <code>Box::new</code> vs <code>Vec::with_capacity</code>), fragmentation analysis (gaps between allocations), cache line alignment visualization, and lifetime-aware memory reuse detection (showing when a freed stack slot is reused by a later variable). These enhancements require integration with <code>borrowscope-macro</code> and <code>borrowscope-runtime</code> to provide observed memory behavior alongside the static predictions.
+        <strong>Future Development:</strong> The current memory layout view provides static estimates based on type information from the LSP. In further development and papers, I plan to enhance this view with: actual memory addresses (hex pointers from runtime execution), real heap allocation sizes observed at runtime, allocation origin tracking (distinguishing <code>Rc::new</code> vs <code>Box::new</code> vs <code>Vec::with_capacity</code>), fragmentation analysis (gaps between allocations), cache line alignment visualization, and lifetime-aware memory reuse detection (showing when a freed stack slot is reused by a later variable). These enhancements require integration with <code>borrowscope-macro</code> and <code>borrowscope-runtime</code> to provide observed memory behavior alongside the static predictions.
     </div>
 
     <h2>4.13 Runtime View (4 Sub-tabs)</h2>
