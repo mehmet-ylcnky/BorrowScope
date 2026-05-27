@@ -99,7 +99,10 @@
     </p>
 
     <!-- SCREENSHOT: The timeline (Gantt chart) view showing 5-6 variable lifetime bars with borrow overlays and a conflict zone -->
-    <div class="screenshot-placeholder">Screenshot: Timeline view with horizontal lifetime bars, blue/red borrow overlays on target variables, and a red conflict zone band</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-5_timeline.png" alt="Timeline Gantt chart showing variable lifetimes with borrow overlays" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Timeline view showing variable lifetimes as horizontal bars with borrow overlays and conflict zones</p>
+    </div>
 
     <h2>4.6 Scope Nesting View</h2>
     <p>
@@ -108,6 +111,11 @@
     <p>
         Each variable is displayed as a colored bar (matching its ownership category) with its name, type, and line number. At the bottom of the function scope, the drop order is shown: the reverse of declaration order, indicating the sequence in which variables will be destroyed when the scope ends. This view is particularly useful for understanding why certain borrows are valid: a variable in an inner scope is dropped before variables in the outer scope, which may release a borrow that would otherwise conflict.
     </p>
+
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-6_scope_nesting.png" alt="Scope nesting view showing nested boxes with variables and drop order" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Scope nesting view with function and block scopes, variable listings, and drop order at the bottom</p>
+    </div>
 
     <h2>4.7 Reference Count View</h2>
     <p>
@@ -118,7 +126,10 @@
     </p>
 
     <!-- SCREENSHOT: The reference count view showing a step chart going 1→2→3→2→1→0 with event labels at each step -->
-    <div class="screenshot-placeholder">Screenshot: Reference count step chart showing strong_count rising on clones and falling on drops, with event labels and a "potential leak" warning</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-7_ref_count.png" alt="Reference count step chart showing strong_count over time" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Reference count step chart showing strong_count rising on clones and falling on drops</p>
+    </div>
 
     <h2>4.8 Move Chain View</h2>
     <p>
@@ -129,7 +140,10 @@
     </p>
 
     <!-- SCREENSHOT: Move chain view showing source boxes (crossed out) connected by arrows to destination boxes -->
-    <div class="screenshot-placeholder">Screenshot: Move chain view with "data" (crossed out, moved) → arrow → "process()" destination, and "result" → "return" chain</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-8_move_chain.png" alt="Move chain view showing ownership transfers" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Move chain view showing source variables (crossed out) connected by arrows to their destinations</p>
+    </div>
 
     <h2>4.9 Conflict Detail View</h2>
     <p>
@@ -140,7 +154,10 @@
     </p>
 
     <!-- SCREENSHOT: Conflict detail view showing a conflict card with Borrow A and Borrow B boxes, lightning bolt, and overlap line range -->
-    <div class="screenshot-placeholder">Screenshot: Conflict detail card showing "r" (shared) vs "w" (mutable) both borrowing "data", overlap lines 6-8, with "Go to line" link</div>
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/4-9_conflict.png" alt="Conflict detail view showing borrow conflicts" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Conflict detail view showing overlapping borrows with navigation links</p>
+    </div>
 
     <h2>4.10 Comparison View (Diff)</h2>
     <p>
