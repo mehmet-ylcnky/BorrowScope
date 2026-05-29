@@ -1,1 +1,98 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>8. Async Borrow Tracking</h1>
+    <p>
+        Async Rust introduces a unique ownership challenge: when a function suspends at an <code>.await</code> point, any local variables that are still alive must be stored in the future's state machine. If a borrow is active during the suspension, it becomes part of the future's captured state. This has implications for the <code>Send</code> trait: if the borrowed type is not <code>Sync</code>, the future cannot be sent to another thread, preventing it from being spawned on multi-threaded runtimes like tokio. This section describes how the merge layer detects borrows held across await points and explains the resulting compiler errors.
+    </p>
+
+    <h2>8.1 The Problem: Borrows Held Across Await Points</h2>
+    <p>
+        Consider an async function that borrows a <code>RefCell</code> and then awaits a network operation:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">async fn</span> <span class="rust-function">process</span>(cell: &amp;RefCell&lt;Vec&lt;i32&gt;&gt;) {
+    <span class="rust-keyword">let</span> guard = cell.borrow(); <span class="rust-comment">// Ref&lt;Vec&lt;i32&gt;&gt; is not Send</span>
+    <span class="rust-keyword">let</span> data = fetch_remote(guard.len()).<span class="rust-keyword">await</span>; <span class="rust-comment">// suspension point!</span>
+    println!(<span class="rust-string">"{:?} {:?}"</span>, *guard, data);
+}
+
+<span class="rust-comment">// Error: future is not Send because Ref&lt;'_, Vec&lt;i32&gt;&gt; is not Send</span>
+<span class="rust-comment">// tokio::spawn(process(&amp;cell));</span></pre>
+    </div>
+    <p>
+        The <code>guard</code> variable (a <code>Ref&lt;Vec&lt;i32&gt;&gt;</code>) is alive when <code>.await</code> is reached. Since <code>Ref</code> is not <code>Send</code> (it contains a raw pointer to the RefCell's borrow flag), the entire future becomes non-Send. The compiler reports this as a cryptic error about the future's type not implementing Send, often pointing to the spawn site rather than the actual borrow that causes the problem.
+    </p>
+    <p>
+        Static analysis can detect that a borrow <em>could</em> be held across an await (by checking if the borrow scope spans a line containing <code>.await</code>), but it cannot determine whether the await is actually reached while the borrow is active (the await might be in a branch that is only taken when the borrow has already been dropped). Runtime observation resolves this ambiguity: it records the exact moment the await fires and checks whether the borrow is still active at that point.
+    </p>
+
+    <h2>8.2 Detecting AwaitStart Events During Active Borrows</h2>
+    <p>
+        The detection algorithm maintains a set of active borrows for each variable. When a <code>Borrow</code> event fires with <code>owner_id</code> matching the tracked variable, the borrower's ID is added to the active set. When a <code>Drop</code> event fires for a borrower in the active set, it is removed. At any point, the active set represents all borrows currently alive on this variable.
+    </p>
+    <p>
+        When an <code>AwaitStart</code> event fires and the active set is non-empty, an await crossing is recorded. The crossing captures: which await point (from the event's location field), which future was being awaited (from the <code>future_name</code> field), and the start timestamp. When the corresponding <code>AwaitEnd</code> event fires (matched by <code>await_id</code>), the duration is computed. The result is an <code>AwaitCrossing</code> entry added to the variable's RuntimeInfo.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">function</span> <span class="rust-function">detectAwaitCrossings</span>(varId: string, events: RuntimeEvent[]): AwaitCrossing[] {
+  <span class="rust-keyword">const</span> crossings: AwaitCrossing[] = [];
+  <span class="rust-keyword">let</span> activeBorrows = <span class="rust-keyword">new</span> Set&lt;string&gt;();
+
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> event <span class="rust-keyword">of</span> events) {
+    <span class="rust-keyword">const</span> type = eventType(event);
+    <span class="rust-keyword">const</span> data = eventData(event);
+
+    <span class="rust-comment">// Track active borrows on this variable</span>
+    <span class="rust-keyword">if</span> (type === <span class="rust-string">"Borrow"</span> && data.owner_id === varId) {
+      activeBorrows.add(data.borrower_id);
+    }
+    <span class="rust-keyword">if</span> (type === <span class="rust-string">"Drop"</span> && activeBorrows.has(data.var_id)) {
+      activeBorrows.delete(data.var_id);
+    }
+
+    <span class="rust-comment">// Check if await fires while borrows are active</span>
+    <span class="rust-keyword">if</span> (type === <span class="rust-string">"AwaitStart"</span> && activeBorrows.size > 0) {
+      <span class="rust-keyword">const</span> awaitStart = data.timestamp;
+      <span class="rust-keyword">const</span> loc = parseLocation(data.location);
+
+      <span class="rust-comment">// Find matching AwaitEnd for duration</span>
+      <span class="rust-keyword">const</span> endEvent = events.find(
+        e => eventType(e) === <span class="rust-string">"AwaitEnd"</span> && eventData(e).await_id === data.await_id
+      );
+      <span class="rust-keyword">const</span> duration = endEvent ? eventData(endEvent).timestamp - awaitStart : 0;
+
+      crossings.push({
+        await_line: loc?.line ?? 0,
+        duration_ns: duration,
+        future_name: data.future_name || <span class="rust-string">"unknown"</span>,
+      });
+    }
+  }
+
+  <span class="rust-keyword">return</span> crossings;
+}</pre>
+    </div>
+
+    <h2>8.3 Duration Measurement and Future Identification</h2>
+    <p>
+        Each <code>AwaitCrossing</code> records three pieces of information that help the developer understand the impact of the held borrow:
+    </p>
+    <ul>
+        <li><strong>await_line:</strong> The source line where <code>.await</code> appears, extracted from the AwaitStart event's location field. This tells the developer exactly which await point is problematic.</li>
+        <li><strong>duration_ns:</strong> How long the suspension lasted, computed as <code>AwaitEnd.timestamp - AwaitStart.timestamp</code>. A borrow held for 1 microsecond across an await is less concerning than one held for 500 milliseconds (which blocks other tasks from accessing the borrowed data for that duration).</li>
+        <li><strong>future_name:</strong> Which future was being awaited (e.g., "fetch_remote", "tokio::time::sleep"). This helps the developer understand what operation is causing the suspension and whether it can be restructured to release the borrow first.</li>
+    </ul>
+    <p>
+        When multiple await points exist in a function, a single borrow may cross several of them. Each crossing is recorded separately, producing a list that shows the full pattern: "this borrow was held across 3 await points, totaling 12ms of suspension time." The divergence detector aggregates these into a single <code>async_borrow_held</code> divergence with the total count and duration in the description.
+    </p>
+
+    <h2>8.4 Implications for Send Trait Compliance</h2>
+    <p>
+        The practical consequence of a borrow held across an await is that the future may not implement <code>Send</code>. In Rust's async model, a future that is <code>Send</code> can be moved between threads (required by <code>tokio::spawn</code> and similar multi-threaded executors). A future is Send if all types stored in its state machine are Send. A borrow (<code>&amp;T</code> or <code>&amp;mut T</code>) is Send only if T is Sync. Many common types are not Sync: <code>Ref&lt;T&gt;</code> (from RefCell), <code>MutexGuard&lt;T&gt;</code> (on some platforms), raw pointers, and <code>Rc&lt;T&gt;</code>.
+    </p>
+    <p>
+        When the merge detects an <code>async_borrow_held</code> divergence, it directly explains the "future is not Send" error that the developer may encounter. The suggestion ("clone before the await or restructure to drop the borrow first") provides the two standard solutions: either clone the data so the borrow can be released before the await, or restructure the code to ensure the borrow's scope ends before the suspension point. The runtime evidence shows exactly which await point and which borrow are involved, eliminating the guesswork that the compiler's error message often requires.
+    </p>
+    <p>
+        This is one of the most practically valuable divergence kinds because the compiler's error message for non-Send futures is notoriously confusing. It points to the spawn site and says "future is not Send" without indicating which specific borrow or which specific await causes the problem. The merge layer fills this gap by showing the exact crossing point with timing data, turning a frustrating compiler error into an immediately actionable finding.
+    </p>
+</div>
