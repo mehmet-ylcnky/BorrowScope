@@ -1,1 +1,160 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>5. The Merge Algorithm</h1>
+    <p>
+        Once variables are mapped between the two worlds, the merge algorithm constructs a unified representation for each variable. This representation combines the static prediction (type, category, is_copy) with aggregated runtime observations (lifetime, borrow counts, ref counts, drop order) into a single <code>MergedVariable</code> structure. The algorithm then classifies the agreement between the two sides and runs divergence detection. This section describes each step of the merge pipeline.
+    </p>
+
+    <h2>5.1 MergedVariable Construction</h2>
+    <p>
+        The <code>mergeViews()</code> function is the entry point of the merge pipeline. It takes the static variable list (from the LSP's ownership graph), the runtime event array (from the file watcher or WebSocket), and an optional file filter. It produces a <code>MergedVariable[]</code> array where each entry represents one variable with both perspectives combined.
+    </p>
+    <p>
+        For each mapped variable (has both runtime events and a static match), the function builds a <code>RuntimeInfo</code> by aggregating events, runs divergence detection, and computes the agreement status. For unmapped runtime variables (no static match), it creates an entry with <code>static_info: null</code> and agreement <code>"runtime_only"</code>. For unmapped static variables (no runtime events), it creates an entry with <code>runtime_info: null</code> and agreement <code>"static_only"</code>. The result is a complete inventory of every variable known to either side.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">mergeViews</span>(
+  staticVars: StaticVariable[],
+  events: RuntimeEvent[],
+  file?: string
+): MergedVariable[] {
+  <span class="rust-keyword">const</span> mapped = mapVariables(staticVars, events, file);
+  <span class="rust-keyword">const</span> dropOrder = buildDropOrder(events);
+  <span class="rust-keyword">const</span> result: MergedVariable[] = [];
+
+  <span class="rust-comment">// Process mapped variables (have runtime data)</span>
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> m <span class="rust-keyword">of</span> mapped) {
+    <span class="rust-keyword">const</span> runtimeInfo = buildRuntimeInfo(m, events, dropOrder);
+    <span class="rust-keyword">const</span> divergences = detectDivergences(m.static_match, runtimeInfo);
+    <span class="rust-keyword">const</span> agreement = computeAgreement(m.static_match, runtimeInfo, divergences);
+
+    result.push({
+      name: m.var_name, var_id: m.var_id,
+      line: m.location?.line ?? m.static_match?.line ?? 0,
+      file: m.location?.file ?? file ?? null,
+      static_info: m.static_match ? {
+        type_display: m.static_match.type_display,
+        ownership_category: m.static_match.ownership_category,
+        is_copy: m.static_match.is_copy ?? <span class="rust-keyword">false</span>,
+      } : null,
+      runtime_info: runtimeInfo,
+      agreement, divergences,
+    });
+  }
+
+  <span class="rust-comment">// Add static-only variables (no runtime match)</span>
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> sv <span class="rust-keyword">of</span> staticVars) {
+    <span class="rust-keyword">if</span> (!alreadyMapped(sv, mapped)) {
+      result.push({ name: sv.name, var_id: null, line: sv.line,
+        static_info: { type_display: sv.type_display, ... },
+        runtime_info: null, agreement: <span class="rust-string">"static_only"</span>, divergences: [] });
+    }
+  }
+
+  <span class="rust-keyword">return</span> result;
+}</pre>
+    </div>
+
+    <h2>5.2 RuntimeInfo Aggregation from Event Streams</h2>
+    <p>
+        For each mapped variable, the <code>buildRuntimeInfo()</code> function iterates the variable's events and aggregates them into a single <code>RuntimeInfo</code> structure. The aggregation is a single-pass O(n) scan over the events, accumulating counters and tracking state transitions. Each event type contributes to specific fields: creation events set the start timestamp and initial ref counts, borrow events increment counters, move events set the moved flag, drop events set the end timestamp, and clone events track ref count peaks.
+    </p>
+    <p>
+        The resulting <code>RuntimeInfo</code> contains 14 fields capturing every observable aspect of the variable's runtime behavior: actual lifetime in nanoseconds (drop timestamp minus creation timestamp, or -1 if never dropped), shared and mutable borrow counts, whether it was actually moved and where, its position in the global drop sequence, peak and final reference counts (for Rc/Arc), total clone count, weak reference count peak, number of await crossings, unsafe access count, and total event count. This comprehensive snapshot enables the divergence detectors to compare observed behavior against static predictions across multiple dimensions.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">function</span> <span class="rust-function">buildRuntimeInfo</span>(mapped: MappedVariable, allEvents: RuntimeEvent[], dropOrder: Map&lt;string, number&gt;): RuntimeInfo {
+  <span class="rust-keyword">let</span> createTimestamp = 0, dropTimestamp = -1;
+  <span class="rust-keyword">let</span> borrowCount = 0, mutBorrowCount = 0;
+  <span class="rust-keyword">let</span> wasMoved = <span class="rust-keyword">false</span>, moveDest: string | null = null;
+  <span class="rust-keyword">let</span> refCountPeak = 0, refCountFinal = 0, weakCountPeak = 0;
+  <span class="rust-keyword">let</span> cloneCount = 0, unsafeAccesses = 0;
+
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> event <span class="rust-keyword">of</span> mapped.events) {
+    <span class="rust-keyword">const</span> type = eventType(event);
+    <span class="rust-keyword">const</span> data = eventData(event);
+
+    <span class="rust-keyword">switch</span> (type) {
+      <span class="rust-keyword">case</span> <span class="rust-string">"New"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"RcNew"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"ArcNew"</span>:
+        createTimestamp = data.timestamp;
+        refCountPeak = Math.max(refCountPeak, data.strong_count || 1);
+        refCountFinal = data.strong_count || 1;
+        <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"Drop"</span>:
+        dropTimestamp = data.timestamp; <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"Borrow"</span>:
+        borrowCount++; <span class="rust-keyword">if</span> (data.mutable) mutBorrowCount++; <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"Move"</span>:
+        <span class="rust-keyword">if</span> (data.from_id === mapped.var_id) { wasMoved = <span class="rust-keyword">true</span>; moveDest = data.to_name; }
+        <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"RcClone"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"ArcClone"</span>:
+        cloneCount++;
+        refCountPeak = Math.max(refCountPeak, data.strong_count);
+        refCountFinal = data.strong_count;
+        <span class="rust-keyword">break</span>;
+      <span class="rust-keyword">case</span> <span class="rust-string">"RawPtrDeref"</span>: <span class="rust-keyword">case</span> <span class="rust-string">"UnsafeBlockEnter"</span>:
+        unsafeAccesses++; <span class="rust-keyword">break</span>;
+    }
+  }
+
+  <span class="rust-keyword">const</span> awaitCrossings = detectAwaitCrossings(mapped.var_id, allEvents);
+
+  <span class="rust-keyword">return</span> {
+    actual_lifetime_ns: dropTimestamp >= 0 ? dropTimestamp - createTimestamp : -1,
+    actual_borrow_count: borrowCount, actual_mut_borrow_count: mutBorrowCount,
+    was_actually_moved: wasMoved, move_destination: moveDest,
+    drop_order: dropOrder.get(mapped.var_id) ?? -1, drop_timestamp: dropTimestamp,
+    ref_count_peak: refCountPeak, ref_count_final: refCountFinal,
+    weak_count_peak: weakCountPeak, clone_count: cloneCount,
+    thread_id: null, await_crossings: awaitCrossings,
+    unsafe_accesses: unsafeAccesses, event_count: mapped.events.length,
+  };
+}</pre>
+    </div>
+
+    <h2>5.3 Drop Order Computation</h2>
+    <p>
+        The global drop order is computed by scanning all Drop events in the entire event stream (not just one variable's events) in timestamp order. Each variable that is dropped receives a sequential position number starting from 0. The first variable dropped gets position 0, the second gets 1, and so on. This produces a <code>Map&lt;string, number&gt;</code> from variable ID to drop position.
+    </p>
+    <p>
+        The drop order reveals the actual destruction sequence, which follows Rust's LIFO (Last In, First Out) rule within a scope but may differ from developer expectations when early drops (<code>std::mem::drop</code>), nested scopes, or conditional destruction are involved. The merge surfaces this information in the Drop Order sub-tab of the Runtime view, showing each variable's position with its lifetime duration. Variables that are never dropped (leaked Rc, <code>mem::forget</code>) do not appear in the drop order map and receive position -1.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">function</span> <span class="rust-function">buildDropOrder</span>(events: RuntimeEvent[]): Map&lt;string, number&gt; {
+  <span class="rust-keyword">const</span> order = <span class="rust-keyword">new</span> Map&lt;string, number&gt;();
+  <span class="rust-keyword">let</span> idx = 0;
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> event <span class="rust-keyword">of</span> events) {
+    <span class="rust-keyword">if</span> (eventType(event) === <span class="rust-string">"Drop"</span>) {
+      <span class="rust-keyword">const</span> data = eventData(event);
+      <span class="rust-keyword">if</span> (data.var_id) {
+        order.set(data.var_id, idx++);
+      }
+    }
+  }
+  <span class="rust-keyword">return</span> order;
+}</pre>
+    </div>
+
+    <h2>5.4 Agreement Classification (match, diverge, runtime_only, static_only)</h2>
+    <p>
+        After building the RuntimeInfo and running divergence detection, each MergedVariable receives an agreement classification. The classification is straightforward: if there is no static_info (variable only seen at runtime), the agreement is <code>"runtime_only"</code>. If there is no runtime_info (variable only seen in static analysis), the agreement is <code>"static_only"</code>. If divergences were detected (the divergence list is non-empty), the agreement is <code>"diverge"</code>. Otherwise, the two sides agree and the classification is <code>"match"</code>.
+    </p>
+    <p>
+        This four-way classification drives the visualization layer. Matched variables are shown with a green indicator (both sides agree, everything is as expected). Divergent variables are shown with yellow (warnings) or red (errors) indicators depending on the highest severity among their divergences. Runtime-only variables are shown with a gray "runtime" badge. Static-only variables are shown with a gray "static" badge. The developer can immediately see which variables need attention by scanning for non-green indicators.
+    </p>
+
+    <h2>5.5 Merge Summary Statistics</h2>
+    <p>
+        The <code>mergeSummary()</code> function produces aggregate counts across all merged variables: total count, number of matches, number of divergences, number of runtime-only, and number of static-only. These statistics are displayed in the status bar (<code>"Static OK | Runtime: 12 vars, 2 divergences"</code>) and used by the extension to make decisions: if the match count is zero and runtime_only is high, the events likely correspond to a different version of the code (stale events file), and the extension shows a warning rather than misleading divergence data.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">mergeSummary</span>(merged: MergedVariable[]): {
+  total: number; match: number; diverge: number; runtime_only: number; static_only: number;
+} {
+  <span class="rust-keyword">const</span> s = { total: merged.length, match: 0, diverge: 0, runtime_only: 0, static_only: 0 };
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> m <span class="rust-keyword">of</span> merged) {
+    s[m.agreement]++;
+  }
+  <span class="rust-keyword">return</span> s;
+}</pre>
+    </div>
+</div>
