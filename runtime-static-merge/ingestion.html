@@ -1,1 +1,108 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>3. Event Ingestion</h1>
+    <p>
+        Before the merge can operate, runtime events must be loaded into the extension. The ingestion layer handles two transport modes (file-based and WebSocket), validates incoming data, and normalizes the event format regardless of how the runtime serialized it. The design prioritizes robustness: malformed events are skipped rather than crashing the extension, partial files are handled gracefully, and format differences between serialization modes are resolved transparently.
+    </p>
+
+    <h2>3.1 File-Based Ingestion (JSON Watcher)</h2>
+    <p>
+        The primary ingestion mode uses a file system watcher that monitors the configured events file (default: <code>.borrowscope/events.json</code> relative to the workspace root). When the instrumented program finishes execution and writes its events to this file, the watcher detects the change and triggers a reload. The watcher uses VS Code's <code>FileSystemWatcher</code> API with a debounce to avoid reading partial writes (the runtime writes the entire file atomically, but on some file systems the watcher may fire before the write completes).
+    </p>
+    <p>
+        On each file change, the watcher reads the entire file content, parses it as a JSON array, validates each event, and emits an <code>onEventsUpdated</code> event that the extension's merge pipeline consumes. The file path is configurable via <code>borrowscope.runtime.filePath</code>, allowing projects to place events in custom locations. If the file does not exist or is empty, the watcher remains active but does not trigger the merge (the extension operates in static-only mode until events appear).
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export class</span> <span class="rust-type">RuntimeWatcher</span> {
+  <span class="rust-keyword">private</span> watcher: vscode.FileSystemWatcher | undefined;
+  <span class="rust-keyword">private</span> events: RuntimeEvent[] = [];
+  <span class="rust-keyword">private</span> _onEventsUpdated = <span class="rust-keyword">new</span> vscode.EventEmitter&lt;RuntimeEvent[]&gt;();
+
+  start(workspaceRoot: string): void {
+    <span class="rust-keyword">const</span> config = vscode.workspace.getConfiguration(<span class="rust-string">"borrowscope.runtime"</span>);
+    <span class="rust-keyword">const</span> filePath = config.get&lt;string&gt;(<span class="rust-string">"filePath"</span>, <span class="rust-string">".borrowscope/events.json"</span>);
+    <span class="rust-keyword">const</span> pattern = <span class="rust-keyword">new</span> vscode.RelativePattern(workspaceRoot, filePath);
+
+    <span class="rust-keyword">this</span>.watcher = vscode.workspace.createFileSystemWatcher(pattern);
+    <span class="rust-keyword">this</span>.watcher.onDidChange(() => <span class="rust-keyword">this</span>.reload(workspaceRoot, filePath));
+    <span class="rust-keyword">this</span>.watcher.onDidCreate(() => <span class="rust-keyword">this</span>.reload(workspaceRoot, filePath));
+
+    <span class="rust-comment">// Initial load if file already exists</span>
+    <span class="rust-keyword">this</span>.reload(workspaceRoot, filePath);
+  }
+
+  <span class="rust-keyword">private</span> reload(root: string, filePath: string): void {
+    <span class="rust-keyword">const</span> fullPath = path.join(root, filePath);
+    <span class="rust-keyword">const</span> content = fs.readFileSync(fullPath, <span class="rust-string">"utf-8"</span>);
+    <span class="rust-keyword">const</span> parsed = JSON.parse(content);
+    <span class="rust-keyword">this</span>.events = parseEvents(parsed);
+    <span class="rust-keyword">this</span>._onEventsUpdated.fire(<span class="rust-keyword">this</span>.events);
+  }
+}</pre>
+    </div>
+
+    <h2>3.2 WebSocket Live Streaming</h2>
+    <p>
+        The alternative ingestion mode connects to a WebSocket server for live event streaming. This mode is useful for long-running programs (servers, daemons) where the developer wants to observe ownership patterns as they happen rather than waiting for program exit. The runtime opens a WebSocket connection on a configurable port (default: 9876) and sends each event as a JSON message immediately after it occurs.
+    </p>
+    <p>
+        The extension's <code>RuntimeSocket</code> class manages the WebSocket connection lifecycle: connecting on activation, reconnecting on disconnect, and buffering events for the merge pipeline. Events arrive one at a time (not as a batch), so the merge must support incremental updates. In practice, the extension batches incoming WebSocket events with a 100ms debounce before triggering a re-merge, balancing responsiveness against CPU usage.
+    </p>
+    <p>
+        The WebSocket mode is enabled by setting <code>borrowscope.runtime.source</code> to <code>"websocket"</code> and configuring the port via <code>borrowscope.runtime.websocketPort</code>. Both modes produce the same <code>RuntimeEvent[]</code> array for the merge pipeline; the transport is transparent to downstream processing.
+    </p>
+
+    <h2>3.3 Event Validation and Parsing</h2>
+    <p>
+        Raw JSON from either transport is validated before entering the merge pipeline. The <code>parseEvents()</code> function iterates the array and checks each element for the required structure: it must be an object with either a <code>type</code> field (internally-tagged) or exactly one key matching a known event type name (externally-tagged). Events that fail validation are skipped with a warning logged to the output channel, ensuring that a single malformed event does not prevent the remaining events from being processed.
+    </p>
+    <p>
+        The parser also applies filtering based on configuration. The <code>filterOwnershipEvents()</code> function removes events that are not relevant to ownership analysis (e.g., <code>LoopIteration</code>, <code>BinaryOp</code>, <code>IndexAccess</code>) to reduce the event count before the merge. The <code>filterByFile()</code> function retains only events whose location matches the currently active editor file, ensuring the merge operates on relevant data. These filters are applied in sequence: parse -> validate -> filter by relevance -> filter by file.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">parseEvents</span>(raw: any[]): RuntimeEvent[] {
+  <span class="rust-keyword">return</span> raw.filter(item => {
+    <span class="rust-keyword">if</span> (!item || <span class="rust-keyword">typeof</span> item !== <span class="rust-string">"object"</span>) <span class="rust-keyword">return false</span>;
+    <span class="rust-comment">// Internally-tagged: { "type": "New", "var_name": "x", ... }</span>
+    <span class="rust-keyword">if</span> (item.type && <span class="rust-keyword">typeof</span> item.type === <span class="rust-string">"string"</span>) <span class="rust-keyword">return true</span>;
+    <span class="rust-comment">// Externally-tagged: { "New": { "var_name": "x", ... } }</span>
+    <span class="rust-keyword">const</span> keys = Object.keys(item);
+    <span class="rust-keyword">return</span> keys.length === 1 && isKnownEventType(keys[0]);
+  });
+}
+
+<span class="rust-keyword">export function</span> <span class="rust-function">filterOwnershipEvents</span>(events: RuntimeEvent[]): RuntimeEvent[] {
+  <span class="rust-keyword">const</span> relevant = <span class="rust-keyword">new</span> Set([
+    <span class="rust-string">"New"</span>, <span class="rust-string">"Borrow"</span>, <span class="rust-string">"Move"</span>, <span class="rust-string">"Drop"</span>,
+    <span class="rust-string">"RcNew"</span>, <span class="rust-string">"RcClone"</span>, <span class="rust-string">"ArcNew"</span>, <span class="rust-string">"ArcClone"</span>,
+    <span class="rust-string">"WeakNew"</span>, <span class="rust-string">"WeakUpgrade"</span>, <span class="rust-string">"AwaitStart"</span>, <span class="rust-string">"AwaitEnd"</span>,
+    <span class="rust-string">"UnsafeBlockEnter"</span>, <span class="rust-string">"RawPtrDeref"</span>, <span class="rust-string">"ChannelRecv"</span>,
+    <span class="rust-comment">// ... other ownership-relevant types</span>
+  ]);
+  <span class="rust-keyword">return</span> events.filter(e => relevant.has(eventType(e)));
+}</pre>
+    </div>
+
+    <h2>3.4 Internally-Tagged vs Externally-Tagged Format Handling</h2>
+    <p>
+        Rust's <code>serde</code> library supports multiple enum serialization formats. The default for Rust enums is externally-tagged: <code>{"New": {"var_name": "x", "timestamp": 1000}}</code>, where the variant name is the object key. An alternative is internally-tagged: <code>{"type": "New", "var_name": "x", "timestamp": 1000}</code>, where the variant name is a field within the object. The <code>borrowscope-runtime</code> uses externally-tagged by default, but some configurations (particularly when events pass through middleware or logging systems) may produce internally-tagged format.
+    </p>
+    <p>
+        The extension handles both formats transparently through two helper functions. The <code>eventType()</code> function extracts the event type name regardless of format: if the object has a <code>type</code> field, it returns that; otherwise it returns the single key name. The <code>eventData()</code> function extracts the payload: if internally-tagged, it returns the object itself (minus the type field); if externally-tagged, it returns the value of the single key. All downstream code uses these helpers exclusively, never accessing the raw event structure directly.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">/** Get the event type name (handles both formats) */</span>
+<span class="rust-keyword">export function</span> <span class="rust-function">eventType</span>(event: RuntimeEvent): string {
+  <span class="rust-keyword">if</span> ((event <span class="rust-keyword">as</span> any).type) <span class="rust-keyword">return</span> (event <span class="rust-keyword">as</span> any).type;
+  <span class="rust-keyword">return</span> Object.keys(event)[0];
+}
+
+<span class="rust-comment">/** Get the event payload (handles both formats) */</span>
+<span class="rust-keyword">export function</span> <span class="rust-function">eventData</span>(event: RuntimeEvent): { timestamp: number; [key: string]: any } {
+  <span class="rust-keyword">if</span> ((event <span class="rust-keyword">as</span> any).type) <span class="rust-keyword">return</span> event <span class="rust-keyword">as</span> any;
+  <span class="rust-keyword">return</span> Object.values(event)[0] <span class="rust-keyword">as</span> any;
+}</pre>
+    </div>
+    <p>
+        This dual-format handling was introduced after discovering that some CI environments and logging pipelines transform the JSON format during transit. By supporting both at the parser level, the extension works correctly regardless of how events are serialized, stored, or transmitted between the runtime and the editor.
+    </p>
+</div>
