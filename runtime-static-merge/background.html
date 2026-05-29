@@ -1,1 +1,135 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>2. Background</h1>
+
+    <h2>2.1 Static Ownership Analysis (borrowscope-lsp)</h2>
+    <p>
+        The static side of the merge is provided by <code>borrowscope-lsp</code>, a Language Server Protocol implementation that performs real-time ownership analysis using the <code>ra_ap_*</code> crate ecosystem (rust-analyzer's internal compiler APIs). For each function, the LSP produces a <code>FunctionOwnershipSummary</code> containing: every variable with its ownership category (Owned, SharedRef, MutableRef, Rc, Arc, InteriorMut, RawPointer, Copy), borrow scopes with start/end line ranges and mutability, detected moves with source and destination, Rc/Arc clone operations, closure captures with capture mode, and borrow conflicts where scopes overlap.
+    </p>
+    <p>
+        The LSP analysis is fully semantic: it uses <code>hir::Type</code> methods to classify variables, <code>Definition::usages</code> to compute borrow scope endpoints (matching NLL semantics), and <code>sema.resolve_method_call</code> to determine self-borrow modes. It produces results within 100ms per function and updates incrementally as the developer types, thanks to Salsa's demand-driven computation model. The key property for the merge is that static analysis provides <strong>predictions about all code paths</strong>: it reports every variable that exists in the function, every borrow that could be active, and every conflict that could occur, regardless of which execution path is taken at runtime.
+    </p>
+    <p>
+        The static output serves as the "expected" side of the merge. Each variable's ownership category, borrow count, and move status represent what the compiler's type system guarantees about the code's behavior. When runtime observation agrees with these predictions, the merge reports "match." When it disagrees, the merge investigates why.
+    </p>
+
+    <h2>2.2 Runtime Event Tracking (borrowscope-runtime)</h2>
+    <p>
+        The runtime side is provided by <code>borrowscope-runtime</code>, a library that records ownership events during program execution. The library is activated by the <code>#[trace_borrow]</code> procedural macro (from <code>borrowscope-macro</code>), which instruments function bodies with <code>track_*</code> calls at each ownership operation. When the <code>track</code> feature is enabled, these calls record events to a thread-local buffer; when disabled, they compile to no-ops (zero runtime cost).
+    </p>
+    <p>
+        Each event carries a nanosecond-precision timestamp, a variable identifier (format: <code>"name_counter"</code>, e.g., <code>"data_0"</code>), and type-specific fields. A <code>New</code> event records the variable name, ID, and type name. A <code>Borrow</code> event records the borrower name/ID, owner ID, and mutability. A <code>Drop</code> event records the variable ID and optional location. An <code>RcClone</code> event records the clone's name/ID, source ID, and the resulting strong/weak counts. The events are exported as a JSON array, either written to a file at program exit or streamed via WebSocket during execution.
+    </p>
+    <p>
+        The runtime output serves as the "observed" side of the merge. Each event represents something that actually happened during one execution of the program. The timestamps provide ordering, the variable IDs provide identity, and the type-specific fields provide the precise state at each point. When the merge correlates these observations with static predictions, divergences become visible.
+    </p>
+
+    <h2>2.3 The 88 Event Type Taxonomy</h2>
+    <p>
+        The runtime defines 88 distinct event types organized into 15 categories. Each category covers a different aspect of Rust's ownership system. The full taxonomy ensures that no ownership-relevant operation goes unrecorded, providing the merge algorithm with complete observational data for any instrumented function.
+    </p>
+    <table>
+        <tr>
+            <th>Category</th>
+            <th>Events</th>
+            <th>What They Capture</th>
+        </tr>
+        <tr>
+            <td>Core Ownership</td>
+            <td>New, Borrow, Move, Drop</td>
+            <td>Variable creation, reference creation, ownership transfer, destruction</td>
+        </tr>
+        <tr>
+            <td>Smart Pointers (Rc/Arc)</td>
+            <td>RcNew, RcClone, ArcNew, ArcClone</td>
+            <td>Shared ownership creation and cloning with strong/weak counts</td>
+        </tr>
+        <tr>
+            <td>Weak References</td>
+            <td>WeakNew, WeakClone, WeakUpgrade</td>
+            <td>Weak pointer lifecycle and upgrade success/failure</td>
+        </tr>
+        <tr>
+            <td>Interior Mutability</td>
+            <td>RefCellNew, RefCellBorrow, RefCellDrop, CellNew, CellGet, CellSet</td>
+            <td>Runtime borrow checking and interior mutation</td>
+        </tr>
+        <tr>
+            <td>Unsafe Operations</td>
+            <td>RawPtrCreated, RawPtrDeref, UnsafeBlockEnter/Exit, Transmute, FfiCall</td>
+            <td>Raw pointer usage, unsafe blocks, FFI boundaries</td>
+        </tr>
+        <tr>
+            <td>Async/Await</td>
+            <td>AsyncBlockEnter/Exit, AwaitStart, AwaitEnd</td>
+            <td>Async block boundaries and suspension points</td>
+        </tr>
+        <tr>
+            <td>Concurrency</td>
+            <td>ThreadSpawn, ThreadJoin, ChannelSend/Recv, LockGuardAcquire/Drop</td>
+            <td>Thread lifecycle, message passing, lock acquisition</td>
+        </tr>
+        <tr>
+            <td>Box/Pin/Cow</td>
+            <td>BoxNew, BoxIntoRaw, BoxFromRaw, PinNew, CowBorrowed, CowOwned, CowToMut</td>
+            <td>Heap allocation, pinning, clone-on-write</td>
+        </tr>
+        <tr>
+            <td>OnceCell/MaybeUninit</td>
+            <td>OnceCellNew, OnceCellSet, OnceCellGet, MaybeUninitNew, MaybeUninitAssumeInit</td>
+            <td>Lazy initialization and uninitialized memory</td>
+        </tr>
+        <tr>
+            <td>Control Flow</td>
+            <td>FnEnter/Exit, LoopEnter/Exit, LoopIteration, Branch, Return, Break, Continue</td>
+            <td>Function boundaries, loop iterations, branching decisions</td>
+        </tr>
+        <tr>
+            <td>Expressions</td>
+            <td>Call, Clone, Deref, Unwrap, IndexAccess, FieldAccess, BinaryOp, TypeCast</td>
+            <td>Method calls, dereferences, unwrap operations</td>
+        </tr>
+        <tr>
+            <td>Closures</td>
+            <td>ClosureCreate, ClosureCapture</td>
+            <td>Closure creation with capture mode (ByRef, ByMutRef, ByMove)</td>
+        </tr>
+        <tr>
+            <td>Data Structures</td>
+            <td>StructCreate, TupleCreate, ArrayCreate, Range</td>
+            <td>Composite type instantiation</td>
+        </tr>
+        <tr>
+            <td>Scopes</td>
+            <td>RegionEnter, RegionExit</td>
+            <td>Lexical scope boundaries for drop order tracking</td>
+        </tr>
+        <tr>
+            <td>Statics</td>
+            <td>StaticInit, StaticAccess, ConstEval</td>
+            <td>Static/const variable initialization and access</td>
+        </tr>
+    </table>
+    <p>
+        Not all 88 event types are equally relevant to the merge. The core ownership events (New, Borrow, Move, Drop) and smart pointer events (RcNew, RcClone, ArcNew, ArcClone) are the primary inputs for divergence detection. The async events (AwaitStart, AwaitEnd) are critical for async borrow tracking. The remaining events provide context (function boundaries, loop iterations) but do not directly trigger divergence checks. The merge algorithm processes all events but only aggregates ownership-relevant ones into the RuntimeInfo structure.
+    </p>
+
+    <h2>2.4 Related Work (Miri, Valgrind, Sanitizers, KLEE)</h2>
+    <p>
+        Several existing tools combine static and dynamic analysis for memory safety, but none target ownership visualization specifically.
+    </p>
+    <p>
+        <strong><a href="https://github.com/rust-lang/miri" target="_blank">Miri</a></strong> is an interpreter for Rust's Mid-level Intermediate Representation (MIR). It executes programs symbolically and detects undefined behavior: use-after-free, out-of-bounds access, data races, and violations of Stacked Borrows (Rust's aliasing model). Miri is precise but slow (10-100x slower than native execution) and produces binary verdicts (UB or no UB) rather than visualizations. It does not merge its findings with static analysis or produce ownership graphs.
+    </p>
+    <p>
+        <strong>Valgrind</strong> (specifically Memcheck) detects memory errors at runtime: uninitialized reads, invalid frees, memory leaks. It operates at the machine code level with no knowledge of Rust's ownership model. It cannot distinguish an Rc leak from a Box leak, cannot identify borrow scope violations, and cannot correlate findings with source-level ownership categories.
+    </p>
+    <p>
+        <strong>AddressSanitizer</strong> and <strong>ThreadSanitizer</strong> (compiler-instrumented sanitizers) detect memory errors and data races respectively. They are faster than Valgrind but equally unaware of Rust's ownership semantics. They report low-level symptoms (buffer overflow, data race) rather than ownership-level causes (borrow conflict, Rc cycle).
+    </p>
+    <p>
+        <strong><a href="https://klee.github.io/" target="_blank">KLEE</a></strong> performs symbolic execution, exploring multiple paths through a program. It can achieve high path coverage but does not merge its findings with runtime observations, does not produce ownership visualizations, and does not target Rust specifically.
+    </p>
+    <p>
+        <code>borrowscope</code> differs from all of these in three ways: (1) it operates at the <strong>ownership level</strong> (variables, borrows, moves, reference counts) rather than the memory level (bytes, addresses, allocations), (2) it <strong>merges</strong> static predictions with runtime observations rather than using one approach exclusively, and (3) its output is a <strong>visualization</strong> with actionable suggestions rather than a pass/fail verdict. The goal is developer comprehension, not bug detection (though divergences often reveal bugs as a side effect).
+    </p>
+</div>
