@@ -1,1 +1,151 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>4. Variable Mapping</h1>
+    <p>
+        The most critical step in the merge pipeline is correlating runtime variable IDs with static variable declarations. Without this correlation, the system cannot compare what was predicted with what was observed. The mapping must handle ambiguity (multiple variables with the same name), incompleteness (variables that appear in only one source), and robustness (graceful degradation when correlation fails). This section describes the correlation problem, the matching strategy, and how edge cases are resolved.
+    </p>
+
+    <h2>4.1 The Correlation Problem (Runtime IDs vs Static Declarations)</h2>
+    <p>
+        Runtime events identify variables using string IDs in the format <code>"name_counter"</code> (e.g., <code>"data_0"</code>, <code>"r_1"</code>, <code>"config_2"</code>). The counter increments globally across all variables in the instrumented function, ensuring uniqueness even when multiple variables share the same name (shadowing). Static analysis identifies variables by their declaration: name, type, line number, column, and file path. These two identification schemes have no shared key: the runtime does not know the line number, and the static analysis does not know the counter suffix.
+    </p>
+    <p>
+        The correlation must bridge this gap. Given a runtime ID <code>"data_0"</code>, the system must determine which static variable declaration it corresponds to. The answer is not always obvious: a function may declare <code>let data = vec![1,2,3];</code> on line 5 and <code>let data = data.clone();</code> on line 8 (shadowing). The runtime assigns <code>"data_0"</code> to the first and <code>"data_1"</code> to the second, but the static analysis sees two declarations both named "data" at different lines. The mapping must use the counter suffix to disambiguate.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="map-svg" viewBox="0 0 750 250" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceMap()">
+            <text id="map-title" x="375" y="20" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to step through the variable mapping process</text>
+
+            <!-- Runtime side -->
+            <rect x="30" y="40" width="280" height="150" rx="6" fill="white" stroke="#e74c3c" stroke-width="2"/>
+            <text x="170" y="58" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="bold">Runtime Events (IDs)</text>
+            <text id="map-r1" x="50" y="82" font-size="9" fill="#555" font-family="monospace" opacity="0.3">New: "data_0" (Vec&lt;i32&gt;, t=1000)</text>
+            <text id="map-r2" x="50" y="100" font-size="9" fill="#555" font-family="monospace" opacity="0.3">New: "r_1" (&amp;Vec, t=1200)</text>
+            <text id="map-r3" x="50" y="118" font-size="9" fill="#555" font-family="monospace" opacity="0.3">New: "config_2" (Rc, t=1500)</text>
+            <text id="map-r4" x="50" y="136" font-size="9" fill="#555" font-family="monospace" opacity="0.3">Borrow: "r_1" borrows "data_0"</text>
+            <text id="map-r5" x="50" y="154" font-size="9" fill="#555" font-family="monospace" opacity="0.3">Drop: "r_1" (t=5000)</text>
+            <text id="map-r6" x="50" y="172" font-size="9" fill="#555" font-family="monospace" opacity="0.3">Drop: "data_0" (t=9000)</text>
+
+            <!-- Static side -->
+            <rect x="440" y="40" width="280" height="150" rx="6" fill="white" stroke="#2980b9" stroke-width="2"/>
+            <text x="580" y="58" text-anchor="middle" font-size="10" fill="#2980b9" font-weight="bold">Static Declarations (LSP)</text>
+            <text id="map-s1" x="460" y="82" font-size="9" fill="#555" font-family="monospace" opacity="0.3">data: Vec&lt;i32&gt; (line 5, Owned)</text>
+            <text id="map-s2" x="460" y="100" font-size="9" fill="#555" font-family="monospace" opacity="0.3">r: &amp;Vec&lt;i32&gt; (line 6, SharedRef)</text>
+            <text id="map-s3" x="460" y="118" font-size="9" fill="#555" font-family="monospace" opacity="0.3">config: Rc&lt;Config&gt; (line 8, Rc)</text>
+
+            <!-- Mapping arrows (appear on click) -->
+            <line id="map-a1" x1="310" y1="82" x2="438" y2="82" stroke="#27ae60" stroke-width="2" stroke-dasharray="5,3" opacity="0"/>
+            <line id="map-a2" x1="310" y1="100" x2="438" y2="100" stroke="#27ae60" stroke-width="2" stroke-dasharray="5,3" opacity="0"/>
+            <line id="map-a3" x1="310" y1="118" x2="438" y2="118" stroke="#27ae60" stroke-width="2" stroke-dasharray="5,3" opacity="0"/>
+
+            <!-- Match labels -->
+            <text id="map-m1" x="375" y="78" text-anchor="middle" font-size="8" fill="#27ae60" font-weight="bold" opacity="0">MATCH</text>
+            <text id="map-m2" x="375" y="96" text-anchor="middle" font-size="8" fill="#27ae60" font-weight="bold" opacity="0">MATCH</text>
+            <text id="map-m3" x="375" y="114" text-anchor="middle" font-size="8" fill="#27ae60" font-weight="bold" opacity="0">MATCH</text>
+
+            <!-- Description -->
+            <rect x="30" y="205" width="690" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="map-desc" x="375" y="222" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to correlate runtime IDs with static declarations</text>
+            <text id="map-step" x="375" y="245" text-anchor="middle" font-size="9" fill="#999">Step 0/4</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var mapStep = 0;
+        var steps = [
+            function() {
+                ['map-r1','map-r2','map-r3','map-r4','map-r5','map-r6'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Step 1: Runtime events loaded (6 events, 3 variables: data_0, r_1, config_2)';
+            },
+            function() {
+                ['map-s1','map-s2','map-s3'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Step 2: Static declarations loaded (3 variables: data, r, config with types and lines)';
+            },
+            function() {
+                document.getElementById('map-a1').setAttribute('opacity','1');
+                document.getElementById('map-m1').setAttribute('opacity','1');
+                return 'Step 3: "data_0" -> strip suffix -> "data" -> match static "data" at line 5. Correlated!';
+            },
+            function() {
+                ['map-a2','map-a3','map-m2','map-m3'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); });
+                return 'Step 4: "r_1" -> "r" (line 6), "config_2" -> "config" (line 8). All 3 mapped successfully.';
+            }
+        ];
+        window.advanceMap = function() {
+            if (mapStep >= steps.length) { mapStep = 0; resetMap(); return; }
+            var desc = steps[mapStep]();
+            document.getElementById('map-desc').textContent = desc;
+            mapStep++;
+            document.getElementById('map-step').textContent = 'Step ' + mapStep + '/' + steps.length;
+            document.getElementById('map-title').textContent = 'Click to continue';
+        };
+        function resetMap() {
+            ['map-r1','map-r2','map-r3','map-r4','map-r5','map-r6','map-s1','map-s2','map-s3'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0.3'); });
+            ['map-a1','map-a2','map-a3','map-m1','map-m2','map-m3'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('map-desc').textContent = '// click to correlate runtime IDs with static declarations';
+            document.getElementById('map-title').textContent = 'Click to step through the variable mapping process';
+            document.getElementById('map-step').textContent = 'Step 0/4';
+        }
+    })();
+    </script>
+
+    <h2>4.2 Name + Line + File Matching Strategy</h2>
+    <p>
+        The mapping algorithm operates in three steps. First, it extracts the variable name from the runtime ID by stripping the counter suffix: <code>"data_0"</code> becomes <code>"data"</code>, <code>"config_2"</code> becomes <code>"config"</code>. Second, it finds all static variable declarations with the same name in the same file. Third, if multiple declarations match (shadowing), it uses the counter value as a declaration index: counter 0 maps to the first declaration of that name, counter 1 to the second, and so on.
+    </p>
+    <p>
+        The <code>mapVariables()</code> function takes the static variable list and the runtime event array as inputs. It scans the events for creation events (New, RcNew, ArcNew, etc.) to identify all runtime variables, then correlates each with a static declaration. The output is a <code>MappedVariable[]</code> where each entry contains: the runtime var_id, the var_name, the matched static declaration (or null if unmapped), the parsed location (file, line), and the subset of events that reference this variable.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">mapVariables</span>(
+  staticVars: StaticVariable[],
+  events: RuntimeEvent[],
+  file?: string
+): MappedVariable[] {
+  <span class="rust-keyword">const</span> mapped: MappedVariable[] = [];
+
+  <span class="rust-comment">// Find all creation events (these define runtime variables)</span>
+  <span class="rust-keyword">for</span> (<span class="rust-keyword">const</span> event <span class="rust-keyword">of</span> events) {
+    <span class="rust-keyword">const</span> type = eventType(event);
+    <span class="rust-keyword">const</span> data = eventData(event);
+    <span class="rust-keyword">if</span> (!isCreationEvent(type)) <span class="rust-keyword">continue</span>;
+
+    <span class="rust-keyword">const</span> varName = data.var_name;
+    <span class="rust-keyword">const</span> varId = data.var_id;
+    <span class="rust-keyword">const</span> location = parseLocation(data.location);
+
+    <span class="rust-comment">// Find matching static variable by name + declaration order</span>
+    <span class="rust-keyword">const</span> candidates = staticVars.filter(s => s.name === varName);
+    <span class="rust-keyword">const</span> declIndex = extractCounter(varId); <span class="rust-comment">// "data_0" -> 0</span>
+    <span class="rust-keyword">const</span> staticMatch = candidates[declIndex] || candidates[0] || null;
+
+    <span class="rust-comment">// Collect all events referencing this var_id</span>
+    <span class="rust-keyword">const</span> varEvents = events.filter(e => referencesVar(e, varId));
+
+    mapped.push({ var_id: varId, var_name: varName, static_match: staticMatch,
+                  location, events: varEvents });
+  }
+
+  <span class="rust-keyword">return</span> mapped;
+}</pre>
+    </div>
+
+    <h2>4.3 Handling Shadowed Variables</h2>
+    <p>
+        Variable shadowing is common in Rust: <code>let x = compute(); let x = transform(x);</code> creates two distinct variables both named "x." The runtime assigns them sequential IDs (<code>"x_0"</code> and <code>"x_1"</code>), and the static analysis reports two declarations at different lines. The mapping uses the counter suffix as a declaration index within the set of same-named variables, ordered by line number.
+    </p>
+    <p>
+        This approach works correctly when the analyzer and runtime agree on declaration order (which they do, since both process the function body top-to-bottom). Edge cases arise when the analyzer skips a variable (e.g., a compiler-generated temporary that the runtime tracks but the analyzer does not see). In such cases, the counter may exceed the number of static declarations, and the variable is marked as unmapped (<code>static_match: null</code>). The merge still processes it as a <code>"runtime_only"</code> entry, preserving all runtime observations even without a static counterpart.
+    </p>
+
+    <h2>4.4 Unmapped Variables (runtime_only and static_only)</h2>
+    <p>
+        Not every variable maps cleanly between the two worlds. <strong>runtime_only</strong> variables appear in the event stream but have no corresponding static declaration. Common causes: compiler-generated temporaries (e.g., the intermediate value in <code>a.b.c()</code>), variables inside macro expansions that the analyzer does not traverse, or variables in functions that the LSP did not analyze (e.g., functions in dependencies). These variables still receive a <code>MergedVariable</code> entry with <code>static_info: null</code>, and their runtime behavior is fully tracked. They appear in the Runtime view but cannot be correlated with source lines.
+    </p>
+    <p>
+        <strong>static_only</strong> variables appear in the LSP analysis but have no corresponding runtime events. Common causes: the function was never called during the traced execution, the variable is in a branch that was not taken, or the macro did not instrument that particular binding (e.g., function parameters in some configurations). These variables receive a <code>MergedVariable</code> entry with <code>runtime_info: null</code> and agreement status <code>"static_only"</code>. They appear in the static ownership graph but have no timing, drop order, or ref count data.
+    </p>
+    <p>
+        Both categories are valuable. <code>runtime_only</code> variables reveal runtime behavior that static analysis cannot see (useful for understanding macro-generated code or compiler optimizations). <code>static_only</code> variables reveal code that was never exercised (useful for identifying dead code or insufficient test coverage). The merge preserves both rather than discarding unmatched entries, giving the developer a complete picture of what was predicted, what was observed, and what was missed by each side.
+    </p>
+</div>
