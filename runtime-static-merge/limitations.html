@@ -1,1 +1,46 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>10. Limitations and Future Work</h1>
+    <p>
+        The merge layer operates within constraints imposed by both its data sources. Static analysis provides predictions without execution context; runtime observation provides facts without coverage guarantees. This section documents the current limitations and outlines planned enhancements that would address them.
+    </p>
+
+    <h2>10.1 Single Execution Path Limitation</h2>
+    <p>
+        Each runtime trace captures exactly one execution path through the program. Variables in untaken branches produce no events and appear as <code>"static_only"</code> in the merge. Divergences that only manifest on rare error paths (e.g., an Rc leak triggered by a specific input) will not be detected unless that path is exercised. The merge cannot claim completeness: a "zero divergences" result means "no issues on this path," not "no issues exist."
+    </p>
+    <p>
+        This is a fundamental limitation of any dynamic analysis approach. The mitigation is to run the instrumented program with diverse inputs and merge the results. Currently, each run overwrites the events file, losing previous traces. Future work (Section 10.3) addresses this with multi-run aggregation.
+    </p>
+
+    <h2>10.2 Thread Interleaving Sensitivity</h2>
+    <p>
+        Multi-threaded programs may produce different event orderings on each run depending on thread scheduling. A divergence detected in one run (e.g., a channel receive failure caused by a specific interleaving) may not reproduce in the next run. The merge results are therefore non-deterministic for concurrent code: the same program with the same input may produce different divergence sets depending on which thread runs first.
+    </p>
+    <p>
+        The current implementation does not attempt to account for this non-determinism. It reports what was observed in the single trace it received. For concurrent programs, the developer should interpret divergences as "this happened at least once" rather than "this always happens." Thread-aware analysis (detecting data races, lock ordering issues) is beyond the current scope and would require integration with tools like ThreadSanitizer or Miri.
+    </p>
+
+    <h2>10.3 Planned: Multi-Run Aggregation</h2>
+    <p>
+        A natural extension of the merge is to aggregate events from multiple runs into a probabilistic model. Instead of a single events file, the system would maintain a history of traces (e.g., the last 10 runs). Divergences would be annotated with frequency: "Rc leak detected in 3/10 runs" is more informative than "Rc leak detected." Variables that are <code>"static_only"</code> in all runs indicate truly dead code, while those that appear in some runs indicate conditional paths.
+    </p>
+    <p>
+        Implementation would require: a trace storage format (one file per run, or an append-only log), a merge-across-runs algorithm (union of all observed variables, frequency counting for divergences), and a UI for selecting which runs to include. The performance budget would need to scale: merging 10 traces of 1000 events each must still complete within a reasonable time (target: under 500ms).
+    </p>
+
+    <h2>10.4 Planned: Confidence Scoring for Divergences</h2>
+    <p>
+        Currently, all divergences of the same kind have equal weight regardless of how much evidence supports them. A future enhancement would assign confidence scores based on the strength of evidence. An <code>rc_leak</code> with 5 clones and 0 drops across 10 runs would have confidence 0.99 (almost certainly a real leak). A <code>conditional_move</code> with 1 event in 1 run would have confidence 0.3 (likely just an untaken branch in this particular test).
+    </p>
+    <p>
+        Confidence scoring would enable filtering: the developer could set a threshold ("show only divergences with confidence > 0.7") to reduce noise from low-confidence informational findings. It would also enable prioritization: the divergence list could be sorted by confidence, putting the most certain issues at the top. The scoring model would be calibrated empirically by analyzing divergence reports across multiple open-source Rust projects.
+    </p>
+
+    <h2>10.5 Planned: Integration with borrowscope-macro for Automated Instrumentation</h2>
+    <p>
+        The current workflow requires the developer to manually add <code>#[trace_borrow]</code> to functions, compile, run, and then observe the merge results. A future enhancement would automate this entire pipeline from within VS Code. The developer would click a "Run with BorrowScope" command, and the extension would: (1) invoke the analyzer to generate fresh type-info.json, (2) compile the project with the macro enabled, (3) execute the binary, (4) load the resulting events file, and (5) trigger the merge automatically.
+    </p>
+    <p>
+        This integration would close the loop between static and runtime analysis completely. The developer edits code, clicks one button, and sees the merged visualization with divergences highlighted. No terminal commands, no manual file management, no configuration. The <code>borrowscope-macro</code> already supports selective instrumentation (<code>#[trace_borrow(only = "Rc,Move")]</code>), which could be exposed as a VS Code quick-pick menu: "What do you want to track? [All] [Rc/Arc only] [Moves only] [Borrows only]."
+    </p>
+</div>

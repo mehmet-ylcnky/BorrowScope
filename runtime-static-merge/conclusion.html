@@ -1,1 +1,16 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>11. Conclusion</h1>
+    <p>
+        This paper presented a merge algorithm that bridges the gap between static ownership analysis and runtime event observation in Rust programs. Static analysis (via <code>borrowscope-lsp</code>) predicts ownership categories, borrow scopes, and potential conflicts across all code paths. Runtime observation (via <code>borrowscope-runtime</code>) records actual reference counts, precise timing, drop order, and the exact sequence of ownership operations along one execution path. Neither source alone provides a complete picture: static analysis cannot observe Rc cycles or determine which branches are taken, while runtime observation cannot see all possible conflicts or provide instant editor feedback.
+    </p>
+    <p>
+        The merge algorithm correlates these two perspectives by mapping runtime variable IDs to static declarations using name and declaration order matching. For each correlated variable, it aggregates runtime events into a comprehensive RuntimeInfo structure and compares the observed behavior against static predictions. When meaningful disagreements are found, the system classifies them into 9 divergence kinds (Rc leaks, reference cycles, missing drops, async borrows held across await, unsafe hidden behavior, conditional moves, weak upgrade failures, channel receive failures, and use-after-move), each with a severity level and an actionable suggestion. The merge completes in under 100ms for typical event streams, enabling real-time overlay in the VS Code extension.
+    </p>
+    <p>
+        The most practically valuable contribution is async borrow tracking, which detects borrows held across <code>.await</code> suspension points and directly explains the common "future is not Send" compiler error. By showing exactly which borrow crosses which await point, with duration and future identification, the system transforms a cryptic type error into an immediately actionable finding. Together with the other 8 divergence kinds, the merge layer gives Rust developers a unified view of ownership behavior that combines the breadth of static analysis with the precision of runtime observation, surfacing issues that neither approach can find alone.
+    </p>
+
+    <div class="dedication">
+        <p>To every developer who has wondered: "what is actually happening with my borrows at runtime?"</p>
+    </div>
+</div>
