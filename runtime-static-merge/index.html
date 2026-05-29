@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Merging Static and Runtime Analysis for Rust Ownership Visualization</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .section-container { margin-bottom: 3rem; }
+        .loading { text-align: center; color: var(--secondary-color); font-style: italic; padding: 2rem; }
+        .navigation { position: fixed; top: 20px; right: 20px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 280px; max-height: 90vh; overflow-y: auto; z-index: 1000; }
+        .navigation h3 { margin-top: 0; font-size: 1rem; color: var(--primary-color); }
+        .navigation ul { list-style: none; padding: 0; margin: 0; }
+        .navigation li { margin: 0.3rem 0; }
+        .navigation a { color: var(--secondary-color); text-decoration: none; font-size: 0.9rem; }
+        .navigation a:hover { text-decoration: underline; }
+        @media (max-width: 1200px) { .navigation { display: none; } }
+        .back-link { display: inline-block; margin-bottom: 1rem; color: var(--secondary-color); text-decoration: none; }
+        .back-link:hover { text-decoration: underline; }
+        .back-link::before { content: "\2190 "; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { border: 1px solid var(--border-color); padding: 0.5rem; text-align: left; }
+        th { background: var(--code-bg); }
+    </style>
+</head>
+<body>
+    <a href="../" class="back-link">Back to BorrowScope</a>
+
+    <div class="navigation">
+        <h3>Quick Navigation</h3>
+        <nav class="toc">
+            <ul>
+                <li><a href="#abstract">Abstract</a></li>
+                <li><a href="#introduction">1. Introduction</a></li>
+                <li><a href="#background">2. Background</a></li>
+                <li><a href="#ingestion">3. Event Ingestion</a></li>
+                <li><a href="#mapping">4. Variable Mapping</a></li>
+                <li><a href="#merge">5. Merge Algorithm</a></li>
+                <li><a href="#divergence">6. Divergence Detection</a></li>
+                <li><a href="#visualization">7. Visualization</a></li>
+                <li><a href="#async">8. Async Borrow Tracking</a></li>
+                <li><a href="#evaluation">9. Evaluation</a></li>
+                <li><a href="#limitations">10. Limitations</a></li>
+                <li><a href="#conclusion">11. Conclusion</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <div class="header">
+        <h1 class="title"><strong>Merging Static and Runtime Analysis</strong> for Rust Ownership Visualization</h1>
+        <p class="subtitle">Divergence Detection, Async Borrow Tracking, and Unified Ownership Views</p>
+        <div class="logo-container">
+            <img src="logo.png" alt="BorrowScope Logo" class="logo">
+        </div>
+        <div class="authors">
+            <strong>Author:</strong> <a href="https://www.linkedin.com/in/mehmetylcnky/" target="_blank" class="author-link">Mehmet Yalcinkaya, PhD</a><br>
+            Principal Platform Engineer<br><br>
+            <strong>Date:</strong> June 2026<br>
+            <strong>Version:</strong> 1.0<br>
+            <div class="badges">
+                <a href="https://github.com/mehmet-ylcnky/BorrowScope" target="_blank">
+                    <img src="https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github" alt="GitHub Repository">
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <div id="abstract" class="section-container"><div class="loading">Loading abstract...</div></div>
+        <div id="introduction" class="section-container"><div class="loading">Loading introduction...</div></div>
+        <div id="background" class="section-container"><div class="loading">Loading background...</div></div>
+        <div id="ingestion" class="section-container"><div class="loading">Loading ingestion...</div></div>
+        <div id="mapping" class="section-container"><div class="loading">Loading mapping...</div></div>
+        <div id="merge" class="section-container"><div class="loading">Loading merge...</div></div>
+        <div id="divergence" class="section-container"><div class="loading">Loading divergence...</div></div>
+        <div id="visualization" class="section-container"><div class="loading">Loading visualization...</div></div>
+        <div id="async" class="section-container"><div class="loading">Loading async...</div></div>
+        <div id="evaluation" class="section-container"><div class="loading">Loading evaluation...</div></div>
+        <div id="limitations" class="section-container"><div class="loading">Loading limitations...</div></div>
+        <div id="conclusion" class="section-container"><div class="loading">Loading conclusion...</div></div>
+    </main>
+
+    <footer>
+        <p><strong>Merging Static and Runtime Analysis</strong> for Rust Ownership Visualization</p>
+        <p>Part of the <a href="../">BorrowScope Project</a></p>
+    </footer>
+
+    <script>
+        const sections = [
+            { id: 'abstract', file: 'abstract.html' },
+            { id: 'introduction', file: 'introduction.html' },
+            { id: 'background', file: 'background.html' },
+            { id: 'ingestion', file: 'ingestion.html' },
+            { id: 'mapping', file: 'mapping.html' },
+            { id: 'merge', file: 'merge.html' },
+            { id: 'divergence', file: 'divergence.html' },
+            { id: 'visualization', file: 'visualization.html' },
+            { id: 'async', file: 'async.html' },
+            { id: 'evaluation', file: 'evaluation.html' },
+            { id: 'limitations', file: 'limitations.html' },
+            { id: 'conclusion', file: 'conclusion.html' },
+        ];
+
+        sections.forEach(section => {
+            fetch(section.file)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById(section.id).innerHTML = html;
+                    document.getElementById(section.id).querySelectorAll('script').forEach(oldScript => {
+                        const newScript = document.createElement('script');
+                        newScript.textContent = oldScript.textContent;
+                        oldScript.parentNode.replaceChild(newScript, oldScript);
+                    });
+                    document.getElementById(section.id).querySelectorAll('.code-block').forEach(block => {
+                        if (block.querySelector('.copy-btn')) return;
+                        const copyButton = document.createElement('button');
+                        copyButton.textContent = 'Copy';
+                        copyButton.className = 'copy-btn';
+                        copyButton.onclick = () => {
+                            const code = block.querySelector('pre').textContent;
+                            navigator.clipboard.writeText(code);
+                            copyButton.textContent = 'Copied!';
+                            setTimeout(() => copyButton.textContent = 'Copy', 2000);
+                        };
+                        block.style.position = 'relative';
+                        block.appendChild(copyButton);
+                    });
+                });
+        });
+    </script>
+    <script src="scripts.js"></script>
+</body>
+</html>
