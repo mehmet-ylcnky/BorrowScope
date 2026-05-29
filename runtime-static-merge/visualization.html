@@ -1,1 +1,78 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>7. Visualization of Merged Data</h1>
+    <p>
+        The merge algorithm produces structured data (MergedVariable arrays with RuntimeInfo and divergences), but data alone does not help the developer. The visualization layer transforms merge results into visual feedback at two levels: inline editor decorations that appear directly on the source code, and a dedicated Runtime view in the WebView panel with four specialized sub-tabs. This section describes each visualization component and how it maps merge data to pixels.
+    </p>
+
+    <h2>7.1 Inline Runtime Decorations (Timing, Drop Order, Divergence Highlights)</h2>
+    <p>
+        When runtime events are loaded and the merge completes, the extension applies three types of inline decorations to the active editor. These decorations appear alongside the existing static decorations (inlay hints, lifelines) but use distinct visual styles to differentiate runtime observations from static predictions.
+    </p>
+    <p>
+        <strong>Timing annotations</strong> appear as green italic text after variable declarations, showing the actual lifetime observed at runtime. For example: <code>let data = vec![1,2,3]; // lived 4.2ms</code>. The lifetime is computed from <code>RuntimeInfo.actual_lifetime_ns</code> and formatted in human-readable units (ns, us, ms, s). Variables that were never dropped show "alive" instead of a duration.
+    </p>
+    <p>
+        <strong>Drop order badges</strong> appear as small numbered indicators in the gutter, showing the position of each variable in the global destruction sequence. The first variable dropped gets badge #1, the second #2, and so on. This reveals the actual LIFO order and makes it immediately visible when a variable is dropped earlier or later than expected (e.g., due to <code>std::mem::drop</code> or nested scopes).
+    </p>
+    <p>
+        <strong>Divergence highlights</strong> apply a background color to lines where divergences were detected. Error-severity divergences (rc_leak, rc_cycle, use_after_move) produce a red background. Warning-severity divergences (missing_drop, async_borrow_held, weak_upgrade_fail, channel_recv_fail) produce a yellow background. Info-severity divergences do not produce inline highlights (they appear only in the panel). Each highlight includes a hover tooltip showing the divergence description and suggestion.
+    </p>
+
+    <h2>7.2 Runtime View: Timeline Sub-tab</h2>
+    <p>
+        The Timeline sub-tab renders variable lifetimes as horizontal bars on a time axis. Unlike the static timeline (which uses line numbers as the X-axis), the runtime timeline uses actual timestamps in nanoseconds. Each bar spans from the variable's creation timestamp to its drop timestamp, colored by ownership category. Variables that were never dropped have bars extending to the right edge with a dashed end (indicating "still alive" or "leaked").
+    </p>
+    <p>
+        Borrow regions are overlaid on the timeline as semi-transparent colored segments: blue for shared borrows, red for mutable borrows. Each borrow segment spans from the Borrow event's timestamp to the corresponding Drop event for the borrower. This shows the actual temporal overlap between borrows, which may differ from the static prediction (NLL computes scope based on last use, but the actual drop may happen later if the variable is not explicitly dropped).
+    </p>
+    <p>
+        The sub-tab includes a play/scrub control. The play button auto-advances a cursor along the time axis at configurable speed, revealing events as they occurred. The scrub slider allows manual positioning. As the cursor moves, bars grow from left to right, simulating the program's execution in slow motion. This temporal animation helps developers understand the sequence of ownership operations and identify unexpected orderings.
+    </p>
+
+    <h2>7.3 Runtime View: Drop Order Sub-tab</h2>
+    <p>
+        The Drop Order sub-tab presents a numbered list of all variables in the order they were destroyed. Each entry shows: a circular badge with the position number (#1, #2, #3...), the variable name, and the lifetime duration (time from creation to drop). The list is ordered by drop timestamp, revealing the actual LIFO destruction sequence.
+    </p>
+    <p>
+        This view is particularly valuable for understanding scope-based destruction. In Rust, variables within a scope are dropped in reverse declaration order (LIFO). But when nested scopes, early drops, or conditional destruction are involved, the actual order may surprise developers. The Drop Order sub-tab makes this order explicit and clickable: clicking any entry navigates to the variable's declaration line in the editor.
+    </p>
+    <p>
+        Variables that were never dropped (leaked Rc, <code>mem::forget</code>) do not appear in the list. If the merge detected a <code>missing_drop</code> or <code>rc_leak</code> divergence for such variables, a warning banner appears at the bottom of the list: "N variable(s) were never dropped."
+    </p>
+
+    <h2>7.4 Runtime View: Reference Count Sub-tab</h2>
+    <p>
+        The Reference Count sub-tab renders a step chart for each Rc/Arc variable, showing the strong_count over time. The X-axis represents timestamps, the Y-axis represents the count value. Each event that changes the count (RcNew starts at 1, RcClone increments, Drop decrements) produces a step in the chart. The chart uses a step-after curve: the count holds steady until the next event, then jumps vertically.
+    </p>
+    <p>
+        Each step is marked with a labeled dot showing the event that caused the change (e.g., "clone config2", "drop config3"). If the count reaches zero, the final dot is green (healthy: the value was freed). If the count never reaches zero by the end of the trace, the chart shows a red warning: "Potential leak: final count = N." This directly corresponds to the <code>rc_leak</code> divergence but presented as a visual timeline rather than a text message.
+    </p>
+    <p>
+        Multiple Rc/Arc variables in the same function each get their own chart, stacked vertically. The charts share the same time axis for easy comparison. This reveals patterns like: "config was cloned 3 times, all clones were dropped before the original" (healthy) vs "config was cloned 3 times, 2 clones were never dropped" (leak).
+    </p>
+
+    <h2>7.5 Runtime View: Event Log Sub-tab</h2>
+    <p>
+        The Event Log sub-tab provides a raw, scrollable list of all runtime events for the current function. Each event is displayed as a single row with: timestamp (in nanoseconds), a color-coded type badge (green for New, orange for Drop, blue for Borrow, purple for RcClone, red for UnsafeBlockEnter, gray for control flow), and the affected variable name or relevant identifier.
+    </p>
+    <p>
+        The log serves as the "ground truth" view: when a divergence is detected and the developer wants to understand exactly what happened, the event log shows the raw sequence of operations. Clicking any event row navigates to the corresponding source line (resolved from the event's location field or the variable's declaration line). The log can be filtered by event type using the type badges as toggle buttons, allowing the developer to focus on specific categories (e.g., show only Borrow and Drop events to understand borrow lifetimes).
+    </p>
+    <p>
+        For large event streams (1000+ events), the log virtualizes rendering (only visible rows are in the DOM) to maintain scroll performance. A search/filter bar at the top allows filtering by variable name or event type. The total event count is shown as a badge in the sub-tab selector.
+    </p>
+
+    <h2>7.6 Status Bar Integration (Event Count, Divergence Badge)</h2>
+    <p>
+        The extension's status bar item provides a persistent summary of the merge state. When runtime events are loaded and the merge is active, the status bar shows: the event count, time since last update, and divergence summary. The format adapts to the merge result:
+    </p>
+    <ul>
+        <li><strong>No divergences:</strong> <code>Static OK | Runtime OK (103 events, 2s ago)</code> in green</li>
+        <li><strong>Warnings only:</strong> <code>Static OK | Runtime: 2 warnings</code> in yellow</li>
+        <li><strong>Errors present:</strong> <code>Static OK | Runtime: 1 error, 2 warnings</code> in red</li>
+        <li><strong>No runtime data:</strong> <code>Static OK | Runtime: disabled</code> in gray</li>
+    </ul>
+    <p>
+        Clicking the status bar item opens the Runtime view in the WebView panel, providing quick access to the detailed merge visualization. The status bar also shows a loading indicator while events are being parsed and merged, and an error indicator if the events file is malformed or unreadable. The <code>RuntimeStatusBar</code> class listens to the watcher's <code>onEventsUpdated</code> event and refreshes its display whenever new data arrives.
+    </p>
+</div>
