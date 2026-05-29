@@ -112,24 +112,4 @@
     <p>
         Not all 88 event types are equally relevant to the merge. The core ownership events (New, Borrow, Move, Drop) and smart pointer events (RcNew, RcClone, ArcNew, ArcClone) are the primary inputs for divergence detection. The async events (AwaitStart, AwaitEnd) are critical for async borrow tracking. The remaining events provide context (function boundaries, loop iterations) but do not directly trigger divergence checks. The merge algorithm processes all events but only aggregates ownership-relevant ones into the RuntimeInfo structure.
     </p>
-
-    <h2>2.4 Related Work (Miri, Valgrind, Sanitizers, KLEE)</h2>
-    <p>
-        Several existing tools combine static and dynamic analysis for memory safety, but none target ownership visualization specifically.
-    </p>
-    <p>
-        <strong><a href="https://github.com/rust-lang/miri" target="_blank">Miri</a></strong> is an interpreter for Rust's Mid-level Intermediate Representation (MIR). It executes programs symbolically and detects undefined behavior: use-after-free, out-of-bounds access, data races, and violations of Stacked Borrows (Rust's aliasing model). Miri is precise but slow (10-100x slower than native execution) and produces binary verdicts (UB or no UB) rather than visualizations. It does not merge its findings with static analysis or produce ownership graphs.
-    </p>
-    <p>
-        <strong>Valgrind</strong> (specifically Memcheck) detects memory errors at runtime: uninitialized reads, invalid frees, memory leaks. It operates at the machine code level with no knowledge of Rust's ownership model. It cannot distinguish an Rc leak from a Box leak, cannot identify borrow scope violations, and cannot correlate findings with source-level ownership categories.
-    </p>
-    <p>
-        <strong>AddressSanitizer</strong> and <strong>ThreadSanitizer</strong> (compiler-instrumented sanitizers) detect memory errors and data races respectively. They are faster than Valgrind but equally unaware of Rust's ownership semantics. They report low-level symptoms (buffer overflow, data race) rather than ownership-level causes (borrow conflict, Rc cycle).
-    </p>
-    <p>
-        <strong><a href="https://klee.github.io/" target="_blank">KLEE</a></strong> performs symbolic execution, exploring multiple paths through a program. It can achieve high path coverage but does not merge its findings with runtime observations, does not produce ownership visualizations, and does not target Rust specifically.
-    </p>
-    <p>
-        <code>borrowscope</code> differs from all of these in three ways: (1) it operates at the <strong>ownership level</strong> (variables, borrows, moves, reference counts) rather than the memory level (bytes, addresses, allocations), (2) it <strong>merges</strong> static predictions with runtime observations rather than using one approach exclusively, and (3) its output is a <strong>visualization</strong> with actionable suggestions rather than a pass/fail verdict. The goal is developer comprehension, not bug detection (though divergences often reveal bugs as a side effect).
-    </p>
 </div>
