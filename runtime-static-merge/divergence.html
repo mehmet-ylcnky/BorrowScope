@@ -1,1 +1,246 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>6. Divergence Detection</h1>
+    <p>
+        Divergence detection is the core contribution of the merge layer. It transforms raw disagreements between static predictions and runtime observations into classified, actionable findings. Each divergence kind targets a specific class of ownership issue, carries a severity level that determines how prominently it is displayed, and includes a suggestion that tells the developer what to investigate. This section describes the detection architecture and each of the 9 divergence kinds in detail.
+    </p>
+
+    <h2>6.1 Detection Architecture (Per-Variable Analysis)</h2>
+    <p>
+        The <code>detectAllDivergences()</code> function runs all 9 checks on each MergedVariable independently. It receives the merged variable (with both static_info and runtime_info populated) and the full event stream (needed for some checks that look beyond the variable's own events, such as WeakUpgrade). Each check is a pure function that returns zero or more <code>DetailedDivergence</code> entries. The checks are ordered from most severe to least, but all run regardless of earlier results (a single variable can have multiple divergences).
+    </p>
+    <p>
+        Each <code>DetailedDivergence</code> contains five fields: <code>kind</code> (one of 9 enum values), <code>severity</code> ("error", "warning", or "info"), <code>description</code> (human-readable explanation of what was observed), <code>suggestion</code> (what the developer should do), and <code>runtime_evidence</code> (the specific observations that triggered the detection, useful for debugging false positives). The separation of description and suggestion ensures that the developer understands both what happened and what to do about it.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">export function</span> <span class="rust-function">detectAllDivergences</span>(
+  merged: MergedVariable,
+  allEvents: RuntimeEvent[]
+): DetailedDivergence[] {
+  <span class="rust-keyword">const</span> divergences: DetailedDivergence[] = [];
+  <span class="rust-keyword">const</span> s = merged.static_info;
+  <span class="rust-keyword">const</span> r = merged.runtime_info;
+  <span class="rust-keyword">if</span> (!r) <span class="rust-keyword">return</span> divergences;
+
+  <span class="rust-comment">// Run all 9 checks</span>
+  checkRcLeak(s, r, divergences);
+  checkRcCycle(s, r, divergences);
+  checkMissingDrop(s, r, divergences);
+  checkAsyncBorrowHeld(r, divergences);
+  checkUnsafeHidden(s, r, divergences);
+  checkConditionalMove(s, r, divergences);
+  checkWeakUpgradeFail(merged, allEvents, divergences);
+  checkChannelRecvFail(merged, allEvents, divergences);
+  checkUseAfterMove(merged, allEvents, divergences);
+
+  <span class="rust-keyword">return</span> divergences;
+}</pre>
+    </div>
+
+    <h2>6.2 Rc/Arc Leak Detection (rc_leak)</h2>
+    <p>
+        <strong>Condition:</strong> Static analysis classifies the variable as Rc or Arc, and runtime observation shows that it was never dropped (<code>drop_timestamp &lt; 0</code>) while the final reference count is greater than zero (<code>ref_count_final &gt; 0</code>).
+    </p>
+    <p>
+        <strong>Meaning:</strong> The reference-counted value will never be freed. Memory is leaked. This is one of the few ways to leak memory in safe Rust (the other being <code>std::mem::forget</code> or <code>Box::leak</code>). The most common cause is a reference cycle: two Rc values pointing to each other, preventing either from reaching zero.
+    </p>
+    <p>
+        <strong>Severity:</strong> Error. This is a genuine bug that causes unbounded memory growth in long-running programs.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "Check for reference cycles. Consider using Weak references to break the cycle."
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">if</span> (s && (s.ownership_category === <span class="rust-string">"Rc"</span> || s.ownership_category === <span class="rust-string">"Arc"</span>) &&
+    r.drop_timestamp < 0 && r.ref_count_final > 0) {
+  divergences.push({
+    kind: <span class="rust-string">"rc_leak"</span>,
+    severity: <span class="rust-string">"error"</span>,
+    description: <span class="rust-string">`${s.ownership_category} never dropped (final ref count: ${r.ref_count_final})`</span>,
+    suggestion: <span class="rust-string">"Check for reference cycles. Consider using Weak references."</span>,
+    runtime_evidence: <span class="rust-string">`Created with ref_count=1, peaked at ${r.ref_count_peak}, never reached 0`</span>,
+  });
+}</pre>
+    </div>
+
+    <h2>6.3 Reference Cycle Detection (rc_cycle)</h2>
+    <p>
+        <strong>Condition:</strong> Rc or Arc, ref_count_peak > 1, clone_count >= 2, ref_count_final > 0, and never dropped. This is a stricter version of rc_leak that specifically identifies cycles (multiple clones that form a loop).
+    </p>
+    <p>
+        <strong>Meaning:</strong> Not just a forgotten Rc, but an actual cycle where multiple Rc values reference each other. The ref count went up (clones were created) but never came back down (no clone was ever the last reference). This distinguishes a cycle from a simple leak where a single Rc was forgotten.
+    </p>
+    <p>
+        <strong>Severity:</strong> Error. Cycles are harder to fix than simple leaks because breaking them requires restructuring the ownership graph.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "Break the cycle with Weak&lt;T&gt; or restructure ownership. The ref count peaked at N with M clones."
+    </p>
+
+    <h2>6.4 Missing Drop Detection (missing_drop)</h2>
+    <p>
+        <strong>Condition:</strong> The variable is non-Copy, was not moved, was never dropped, and is not Rc/Arc (those are handled by rc_leak). This catches variables that should have been destroyed but weren't.
+    </p>
+    <p>
+        <strong>Meaning:</strong> A value that owns resources (heap memory, file handles, network connections) was never cleaned up. Possible causes: <code>std::mem::forget</code> was called explicitly, the program exited (panic or <code>std::process::exit</code>) before the scope ended, or the variable was leaked through unsafe code.
+    </p>
+    <p>
+        <strong>Severity:</strong> Warning. Unlike Rc leaks, this may be intentional (some patterns use <code>mem::forget</code> deliberately, e.g., when transferring ownership to C code via FFI).
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "This may indicate a leak, std::mem::forget, or program exit before scope end."
+    </p>
+
+    <h2>6.5 Async Borrow Held Across Await (async_borrow_held)</h2>
+    <p>
+        <strong>Condition:</strong> The variable has borrows that are active (not yet dropped) when an <code>AwaitStart</code> event fires. The <code>detectAwaitCrossings()</code> function tracks active borrows and checks them against await events.
+    </p>
+    <p>
+        <strong>Meaning:</strong> A borrow is held across a suspension point. When the future is suspended at <code>.await</code>, the borrow must be stored in the future's state machine. If the borrow is mutable and the borrowed type is not Sync, the future cannot implement Send, meaning it cannot be spawned on a multi-threaded runtime like tokio. This is the root cause of the common "future is not Send" compiler error.
+    </p>
+    <p>
+        <strong>Severity:</strong> Warning. The code may still compile (if the future is only used on a single-threaded runtime), but it limits composability.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "Consider cloning before the await or restructuring to drop the borrow first."
+    </p>
+
+    <h2>6.6 Unsafe Hidden Behavior (unsafe_hidden)</h2>
+    <p>
+        <strong>Condition:</strong> The variable has <code>unsafe_accesses &gt; 0</code> (raw pointer dereferences or unsafe block entries) but is not classified as RawPointer by static analysis.
+    </p>
+    <p>
+        <strong>Meaning:</strong> The variable participates in unsafe operations that static analysis cannot verify. The ownership guarantees that the LSP reports may be incomplete because unsafe code can bypass the borrow checker. The runtime observed operations that the static analysis cannot account for.
+    </p>
+    <p>
+        <strong>Severity:</strong> Info. This is not necessarily a bug; it simply indicates that the static view is incomplete for this variable. The developer should review the unsafe blocks for soundness.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "Review unsafe blocks for soundness. Static analysis cannot verify ownership inside unsafe code."
+    </p>
+
+    <h2>6.7 Conditional Move Detection (conditional_move)</h2>
+    <p>
+        <strong>Condition:</strong> Static analysis says the variable is Owned (could be moved), it is non-Copy, but runtime shows: never moved, never borrowed (0 borrows), and dropped normally. The variable existed, was never used by anyone, and was simply destroyed.
+    </p>
+    <p>
+        <strong>Meaning:</strong> A move expression exists in the source code (the static analysis sees it), but the branch containing the move was not taken during this execution. The variable was created and dropped without ever being consumed or borrowed. This may indicate dead code, an untaken error path, or simply a branch that this particular test input did not exercise.
+    </p>
+    <p>
+        <strong>Severity:</strong> Info. This is expected behavior for programs with conditional logic. It becomes interesting when aggregated across multiple runs: a variable that is never moved in any run may indicate truly dead code.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "The move may be in a branch that wasn't executed in this run."
+    </p>
+
+    <h2>6.8 Weak Upgrade Failure (weak_upgrade_fail)</h2>
+    <p>
+        <strong>Condition:</strong> A <code>WeakUpgrade</code> event with <code>success: false</code> exists for this variable (or a Weak reference derived from it).
+    </p>
+    <p>
+        <strong>Meaning:</strong> <code>Weak::upgrade()</code> was called but returned <code>None</code> because the strong reference had already been dropped. The Weak pointer is dangling. This may indicate a lifetime ordering issue: the code assumes the strong reference outlives the weak, but it doesn't.
+    </p>
+    <p>
+        <strong>Severity:</strong> Warning. The code handles the None case (otherwise it would panic), but the failed upgrade may indicate a design issue where the weak reference is used after its referent is gone.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "Handle the None case from Weak::upgrade, or ensure the strong reference outlives the weak."
+    </p>
+
+    <h2>6.9 Channel Receive Failure (channel_recv_fail)</h2>
+    <p>
+        <strong>Condition:</strong> A <code>ChannelRecv</code> event with <code>success: false</code> exists, indicating that a receive operation failed because the sender was dropped.
+    </p>
+    <p>
+        <strong>Meaning:</strong> The sending half of a channel was dropped before the receiver could read all messages. This may indicate a task ordering issue (the producer finished before the consumer), a panic in the sender task, or intentional shutdown signaling.
+    </p>
+    <p>
+        <strong>Severity:</strong> Warning. Failed receives are common in shutdown scenarios but may indicate bugs in producer-consumer patterns.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "Ensure sender outlives receiver, or handle the RecvError gracefully."
+    </p>
+
+    <h2>6.10 Use After Move (use_after_move)</h2>
+    <p>
+        <strong>Condition:</strong> Events referencing this variable's ID exist after a Move event from it (excluding the final Drop event). The variable was moved away but then used again.
+    </p>
+    <p>
+        <strong>Meaning:</strong> This should be impossible in safe Rust. The borrow checker prevents use-after-move at compile time. If the runtime observes it, the cause is either: (1) unsafe code that bypasses the borrow checker, (2) an instrumentation error in the macro, or (3) a bug in the event recording. Regardless of cause, this is a serious finding.
+    </p>
+    <p>
+        <strong>Severity:</strong> Error. This indicates potential undefined behavior or a soundness hole.
+    </p>
+    <p>
+        <strong>Suggestion:</strong> "This should not happen in safe Rust. Check for unsafe code or instrumentation errors."
+    </p>
+
+    <h2>6.11 Severity Classification and Actionable Suggestions</h2>
+    <p>
+        The three severity levels determine how divergences are presented to the developer. <strong>Error</strong> (red) indicates genuine bugs that should be fixed: Rc leaks cause unbounded memory growth, reference cycles prevent deallocation, and use-after-move indicates undefined behavior. <strong>Warning</strong> (yellow) indicates potential issues that may or may not be bugs depending on context: missing drops may be intentional, async borrows may be acceptable on single-threaded runtimes, and channel failures may be expected during shutdown. <strong>Info</strong> (gray/subtle) indicates observations that are informational rather than problematic: unsafe code is not inherently wrong, and conditional moves are expected in branching code.
+    </p>
+    <table>
+        <tr>
+            <th>Kind</th>
+            <th>Severity</th>
+            <th>Condition (simplified)</th>
+            <th>Suggestion</th>
+        </tr>
+        <tr>
+            <td><code>rc_leak</code></td>
+            <td>Error</td>
+            <td>Rc/Arc, never dropped, ref_count > 0</td>
+            <td>Check for reference cycles, use Weak</td>
+        </tr>
+        <tr>
+            <td><code>rc_cycle</code></td>
+            <td>Error</td>
+            <td>Rc/Arc, 2+ clones, ref_count never reached 0</td>
+            <td>Break cycle with Weak or restructure</td>
+        </tr>
+        <tr>
+            <td><code>use_after_move</code></td>
+            <td>Error</td>
+            <td>Events after Move (excluding Drop)</td>
+            <td>Check unsafe code or instrumentation</td>
+        </tr>
+        <tr>
+            <td><code>missing_drop</code></td>
+            <td>Warning</td>
+            <td>Non-Copy, non-moved, never dropped</td>
+            <td>Check for mem::forget or early exit</td>
+        </tr>
+        <tr>
+            <td><code>async_borrow_held</code></td>
+            <td>Warning</td>
+            <td>Active borrow during AwaitStart</td>
+            <td>Clone before await or drop borrow first</td>
+        </tr>
+        <tr>
+            <td><code>weak_upgrade_fail</code></td>
+            <td>Warning</td>
+            <td>WeakUpgrade with success=false</td>
+            <td>Ensure strong outlives weak</td>
+        </tr>
+        <tr>
+            <td><code>channel_recv_fail</code></td>
+            <td>Warning</td>
+            <td>ChannelRecv with success=false</td>
+            <td>Ensure sender outlives receiver</td>
+        </tr>
+        <tr>
+            <td><code>unsafe_hidden</code></td>
+            <td>Info</td>
+            <td>Unsafe accesses on non-RawPointer var</td>
+            <td>Review unsafe blocks for soundness</td>
+        </tr>
+        <tr>
+            <td><code>conditional_move</code></td>
+            <td>Info</td>
+            <td>Owned, non-Copy, never moved, 0 borrows</td>
+            <td>Move may be in untaken branch</td>
+        </tr>
+    </table>
+    <p>
+        The visualization layer uses severity to determine presentation: errors produce red inline highlights and appear prominently in the Runtime view, warnings produce yellow highlights and appear in the divergence list, and info-level divergences appear only in the detailed panel view (not as inline decorations). This graduated approach ensures that critical issues are impossible to miss while informational observations do not create visual noise.
+    </p>
+</div>
