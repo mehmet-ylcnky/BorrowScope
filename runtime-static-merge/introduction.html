@@ -1,1 +1,80 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>1. Introduction</h1>
+
+    <h2>1.1 The Two Worlds of Ownership Analysis</h2>
+    <p>
+        Rust's ownership system operates at compile time, enforcing rules that prevent data races, use-after-free, and double-free bugs without a garbage collector. Understanding these rules requires understanding ownership relationships: who owns a value, who borrows it, when borrows expire, and where ownership transfers. Two fundamentally different approaches exist for making these relationships visible to developers, each operating in a different "world" with different capabilities and limitations.
+    </p>
+    <p>
+        The <strong>static world</strong> is inhabited by tools like <code>borrowscope-lsp</code>, which uses rust-analyzer's semantic engine to analyze source code without executing it. Static analysis sees all code paths simultaneously: every branch of an <code>if</code>, every arm of a <code>match</code>, every possible execution order. It can resolve types, compute borrow scopes using Non-Lexical Lifetimes (NLL), detect potential conflicts, and trace borrows across function boundaries. Its output is a prediction: "this variable <em>could</em> be moved here," "these borrows <em>could</em> overlap on lines 7-12." The prediction is sound (if it says there's a conflict, there is one in at least one execution path) but not complete (it cannot tell you which path was actually taken, or what the reference count actually reached).
+    </p>
+    <p>
+        The <strong>runtime world</strong> is inhabited by <code>borrowscope-runtime</code>, which records ownership events as the program executes. Runtime observation sees exactly one execution path with perfect precision: the actual reference count at each point, the exact nanosecond each variable was dropped, the real order of destruction, and whether a particular branch was taken. Its output is a fact: "this Rc reached strong_count=3 at timestamp 4500ns," "this variable was dropped 2.1ms after creation." The fact is precise but narrow: it tells you nothing about what would have happened on a different input or a different thread interleaving.
+    </p>
+    <p>
+        These two worlds are complementary. Static analysis provides breadth (all paths) while runtime provides depth (one path, fully observed). The question this paper addresses is: what happens when you overlay one on the other? What can you learn from the places where they agree, and more importantly, from the places where they disagree?
+    </p>
+
+    <h2>1.2 Why Neither Alone is Sufficient</h2>
+    <p>
+        Static analysis has fundamental blind spots that no amount of sophistication can overcome without executing the program. It cannot detect <strong>Rc reference cycles</strong>: two Rc values pointing to each other will never have their strong_count reach zero, but static analysis sees only the clone operations, not the resulting count. It cannot determine <strong>which branches are taken</strong>: a move inside an <code>if</code> block may or may not execute depending on runtime conditions. It cannot observe <strong>actual drop order</strong>: while the language specifies LIFO destruction within a scope, the compiler may optimize or reorder in ways that affect timing. And it cannot track <strong>borrows across await points</strong> in async code: whether a borrow is actually held during a suspension depends on the executor's scheduling decisions.
+    </p>
+    <p>
+        Runtime observation has equally fundamental blind spots. It cannot see <strong>all possible conflicts</strong>: a borrow conflict that only manifests on a rare error path will never be observed in a normal test run. It cannot resolve <strong>ownership categories</strong> from runtime data alone: seeing a pointer does not tell you whether it is an Rc, Arc, Box, or raw pointer without type information. It cannot trace <strong>cross-function borrow paths</strong>: knowing that a reference was passed to a function does not reveal how long it lives inside that function without semantic analysis of the callee. And it cannot provide <strong>instant feedback</strong>: the program must be compiled and executed before any runtime data is available.
+    </p>
+    <table>
+        <tr>
+            <th>What Static Analysis Misses</th>
+            <th>What Runtime Observation Misses</th>
+        </tr>
+        <tr>
+            <td>Rc/Arc reference cycles (needs actual ref counts)</td>
+            <td>All possible conflicts (only sees executed path)</td>
+        </tr>
+        <tr>
+            <td>Which branches are actually taken</td>
+            <td>Ownership categories (needs type resolution)</td>
+        </tr>
+        <tr>
+            <td>Actual drop order and timing</td>
+            <td>Cross-function borrow paths (needs semantic analysis)</td>
+        </tr>
+        <tr>
+            <td>Borrows held across await (depends on scheduler)</td>
+            <td>Instant feedback (requires compile + execute)</td>
+        </tr>
+        <tr>
+            <td>Dynamic dispatch targets (trait objects)</td>
+            <td>Variables in untaken branches</td>
+        </tr>
+        <tr>
+            <td>Effects of unsafe code on ownership</td>
+            <td>Memory layout without type information</td>
+        </tr>
+    </table>
+
+    <h2>1.3 The Merge Hypothesis</h2>
+    <p>
+        The central hypothesis of this work is that <strong>meaningful divergences between static prediction and runtime observation indicate actionable issues</strong>. When static analysis predicts that a variable is Rc (shared ownership) and runtime observation shows that its reference count never reaches zero (never freed), the divergence indicates a memory leak. When static analysis predicts that a variable could be moved and runtime shows it was never moved (but was dropped normally with zero borrows), the divergence indicates dead code or an untaken branch. When runtime shows events occurring after a move (which should be impossible in safe Rust), the divergence indicates a soundness issue in unsafe code.
+    </p>
+    <p>
+        Not all divergences are bugs. Some are expected consequences of partial execution: a variable in an untaken branch will appear as "static_only" (predicted but never observed). Some are informational: unsafe code may perform operations that static analysis cannot verify, producing "unsafe_hidden" divergences that simply indicate incomplete static coverage. The key insight is that divergences can be <strong>classified by severity</strong> and <strong>accompanied by suggestions</strong>, turning raw disagreements into actionable developer guidance.
+    </p>
+    <p>
+        The merge is not a verification tool (it does not prove correctness) and not a testing tool (it does not generate test cases). It is a <strong>visualization enhancement</strong>: it enriches the ownership graph with runtime observations, highlights where predictions and reality diverge, and provides explanations for why the divergence occurred and what the developer should investigate. The goal is comprehension, not certification.
+    </p>
+
+    <h2>1.4 Contributions</h2>
+    <p>
+        This paper makes the following contributions. Together, they demonstrate that merging static and runtime ownership analysis produces insights that neither source can provide alone, and that these insights can be delivered as actionable developer feedback within a production code editor.
+    </p>
+    <div class="contributions">
+        <ol>
+            <li>A merge algorithm that correlates runtime variable IDs to static variable declarations using name, line, and file matching, handling shadowed variables and unmapped entries gracefully. The algorithm runs in O(n) time where n is the number of runtime events.</li>
+            <li>Nine divergence detectors, each targeting a specific class of disagreement between static prediction and runtime observation: Rc leaks, reference cycles, missing drops, async borrows held across await, unsafe hidden behavior, conditional moves, weak upgrade failures, channel receive failures, and use-after-move. Each detector produces a severity level and an actionable suggestion.</li>
+            <li>Specialized async borrow tracking that detects borrows active during <code>.await</code> suspension points, directly explaining the common "future is not Send" compiler error by showing exactly which borrow crosses which await point and for how long.</li>
+            <li>A visualization layer that surfaces merge results as inline editor decorations (timing annotations, drop order badges, divergence highlights) and as a dedicated Runtime view in the VS Code panel with timeline, drop order, reference count, and event log sub-tabs.</li>
+            <li>Validation through 64 dedicated tests covering all 9 divergence kinds with both positive detection and negative (no false positive) scenarios, plus performance measurements showing the merge completes in under 100ms for typical event streams.</li>
+        </ol>
+    </div>
+</div>
