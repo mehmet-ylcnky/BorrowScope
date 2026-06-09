@@ -8,13 +8,14 @@ import { mergeViews } from "./merge-views";
 import { createRuntimeDecorationTypes, applyRuntimeDecorations, clearRuntimeDecorations } from "./runtime-decorations";
 import { showWelcomeIfNeeded, showWelcomePanel } from "./welcome";
 import { PerformanceMonitor, registerPerformanceCommand } from "./performance";
-import { executeE2E } from "./e2e-runner";
+import { executeE2E, E2EStatusBar } from "./e2e-runner";
 
 let outputChannel: vscode.OutputChannel;
 let runtimeWatcher: RuntimeWatcher | undefined;
 let runtimeStatusBar: RuntimeStatusBar | undefined;
 let runtimeDecorationTypes: ReturnType<typeof createRuntimeDecorationTypes> | undefined;
 let perfMonitor: PerformanceMonitor;
+let e2eStatusBar: E2EStatusBar | undefined;
 
 export async function activate(
   context: vscode.ExtensionContext
@@ -26,6 +27,10 @@ export async function activate(
   // Performance monitoring
   perfMonitor = new PerformanceMonitor(outputChannel);
   registerPerformanceCommand(context, perfMonitor);
+
+  // E2E pipeline status bar button
+  e2eStatusBar = new E2EStatusBar();
+  context.subscriptions.push(e2eStatusBar);
 
   // Show welcome on first activation
   showWelcomeIfNeeded(context);
@@ -60,7 +65,7 @@ export async function activate(
     vscode.commands.registerCommand("borrowscope.exportSvg", exportSvg),
     vscode.commands.registerCommand("borrowscope.showWelcome", () => showWelcomePanel(context)),
     vscode.commands.registerCommand("borrowscope.describeGraph", describeGraph),
-    vscode.commands.registerCommand("borrowscope.runInstrumented", () => executeE2E(outputChannel)),
+    vscode.commands.registerCommand("borrowscope.runInstrumented", () => executeE2E(outputChannel, e2eStatusBar)),
   );
 
   // Start language client

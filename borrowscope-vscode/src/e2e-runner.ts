@@ -169,7 +169,7 @@ export async function runE2EPipeline(
 /**
  * Execute the full pipeline with VS Code progress UI.
  */
-export async function executeE2E(outputChannel?: vscode.OutputChannel): Promise<void> {
+export async function executeE2E(outputChannel?: vscode.OutputChannel, statusBar?: E2EStatusBar): Promise<void> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
     vscode.window.showErrorMessage("BorrowScope: No workspace folder open");
@@ -177,7 +177,7 @@ export async function executeE2E(outputChannel?: vscode.OutputChannel): Promise<
   }
 
   const workspaceRoot = workspaceFolders[0].uri.fsPath;
-  const extensionPath = ""; // not needed if LSP path is configured
+  const extensionPath = "";
 
   const analyzerPath = resolveAnalyzerPath(extensionPath);
   if (!analyzerPath) {
@@ -189,6 +189,8 @@ export async function executeE2E(outputChannel?: vscode.OutputChannel): Promise<
     return;
   }
 
+  statusBar?.setRunning("Analyzing...");
+
   const result = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -196,12 +198,21 @@ export async function executeE2E(outputChannel?: vscode.OutputChannel): Promise<
       cancellable: true,
     },
     async (progress, token) => {
-      return runE2EPipeline({ workspaceRoot, analyzerPath, outputChannel }, progress, token);
+      const pipelineProgress: vscode.Progress<{ message?: string; increment?: number }> = {
+        report: (value) => {
+          progress.report(value);
+          if (value.message && statusBar) {
+            statusBar.setRunning(value.message.replace("...", ""));
+          }
+        },
+      };
+      return runE2EPipeline({ workspaceRoot, analyzerPath, outputChannel }, pipelineProgress, token);
     }
   );
 
   if (result.success) {
-    // Enable runtime overlay if not already enabled
+    statusBar?.setSuccess(result.eventsCount);
+
     const config = vscode.workspace.getConfiguration("borrowscope.runtime");
     if (!config.get<boolean>("enabled")) {
       await config.update("enabled", true, vscode.ConfigurationTarget.Workspace);
@@ -214,6 +225,59 @@ export async function executeE2E(outputChannel?: vscode.OutputChannel): Promise<
       `${result.eventsCount} events captured.`
     );
   } else {
+    statusBar?.setError(result.error || "Unknown error");
     vscode.window.showErrorMessage(`BorrowScope: ${result.error}`);
+  }
+}
+
+/**
+ * Status bar button for the E2E pipeline.
+ * Shows: ▶ BorrowScope (idle) | ⏳ Analyzing... (running) | ✓ N events (done) | ✗ Failed (error)
+ */
+export class E2EStatusBar implements vscode.Disposable {
+  private item: vscode.StatusBarItem;
+  private timeout: NodeJS.Timeout | undefined;
+
+  constructor() {
+    this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
+    this.item.command = "borrowscope.runInstrumented";
+    this.setIdle();
+    this.item.show();
+  }
+
+  setIdle(): void {
+    this.item.text = "$(play) BorrowScope";
+    this.item.tooltip = "Run Instrumented Pipeline (Analyze + Build + Run)";
+    this.item.color = undefined;
+  }
+
+  setRunning(stage: string): void {
+    this.item.text = `$(sync~spin) ${stage}`;
+    this.item.tooltip = "Pipeline running...";
+    this.item.color = new vscode.ThemeColor("statusBarItem.warningForeground");
+  }
+
+  setSuccess(eventsCount: number): void {
+    this.item.text = `$(check) ${eventsCount} events`;
+    this.item.tooltip = "Pipeline complete. Click to run again.";
+    this.item.color = new vscode.ThemeColor("statusBarItem.prominentForeground");
+    this.resetAfterDelay(8000);
+  }
+
+  setError(message: string): void {
+    this.item.text = "$(error) Pipeline failed";
+    this.item.tooltip = message;
+    this.item.color = new vscode.ThemeColor("statusBarItem.errorForeground");
+    this.resetAfterDelay(10000);
+  }
+
+  private resetAfterDelay(ms: number): void {
+    if (this.timeout) clearTimeout(this.timeout);
+    this.timeout = setTimeout(() => this.setIdle(), ms);
+  }
+
+  dispose(): void {
+    if (this.timeout) clearTimeout(this.timeout);
+    this.item.dispose();
   }
 }
