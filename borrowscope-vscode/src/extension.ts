@@ -8,6 +8,7 @@ import { mergeViews } from "./merge-views";
 import { createRuntimeDecorationTypes, applyRuntimeDecorations, clearRuntimeDecorations } from "./runtime-decorations";
 import { showWelcomeIfNeeded, showWelcomePanel } from "./welcome";
 import { PerformanceMonitor, registerPerformanceCommand } from "./performance";
+import { executeE2E } from "./e2e-runner";
 
 let outputChannel: vscode.OutputChannel;
 let runtimeWatcher: RuntimeWatcher | undefined;
@@ -59,6 +60,7 @@ export async function activate(
     vscode.commands.registerCommand("borrowscope.exportSvg", exportSvg),
     vscode.commands.registerCommand("borrowscope.showWelcome", () => showWelcomePanel(context)),
     vscode.commands.registerCommand("borrowscope.describeGraph", describeGraph),
+    vscode.commands.registerCommand("borrowscope.runInstrumented", () => executeE2E(outputChannel)),
   );
 
   // Start language client
