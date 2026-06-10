@@ -1,1 +1,154 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>3. The type-info.json Bridge</h1>
+    <p>
+        The central integration point of the pipeline is <code>type-info.json</code>, a structured file that carries semantic type information from the analyzer to the macro. Without this file, the macro cannot distinguish an <code>Rc::clone</code> from a generic <code>.clone()</code>, or a <code>Cow::Borrowed</code> from a <code>Cow::Owned</code>. With it, the macro makes precise instrumentation decisions for 82 initializer categories, emitting type-specific tracking calls that produce semantically rich runtime events. This section documents the schema, how it is produced, how it is consumed, and how staleness is handled.
+    </p>
+
+    <h2>3.1 Schema Design</h2>
+    <p>
+        The type-info.json file is organized as a nested structure: at the top level, a <code>by_function</code> map keyed by function name, where each function contains a map of variable names to arrays of type entries (arrays because shadowing produces multiple variables with the same name). Each entry contains the full semantic characterization of one variable binding.
+    </p>
+    <p>
+        A single entry has over 40 fields organized into categories: identity (name, ty, file, line, column, function_name, decl_index), boolean type flags (is_rc, is_arc, is_box, is_weak, is_sync_weak, is_refcell, is_cell, is_mutex, is_rwlock, is_guard, is_vec, is_string, is_raw_ptr, is_mutable_raw_ptr, is_reference, is_mutable_reference, is_pin, is_cow, is_option, is_result, is_once_cell, is_maybe_uninit, is_channel, is_atomic, is_join_handle, is_closure, is_fn_ptr, is_future, is_iterator, is_callable, is_dyn_trait, is_union, is_static, is_const), semantic properties (copy_semantics, is_tuple_binding, is_mut_binding, binding_mode, contains_reference, is_ref_binding), and the critical dispatch field: <code>initializer_kind</code>.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Example entry for: let shared = Rc::new(Config::default());</span>
+{
+  <span class="rust-string">"name"</span>: <span class="rust-string">"shared"</span>,
+  <span class="rust-string">"ty"</span>: <span class="rust-string">"Rc&lt;Config&gt;"</span>,
+  <span class="rust-string">"is_rc"</span>: <span class="rust-keyword">true</span>,
+  <span class="rust-string">"is_arc"</span>: <span class="rust-keyword">false</span>,
+  <span class="rust-string">"is_box"</span>: <span class="rust-keyword">false</span>,
+  <span class="rust-string">"is_weak"</span>: <span class="rust-keyword">false</span>,
+  <span class="rust-string">"is_copy"</span>: <span class="rust-keyword">false</span>,
+  <span class="rust-string">"is_clone"</span>: <span class="rust-keyword">true</span>,
+  <span class="rust-string">"copy_semantics"</span>: <span class="rust-keyword">false</span>,
+  <span class="rust-string">"is_closure"</span>: <span class="rust-keyword">false</span>,
+  <span class="rust-string">"binding_mode"</span>: <span class="rust-string">"move"</span>,
+  <span class="rust-string">"initializer_kind"</span>: <span class="rust-string">"rc_new"</span>,
+  <span class="rust-string">"deref_chain"</span>: [<span class="rust-string">"Config"</span>],
+  <span class="rust-string">"type_arguments"</span>: [<span class="rust-string">"Config"</span>],
+  <span class="rust-string">"file"</span>: <span class="rust-string">"src/main.rs"</span>,
+  <span class="rust-string">"line"</span>: 12,
+  <span class="rust-string">"column"</span>: 8,
+  <span class="rust-string">"function_name"</span>: <span class="rust-string">"ownership_demo"</span>,
+  <span class="rust-string">"decl_index"</span>: 3
+}</pre>
+    </div>
+    <p>
+        The <code>initializer_kind</code> field is the most important for the macro. It tells the macro exactly which <code>track_*</code> function to emit. The analyzer resolves this by examining the initializer expression: if it matches <code>Rc::new(...)</code>, the kind is <code>"rc_new"</code>. If it matches <code>Cow::Borrowed(...)</code>, the kind is <code>"cow_borrowed"</code>. If it matches <code>thread::spawn(...)</code>, the kind is <code>"join_handle"</code>. The analyzer uses semantic path resolution (not string matching) to determine these kinds, ensuring that type aliases and re-exports are handled correctly.
+    </p>
+
+    <h2>3.2 How the Analyzer Produces It</h2>
+    <p>
+        The analyzer loads the Rust workspace using <code>ra_ap_load_cargo::load_workspace_at</code>, which resolves all dependencies, discovers the sysroot, and builds a complete Salsa database. It then iterates every function in every file, and for each <code>let</code> binding, queries the <code>hir::Type</code> to extract all boolean flags and the initializer expression to determine the <code>initializer_kind</code>.
+    </p>
+    <p>
+        Type resolution uses the same <code>ra_ap_*</code> APIs as the LSP server: <code>ty.is_copy(db)</code>, <code>ty.as_adt()</code> for struct/enum classification, <code>module.path_to_root(db)</code> for canonical path resolution, and <code>sema.resolve_path()</code> for expression analysis. The key difference from the LSP is that the analyzer writes its results to a file (for the macro to consume at compile time) rather than serving them via protocol (for the editor to consume in real-time).
+    </p>
+    <p>
+        On a typical project, the analyzer resolves 94-100% of variable types. The remaining unresolved types are usually in generated code (proc-macro output not available without a proc-macro server) or in conditional compilation blocks. Unresolved variables receive <code>"initializer_kind": null</code>, causing the macro to fall back to generic tracking for those bindings.
+    </p>
+
+    <h2>3.3 How the Macro Consumes It</h2>
+    <p>
+        At compile time, the <code>#[trace_borrow]</code> proc-macro attribute loads type-info.json from <code>CARGO_MANIFEST_DIR/.borrowscope/type-info.json</code>. The file is loaded once (on first access) and cached in a <code>static OnceCell</code> for the duration of compilation. For each <code>let</code> binding in the function body, the macro looks up the variable's entry by <code>(function_name, var_name, decl_index)</code> and reads the <code>initializer_kind</code> field.
+    </p>
+    <p>
+        The dispatch logic is a match on the <code>initializer_kind</code> string, mapping each to a specific transformation. For example, <code>"rc_new"</code> wraps the initializer with <code>borrowscope_runtime::track_rc_new(name, expr)</code>, which records an <code>RcNew</code> event with strong_count and weak_count. <code>"cow_borrowed"</code> wraps with <code>track_cow_borrowed(name, expr)</code>, recording a <code>CowBorrowed</code> event. Without the type-info lookup, all variables would receive the generic <code>track_new(name, expr)</code> which records only a basic <code>New</code> event without type-specific metadata.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="dispatch-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceDispatch()">
+            <text id="disp-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see how type-info.json drives macro dispatch</text>
+
+            <!-- Source line -->
+            <rect x="30" y="40" width="300" height="30" rx="4" fill="white" stroke="#34495e" stroke-width="1.5"/>
+            <text x="180" y="60" text-anchor="middle" font-size="9" fill="#333" font-family="monospace">let shared = Rc::new(Config::default());</text>
+
+            <!-- Lookup arrow -->
+            <line id="disp-lookup" x1="180" y1="70" x2="180" y2="95" stroke="#f39c12" stroke-width="2" stroke-dasharray="4,3" opacity="0"/>
+            <text id="disp-lookup-t" x="200" y="88" font-size="8" fill="#b7950b" opacity="0">lookup(fn, "shared", 3)</text>
+
+            <!-- type-info result -->
+            <g id="disp-result" opacity="0">
+                <rect x="60" y="100" width="240" height="45" rx="4" fill="#fef9e7" stroke="#f39c12" stroke-width="1.5"/>
+                <text x="180" y="118" text-anchor="middle" font-size="9" fill="#b7950b" font-weight="bold">type-info.json result:</text>
+                <text x="180" y="135" text-anchor="middle" font-size="9" fill="#555" font-family="monospace">initializer_kind: "rc_new"</text>
+            </g>
+
+            <!-- Dispatch arrow -->
+            <line id="disp-arrow" x1="300" y1="122" x2="380" y2="122" stroke="#1abc9c" stroke-width="2" opacity="0" marker-end="url(#disp-arr)"/>
+            <defs><marker id="disp-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#1abc9c"/></marker></defs>
+
+            <!-- Match arms -->
+            <g id="disp-match" opacity="0">
+                <rect x="385" y="40" width="340" height="130" rx="6" fill="white" stroke="#1abc9c" stroke-width="1.5"/>
+                <text x="555" y="58" text-anchor="middle" font-size="9" fill="#148f77" font-weight="bold">match initializer_kind {</text>
+                <text x="400" y="76" font-size="8" fill="#555" font-family="monospace">  "rc_new"       => track_rc_new(name, expr)</text>
+                <text x="400" y="92" font-size="8" fill="#999" font-family="monospace">  "arc_new"      => track_arc_new(name, expr)</text>
+                <text x="400" y="108" font-size="8" fill="#999" font-family="monospace">  "cow_borrowed" => track_cow_borrowed(name, expr)</text>
+                <text x="400" y="124" font-size="8" fill="#999" font-family="monospace">  "join_handle"  => track_thread_spawn(name, expr)</text>
+                <text x="400" y="140" font-size="8" fill="#999" font-family="monospace">  _              => track_new(name, expr)</text>
+                <text x="400" y="158" font-size="8" fill="#148f77" font-family="monospace">}</text>
+                <!-- Highlight the matching arm -->
+                <rect id="disp-hl" x="393" y="66" width="322" height="14" rx="2" fill="#1abc9c" opacity="0"/>
+            </g>
+
+            <!-- Output -->
+            <g id="disp-output" opacity="0">
+                <rect x="385" y="185" width="340" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5"/>
+                <text x="555" y="200" text-anchor="middle" font-size="8" fill="#1e8449" font-weight="bold">Generated code:</text>
+                <text x="555" y="214" text-anchor="middle" font-size="8" fill="#333" font-family="monospace">let shared = track_rc_new("shared", Rc::new(Config::default()));</text>
+            </g>
+
+            <!-- Runtime event -->
+            <g id="disp-event" opacity="0">
+                <rect x="385" y="230" width="340" height="30" rx="4" fill="#fdedec" stroke="#e74c3c" stroke-width="1.5"/>
+                <text x="555" y="250" text-anchor="middle" font-size="8" fill="#c0392b" font-family="monospace">Event: RcNew { var_name: "shared", strong_count: 1, weak_count: 0 }</text>
+            </g>
+
+            <!-- Description -->
+            <rect x="30" y="245" width="330" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="disp-desc" x="195" y="262" text-anchor="middle" font-size="9" fill="#7d6608" font-family="monospace">// click to trace the dispatch</text>
+            <text id="disp-step" x="375" y="278" text-anchor="middle" font-size="9" fill="#999">Step 0/5</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var dispStep = 0;
+        var steps = [
+            function() { document.getElementById('disp-lookup').setAttribute('opacity','1'); document.getElementById('disp-lookup-t').setAttribute('opacity','1'); return 'Macro sees `let shared = ...` and looks up (fn_name, "shared", decl_index=3) in type-info.json'; },
+            function() { document.getElementById('disp-result').setAttribute('opacity','1'); return 'Found! initializer_kind = "rc_new" (analyzer resolved Rc::new via semantic path)'; },
+            function() { document.getElementById('disp-arrow').setAttribute('opacity','1'); document.getElementById('disp-match').setAttribute('opacity','1'); document.getElementById('disp-hl').setAttribute('opacity','0.2'); return 'Dispatch: match "rc_new" -> track_rc_new (not generic track_new)'; },
+            function() { document.getElementById('disp-output').setAttribute('opacity','1'); return 'Generated: wraps the expression with track_rc_new() which records Rc-specific metadata'; },
+            function() { document.getElementById('disp-event').setAttribute('opacity','1'); return 'At runtime: RcNew event emitted with strong_count=1, weak_count=0. Semantic!'; }
+        ];
+        window.advanceDispatch = function() {
+            if (dispStep >= steps.length) { dispStep = 0; resetDisp(); return; }
+            var desc = steps[dispStep]();
+            document.getElementById('disp-desc').textContent = desc;
+            dispStep++;
+            document.getElementById('disp-step').textContent = 'Step ' + dispStep + '/' + steps.length;
+            document.getElementById('disp-title').textContent = 'Click to continue';
+        };
+        function resetDisp() {
+            ['disp-lookup','disp-lookup-t','disp-result','disp-arrow','disp-match','disp-hl','disp-output','disp-event'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('disp-desc').textContent = '// click to trace the dispatch';
+            document.getElementById('disp-title').textContent = 'Click to see how type-info.json drives macro dispatch';
+            document.getElementById('disp-step').textContent = 'Step 0/5';
+        }
+    })();
+    </script>
+
+    <h2>3.4 Staleness and Refresh</h2>
+    <p>
+        The type-info.json file is a point-in-time snapshot. The moment the developer edits source code (adds a variable, changes a type, renames a function), the file becomes potentially stale. A stale file causes incorrect instrumentation: a variable that was changed from <code>Rc</code> to <code>Arc</code> will still be instrumented as <code>Rc</code> until the analyzer re-runs. A new variable added after the last analysis will have no entry, causing the macro to fall back to generic tracking.
+    </p>
+    <p>
+        The pipeline command solves this by always running the analyzer first, before compilation. This guarantees freshness: the type-info.json is regenerated from the current source before the macro reads it. In manual workflows (without the pipeline command), the developer must remember to re-run the analyzer after edits. If they forget, the instrumentation will be partially incorrect: existing variables may have wrong kinds, and new variables will lack entries.
+    </p>
+    <p>
+        The LSP server does not suffer from this problem because it uses Salsa's incremental computation (always-fresh, recomputes on every edit). This is precisely why the LSP was created: it provides the same semantic information as type-info.json but without the staleness issue. The trade-off is that the LSP cannot feed the macro (the macro runs at compile time, before the LSP is even started). The type-info.json file remains necessary as the bridge between pre-build analysis and compile-time instrumentation.
+    </p>
+</div>
