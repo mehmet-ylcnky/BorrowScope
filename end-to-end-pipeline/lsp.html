@@ -1,1 +1,42 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>6. Static Analysis via LSP</h1>
+    <p>
+        While the instrumentation track (analyzer -> macro -> runtime) requires compilation and execution, the static analysis track operates continuously in the background. The <code>borrowscope-lsp</code> server loads the workspace once, then provides ownership analysis in real-time as the developer types. It answers queries about any function within 100ms, without requiring the program to be compiled or run. This section describes how the LSP operates in parallel with the instrumentation track, what it provides that runtime cannot, and what runtime provides that the LSP cannot.
+    </p>
+
+    <h2>6.1 Parallel Analysis (No Instrumentation Needed)</h2>
+    <p>
+        The LSP server starts when VS Code opens a Rust project. It loads the workspace via <code>ra_ap_load_cargo</code> (the same expensive 30-40 second operation as the analyzer), builds a Salsa incremental computation database, and then responds to queries instantly. Critically, the LSP operates on the <em>source code as written</em>, not on instrumented code. It does not need <code>#[trace_borrow]</code> annotations, does not need the <code>track</code> feature enabled, and does not need the program to compile successfully. Even partially written code (mid-edit, with syntax errors in other functions) can be analyzed for the functions that are syntactically complete.
+    </p>
+    <p>
+        This means the developer gets ownership feedback immediately upon opening a file, long before the instrumentation pipeline has a chance to run. The static analysis provides the baseline visualization: ownership category annotations, borrow lifelines, conflict highlights, cross-function annotations. When the developer later clicks the "Run Instrumented" button, the runtime events overlay on top of this baseline, enriching it with observed behavior. The two tracks are additive: static analysis provides the structure (what exists, what is predicted), runtime adds the dynamics (what actually happened, with what timing).
+    </p>
+    <p>
+        The LSP also survives code changes without re-running. When the developer edits a file, Salsa recomputes only the affected queries (typically under 50ms for a single-function edit). The static visualization updates almost instantaneously. By contrast, the runtime data becomes stale on any edit (it reflects the previous execution, not the current code). This asymmetry is resolved by the merge layer's agreement classification: after an edit, static variables show as "match" or "static_only" while runtime variables from the previous run show as "runtime_only" until the pipeline is re-run.
+    </p>
+
+    <h2>6.2 What the LSP Provides That Runtime Cannot</h2>
+    <p>
+        The LSP's static analysis has four capabilities that are impossible for runtime observation alone:
+    </p>
+    <ul>
+        <li><strong>All-path analysis:</strong> The LSP sees every branch of every <code>if</code>, <code>match</code>, and <code>loop</code>. It reports conflicts that could occur on any execution path, not just the one that was taken. A borrow conflict inside a rarely-executed error handler is visible immediately, without needing to trigger that error path.</li>
+        <li><strong>Cross-function borrow tracking:</strong> The LSP resolves call targets via <code>sema.resolve_path()</code> and traces borrows into callees. It knows that <code>validate(&amp;db)</code> borrows <code>db</code> as a shared reference into the <code>validate</code> function, even without executing that function. Runtime observation only sees events within instrumented functions.</li>
+        <li><strong>Memory layout computation:</strong> The LSP queries <code>ty.layout(db)</code> to determine sizes, alignments, and field offsets for any type. It reconstructs the stack frame showing each variable's byte offset and internal structure. This information is not available at runtime without platform-specific introspection.</li>
+        <li><strong>Instant feedback:</strong> The LSP responds to queries in under 100ms after the initial load. The developer sees ownership information while typing, without waiting for compilation or execution. This immediacy is the primary reason the LSP was created as a complement to the runtime approach.</li>
+    </ul>
+
+    <h2>6.3 What Runtime Provides That the LSP Cannot</h2>
+    <p>
+        Conversely, the runtime has four capabilities that static analysis fundamentally cannot achieve:
+    </p>
+    <ul>
+        <li><strong>Actual reference counts:</strong> The LSP knows a variable is <code>Rc</code>, but not whether its strong_count is 1 or 100. Only runtime observation can track the count at each point, detect when it peaks, and determine whether it ever reaches zero. The divergence detector uses this to identify Rc leaks and reference cycles.</li>
+        <li><strong>Precise timing:</strong> The LSP knows a variable's scope spans lines 5-12, but not how long it lives in wall-clock time. Runtime records nanosecond timestamps, revealing that a borrow held across an await lasted 45ms (a potential performance issue) or that a variable lived only 200ns (suggesting it was never used meaningfully).</li>
+        <li><strong>Drop order:</strong> While Rust specifies LIFO destruction within a scope, the actual order can be complex with nested scopes, early drops, and conditional destruction. Only runtime observation reveals the exact sequence: "clone1 dropped first (#1), then shared (#2), then data (#3)."</li>
+        <li><strong>Branch decisions:</strong> The LSP sees that a move <em>could</em> happen in an <code>if</code> block, but runtime shows whether it <em>did</em>. This enables the conditional_move divergence: the static analysis predicted a possible move, but runtime never observed it (the branch was not taken in this execution).</li>
+    </ul>
+    <p>
+        Together, these complementary capabilities justify the two-track architecture. Neither alone provides a complete picture. The merge layer (Section 7) combines them into a unified view where static predictions and runtime observations are shown side-by-side, with divergences highlighted where they disagree.
+    </p>
+</div>
