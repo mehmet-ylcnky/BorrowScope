@@ -1,1 +1,41 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>10. Limitations and Future Work</h1>
+    <p>
+        The pipeline achieves its goal of one-click ownership visualization, but several limitations remain. Some are inherent to the approach (requiring compilation and execution for runtime data), some are engineering trade-offs (analyzer latency), and some represent future opportunities to further reduce friction. This section documents each limitation and the planned enhancements that would address them.
+    </p>
+
+    <h2>10.1 First-Run Analyzer Latency</h2>
+    <p>
+        The analyzer's workspace loading takes 30-40 seconds because it must resolve the entire dependency graph and build a complete Salsa database. This is the same cost that rust-analyzer pays on first open, and it is dominated by dependency resolution (downloading and parsing crate metadata) and sysroot discovery (finding the standard library source). Once loaded, type extraction for the project's own code completes in under 5 seconds.
+    </p>
+    <p>
+        Currently, the pipeline command always re-runs the analyzer from scratch, paying the 30-40 second cost on every invocation. This is conservative (guarantees fresh type-info) but wasteful when only the project's source changed (not its dependencies). A future optimization would implement incremental analysis: check if <code>Cargo.lock</code> has changed since the last analysis; if not, reload only the project's source files into the existing database. This would reduce subsequent runs from 35 seconds to under 5 seconds.
+    </p>
+    <p>
+        An even more ambitious optimization would persist the Salsa database to disk between runs (similar to rust-analyzer's workspace cache). On subsequent invocations, the analyzer would load the cached database and only recompute queries for changed files. This would bring the analyzer's warm-start time close to zero, making the pipeline feel instant for small edits.
+    </p>
+
+    <h2>10.2 Manual #[trace_borrow] Annotation</h2>
+    <p>
+        Currently, the developer must manually add <code>#[trace_borrow]</code> to each function they want instrumented. This creates friction: the developer must decide which functions to annotate, add the attribute, and remember to annotate new functions as they are written. Functions without the annotation produce no runtime events, creating gaps in the merge where those functions appear as "static_only."
+    </p>
+    <p>
+        The zero-cost property (no overhead when the <code>track</code> feature is disabled) makes it safe to annotate all functions permanently. However, adding the attribute to every function in a large project is tedious. A future enhancement would provide automatic annotation through one of three mechanisms:
+    </p>
+    <ul>
+        <li><strong>Cargo subcommand:</strong> <code>cargo borrowscope annotate</code> would scan all <code>.rs</code> files and add <code>#[trace_borrow]</code> to every <code>fn</code> that doesn't already have it. Reversible via <code>cargo borrowscope remove</code>.</li>
+        <li><strong>VS Code quick-fix:</strong> A code action that adds <code>#[trace_borrow]</code> to the current function, all functions in the file, or all functions in the project. Triggered via the lightbulb menu or a keyboard shortcut.</li>
+        <li><strong>Crate-level attribute:</strong> <code>#![trace_borrow_all]</code> at the crate root would instruct the macro to instrument every function without individual annotations. This would require a new macro type (a crate-level proc-macro attribute).</li>
+    </ul>
+
+    <h2>10.3 Planned: Selective Instrumentation UI</h2>
+    <p>
+        Not every run needs full instrumentation. A developer investigating an Rc leak needs only Rc/Arc events. A developer debugging a move error needs only move and drop events. Full instrumentation produces many events that are irrelevant to the current investigation, increasing noise in the visualization and slightly increasing runtime overhead.
+    </p>
+    <p>
+        A planned enhancement would add a VS Code quick-pick menu before running the pipeline: "What do you want to track?" with options like <code>[All events]</code>, <code>[Rc/Arc only]</code>, <code>[Moves and drops only]</code>, <code>[Borrows only]</code>, <code>[Async events only]</code>. The selected option would configure the macro's event filter (already supported via <code>#[trace_borrow(only = "Rc,Arc")]</code>) before compilation, producing a focused event stream with less noise and lower overhead.
+    </p>
+    <p>
+        This selective instrumentation would also improve merge quality: fewer irrelevant events means fewer "runtime_only" entries that clutter the visualization. The merge's agreement statistics would be more meaningful when the event stream is focused on the ownership patterns the developer is investigating. The status bar button could show the active filter as a label: <code>▶ BorrowScope [Rc/Arc]</code> to remind the developer which subset is being tracked.
+    </p>
+</div>

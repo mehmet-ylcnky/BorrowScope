@@ -1,1 +1,16 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>11. Conclusion</h1>
+    <p>
+        This paper presented the complete BorrowScope pipeline as a unified system: five independent components connected by well-defined data formats, orchestrated by a single status bar button that automates the entire flow from source code to visual feedback. The analyzer extracts semantic type information into <code>type-info.json</code> (the central bridge), the macro uses it to instrument code with type-specific tracking calls (82 categories, zero heuristics), the runtime records 88 event types during execution (~75ns per event), the LSP provides real-time static analysis in parallel (&lt;100ms per function), and the VS Code extension merges both perspectives into 11 interactive views with 9 divergence detectors.
+    </p>
+    <p>
+        The pipeline maintains three invariants end-to-end. First, <strong>zero heuristics</strong>: every decision from type classification through divergence detection is grounded in semantic resolution via compiler APIs, never in string matching or naming conventions. Second, <strong>zero cost when disabled</strong>: the <code>track</code> feature flag compiles all instrumentation to identity functions that the optimizer eliminates, allowing annotations to remain in the codebase permanently without affecting production builds. Third, <strong>graceful degradation</strong>: any component can be used independently (the LSP works without the runtime, the extension works without the macro), and the pipeline degrades to its component baselines rather than failing entirely when one stage encounters an error.
+    </p>
+    <p>
+        The ecosystem is validated by over 2,100 tests: 563 macro tests ensuring correct type-info dispatch, 775 runtime tests verifying event recording and zero-cost behavior, 107 LSP protocol tests confirming real-time analysis correctness, and 721 extension tests covering all visualizations, the merge layer, and the E2E orchestration. The pipeline delivers what no single component can provide alone: the breadth of static analysis (all paths, instant feedback, cross-function tracking) combined with the precision of runtime observation (actual ref counts, exact timing, observed drop order), merged into a unified visualization that highlights exactly where predictions and reality diverge. One click to see it all.
+    </p>
+
+    <div class="dedication">
+        <p>To the belief that understanding ownership should be as easy as clicking a button.</p>
+    </div>
+</div>
