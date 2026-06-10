@@ -110,6 +110,16 @@
     })();
     </script>
 
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/borrowscope1.png" alt="BorrowScope E2E pipeline status bar in action" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: The E2E pipeline triggered from the status bar button</p>
+    </div>
+
+    <div style="margin: 1.5rem 0; text-align: center;">
+        <img src="images/borrowscope2.png" alt="BorrowScope E2E pipeline completion with events loaded" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem; font-style: italic;">Figure: Pipeline completion showing events captured and runtime overlay active</p>
+    </div>
+
     <h2>7.2 Divergence Detection in the Pipeline Context</h2>
     <p>
         Divergence detection is especially reliable when triggered by the pipeline command rather than manually loaded events. The pipeline guarantees three properties that reduce false positives: (1) <strong>fresh type-info:</strong> the analyzer ran immediately before compilation, so the macro's instrumentation decisions are correct for the current code, (2) <strong>matching code versions:</strong> the events were generated from the exact same source that the LSP is analyzing (no stale events from a previous version), and (3) <strong>complete instrumentation:</strong> the <code>track</code> feature was enabled, so all annotated functions produce events (no missing data due to disabled features).
