@@ -1,1 +1,156 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>5. Runtime Event Generation</h1>
+    <p>
+        Once the macro has instrumented the code and the program is compiled with the <code>track</code> feature enabled, execution produces a stream of ownership events. The <code>borrowscope-runtime</code> library manages the recording infrastructure: a thread-local event buffer, nanosecond timestamps, automatic variable ID generation, and JSON export. This section describes the recording architecture, shows how source code maps to events in practice, and explains the export mechanism that delivers events to the VS Code extension.
+    </p>
+
+    <h2>5.1 Event Recording Architecture</h2>
+    <p>
+        The runtime uses a global <code>TRACKER</code> protected by a <code>parking_lot::Mutex</code>. Each <code>track_*</code> function acquires the lock, records one event, and releases the lock. Events are stored in a <code>Vec&lt;Event&gt;</code> that grows as the program executes. Timestamps are captured via <code>std::time::Instant::now()</code> relative to a baseline established at tracker initialization, giving nanosecond-precision elapsed time from program start.
+    </p>
+    <p>
+        Variable IDs are generated automatically in the format <code>"name_counter"</code>: the first variable named "data" gets ID <code>"data_0"</code>, the second (shadowing) gets <code>"data_1"</code>, etc. The counter is global across all variables, ensuring uniqueness. This ID scheme is the key to the merge: the VS Code extension strips the counter suffix to recover the variable name, then matches by name + declaration order against the static analysis output.
+    </p>
+    <p>
+        The lock-based design prioritizes correctness over performance. Each event recording is atomic (no partial events), and the global ordering is deterministic for single-threaded programs. For multi-threaded programs, events from different threads interleave based on lock acquisition order. The overhead is approximately 75 nanoseconds per event (lock acquire + event construction + lock release), which is negligible for typical functions with 10-50 ownership operations but may become measurable for tight loops with millions of iterations.
+    </p>
+
+    <h2>5.2 The 88 Event Types in Practice</h2>
+    <p>
+        To demonstrate the concrete correspondence between source code and runtime events, consider the E2E test project's <code>ownership_demo</code> function. Each source line maps to one or more events, building a complete trace of the function's ownership dynamics:
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="events-svg" viewBox="0 0 750 380" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceEvents()">
+            <text id="events-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see how source lines produce runtime events</text>
+
+            <!-- Source code (left) -->
+            <rect x="20" y="35" width="330" height="210" rx="6" fill="white" stroke="#34495e" stroke-width="1.5"/>
+            <text x="185" y="52" text-anchor="middle" font-size="9" fill="#34495e" font-weight="bold">Source Code</text>
+            <text id="ev-s1" x="32" y="72" font-size="8" fill="#333" font-family="monospace" opacity="0.4">let data = vec![1, 2, 3];</text>
+            <text id="ev-s2" x="32" y="90" font-size="8" fill="#333" font-family="monospace" opacity="0.4">let r = &amp;data;</text>
+            <text id="ev-s3" x="32" y="108" font-size="8" fill="#333" font-family="monospace" opacity="0.4">println!("{:?}", r);</text>
+            <text id="ev-s4" x="32" y="126" font-size="8" fill="#333" font-family="monospace" opacity="0.4">let shared = Rc::new(Config{});</text>
+            <text id="ev-s5" x="32" y="144" font-size="8" fill="#333" font-family="monospace" opacity="0.4">let clone1 = Rc::clone(&amp;shared);</text>
+            <text id="ev-s6" x="32" y="162" font-size="8" fill="#333" font-family="monospace" opacity="0.4">drop(clone1);</text>
+            <text id="ev-s7" x="32" y="180" font-size="8" fill="#333" font-family="monospace" opacity="0.4">// end of scope</text>
+
+            <!-- Highlight bar -->
+            <rect id="ev-hl" x="28" y="62" width="316" height="14" rx="2" fill="#3498db" opacity="0"/>
+
+            <!-- Events (right) -->
+            <rect x="380" y="35" width="350" height="210" rx="6" fill="white" stroke="#e74c3c" stroke-width="1.5"/>
+            <text x="555" y="52" text-anchor="middle" font-size="9" fill="#c0392b" font-weight="bold">Runtime Events Generated</text>
+
+            <!-- Event entries (appear per step) -->
+            <g id="ev-e1" opacity="0">
+                <rect x="390" y="60" width="330" height="18" rx="2" fill="#d5f5e3"/>
+                <text x="395" y="73" font-size="8" fill="#333" font-family="monospace">t=0    New { var_name: "data", type: "Vec&lt;i32&gt;" }</text>
+            </g>
+            <g id="ev-e2" opacity="0">
+                <rect x="390" y="82" width="330" height="18" rx="2" fill="#ebf5fb"/>
+                <text x="395" y="95" font-size="8" fill="#333" font-family="monospace">t=50   Borrow { borrower: "r", owner: "data", mut: false }</text>
+            </g>
+            <g id="ev-e3" opacity="0">
+                <rect x="390" y="104" width="330" height="18" rx="2" fill="#ebf5fb"/>
+                <text x="395" y="117" font-size="8" fill="#333" font-family="monospace">t=80   Drop { var_id: "r_1" }  // borrow released</text>
+            </g>
+            <g id="ev-e4" opacity="0">
+                <rect x="390" y="126" width="330" height="18" rx="2" fill="#f4ecf7"/>
+                <text x="395" y="139" font-size="8" fill="#333" font-family="monospace">t=100  RcNew { var: "shared", strong: 1, weak: 0 }</text>
+            </g>
+            <g id="ev-e5" opacity="0">
+                <rect x="390" y="148" width="330" height="18" rx="2" fill="#f4ecf7"/>
+                <text x="395" y="161" font-size="8" fill="#333" font-family="monospace">t=120  RcClone { var: "clone1", src: "shared", strong: 2 }</text>
+            </g>
+            <g id="ev-e6" opacity="0">
+                <rect x="390" y="170" width="330" height="18" rx="2" fill="#fef9e7"/>
+                <text x="395" y="183" font-size="8" fill="#333" font-family="monospace">t=150  Drop { var_id: "clone1_2" }  // explicit drop</text>
+            </g>
+            <g id="ev-e7" opacity="0">
+                <rect x="390" y="192" width="330" height="36" rx="2" fill="#fdedec"/>
+                <text x="395" y="205" font-size="8" fill="#333" font-family="monospace">t=200  Drop { var_id: "shared_1" }  // scope end</text>
+                <text x="395" y="219" font-size="8" fill="#333" font-family="monospace">t=210  Drop { var_id: "data_0" }    // LIFO order</text>
+            </g>
+
+            <!-- Counter -->
+            <rect id="ev-counter" x="380" y="252" width="160" height="25" rx="4" fill="#fef9e7" stroke="#f39c12" opacity="0"/>
+            <text id="ev-count-t" x="460" y="269" text-anchor="middle" font-size="9" fill="#b7950b" font-weight="bold" opacity="0">Total: 7 events</text>
+
+            <!-- Description -->
+            <rect x="20" y="315" width="710" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="events-desc" x="375" y="332" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to step through source -> events mapping</text>
+            <text id="events-step" x="375" y="360" text-anchor="middle" font-size="9" fill="#999">Step 0/7</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var evStep = 0;
+        var steps = [
+            { hl: 62, src: 'ev-s1', ev: ['ev-e1'], desc: 'vec![1,2,3] -> New event: records variable name, ID "data_0", type "Vec<i32>"' },
+            { hl: 80, src: 'ev-s2', ev: ['ev-e1','ev-e2'], desc: '&data -> Borrow event: records borrower "r", owner "data", mutable=false' },
+            { hl: 98, src: 'ev-s3', ev: ['ev-e1','ev-e2','ev-e3'], desc: 'println uses r (last use) -> Drop of r: borrow released, NLL scope ends' },
+            { hl: 116, src: 'ev-s4', ev: ['ev-e1','ev-e2','ev-e3','ev-e4'], desc: 'Rc::new -> RcNew event: records strong_count=1, weak_count=0 (semantic!)' },
+            { hl: 134, src: 'ev-s5', ev: ['ev-e1','ev-e2','ev-e3','ev-e4','ev-e5'], desc: 'Rc::clone -> RcClone event: records source "shared", new strong_count=2' },
+            { hl: 152, src: 'ev-s6', ev: ['ev-e1','ev-e2','ev-e3','ev-e4','ev-e5','ev-e6'], desc: 'explicit drop(clone1) -> Drop event at t=150 (before scope end)' },
+            { hl: 170, src: 'ev-s7', ev: ['ev-e1','ev-e2','ev-e3','ev-e4','ev-e5','ev-e6','ev-e7'], desc: 'Scope end: shared dropped (t=200), then data dropped (t=210). LIFO order.' }
+        ];
+        var allSrc = ['ev-s1','ev-s2','ev-s3','ev-s4','ev-s5','ev-s6','ev-s7'];
+        var allEv = ['ev-e1','ev-e2','ev-e3','ev-e4','ev-e5','ev-e6','ev-e7'];
+        window.advanceEvents = function() {
+            if (evStep >= steps.length) { evStep = 0; resetEv(); return; }
+            var s = steps[evStep];
+            document.getElementById('ev-hl').setAttribute('y', s.hl);
+            document.getElementById('ev-hl').setAttribute('opacity', '0.15');
+            allSrc.forEach(function(id) { document.getElementById(id).setAttribute('opacity', id === s.src ? '1' : '0.4'); });
+            allEv.forEach(function(id) { document.getElementById(id).setAttribute('opacity', s.ev.indexOf(id) >= 0 ? '1' : '0'); });
+            if (evStep === steps.length - 1) { document.getElementById('ev-counter').setAttribute('opacity','1'); document.getElementById('ev-count-t').setAttribute('opacity','1'); }
+            document.getElementById('events-desc').textContent = s.desc;
+            evStep++;
+            document.getElementById('events-step').textContent = 'Step ' + evStep + '/' + steps.length;
+            document.getElementById('events-title').textContent = 'Click to continue';
+        };
+        function resetEv() {
+            document.getElementById('ev-hl').setAttribute('opacity','0');
+            allSrc.forEach(function(id) { document.getElementById(id).setAttribute('opacity','0.4'); });
+            allEv.forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('ev-counter').setAttribute('opacity','0');
+            document.getElementById('ev-count-t').setAttribute('opacity','0');
+            document.getElementById('events-desc').textContent = '// click to step through source -> events mapping';
+            document.getElementById('events-title').textContent = 'Click to see how source lines produce runtime events';
+            document.getElementById('events-step').textContent = 'Step 0/7';
+        }
+    })();
+    </script>
+    <p>
+        This 7-line function produces 7 events that fully describe its ownership lifecycle. The events capture not just what happened (creation, borrow, clone, drop) but also the semantic context (reference counts, mutability flags, source variable names). This is the data that the VS Code extension merges with the LSP's static analysis to produce the unified visualization.
+    </p>
+
+    <h2>5.3 Export to JSON</h2>
+    <p>
+        At program exit (or when explicitly requested via <code>borrowscope_runtime::get_events()</code>), the accumulated events are available as a <code>Vec&lt;Event&gt;</code>. The typical export pattern writes them to <code>.borrowscope/events.json</code> using serde_json serialization. The E2E test project demonstrates the standard export code:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-keyword">fn</span> <span class="rust-function">main</span>() {
+    borrowscope_runtime::reset(); <span class="rust-comment">// clear any previous events</span>
+
+    ownership_demo();  <span class="rust-comment">// instrumented functions record events</span>
+    move_demo();
+
+    <span class="rust-comment">// Export events to JSON for VS Code consumption</span>
+    std::fs::create_dir_all(<span class="rust-string">".borrowscope"</span>).ok();
+    <span class="rust-keyword">let</span> events = borrowscope_runtime::get_events();
+    std::fs::write(
+        <span class="rust-string">".borrowscope/events.json"</span>,
+        serde_json::to_string_pretty(&amp;events).unwrap(),
+    ).unwrap();
+    println!(<span class="rust-string">"Exported {} events"</span>, events.len());
+}</pre>
+    </div>
+    <p>
+        The file is written atomically in the sense that <code>std::fs::write</code> creates a complete file in one operation (no partial writes visible to the file watcher). The VS Code extension's <code>RuntimeWatcher</code> detects the file creation or modification and triggers the merge pipeline automatically. The developer does not need to manually reload or refresh; the visualization updates within 100ms of the file being written.
+    </p>
+    <p>
+        The JSON format uses serde's default externally-tagged enum serialization: each event is an object with a single key (the event type name) whose value contains the event fields. For example: <code>{"RcNew": {"timestamp": 100, "var_name": "shared", "var_id": "shared_1", "type_name": "Rc&lt;Config&gt;", "strong_count": 1, "weak_count": 0}}</code>. This format is human-readable (developers can inspect the file directly for debugging), self-describing (each event carries its type name), and easily extensible (new event types can be added without breaking existing parsers).
+    </p>
+</div>
