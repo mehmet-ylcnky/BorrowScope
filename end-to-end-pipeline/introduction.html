@@ -1,1 +1,197 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>1. Introduction</h1>
+
+    <h2>1.1 The Vision: One Click from Source to Visualization</h2>
+    <p>
+        The ultimate goal of the BorrowScope project is to make Rust's ownership system visible without disrupting the development workflow. A developer writes code, clicks a single button in the editor, and within seconds sees a complete ownership visualization: which variables are borrowed, where moves happen, which Rc clones share ownership, where conflicts exist, and how the observed runtime behavior compares to static predictions. No terminal commands, no manual annotation of functions, no switching between tools. The ownership system becomes as visible as syntax highlighting.
+    </p>
+    <p>
+        This vision requires five distinct capabilities working together: type extraction (knowing what each variable is), code instrumentation (adding tracking calls without manual effort), event recording (capturing what happens at runtime), static analysis (predicting what could happen without running), and visualization (rendering both perspectives in the editor). Each capability was developed as an independent component with its own paper, test suite, and API. This paper shows how they connect into a single automated pipeline triggered by one button click.
+    </p>
+
+    <h2>1.2 The Five Components</h2>
+    <p>
+        The BorrowScope ecosystem consists of five Rust/TypeScript crates, each with a clearly defined role and interface:
+    </p>
+    <table>
+        <tr>
+            <th>Component</th>
+            <th>Language</th>
+            <th>Role</th>
+            <th>Input</th>
+            <th>Output</th>
+        </tr>
+        <tr>
+            <td><code>borrowscope-analyzer</code></td>
+            <td>Rust</td>
+            <td>Extract semantic type information</td>
+            <td>Rust workspace (Cargo.toml)</td>
+            <td><code>type-info.json</code></td>
+        </tr>
+        <tr>
+            <td><code>borrowscope-macro</code></td>
+            <td>Rust (proc-macro)</td>
+            <td>Instrument code with tracking calls</td>
+            <td>Source code + <code>type-info.json</code></td>
+            <td>Instrumented binary</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope-runtime</code></td>
+            <td>Rust</td>
+            <td>Record ownership events during execution</td>
+            <td>Instrumented program execution</td>
+            <td><code>events.json</code> (88 event types)</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope-lsp</code></td>
+            <td>Rust</td>
+            <td>Real-time static ownership analysis</td>
+            <td>Source code (via VFS)</td>
+            <td>JSON-RPC responses (5 custom requests)</td>
+        </tr>
+        <tr>
+            <td><code>borrowscope-vscode</code></td>
+            <td>TypeScript</td>
+            <td>Visualization + merge + orchestration</td>
+            <td>LSP responses + <code>events.json</code></td>
+            <td>11 interactive views + inline decorations</td>
+        </tr>
+    </table>
+    <p>
+        Each component can be used independently. The analyzer works without the macro. The LSP works without the runtime. The VS Code extension works with only static analysis (no runtime events). But when all five operate together, the developer gets the complete picture: instant static feedback while editing, precise runtime validation after execution, and divergence detection where the two perspectives disagree.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="pipeline-overview" viewBox="0 0 750 300" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advancePipelineOverview()">
+            <text id="po-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to trace data through the 5-component pipeline</text>
+
+            <!-- Component boxes -->
+            <g id="po-analyzer">
+                <rect x="30" y="50" width="120" height="55" rx="6" fill="#fef9e7" stroke="#f39c12" stroke-width="2"/>
+                <text x="90" y="72" text-anchor="middle" font-size="9" fill="#b7950b" font-weight="bold">Analyzer</text>
+                <text x="90" y="86" text-anchor="middle" font-size="8" fill="#555">ra_ap_* APIs</text>
+                <text x="90" y="98" text-anchor="middle" font-size="8" fill="#555">type resolution</text>
+            </g>
+            <g id="po-macro">
+                <rect x="180" y="50" width="120" height="55" rx="6" fill="#e8f8f5" stroke="#1abc9c" stroke-width="2"/>
+                <text x="240" y="72" text-anchor="middle" font-size="9" fill="#148f77" font-weight="bold">Macro</text>
+                <text x="240" y="86" text-anchor="middle" font-size="8" fill="#555">#[trace_borrow]</text>
+                <text x="240" y="98" text-anchor="middle" font-size="8" fill="#555">82 categories</text>
+            </g>
+            <g id="po-runtime">
+                <rect x="330" y="50" width="120" height="55" rx="6" fill="#fdedec" stroke="#e74c3c" stroke-width="2"/>
+                <text x="390" y="72" text-anchor="middle" font-size="9" fill="#c0392b" font-weight="bold">Runtime</text>
+                <text x="390" y="86" text-anchor="middle" font-size="8" fill="#555">88 event types</text>
+                <text x="390" y="98" text-anchor="middle" font-size="8" fill="#555">~75ns/event</text>
+            </g>
+            <g id="po-lsp">
+                <rect x="180" y="170" width="120" height="55" rx="6" fill="#f4ecf7" stroke="#8e44ad" stroke-width="2"/>
+                <text x="240" y="192" text-anchor="middle" font-size="9" fill="#6c3483" font-weight="bold">LSP Server</text>
+                <text x="240" y="206" text-anchor="middle" font-size="8" fill="#555">static analysis</text>
+                <text x="240" y="218" text-anchor="middle" font-size="8" fill="#555">&lt;100ms/function</text>
+            </g>
+            <g id="po-vscode">
+                <rect x="480" y="100" width="140" height="70" rx="6" fill="#ebf5fb" stroke="#2980b9" stroke-width="2"/>
+                <text x="550" y="125" text-anchor="middle" font-size="10" fill="#2980b9" font-weight="bold">VS Code Extension</text>
+                <text x="550" y="142" text-anchor="middle" font-size="8" fill="#555">11 views + merge</text>
+                <text x="550" y="156" text-anchor="middle" font-size="8" fill="#555">divergence detection</text>
+            </g>
+
+            <!-- Data arrows -->
+            <defs>
+                <marker id="po-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#7f8c8d"/></marker>
+                <marker id="po-arr-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#27ae60"/></marker>
+            </defs>
+
+            <!-- Analyzer -> Macro (type-info.json) -->
+            <line id="po-a1" x1="150" y1="77" x2="178" y2="77" stroke="#f39c12" stroke-width="2" marker-end="url(#po-arr)" opacity="0.3"/>
+            <text id="po-l1" x="164" y="70" text-anchor="middle" font-size="7" fill="#b7950b" opacity="0.3">type-info.json</text>
+
+            <!-- Macro -> Runtime (instrumented binary) -->
+            <line id="po-a2" x1="300" y1="77" x2="328" y2="77" stroke="#1abc9c" stroke-width="2" marker-end="url(#po-arr)" opacity="0.3"/>
+            <text id="po-l2" x="314" y="70" text-anchor="middle" font-size="7" fill="#148f77" opacity="0.3">compile</text>
+
+            <!-- Runtime -> VS Code (events.json) -->
+            <line id="po-a3" x1="450" y1="85" x2="478" y2="120" stroke="#e74c3c" stroke-width="2" marker-end="url(#po-arr)" opacity="0.3"/>
+            <text id="po-l3" x="470" y="95" text-anchor="middle" font-size="7" fill="#c0392b" opacity="0.3">events.json</text>
+
+            <!-- LSP -> VS Code (JSON-RPC) -->
+            <line id="po-a4" x1="300" y1="197" x2="478" y2="145" stroke="#8e44ad" stroke-width="2" marker-end="url(#po-arr)" opacity="0.3"/>
+            <text id="po-l4" x="380" y="180" text-anchor="middle" font-size="7" fill="#6c3483" opacity="0.3">JSON-RPC</text>
+
+            <!-- Source -> Analyzer and Source -> LSP -->
+            <rect id="po-source" x="30" y="160" width="100" height="40" rx="4" fill="#d5f5e3" stroke="#27ae60" stroke-width="1.5" opacity="0.3"/>
+            <text id="po-source-t" x="80" y="184" text-anchor="middle" font-size="9" fill="#1e8449" opacity="0.3">Source Code</text>
+            <line id="po-a5" x1="80" y1="160" x2="80" y2="107" stroke="#27ae60" stroke-width="1.5" marker-end="url(#po-arr-green)" opacity="0.3"/>
+            <line id="po-a6" x1="130" y1="180" x2="178" y2="190" stroke="#27ae60" stroke-width="1.5" marker-end="url(#po-arr-green)" opacity="0.3"/>
+
+            <!-- Animated flow dots -->
+            <circle id="po-dot1" r="4" fill="#f39c12" opacity="0"><animateMotion dur="1.5s" repeatCount="indefinite" path="M150,77 L178,77"/></circle>
+            <circle id="po-dot2" r="4" fill="#1abc9c" opacity="0"><animateMotion dur="1.3s" repeatCount="indefinite" path="M300,77 L328,77"/></circle>
+            <circle id="po-dot3" r="4" fill="#e74c3c" opacity="0"><animateMotion dur="1.8s" repeatCount="indefinite" path="M450,85 L478,120"/></circle>
+            <circle id="po-dot4" r="4" fill="#8e44ad" opacity="0"><animateMotion dur="2s" repeatCount="indefinite" path="M300,197 L478,145"/></circle>
+
+            <!-- Description -->
+            <rect x="30" y="250" width="690" height="30" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="po-desc" x="375" y="269" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to trace data flow through the pipeline</text>
+            <text id="po-step" x="375" y="290" text-anchor="middle" font-size="9" fill="#999">Step 0/6</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var poStep = 0;
+        var allIds = ['po-analyzer','po-macro','po-runtime','po-lsp','po-vscode','po-source','po-source-t','po-a1','po-l1','po-a2','po-l2','po-a3','po-l3','po-a4','po-l4','po-a5','po-a6','po-dot1','po-dot2','po-dot3','po-dot4'];
+        var steps = [
+            { show: ['po-source','po-source-t','po-a5','po-a6','po-analyzer','po-lsp'], desc: 'Source code feeds both the Analyzer (for type-info) and the LSP (for real-time analysis)' },
+            { show: ['po-source','po-source-t','po-a5','po-a6','po-analyzer','po-lsp','po-a1','po-l1','po-dot1','po-macro'], desc: 'Analyzer produces type-info.json, which the Macro reads at compile time' },
+            { show: ['po-source','po-source-t','po-a5','po-a6','po-analyzer','po-lsp','po-a1','po-l1','po-dot1','po-macro','po-a2','po-l2','po-dot2','po-runtime'], desc: 'Macro instruments the code. Compilation produces a binary that records events via Runtime.' },
+            { show: ['po-source','po-source-t','po-a5','po-a6','po-analyzer','po-lsp','po-a1','po-l1','po-dot1','po-macro','po-a2','po-l2','po-dot2','po-runtime','po-a3','po-l3','po-dot3','po-vscode'], desc: 'Runtime events (events.json) flow into the VS Code extension after execution' },
+            { show: ['po-source','po-source-t','po-a5','po-a6','po-analyzer','po-lsp','po-a1','po-l1','po-dot1','po-macro','po-a2','po-l2','po-dot2','po-runtime','po-a3','po-l3','po-dot3','po-a4','po-l4','po-dot4','po-vscode'], desc: 'LSP static analysis flows in parallel via JSON-RPC. Extension merges both sources.' },
+            { show: allIds, desc: 'Complete pipeline: Source -> Analyzer -> Macro -> Runtime -> VS Code <- LSP. One click.' }
+        ];
+        window.advancePipelineOverview = function() {
+            if (poStep >= steps.length) { poStep = 0; resetPO(); return; }
+            var s = steps[poStep];
+            allIds.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.setAttribute('opacity', s.show.indexOf(id) >= 0 ? '1' : '0.15');
+            });
+            document.getElementById('po-desc').textContent = s.desc;
+            poStep++;
+            document.getElementById('po-step').textContent = 'Step ' + poStep + '/' + steps.length;
+            document.getElementById('po-title').textContent = 'Click to continue';
+        };
+        function resetPO() {
+            allIds.forEach(function(id) { var el = document.getElementById(id); if (el) el.setAttribute('opacity', '0.3'); });
+            document.getElementById('po-desc').textContent = '// click to trace data flow through the pipeline';
+            document.getElementById('po-title').textContent = 'Click to trace data through the 5-component pipeline';
+            document.getElementById('po-step').textContent = 'Step 0/6';
+        }
+    })();
+    </script>
+
+    <h2>1.3 Why a Unified Pipeline Matters</h2>
+    <p>
+        Without the orchestration command, using the full BorrowScope ecosystem requires five manual steps: (1) run <code>cargo run -p borrowscope-analyzer -- .</code> to generate type-info.json, (2) add <code>#[trace_borrow]</code> annotations to target functions, (3) run <code>cargo run</code> to execute the instrumented program, (4) verify that <code>.borrowscope/events.json</code> was produced, and (5) enable <code>borrowscope.runtime.enabled</code> in VS Code settings. Each step requires context switching between the editor and terminal, knowledge of specific command syntax, and awareness of file paths. Any step failing (stale type-info, missing annotation, feature flag not set) breaks the chain silently.
+    </p>
+    <p>
+        The unified pipeline reduces this to one action: click the status bar button (or invoke <code>borrowscope.runInstrumented</code> from the command palette). The orchestration command handles every step internally: resolves binary paths, spawns the analyzer, waits for completion, triggers compilation and execution, monitors for the events file, and enables the runtime overlay automatically. Errors at any stage are caught and reported as VS Code notifications with actionable messages. The developer never needs to know the internal mechanics; they see only the result.
+    </p>
+    <p>
+        This integration also solves the <strong>staleness problem</strong>. When code changes, the type-info.json file becomes outdated. Manual workflows often suffer from stale type information causing incorrect instrumentation (e.g., a variable that changed from Rc to Arc still being instrumented as Rc). The pipeline always runs the analyzer first, ensuring type information is fresh for every instrumented run. The developer cannot accidentally use stale data because the pipeline enforces the correct ordering.
+    </p>
+
+    <h2>1.4 Contributions</h2>
+    <p>
+        This paper makes the following contributions. Together, they demonstrate that a complex multi-component analysis ecosystem can be delivered as a seamless one-click experience without sacrificing the modularity or testability of individual components.
+    </p>
+    <div class="contributions">
+        <ol>
+            <li>A one-click orchestration command (<code>borrowscope.runInstrumented</code>) with a status bar button that automates the full pipeline: type analysis, compilation, execution, and merge trigger. The button shows live progress and error state.</li>
+            <li>The <code>type-info.json</code> schema as the central bridge between static analysis (analyzer) and runtime instrumentation (macro), enabling 82 semantic dispatch categories with zero heuristics.</li>
+            <li>A documented performance budget across all pipeline stages: analyzer (30-40s one-time), macro (negligible), runtime (~75ns/event), LSP (&lt;100ms/function), merge (&lt;100ms for 1000 events), totaling under 45 seconds for a complete first-run cycle.</li>
+            <li>Cross-component validation through 2,100+ tests that exercise both individual components and the full end-to-end flow, ensuring that changes to any component do not break the pipeline contract.</li>
+            <li>Zero heuristics maintained throughout the entire pipeline: every decision (type classification, instrumentation dispatch, borrow scope computation, conflict detection) is based on semantic resolution through compiler APIs, never on string matching or naming conventions.</li>
+        </ol>
+    </div>
+</div>
