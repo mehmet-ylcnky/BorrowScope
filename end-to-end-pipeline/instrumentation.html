@@ -1,1 +1,192 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>4. Instrumentation via Macro</h1>
+    <p>
+        The <code>borrowscope-macro</code> crate provides the <code>#[trace_borrow]</code> procedural macro attribute that transforms function bodies to emit ownership tracking calls. The macro operates at compile time, reading the <code>type-info.json</code> file produced by the analyzer and using the <code>initializer_kind</code> field to decide which specific <code>track_*</code> function to emit for each variable binding. This section describes the attribute's behavior, the 82 dispatch categories, and the zero-cost property that makes instrumentation safe to commit to version control.
+    </p>
+
+    <h2>4.1 The #[trace_borrow] Attribute</h2>
+    <p>
+        The macro is applied to a function definition: <code>#[trace_borrow] fn example() { ... }</code>. When the Rust compiler expands this attribute, the macro parses the function body's token stream, identifies all <code>let</code> bindings and ownership-relevant expressions (method calls, assignments, closures, unsafe blocks), and wraps each with the appropriate <code>track_*</code> call from <code>borrowscope-runtime</code>. The original function signature remains unchanged; only the body is transformed.
+    </p>
+    <p>
+        The transformation preserves semantics: each <code>track_*</code> function is designed as a pass-through that records an event and returns its argument unchanged. For example, <code>track_rc_new("shared", Rc::new(Config::default()))</code> records an <code>RcNew</code> event and returns the <code>Rc&lt;Config&gt;</code> value. The type system guarantees that the instrumented code compiles if and only if the original code compiles: no type errors are introduced by the transformation.
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// Before: original source code</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">ownership_demo</span>() {
+    <span class="rust-keyword">let</span> data = <span class="rust-keyword">vec!</span>[1, 2, 3];
+    <span class="rust-keyword">let</span> shared = Rc::new(Config::default());
+    <span class="rust-keyword">let</span> clone1 = Rc::clone(&amp;shared);
+    <span class="rust-keyword">let</span> r = &amp;data;
+    println!(<span class="rust-string">"{:?} {:?}"</span>, r, clone1);
+}
+
+<span class="rust-comment">// After: macro-expanded (simplified)</span>
+<span class="rust-keyword">fn</span> <span class="rust-function">ownership_demo</span>() {
+    <span class="rust-keyword">let</span> data = track_new(<span class="rust-string">"data"</span>, <span class="rust-keyword">vec!</span>[1, 2, 3]);
+    <span class="rust-keyword">let</span> shared = track_rc_new(<span class="rust-string">"shared"</span>, Rc::new(Config::default()));
+    <span class="rust-keyword">let</span> clone1 = track_rc_clone(<span class="rust-string">"clone1"</span>, <span class="rust-string">"shared"</span>, Rc::clone(&amp;shared));
+    <span class="rust-keyword">let</span> r = track_borrow(<span class="rust-string">"r"</span>, &amp;data);
+    println!(<span class="rust-string">"{:?} {:?}"</span>, r, clone1);
+    track_drop_batch(&amp;[<span class="rust-string">"r"</span>, <span class="rust-string">"clone1"</span>, <span class="rust-string">"shared"</span>, <span class="rust-string">"data"</span>]);
+}</pre>
+    </div>
+    <p>
+        Notice that <code>data</code> gets <code>track_new</code> (generic creation), <code>shared</code> gets <code>track_rc_new</code> (Rc-specific with ref counts), <code>clone1</code> gets <code>track_rc_clone</code> (records source variable), and <code>r</code> gets <code>track_borrow</code> (records borrower/owner relationship). At the end of the scope, <code>track_drop_batch</code> records the destruction sequence. Each decision was made by looking up the variable in type-info.json and reading its <code>initializer_kind</code>.
+    </p>
+
+    <h2>4.2 Semantic Dispatch (82 Categories)</h2>
+    <p>
+        The macro supports 82 distinct <code>initializer_kind</code> values, each mapping to a specific <code>track_*</code> function. These categories cover the full spectrum of Rust's ownership patterns:
+    </p>
+    <table>
+        <tr>
+            <th>Category Group</th>
+            <th>initializer_kind values</th>
+            <th>track_* function</th>
+        </tr>
+        <tr>
+            <td>Smart Pointers</td>
+            <td>rc_new, arc_new, box_new, box_block</td>
+            <td>track_rc_new, track_arc_new, track_box_new, track_box_from_raw</td>
+        </tr>
+        <tr>
+            <td>Weak References</td>
+            <td>weak_new, weak_clone, weak_upgrade</td>
+            <td>track_weak_new, track_weak_clone, track_weak_upgrade</td>
+        </tr>
+        <tr>
+            <td>Interior Mutability</td>
+            <td>refcell_new, cell_new, mutex_new, rwlock_new</td>
+            <td>track_refcell_new, track_cell_new, track_lock_guard_acquire</td>
+        </tr>
+        <tr>
+            <td>Clone-on-Write</td>
+            <td>cow_borrowed, cow_owned</td>
+            <td>track_cow_borrowed, track_cow_owned</td>
+        </tr>
+        <tr>
+            <td>Concurrency</td>
+            <td>join_handle, channel_new, atomic_new</td>
+            <td>track_thread_spawn, track_channel, track_atomic_new</td>
+        </tr>
+        <tr>
+            <td>Lazy Init</td>
+            <td>once_cell_new, once_lock_new, maybe_uninit_new</td>
+            <td>track_once_cell_new, track_once_lock_new, track_maybe_uninit_new</td>
+        </tr>
+        <tr>
+            <td>Pinning</td>
+            <td>pin_new</td>
+            <td>track_pin_new</td>
+        </tr>
+        <tr>
+            <td>Time</td>
+            <td>duration_new, instant_new</td>
+            <td>track_duration_new, track_instant_new</td>
+        </tr>
+        <tr>
+            <td>Fallback</td>
+            <td>null / unknown</td>
+            <td>track_new (generic)</td>
+        </tr>
+    </table>
+    <p>
+        Each category produces a runtime event with type-specific metadata. An <code>RcNew</code> event includes <code>strong_count</code> and <code>weak_count</code>. A <code>ThreadSpawn</code> event includes the thread ID. A <code>CowBorrowed</code> event records that the Cow holds borrowed data (not owned). This metadata flows through the runtime into the VS Code extension, where it drives specialized visualizations: the reference count chart needs strong_count history, the cross-references view needs thread/channel relationships, and the divergence detector needs the precise event type to classify issues.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="cat-svg" viewBox="0 0 750 260" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceCat()">
+            <text id="cat-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see different dispatch categories in action</text>
+
+            <!-- Source examples (cycle through) -->
+            <rect x="30" y="35" width="330" height="35" rx="4" fill="white" stroke="#34495e" stroke-width="1.5"/>
+            <text id="cat-src" x="195" y="57" text-anchor="middle" font-size="9" fill="#333" font-family="monospace">let shared = Rc::new(Config::default());</text>
+
+            <!-- Arrow -->
+            <line x1="195" y1="70" x2="195" y2="90" stroke="#1abc9c" stroke-width="2" marker-end="url(#cat-arr)"/>
+            <defs><marker id="cat-arr" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto"><polygon points="0 0, 7 2.5, 0 5" fill="#1abc9c"/></marker></defs>
+
+            <!-- Dispatch result -->
+            <rect x="30" y="95" width="330" height="50" rx="4" fill="#e8f8f5" stroke="#1abc9c" stroke-width="1.5"/>
+            <text id="cat-kind" x="195" y="113" text-anchor="middle" font-size="9" fill="#148f77" font-weight="bold">initializer_kind: "rc_new"</text>
+            <text id="cat-output" x="195" y="132" text-anchor="middle" font-size="8" fill="#555" font-family="monospace">track_rc_new("shared", Rc::new(Config::default()))</text>
+
+            <!-- Runtime event -->
+            <rect x="30" y="155" width="330" height="40" rx="4" fill="#fdedec" stroke="#e74c3c" stroke-width="1.5"/>
+            <text id="cat-event" x="195" y="175" text-anchor="middle" font-size="8" fill="#c0392b" font-weight="bold">Runtime Event:</text>
+            <text id="cat-event-detail" x="195" y="189" text-anchor="middle" font-size="8" fill="#555" font-family="monospace">RcNew { var_name: "shared", strong_count: 1, weak_count: 0 }</text>
+
+            <!-- Category badge -->
+            <rect id="cat-badge" x="400" y="95" width="120" height="30" rx="15" fill="#9b59b6"/>
+            <text id="cat-badge-t" x="460" y="114" text-anchor="middle" font-size="10" fill="white" font-weight="bold">Smart Pointer</text>
+
+            <!-- Metadata highlight -->
+            <g id="cat-meta" opacity="0.8">
+                <rect x="400" y="140" width="320" height="55" rx="4" fill="white" stroke="#8e44ad" stroke-width="1"/>
+                <text x="415" y="158" font-size="8" fill="#6c3483" font-weight="bold">Why this matters for visualization:</text>
+                <text id="cat-why" x="415" y="175" font-size="8" fill="#555">strong_count enables the RefCount chart to show count over time</text>
+                <text id="cat-why2" x="415" y="189" font-size="8" fill="#555">Divergence detector uses it to identify Rc leaks (count never reaches 0)</text>
+            </g>
+
+            <!-- Description -->
+            <rect x="30" y="215" width="690" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="cat-desc" x="375" y="232" text-anchor="middle" font-size="9" fill="#7d6608" font-family="monospace">// click to cycle through dispatch categories</text>
+            <text id="cat-step" x="375" y="252" text-anchor="middle" font-size="9" fill="#999">Step 0/5</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var catStep = 0;
+        var examples = [
+            { src: 'let shared = Rc::new(Config::default());', kind: 'rc_new', output: 'track_rc_new("shared", Rc::new(Config::default()))', event: 'RcNew { var_name: "shared", strong_count: 1, weak_count: 0 }', badge: 'Smart Pointer', color: '#9b59b6', why: 'strong_count enables the RefCount chart to show count over time', why2: 'Divergence detector uses it to identify Rc leaks (count never reaches 0)' },
+            { src: 'let cow: Cow<str> = Cow::Borrowed("hello");', kind: 'cow_borrowed', output: 'track_cow_borrowed("cow", Cow::Borrowed("hello"))', event: 'CowBorrowed { var_name: "cow", type_name: "Cow<str>" }', badge: 'Clone-on-Write', color: '#e67e22', why: 'Distinguishes borrowed vs owned Cow state at creation time', why2: 'Enables tracking clone-on-write transitions (CowToMut event later)' },
+            { src: 'let handle = thread::spawn(|| { ... });', kind: 'join_handle', output: 'track_thread_spawn("handle", thread::spawn(|| { ... }))', event: 'ThreadSpawn { var_name: "handle", thread_id: "t_1" }', badge: 'Concurrency', color: '#2980b9', why: 'Thread ID enables multi-threaded ownership view (swim lanes)', why2: 'Links spawned thread events back to the spawning context' },
+            { src: 'let guard = cell.borrow_mut();', kind: 'refcell_borrow_mut', output: 'track_refcell_borrow_mut("guard", cell.borrow_mut())', event: 'RefCellBorrow { borrow_id: "g_0", is_mutable: true }', badge: 'Interior Mut', color: '#e74c3c', why: 'Runtime borrow checking: detects double-borrow panics before they happen', why2: 'is_mutable flag feeds into conflict detection and borrow scope visualization' },
+            { src: 'let data = vec![1, 2, 3];', kind: 'null (generic)', output: 'track_new("data", vec![1, 2, 3])', event: 'New { var_name: "data", var_id: "data_0", type_name: "Vec<i32>" }', badge: 'Fallback', color: '#95a5a6', why: 'Generic tracking when type-info has no specific initializer_kind', why2: 'Still records creation/drop for lifetime tracking and move detection' }
+        ];
+        window.advanceCat = function() {
+            if (catStep >= examples.length) { catStep = 0; }
+            var e = examples[catStep];
+            document.getElementById('cat-src').textContent = e.src;
+            document.getElementById('cat-kind').textContent = 'initializer_kind: "' + e.kind + '"';
+            document.getElementById('cat-output').textContent = e.output;
+            document.getElementById('cat-event-detail').textContent = e.event;
+            document.getElementById('cat-badge').setAttribute('fill', e.color);
+            document.getElementById('cat-badge-t').textContent = e.badge;
+            document.getElementById('cat-why').textContent = e.why;
+            document.getElementById('cat-why2').textContent = e.why2;
+            document.getElementById('cat-desc').textContent = e.kind + ': ' + e.badge + ' category';
+            catStep++;
+            document.getElementById('cat-step').textContent = 'Example ' + catStep + '/' + examples.length;
+            document.getElementById('cat-title').textContent = 'Click for next category';
+        };
+    })();
+    </script>
+
+    <h2>4.3 Zero-Cost When Disabled</h2>
+    <p>
+        The <code>borrowscope-runtime</code> crate uses a Cargo feature flag (<code>track</code>) to control whether events are actually recorded. When the feature is enabled (<code>features = ["track"]</code> in Cargo.toml), all <code>track_*</code> functions record events to the thread-local buffer. When the feature is disabled (the default), all <code>track_*</code> functions are defined as identity functions that simply return their argument:
+    </p>
+    <div class="code-block">
+        <pre class="rust-code"><span class="rust-comment">// When "track" feature is ENABLED:</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_rc_new</span>&lt;T&gt;(name: &amp;str, rc: Rc&lt;T&gt;) -> Rc&lt;T&gt; {
+    <span class="rust-keyword">let</span> strong = Rc::strong_count(&amp;rc);
+    <span class="rust-keyword">let</span> weak = Rc::weak_count(&amp;rc);
+    TRACKER.lock().record(Event::RcNew { var_name: name, strong_count: strong, weak_count: weak, .. });
+    rc <span class="rust-comment">// pass through unchanged</span>
+}
+
+<span class="rust-comment">// When "track" feature is DISABLED:</span>
+<span class="rust-keyword">#[inline(always)]</span>
+<span class="rust-keyword">pub fn</span> <span class="rust-function">track_rc_new</span>&lt;T&gt;(_name: &amp;str, rc: Rc&lt;T&gt;) -> Rc&lt;T&gt; {
+    rc <span class="rust-comment">// identity - compiler inlines this away completely</span>
+}</pre>
+    </div>
+    <p>
+        When disabled, the compiler's optimizer inlines the identity function and eliminates it entirely. The resulting binary is byte-for-byte identical to one compiled without the macro (verified through binary diffing). This means developers can commit <code>#[trace_borrow]</code> annotations to their repository permanently: in production builds (without the <code>track</code> feature), there is zero runtime overhead, zero binary size increase, and zero behavioral change. The annotations become active only when explicitly opted into via <code>features = ["track"]</code>, making them safe for continuous use throughout the development lifecycle.
+    </p>
+    <p>
+        The pipeline command compiles with the <code>track</code> feature enabled automatically (it passes no special flags because the demo project's Cargo.toml already specifies <code>features = ["track"]</code> in the dependency). Production builds omit this feature, getting the zero-cost guarantee. This separation allows the same codebase to support both instrumented development builds and zero-overhead production builds without any code changes or conditional compilation in the application code itself.
+    </p>
+</div>
