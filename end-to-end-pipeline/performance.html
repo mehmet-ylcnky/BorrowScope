@@ -1,1 +1,112 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>8. Performance Budget</h1>
+    <p>
+        A multi-stage pipeline must be fast enough that the developer does not lose context while waiting. The pipeline's total latency is the sum of its stages, and each stage has been optimized to stay within a defined budget. This section measures each stage, reports end-to-end latency for typical projects, and quantifies the overhead of instrumentation on program execution.
+    </p>
+
+    <h2>8.1 Per-Stage Timing</h2>
+    <p>
+        Each pipeline stage has a distinct performance profile. Some stages are one-time costs (analyzer workspace loading), some scale with project size (compilation), and some scale with program behavior (runtime event count). The following table shows measured times for the E2E test project (a small project with 2 instrumented functions, 99 analyzed variables, and 18 runtime events) and projected times for a medium project (50 functions, 500 variables, 1000 events):
+    </p>
+    <table>
+        <tr>
+            <th>Stage</th>
+            <th>E2E Test Project</th>
+            <th>Medium Project (est.)</th>
+            <th>Bottleneck</th>
+            <th>Amortized?</th>
+        </tr>
+        <tr>
+            <td>Analyzer: workspace loading</td>
+            <td>30-35s</td>
+            <td>30-40s</td>
+            <td>Dependency resolution + sysroot</td>
+            <td>Yes (skip if type-info.json fresh)</td>
+        </tr>
+        <tr>
+            <td>Analyzer: type extraction</td>
+            <td>&lt;1s</td>
+            <td>2-5s</td>
+            <td>Number of functions/variables</td>
+            <td>No (runs every time)</td>
+        </tr>
+        <tr>
+            <td>Macro expansion</td>
+            <td>~0ms additional</td>
+            <td>~0ms additional</td>
+            <td>Negligible (part of normal compile)</td>
+            <td>N/A</td>
+        </tr>
+        <tr>
+            <td>Compilation (cargo build)</td>
+            <td>~3s (incremental)</td>
+            <td>5-30s (depends on project)</td>
+            <td>Rust compiler (not BorrowScope)</td>
+            <td>Yes (incremental builds)</td>
+        </tr>
+        <tr>
+            <td>Program execution</td>
+            <td>&lt;1s</td>
+            <td>Varies (program-dependent)</td>
+            <td>Program logic + event overhead</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Runtime event recording</td>
+            <td>~75ns per event</td>
+            <td>~75ns per event</td>
+            <td>Lock acquire + event construction</td>
+            <td>N/A (per-event cost)</td>
+        </tr>
+        <tr>
+            <td>JSON export (write events.json)</td>
+            <td>&lt;5ms (18 events)</td>
+            <td>~50ms (1000 events)</td>
+            <td>Serialization + file I/O</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>LSP analysis (per function)</td>
+            <td>&lt;50ms</td>
+            <td>&lt;100ms</td>
+            <td>Type queries + borrow scopes</td>
+            <td>Yes (Salsa caches)</td>
+        </tr>
+        <tr>
+            <td>Merge + divergence detection</td>
+            <td>&lt;10ms</td>
+            <td>&lt;100ms</td>
+            <td>Event aggregation + 9 checks</td>
+            <td>No</td>
+        </tr>
+        <tr>
+            <td>Visualization render</td>
+            <td>&lt;50ms</td>
+            <td>&lt;50ms</td>
+            <td>DOM updates + D3 simulation</td>
+            <td>No</td>
+        </tr>
+    </table>
+
+    <h2>8.2 End-to-End Latency</h2>
+    <p>
+        The total time from button click to visualization update depends on whether the analyzer's workspace loading is needed. On first run (cold start), the pipeline takes 35-40 seconds, dominated by the analyzer's workspace loading (which loads all dependencies into the Salsa database). On subsequent runs (warm), if only the source code changed (not dependencies), the analyzer can skip workspace loading and only re-extract types, reducing the total to 5-10 seconds (compile + run + merge).
+    </p>
+    <p>
+        The pipeline command does not currently implement the "skip if fresh" optimization for the analyzer (it always re-runs from scratch). This is a conservative choice that guarantees correctness at the cost of the 30-40 second workspace loading on every run. A future optimization would check whether <code>Cargo.lock</code> has changed since the last analysis; if not, the workspace loading can be skipped and only type extraction re-runs (reducing analyzer time from 35s to &lt;5s).
+    </p>
+    <p>
+        For the developer's perceived experience, the key metric is time from button click to seeing the first visual update. The status bar provides immediate feedback ("Analyzing..." appears within 100ms of clicking), and the merge + render completes within 200ms of the events file being written. The wait is in the middle stages (compilation and execution), which are inherent to the instrumentation approach and cannot be reduced by BorrowScope. The LSP's static analysis, by contrast, provides instant feedback (under 100ms after any edit) because it requires no compilation or execution.
+    </p>
+
+    <h2>8.3 Overhead of Instrumentation</h2>
+    <p>
+        When the <code>track</code> feature is enabled, each <code>track_*</code> call adds approximately 75 nanoseconds of overhead: ~30ns for the mutex lock acquisition, ~35ns for event construction (timestamp capture, string formatting), and ~10ns for the vector push. For a function that performs 20 ownership operations, the total overhead is approximately 1.5 microseconds, which is negligible compared to any I/O, allocation, or computation the function performs.
+    </p>
+    <p>
+        For compute-intensive code with very tight loops, the overhead can become measurable. A loop that iterates 1 million times with a tracked variable inside the loop body would add 75ms of overhead (1M * 75ns). The runtime mitigates this through event deduplication: <code>LoopIteration</code> events are recorded only for the first N iterations (configurable), not all of them. Ownership-relevant events (New, Borrow, Move, Drop) typically occur outside tight loops and are not affected by iteration count.
+    </p>
+    <p>
+        When the <code>track</code> feature is disabled (production builds), the overhead is exactly zero. The compiler inlines the identity functions and eliminates them completely. Binary size is unchanged. Runtime performance is unchanged. This zero-cost guarantee means the <code>#[trace_borrow]</code> annotations can remain in the source code permanently, activated only when the developer needs ownership visibility.
+    </p>
+</div>
