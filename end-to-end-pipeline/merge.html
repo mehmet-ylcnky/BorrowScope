@@ -1,1 +1,139 @@
-<div class="section"><h1>Coming soon</h1></div>
+<div class="section">
+    <h1>7. The Merge: Combining Both Worlds</h1>
+    <p>
+        The merge is where the two tracks converge. After the pipeline command completes (runtime events are available) and the LSP is active (static analysis is ready), the VS Code extension has both data sources simultaneously. The merge algorithm correlates them, produces a unified view per variable, and detects divergences where predictions disagree with observations. This section describes how the merge fits into the pipeline, what divergences mean in the E2E context, and how the type-info.json enables enhanced memory visualization.
+    </p>
+
+    <h2>7.1 Automatic Merge After Pipeline Completion</h2>
+    <p>
+        The merge triggers automatically without developer intervention. When the pipeline command writes <code>.borrowscope/events.json</code>, the VS Code extension's <code>RuntimeWatcher</code> (a file system watcher) detects the change and fires an <code>onEventsUpdated</code> event. The extension then: (1) parses the events, (2) filters to the active file, (3) requests the LSP's ownership graph for context, (4) runs <code>mergeViews()</code> to correlate runtime events with static variables, (5) runs divergence detection on each merged variable, and (6) applies runtime decorations to the editor.
+    </p>
+    <p>
+        This automatic chain means the developer experience is seamless: click the status bar button, wait for the progress notification to show "Done! N events", and the editor immediately shows the merged visualization. No additional action is needed. The runtime overlay (green timing annotations, drop order badges, divergence highlights) appears on top of the existing static decorations (inlay hints, lifelines, conflict highlights), creating a layered visualization where both perspectives are visible simultaneously.
+    </p>
+
+    <div style="margin: 2rem 0; text-align: center;">
+        <svg id="merge-svg" viewBox="0 0 750 280" style="max-width: 950px; width: 100%; border: 1px solid var(--border-color); border-radius: 8px; background: #fafafa; cursor: pointer;" onclick="advanceMerge()">
+            <text id="merge-title" x="375" y="18" text-anchor="middle" font-size="12" fill="#2c3e50" font-weight="bold">Click to see the automatic merge sequence after pipeline completion</text>
+
+            <!-- Pipeline button -->
+            <g id="mg-btn" opacity="0.3">
+                <rect x="30" y="40" width="130" height="30" rx="15" fill="#27ae60"/>
+                <text x="95" y="59" text-anchor="middle" font-size="9" fill="white" font-weight="bold">▶ BorrowScope (click)</text>
+            </g>
+
+            <!-- Progress stages -->
+            <g id="mg-progress" opacity="0">
+                <rect x="180" y="40" width="120" height="25" rx="4" fill="#fef9e7" stroke="#f39c12"/>
+                <text id="mg-prog-t" x="240" y="57" text-anchor="middle" font-size="8" fill="#b7950b">⏳ Analyzing...</text>
+            </g>
+
+            <!-- events.json produced -->
+            <g id="mg-events" opacity="0">
+                <rect x="320" y="40" width="120" height="25" rx="4" fill="white" stroke="#e74c3c" stroke-dasharray="4,2"/>
+                <text x="380" y="57" text-anchor="middle" font-size="8" fill="#c0392b" font-family="monospace">events.json ✓</text>
+            </g>
+
+            <!-- File watcher detects -->
+            <g id="mg-watcher" opacity="0">
+                <rect x="460" y="40" width="130" height="25" rx="4" fill="#ebf5fb" stroke="#2980b9"/>
+                <text x="525" y="57" text-anchor="middle" font-size="8" fill="#2980b9">FileWatcher fires</text>
+            </g>
+
+            <!-- Merge steps -->
+            <g id="mg-parse" opacity="0">
+                <rect x="30" y="90" width="130" height="30" rx="4" fill="#fdedec" stroke="#e74c3c"/>
+                <text x="95" y="109" text-anchor="middle" font-size="8" fill="#c0392b">1. Parse events</text>
+            </g>
+            <g id="mg-filter" opacity="0">
+                <rect x="175" y="90" width="130" height="30" rx="4" fill="#fdedec" stroke="#e74c3c"/>
+                <text x="240" y="109" text-anchor="middle" font-size="8" fill="#c0392b">2. Filter by file</text>
+            </g>
+            <g id="mg-lsp" opacity="0">
+                <rect x="320" y="90" width="130" height="30" rx="4" fill="#f4ecf7" stroke="#8e44ad"/>
+                <text x="385" y="109" text-anchor="middle" font-size="8" fill="#6c3483">3. Get LSP graph</text>
+            </g>
+            <g id="mg-correlate" opacity="0">
+                <rect x="465" y="90" width="130" height="30" rx="4" fill="#e8f8f5" stroke="#1abc9c"/>
+                <text x="530" y="109" text-anchor="middle" font-size="8" fill="#148f77">4. Merge + Detect</text>
+            </g>
+
+            <!-- Result: merged visualization -->
+            <g id="mg-result" opacity="0">
+                <rect x="120" y="145" width="510" height="80" rx="6" fill="white" stroke="#2980b9" stroke-width="2"/>
+                <text x="375" y="165" text-anchor="middle" font-size="10" fill="#2980b9" font-weight="bold">Merged Visualization (both layers active)</text>
+
+                <!-- Static layer -->
+                <rect x="140" y="175" width="220" height="35" rx="4" fill="#ebf5fb" stroke="#3498db"/>
+                <text x="250" y="190" text-anchor="middle" font-size="8" fill="#2980b9" font-weight="bold">Static Layer (LSP)</text>
+                <text x="250" y="203" text-anchor="middle" font-size="7" fill="#555">[Rc] hints, lifelines, conflicts</text>
+
+                <!-- Runtime layer -->
+                <rect x="380" y="175" width="230" height="35" rx="4" fill="#d5f5e3" stroke="#27ae60"/>
+                <text x="495" y="190" text-anchor="middle" font-size="8" fill="#1e8449" font-weight="bold">Runtime Layer (events)</text>
+                <text x="495" y="203" text-anchor="middle" font-size="7" fill="#555">timing, drop order, divergences</text>
+            </g>
+
+            <!-- Description -->
+            <rect x="30" y="240" width="690" height="25" rx="5" fill="#fef9e7" stroke="#f9e79f"/>
+            <text id="merge-desc" x="375" y="257" text-anchor="middle" font-size="10" fill="#7d6608" font-family="monospace">// click to follow the automatic merge sequence</text>
+            <text id="merge-step" x="375" y="275" text-anchor="middle" font-size="9" fill="#999">Step 0/6</text>
+        </svg>
+    </div>
+    <script>
+    (function() {
+        var mgStep = 0;
+        var steps = [
+            function() { document.getElementById('mg-btn').setAttribute('opacity','1'); return 'Developer clicks ▶ BorrowScope in the status bar'; },
+            function() { document.getElementById('mg-progress').setAttribute('opacity','1'); return 'Pipeline runs: analyzer -> compile -> execute (status bar shows progress)'; },
+            function() { document.getElementById('mg-events').setAttribute('opacity','1'); document.getElementById('mg-prog-t').textContent = '✓ 18 events'; return 'Pipeline complete: events.json written to .borrowscope/'; },
+            function() { document.getElementById('mg-watcher').setAttribute('opacity','1'); return 'FileWatcher detects events.json change, fires onEventsUpdated'; },
+            function() { ['mg-parse','mg-filter','mg-lsp','mg-correlate'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','1'); }); return 'Merge pipeline: parse -> filter by file -> get LSP graph -> correlate + detect divergences'; },
+            function() { document.getElementById('mg-result').setAttribute('opacity','1'); return 'Result: both layers active in the editor. Static (blue) + Runtime (green) overlaid.'; }
+        ];
+        window.advanceMerge = function() {
+            if (mgStep >= steps.length) { mgStep = 0; resetMg(); return; }
+            var desc = steps[mgStep]();
+            document.getElementById('merge-desc').textContent = desc;
+            mgStep++;
+            document.getElementById('merge-step').textContent = 'Step ' + mgStep + '/' + steps.length;
+            document.getElementById('merge-title').textContent = 'Click to continue';
+        };
+        function resetMg() {
+            ['mg-btn','mg-progress','mg-events','mg-watcher','mg-parse','mg-filter','mg-lsp','mg-correlate','mg-result'].forEach(function(id) { document.getElementById(id).setAttribute('opacity','0'); });
+            document.getElementById('mg-btn').setAttribute('opacity','0.3');
+            document.getElementById('mg-prog-t').textContent = '⏳ Analyzing...';
+            document.getElementById('merge-desc').textContent = '// click to follow the automatic merge sequence';
+            document.getElementById('merge-title').textContent = 'Click to see the automatic merge sequence after pipeline completion';
+            document.getElementById('merge-step').textContent = 'Step 0/6';
+        }
+    })();
+    </script>
+
+    <h2>7.2 Divergence Detection in the Pipeline Context</h2>
+    <p>
+        Divergence detection is especially reliable when triggered by the pipeline command rather than manually loaded events. The pipeline guarantees three properties that reduce false positives: (1) <strong>fresh type-info:</strong> the analyzer ran immediately before compilation, so the macro's instrumentation decisions are correct for the current code, (2) <strong>matching code versions:</strong> the events were generated from the exact same source that the LSP is analyzing (no stale events from a previous version), and (3) <strong>complete instrumentation:</strong> the <code>track</code> feature was enabled, so all annotated functions produce events (no missing data due to disabled features).
+    </p>
+    <p>
+        These guarantees mean that any divergence detected after a pipeline run is highly likely to be a genuine issue rather than an artifact of stale data or partial instrumentation. An <code>rc_leak</code> divergence after a pipeline run means the Rc truly leaked in this execution. A <code>conditional_move</code> divergence means the branch genuinely was not taken. The developer can trust the findings because the pipeline ensures that both data sources are synchronized with the current code.
+    </p>
+    <p>
+        When events are loaded manually (from a previous run or a different code version), the merge still operates but with lower confidence. The extension detects version mismatches by comparing the event count with the number of static variables: if the overlap is low (many <code>"runtime_only"</code> and <code>"static_only"</code> entries), it shows a warning that the events may be stale. The pipeline command eliminates this concern entirely by always producing fresh events from the current code.
+    </p>
+
+    <h2>7.3 Enhanced Memory Visualization</h2>
+    <p>
+        The full pipeline enables a richer memory visualization than either track alone can provide. The LSP provides static memory layout: field offsets, sizes, alignments, and heap allocation categories (based on type analysis). The runtime provides observed behavior: which allocations were made, how large they grew, and in what order they were freed. The <code>type-info.json</code> adds a third dimension: the <code>initializer_kind</code> field tells the visualization exactly what kind of allocation each variable represents.
+    </p>
+    <p>
+        With all three sources active, the Memory view in the VS Code panel shows:
+    </p>
+    <ul>
+        <li><strong>From LSP (static):</strong> Stack frame with byte offsets, field-level decomposition (String: ptr/len/cap at offsets 0/8/16), pointer relationship arrows from stack to heap.</li>
+        <li><strong>From runtime (dynamic):</strong> Actual variable lifetimes (when each stack slot is occupied), drop order visualization (which slot is freed first), and timing annotations.</li>
+        <li><strong>From type-info.json (semantic):</strong> Allocation origin classification. A <code>Vec</code> created via <code>Vec::with_capacity(1000)</code> (initializer_kind: <code>"vec_with_capacity"</code>) is labeled differently from one created via <code>vec![1,2,3]</code> (initializer_kind: <code>"vec_macro"</code>). An <code>Rc::new</code> is distinguished from a <code>Box::new</code> in the heap column. This classification drives color coding and grouping in the visualization.</li>
+    </ul>
+    <p>
+        This three-source memory view is only possible when the full pipeline is active. Without the analyzer, the macro cannot produce type-specific events (all allocations look the same). Without the runtime, there is no timing or drop order. Without the LSP, there is no field-level layout. The pipeline brings all three together, producing the most comprehensive memory ownership visualization achievable for Rust programs.
+    </p>
+</div>
