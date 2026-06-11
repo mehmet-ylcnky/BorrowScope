@@ -109,6 +109,35 @@ When `borrowscope-runtime` is used, the extension shows:
 - Async borrow tracking across await points
 - Actual hex addresses in Memory tab
 
+## Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/mehmet-ylcnky/BorrowScope.git
+cd BorrowScope
+
+# Build the LSP server (required for editor integration)
+cargo build -p borrowscope-lsp --release
+
+# Build the analyzer (required for E2E pipeline)
+cargo build -p borrowscope-analyzer --release
+
+# Build and install the VS Code extension
+cd borrowscope-vscode
+npm install
+npm run build
+code --install-extension .
+```
+
+After installation, configure the server path in VS Code settings:
+```json
+{
+  "borrowscope.server.path": "/path/to/BorrowScope/target/release/borrowscope-lsp"
+}
+```
+
+Open any Rust project with a `Cargo.toml` and the extension activates automatically on `.rs` files. Wait 30-40 seconds for the initial workspace load, then CodeLens, inlay hints, and lifeline decorations appear.
+
 ## Quick Start
 
 ### 1. VS Code Extension (Static Analysis Only)
