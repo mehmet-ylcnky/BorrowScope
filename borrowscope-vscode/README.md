@@ -8,6 +8,34 @@ The BorrowScope VS Code extension provides a rich visual experience for understa
 
 **No configuration needed** - install, point to the LSP binary, and open a Rust file.
 
+## Installation
+
+### Option 1: Dev Container (recommended)
+
+Open the repository in VS Code and select "Reopen in Container" when prompted. The Dev Container pre-builds all binaries and configures settings automatically.
+
+### Option 2: From Source
+
+1. Build the language server and analyzer:
+   ```bash
+   cargo build -p borrowscope-lsp --release
+   cargo build -p borrowscope-analyzer --release
+   ```
+
+2. Build and install the extension:
+   ```bash
+   cd borrowscope-vscode
+   npm install
+   npm run build
+   code --install-extension .
+   ```
+
+3. Set the server path in VS Code settings:
+   ```json
+   { "borrowscope.server.path": "/path/to/target/release/borrowscope-lsp" }
+   ```
+
+Open any Rust project with a `Cargo.toml` and the extension activates on `.rs` files. Wait 30-40 seconds for workspace loading, then decorations appear.
 ## Features at a Glance
 
 ### Editor Decorations
@@ -61,34 +89,6 @@ When `borrowscope-runtime` events are available:
 - **Gray drop order**: `💀 #3` - actual LIFO sequence
 - **Status bar**: `BorrowScope: Static ✓ | Runtime ✓ (103 events, just now)`
 
-## Installation
-
-### Option 1: Dev Container (recommended)
-
-Open the repository in VS Code and select "Reopen in Container" when prompted. The Dev Container pre-builds all binaries and configures settings automatically.
-
-### Option 2: From Source
-
-1. Build the language server and analyzer:
-   ```bash
-   cargo build -p borrowscope-lsp --release
-   cargo build -p borrowscope-analyzer --release
-   ```
-
-2. Build and install the extension:
-   ```bash
-   cd borrowscope-vscode
-   npm install
-   npm run build
-   code --install-extension .
-   ```
-
-3. Set the server path in VS Code settings:
-   ```json
-   { "borrowscope.server.path": "/path/to/target/release/borrowscope-lsp" }
-   ```
-
-Open any Rust project with a `Cargo.toml` and the extension activates on `.rs` files. Wait 30-40 seconds for workspace loading, then decorations appear.
 
 ## Configuration (33 settings)
 
