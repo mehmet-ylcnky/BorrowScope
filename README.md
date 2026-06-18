@@ -111,6 +111,12 @@ When `borrowscope-runtime` is used, the extension shows:
 
 ## Building from Source
 
+### Option 1: Dev Container (recommended)
+
+Open the repository in VS Code and select "Reopen in Container" when prompted. The Dev Container pre-builds all binaries and configures settings automatically. No manual setup needed.
+
+### Option 2: Manual Build
+
 ```bash
 # Clone the repository
 git clone https://github.com/mehmet-ylcnky/BorrowScope.git
