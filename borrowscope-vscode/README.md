@@ -63,22 +63,32 @@ When `borrowscope-runtime` events are available:
 
 ## Installation
 
-1. Build the language server:
+### Option 1: Dev Container (recommended)
+
+Open the repository in VS Code and select "Reopen in Container" when prompted. The Dev Container pre-builds all binaries and configures settings automatically.
+
+### Option 2: From Source
+
+1. Build the language server and analyzer:
    ```bash
-   cd borrowscope-lsp && cargo build --release
+   cargo build -p borrowscope-lsp --release
+   cargo build -p borrowscope-analyzer --release
    ```
 
-2. Open the extension in VS Code:
+2. Build and install the extension:
    ```bash
-   cd borrowscope-vscode && npm install && npm run build
+   cd borrowscope-vscode
+   npm install
+   npm run build
+   code --install-extension .
    ```
 
-3. Press F5 to launch the Extension Development Host
-
-4. Set the server path in settings:
+3. Set the server path in VS Code settings:
    ```json
    { "borrowscope.server.path": "/path/to/target/release/borrowscope-lsp" }
    ```
+
+Open any Rust project with a `Cargo.toml` and the extension activates on `.rs` files. Wait 30-40 seconds for workspace loading, then decorations appear.
 
 ## Configuration (33 settings)
 
