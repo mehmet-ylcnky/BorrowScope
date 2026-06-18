@@ -115,6 +115,8 @@ When `borrowscope-runtime` is used, the extension shows:
 
 Open the repository in VS Code and select "Reopen in Container" when prompted. The Dev Container pre-builds all binaries and configures settings automatically. No manual setup needed.
 
+> **Note:** The Dev Container is designed for contributing to BorrowScope itself. It builds the source and installs the tools inside the container. To use BorrowScope on your own Rust project, use Option 2 below to install the binaries and extension on your system, then open your project normally.
+
 ### Option 2: Manual Build
 
 ```bash
