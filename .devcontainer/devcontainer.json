@@ -1,0 +1,28 @@
+{
+  "name": "BorrowScope Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "borrowscope.server.path": "/usr/local/bin/borrowscope-lsp",
+        "borrowscope.decorations.enabled": true,
+        "borrowscope.decorations.lifelines": true,
+        "borrowscope.decorations.codeLens": true,
+        "borrowscope.decorations.inlayHints": true,
+        "borrowscope.crossFunction.enabled": true,
+        "borrowscope.memoryLayout.enabled": true,
+        "rust-analyzer.inlayHints.typeHints.enable": false,
+        "rust-analyzer.inlayHints.parameterHints.enable": false
+      }
+    }
+  },
+  "postCreateCommand": "rustup show && borrowscope-lsp --version && borrowscope-analyzer --version",
+  "remoteUser": "root"
+}
